@@ -1,0 +1,1000 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KOMSCO AI Assistant — OCP Copilot Redesign</title>
+  <style>
+    :root {
+      --ink-950: #0b1220;
+      --ink-900: #111827;
+      --ink-800: #1f2937;
+      --ink-700: #334155;
+      --ink-600: #475569;
+      --ink-500: #64748b;
+      --ink-400: #94a3b8;
+      --line: #dbe3ee;
+      --line-soft: #e9eef5;
+      --canvas: #eef2f7;
+      --surface: #ffffff;
+      --surface-2: #f7f9fc;
+      --surface-3: #f1f5f9;
+      --blue-700: #1d4ed8;
+      --blue-600: #2563eb;
+      --blue-500: #3b82f6;
+      --blue-soft: #eff6ff;
+      --green: #16a34a;
+      --green-soft: #ecfdf3;
+      --amber: #d97706;
+      --amber-soft: #fff7ed;
+      --red: #dc2626;
+      --red-soft: #fef2f2;
+      --violet: #6d5dfc;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --shadow-panel: 0 24px 70px rgba(15, 23, 42, .20), 0 4px 18px rgba(15, 23, 42, .08);
+      --font: Inter, Pretendard, "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { font-family: var(--font); color: var(--ink-900); background: var(--canvas); }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+
+    /* ----- OCP console backdrop ----- */
+    .console-shell {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: 228px 1fr;
+      grid-template-rows: 58px 1fr;
+      background: #f5f7fa;
+    }
+    .console-topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 22px;
+      color: #fff;
+      background: #151a22;
+      box-shadow: 0 1px 0 rgba(255,255,255,.06);
+    }
+    .ocp-mark {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      background: #ee0000;
+      font-weight: 900;
+      letter-spacing: -.04em;
+      font-size: 11px;
+    }
+    .console-title { font-weight: 720; font-size: 14px; }
+    .console-search {
+      width: min(560px, 42vw);
+      margin-left: 18px;
+      padding: 9px 12px;
+      border: 1px solid #3a4351;
+      border-radius: 9px;
+      color: #aeb8c5;
+      background: #222936;
+      font-size: 12px;
+    }
+    .topbar-spacer { flex: 1; }
+    .topbar-pill {
+      padding: 7px 10px;
+      border: 1px solid #394250;
+      border-radius: 999px;
+      color: #d9e0e8;
+      font-size: 11px;
+    }
+    .console-sidebar {
+      grid-row: 2;
+      padding: 18px 14px;
+      border-right: 1px solid #dfe5ed;
+      background: #fff;
+    }
+    .nav-kicker { margin: 2px 10px 12px; color: #8a98aa; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      margin-bottom: 3px;
+      padding: 0 11px;
+      border-radius: 8px;
+      color: #526173;
+      font-size: 12px;
+    }
+    .nav-item.active { color: #0f172a; background: #eef3f8; font-weight: 700; }
+    .nav-dot { width: 7px; height: 7px; border-radius: 50%; background: #9aa8b9; }
+    .nav-item.active .nav-dot { background: var(--blue-600); box-shadow: 0 0 0 4px #dbeafe; }
+    .console-main {
+      grid-column: 2;
+      grid-row: 2;
+      padding: 28px 34px 48px;
+      overflow: hidden;
+    }
+    .breadcrumb { margin-bottom: 12px; color: #748397; font-size: 11px; }
+    .page-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+    .page-heading h1 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
+    .page-actions { display: flex; gap: 8px; }
+    .ghost-action { padding: 9px 12px; border: 1px solid #d6dee9; border-radius: 8px; color: #435267; background: #fff; font-size: 11px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .metric-card { min-height: 118px; padding: 18px; border: 1px solid #dce4ee; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.03); }
+    .metric-label { color: #6f7f93; font-size: 11px; }
+    .metric-value { margin-top: 14px; font-size: 27px; font-weight: 780; letter-spacing: -.04em; }
+    .metric-foot { margin-top: 9px; color: #7b8a9d; font-size: 10px; }
+    .overview-grid { display: grid; grid-template-columns: 1.25fr .75fr; gap: 14px; margin-top: 14px; }
+    .console-card { min-height: 380px; border: 1px solid #dce4ee; border-radius: 12px; background: #fff; overflow: hidden; }
+    .console-card-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e6ebf2; }
+    .console-card-head strong { font-size: 12px; }
+    .alerts-list { padding: 4px 18px; }
+    .alert-row { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; padding: 16px 0; border-bottom: 1px solid #edf1f6; }
+    .alert-dot { width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: #ef4444; }
+    .alert-dot.amber { background: #f59e0b; }
+    .alert-title { font-size: 11px; font-weight: 720; }
+    .alert-copy { margin-top: 5px; color: #7b899b; font-size: 10px; line-height: 1.55; }
+    .alert-time { color: #94a3b8; font-size: 10px; }
+    .chart-area { position: relative; height: 280px; margin: 32px 22px 0; border-left: 1px solid #dfe6ef; border-bottom: 1px solid #dfe6ef; }
+    .chart-area::before, .chart-area::after { content: ""; position: absolute; left: 0; right: 0; border-top: 1px dashed #e4eaf1; }
+    .chart-area::before { top: 33%; }
+    .chart-area::after { top: 66%; }
+    .chart-line {
+      position: absolute;
+      left: 12px;
+      right: 10px;
+      bottom: 48px;
+      height: 72px;
+      clip-path: polygon(0 82%, 8% 76%, 15% 80%, 24% 68%, 32% 72%, 42% 51%, 50% 58%, 60% 35%, 70% 46%, 80% 28%, 90% 36%, 100% 12%, 100% 100%, 0 100%);
+      background: rgba(37,99,235,.15);
+      border-bottom: 2px solid var(--blue-600);
+    }
+
+    /* ----- Copilot panel ----- */
+    .copilot {
+      position: fixed;
+      z-index: 20;
+      top: 16px;
+      right: 16px;
+      bottom: 16px;
+      width: 466px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, .34);
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+      box-shadow: var(--shadow-panel);
+      transition: width .25s ease, height .25s ease, inset .25s ease, transform .25s ease, opacity .2s ease;
+    }
+    .copilot.is-hidden { opacity: 0; transform: translateX(28px); pointer-events: none; }
+    .copilot.is-expanded {
+      top: 24px;
+      right: auto;
+      bottom: 24px;
+      left: 50%;
+      width: min(1240px, calc(100vw - 48px));
+      transform: translateX(-50%);
+    }
+    .panel-scrim {
+      position: fixed;
+      z-index: 15;
+      inset: 0;
+      background: rgba(9, 16, 29, .42);
+      backdrop-filter: blur(3px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease;
+    }
+    .panel-scrim.visible { opacity: 1; pointer-events: auto; }
+
+    .copilot-header {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 76px;
+      padding: 14px 16px;
+      color: #fff;
+      background: var(--ink-950);
+    }
+    .copilot-header::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      background: var(--blue-500);
+    }
+    .assistant-mark {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 13px;
+      background: #172337;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+    }
+    .assistant-mark svg { width: 22px; height: 22px; }
+    .assistant-mark::after {
+      content: "";
+      position: absolute;
+      right: -1px;
+      bottom: -1px;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--ink-950);
+      border-radius: 50%;
+      background: #22c55e;
+    }
+    .brand-copy { min-width: 0; }
+    .brand-kicker { color: #8facd7; font-size: 9px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; }
+    .brand-title { margin-top: 3px; font-size: 14px; font-weight: 760; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .brand-status { margin-top: 3px; color: #aab8c9; font-size: 10px; white-space: nowrap; }
+    .brand-status b { color: #dbeafe; font-weight: 650; }
+    .header-actions { display: flex; gap: 4px; margin-left: auto; }
+    .icon-btn {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 9px;
+      color: #c7d2e0;
+      background: transparent;
+      transition: background .15s ease, color .15s ease, transform .15s ease;
+    }
+    .icon-btn:hover { color: #fff; background: rgba(255,255,255,.10); }
+    .icon-btn:active { transform: scale(.96); }
+    .icon-btn svg { width: 17px; height: 17px; }
+
+    .context-strip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 43px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--line-soft);
+      background: #fff;
+      white-space: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .context-strip::-webkit-scrollbar { display: none; }
+    .context-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 27px;
+      padding: 0 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink-600);
+      background: var(--surface-2);
+      font-size: 10px;
+      font-weight: 650;
+    }
+    .context-pill svg { width: 12px; height: 12px; }
+    .context-pill.alert { color: #9a3412; border-color: #fed7aa; background: #fff7ed; }
+    .context-pill.safe { margin-left: auto; color: #166534; border-color: #bbf7d0; background: var(--green-soft); }
+
+    .copilot-workspace {
+      min-height: 0;
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      background: var(--surface-2);
+    }
+    .copilot.is-expanded .copilot-workspace { grid-template-columns: minmax(0, 1fr) 316px; }
+    .chat-column { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+    .conversation {
+      min-height: 0;
+      flex: 1;
+      padding: 18px 16px 14px;
+      overflow-y: auto;
+      scrollbar-color: #cbd5e1 transparent;
+      scrollbar-width: thin;
+    }
+    .copilot.is-expanded .conversation { padding: 28px 32px 20px; }
+    .conversation-inner { width: 100%; max-width: 780px; margin: 0 auto; }
+    .date-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 14px;
+      color: #94a3b8;
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .date-divider::before, .date-divider::after { content: ""; height: 1px; flex: 1; background: #e1e7ef; }
+    .user-row { display: flex; justify-content: flex-end; margin-bottom: 18px; }
+    .user-message {
+      max-width: 82%;
+      padding: 11px 13px;
+      border: 1px solid #bfdbfe;
+      border-radius: 14px 14px 4px 14px;
+      color: #153e75;
+      background: #eef6ff;
+      font-size: 12px;
+      line-height: 1.55;
+      box-shadow: 0 1px 2px rgba(37,99,235,.05);
+    }
+    .assistant-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .mini-avatar {
+      display: grid;
+      place-items: center;
+      width: 27px;
+      height: 27px;
+      border: 1px solid #d8e2ee;
+      border-radius: 9px;
+      color: var(--blue-700);
+      background: #fff;
+    }
+    .mini-avatar svg { width: 14px; height: 14px; }
+    .assistant-name { font-size: 11px; font-weight: 750; }
+    .analysis-time { color: #8a98aa; font-size: 9px; }
+    .analysis-time::before { content: "·"; margin-right: 8px; }
+    .assistant-copy { margin-left: 35px; }
+    .assistant-copy h2 { margin: 0; font-size: 18px; line-height: 1.35; letter-spacing: -.03em; }
+    .assistant-copy > p { margin: 7px 0 12px; color: var(--ink-600); font-size: 11px; line-height: 1.6; }
+    .summary-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 9px 10px;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      background: #f4f8ff;
+      color: #31527d;
+      font-size: 10px;
+      line-height: 1.45;
+    }
+    .summary-line svg { width: 14px; height: 14px; flex: 0 0 14px; color: var(--blue-600); }
+
+    .runbook { display: grid; gap: 9px; }
+    .runbook details {
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(15,23,42,.025);
+      overflow: hidden;
+    }
+    .runbook details[open] { border-color: #cbd8e8; box-shadow: 0 5px 16px rgba(15,23,42,.055); }
+    .runbook summary {
+      display: grid;
+      grid-template-columns: 28px minmax(0,1fr) auto 18px;
+      align-items: center;
+      gap: 9px;
+      min-height: 56px;
+      padding: 10px 11px;
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+    }
+    .runbook summary::-webkit-details-marker { display: none; }
+    .step-index {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      color: var(--ink-700);
+      background: var(--surface-3);
+      font-size: 10px;
+      font-weight: 780;
+    }
+    .step-copy { min-width: 0; }
+    .step-title { font-size: 11px; font-weight: 740; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .step-sub { margin-top: 3px; color: #8190a3; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .severity {
+      height: 22px;
+      padding: 0 7px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      font-size: 8.5px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+    .severity.high { color: #b42318; background: var(--red-soft); }
+    .severity.mid { color: #a15c00; background: var(--amber-soft); }
+    .severity.low { color: #31527d; background: var(--blue-soft); }
+    .chevron { width: 16px; height: 16px; color: #94a3b8; transition: transform .18s ease; }
+    details[open] .chevron { transform: rotate(180deg); }
+    .step-body { padding: 0 12px 12px 48px; }
+    .impact-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      margin-bottom: 9px;
+      color: #536276;
+      font-size: 9.5px;
+      line-height: 1.55;
+    }
+    .impact-note svg { width: 13px; height: 13px; margin-top: 1px; flex: 0 0 13px; }
+    .command-block {
+      position: relative;
+      padding: 11px 42px 11px 12px;
+      border: 1px solid #202c3e;
+      border-radius: 10px;
+      color: #dce8f7;
+      background: #111b2b;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 9px;
+      line-height: 1.65;
+      overflow-x: auto;
+    }
+    .copy-command {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      display: grid;
+      place-items: center;
+      width: 27px;
+      height: 27px;
+      border: 0;
+      border-radius: 7px;
+      color: #aabbd0;
+      background: #202d40;
+    }
+    .copy-command:hover { color: #fff; background: #2c3d55; }
+    .copy-command svg { width: 13px; height: 13px; }
+    .step-actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+    .text-btn {
+      min-height: 29px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: #405269;
+      background: #fff;
+      font-size: 9px;
+      font-weight: 680;
+    }
+    .text-btn.primary { color: #fff; border-color: var(--blue-600); background: var(--blue-600); }
+    .text-btn:hover { filter: brightness(.98); }
+
+    .ignored-alerts {
+      margin-top: 10px;
+      border: 1px dashed #ccd6e3;
+      border-radius: 11px;
+      background: rgba(255,255,255,.62);
+    }
+    .ignored-alerts summary {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 37px;
+      padding: 0 11px;
+      list-style: none;
+      color: #66758a;
+      font-size: 9.5px;
+      cursor: pointer;
+    }
+    .ignored-alerts summary::-webkit-details-marker { display: none; }
+    .ignored-alerts .ignored-body { padding: 0 11px 10px 30px; color: #7c8999; font-size: 9px; line-height: 1.55; }
+
+    .composer-wrap {
+      padding: 10px 12px 12px;
+      border-top: 1px solid var(--line-soft);
+      background: rgba(255,255,255,.96);
+      backdrop-filter: blur(10px);
+    }
+    .copilot.is-expanded .composer-wrap { padding: 12px 24px 16px; }
+    .quick-prompts {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .quick-prompts::-webkit-scrollbar { display: none; }
+    .quick-chip {
+      flex: 0 0 auto;
+      height: 27px;
+      padding: 0 9px;
+      border: 1px solid #dce4ee;
+      border-radius: 999px;
+      color: #536276;
+      background: #f8fafc;
+      font-size: 9px;
+    }
+    .quick-chip:hover { color: var(--blue-700); border-color: #bfd7ff; background: var(--blue-soft); }
+    .composer {
+      display: grid;
+      grid-template-columns: 34px minmax(0,1fr) 38px;
+      align-items: end;
+      gap: 7px;
+      padding: 6px;
+      border: 1px solid #cfd9e6;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(15,23,42,.04);
+    }
+    .composer:focus-within { border-color: #93b9ff; box-shadow: 0 0 0 3px rgba(37,99,235,.10); }
+    .attach-btn {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 9px;
+      color: #607087;
+      background: transparent;
+    }
+    .attach-btn:hover { color: #174ea6; background: #eef5ff; }
+    .attach-btn svg { width: 17px; height: 17px; }
+    textarea {
+      width: 100%;
+      min-height: 34px;
+      max-height: 110px;
+      resize: none;
+      padding: 8px 2px 6px;
+      border: 0;
+      outline: 0;
+      color: var(--ink-900);
+      background: transparent;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    textarea::placeholder { color: #9aa8b8; }
+    .send-btn {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border: 0;
+      border-radius: 11px;
+      color: #fff;
+      background: var(--blue-600);
+      box-shadow: 0 5px 12px rgba(37,99,235,.22);
+    }
+    .send-btn:hover { background: var(--blue-700); }
+    .send-btn svg { width: 17px; height: 17px; }
+    .composer-foot { display: flex; align-items: center; justify-content: space-between; margin: 7px 2px 0; color: #8a98a9; font-size: 8.5px; }
+    .read-only { display: inline-flex; align-items: center; gap: 5px; }
+    .read-only::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
+
+    /* ----- Expanded insight rail ----- */
+    .insight-rail {
+      display: none;
+      min-width: 0;
+      min-height: 0;
+      padding: 18px;
+      border-left: 1px solid var(--line-soft);
+      background: #fff;
+      overflow-y: auto;
+    }
+    .copilot.is-expanded .insight-rail { display: block; }
+    .rail-title { margin: 0 0 12px; font-size: 12px; font-weight: 780; }
+    .health-card {
+      padding: 14px;
+      border: 1px solid #dce5ef;
+      border-radius: 13px;
+      background: var(--surface-2);
+    }
+    .health-head { display: flex; align-items: center; justify-content: space-between; }
+    .health-head span { color: #637286; font-size: 9px; }
+    .health-score { margin-top: 6px; font-size: 30px; font-weight: 790; letter-spacing: -.05em; }
+    .health-score small { margin-left: 5px; color: #8391a3; font-size: 11px; font-weight: 600; letter-spacing: 0; }
+    .health-bar { height: 7px; margin-top: 11px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+    .health-bar > span { display: block; width: 72%; height: 100%; border-radius: inherit; background: var(--blue-600); }
+    .rail-section { margin-top: 20px; }
+    .rail-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+    .rail-section-head strong { font-size: 10px; }
+    .rail-section-head span { color: #8b99aa; font-size: 9px; }
+    .alert-mini { display: grid; grid-template-columns: 8px minmax(0,1fr) auto; gap: 8px; padding: 10px 0; border-bottom: 1px solid #eef2f6; }
+    .alert-mini-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: #ef4444; }
+    .alert-mini-dot.amber { background: #f59e0b; }
+    .alert-mini-title { font-size: 9.5px; font-weight: 680; line-height: 1.4; }
+    .alert-mini-sub { margin-top: 3px; color: #8a98aa; font-size: 8.5px; }
+    .rail-badge { align-self: start; padding: 3px 6px; border-radius: 999px; color: #7f1d1d; background: #fee2e2; font-size: 7.5px; font-weight: 750; }
+    .rail-command { padding: 10px; border: 1px solid #e1e7ef; border-radius: 10px; background: #f8fafc; }
+    .rail-command + .rail-command { margin-top: 7px; }
+    .rail-command code { color: #334155; font-size: 8.5px; }
+    .rail-command p { margin: 5px 0 0; color: #8a98aa; font-size: 8px; }
+    .scope-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .scope-tag { padding: 5px 7px; border: 1px solid #dce4ee; border-radius: 7px; color: #536276; background: #fff; font-size: 8.5px; }
+
+    .launcher {
+      position: fixed;
+      z-index: 22;
+      right: 24px;
+      bottom: 24px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px 8px 8px;
+      border: 1px solid #bcc9db;
+      border-radius: 15px;
+      color: #fff;
+      background: var(--ink-950);
+      box-shadow: var(--shadow-panel);
+    }
+    .launcher.visible { display: flex; }
+    .launcher-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #1b2a42; }
+    .launcher strong { display: block; font-size: 11px; }
+    .launcher small { color: #9fb0c5; font-size: 8.5px; }
+
+    .toast {
+      position: fixed;
+      z-index: 40;
+      left: 50%;
+      bottom: 28px;
+      transform: translate(-50%, 18px);
+      padding: 10px 13px;
+      border-radius: 10px;
+      color: #fff;
+      background: #111827;
+      box-shadow: 0 12px 35px rgba(15,23,42,.25);
+      font-size: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+    }
+    .toast.visible { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 760px) {
+      .console-shell { grid-template-columns: 1fr; }
+      .console-sidebar { display: none; }
+      .console-main { grid-column: 1; }
+      .copilot, .copilot.is-expanded {
+        top: 8px;
+        right: 8px;
+        bottom: 8px;
+        left: 8px;
+        width: auto;
+        transform: none;
+        border-radius: 16px;
+      }
+      .copilot.is-expanded .copilot-workspace { grid-template-columns: minmax(0,1fr); }
+      .copilot.is-expanded .insight-rail { display: none; }
+      .copilot.is-expanded .conversation { padding: 18px 16px 14px; }
+      .assistant-copy { margin-left: 0; }
+      .assistant-copy h2 { font-size: 16px; }
+      .step-body { padding-left: 12px; }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="console-shell" aria-hidden="true">
+    <header class="console-topbar">
+      <div class="ocp-mark">OCP</div>
+      <div class="console-title">OpenShift Console</div>
+      <div class="console-search">Search resources, projects and documentation</div>
+      <div class="topbar-spacer"></div>
+      <div class="topbar-pill">prod-cluster</div>
+      <div class="topbar-pill">Administrator</div>
+    </header>
+
+    <aside class="console-sidebar">
+      <div class="nav-kicker">Cluster</div>
+      <div class="nav-item active"><span class="nav-dot"></span>Overview</div>
+      <div class="nav-item"><span class="nav-dot"></span>Projects</div>
+      <div class="nav-item"><span class="nav-dot"></span>Workloads</div>
+      <div class="nav-item"><span class="nav-dot"></span>Networking</div>
+      <div class="nav-item"><span class="nav-dot"></span>Storage</div>
+      <div class="nav-item"><span class="nav-dot"></span>Operators</div>
+      <div class="nav-item"><span class="nav-dot"></span>Administration</div>
+    </aside>
+
+    <main class="console-main">
+      <div class="breadcrumb">Home / Cluster / Overview</div>
+      <div class="page-heading">
+        <h1>Cluster overview</h1>
+        <div class="page-actions">
+          <button class="ghost-action">Export</button>
+          <button class="ghost-action">Refresh</button>
+        </div>
+      </div>
+      <div class="metric-grid">
+        <div class="metric-card"><div class="metric-label">Cluster health</div><div class="metric-value">72%</div><div class="metric-foot">3 items need attention</div></div>
+        <div class="metric-card"><div class="metric-label">Control plane</div><div class="metric-value">3 / 3</div><div class="metric-foot">All nodes responding</div></div>
+        <div class="metric-card"><div class="metric-label">Worker nodes</div><div class="metric-value">12</div><div class="metric-foot">1 node under pressure</div></div>
+        <div class="metric-card"><div class="metric-label">Active alerts</div><div class="metric-value">4</div><div class="metric-foot">1 critical · 2 warning · 1 info</div></div>
+      </div>
+      <div class="overview-grid">
+        <section class="console-card">
+          <div class="console-card-head"><strong>Resource utilization</strong><span class="metric-label">Last 1 hour</span></div>
+          <div class="chart-area"><div class="chart-line"></div></div>
+        </section>
+        <section class="console-card">
+          <div class="console-card-head"><strong>Active alerts</strong><span class="metric-label">4 total</span></div>
+          <div class="alerts-list">
+            <div class="alert-row"><span class="alert-dot"></span><div><div class="alert-title">Pod has been in a non-ready state</div><div class="alert-copy">openshift-marketplace / appscan360-catalog-457gn</div></div><div class="alert-time">23m</div></div>
+            <div class="alert-row"><span class="alert-dot amber"></span><div><div class="alert-title">etcd database has high fragmentation</div><div class="alert-copy">Database size is using 45.57% of allocated quota.</div></div><div class="alert-time">6h</div></div>
+            <div class="alert-row"><span class="alert-dot amber"></span><div><div class="alert-title">Cluster update available</div><div class="alert-copy">Review operator readiness before updating.</div></div><div class="alert-time">1d</div></div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="panel-scrim" id="scrim"></div>
+
+  <section class="copilot" id="copilot" aria-label="KOMSCO AI Assistant">
+    <header class="copilot-header">
+      <div class="assistant-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M7.3 6.2A6.2 6.2 0 0 1 18 9.5" stroke="#60A5FA" stroke-width="2" stroke-linecap="round"/>
+          <path d="M16.7 17.8A6.2 6.2 0 0 1 6 14.5" stroke="#93C5FD" stroke-width="2" stroke-linecap="round"/>
+          <path d="M5.2 10.2 7.4 6l4.3.7M18.8 13.8 16.6 18l-4.3-.7" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="brand-copy">
+        <div class="brand-kicker">OCP Operations Copilot</div>
+        <div class="brand-title">KOMSCO AI Assistant</div>
+        <div class="brand-status"><b>prod-cluster</b> · 실시간 컨텍스트 연결됨</div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" title="새 대화" id="newChatBtn" aria-label="새 대화">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" title="확대/축소" id="expandBtn" aria-label="확대 또는 축소">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" stroke-linecap="round" stroke-linejoin="round"/><path d="m3 8 6-6M21 8l-6-6M3 16l6 6M21 16l-6 6" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" title="닫기" id="closeBtn" aria-label="닫기">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="context-strip">
+      <span class="context-pill">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M7 4v6M17 4v6M5 11h14v8H5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        openshift-marketplace
+      </span>
+      <span class="context-pill alert">활성 경고 4</span>
+      <span class="context-pill safe">읽기 전용</span>
+    </div>
+
+    <div class="copilot-workspace">
+      <div class="chat-column">
+        <div class="conversation">
+          <div class="conversation-inner">
+            <div class="date-divider">현재 화면 기반 분석</div>
+
+            <div class="user-row">
+              <div class="user-message">현재 화면 기준으로 안전한 확인 절차를 단계별로 제안해 줘.</div>
+            </div>
+
+            <div class="assistant-meta">
+              <div class="mini-avatar" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 4h8M9 4v3m6-3v3M6 9h12v9H6zM3 12h3m12 0h3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9.5" cy="13" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="13" r="1" fill="currentColor" stroke="none"/></svg>
+              </div>
+              <span class="assistant-name">AI Assistant</span>
+              <span class="analysis-time">46초 동안 분석</span>
+            </div>
+
+            <div class="assistant-copy">
+              <h2>우선 확인할 항목 3개를 정리했습니다.</h2>
+              <p>서비스 영향 가능성과 작업 위험도를 기준으로 순서를 구성했습니다. 모든 명령은 조회 전용이며, 변경 작업은 별도 승인 후 진행하세요.</p>
+
+              <div class="summary-line">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 3 4 7v5c0 5 3.4 8 8 9 4.6-1 8-4 8-9V7z" stroke-linejoin="round"/><path d="m8.5 12 2.2 2.2 4.8-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Watchdog 및 AlertmanagerReceiversNotConfigured는 상시 점검 항목으로 분리했습니다.
+              </div>
+
+              <div class="runbook">
+                <details open>
+                  <summary>
+                    <span class="step-index">01</span>
+                    <span class="step-copy">
+                      <span class="step-title">Marketplace Catalog Pod 상태 확인</span>
+                      <span class="step-sub">appscan360-catalog-457gn · NotReady 15분+</span>
+                    </span>
+                    <span class="severity high">높음</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </summary>
+                  <div class="step-body">
+                    <div class="impact-note">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01" stroke-linecap="round"/></svg>
+                      Catalog 서비스와 Operator 설치·업데이트 경로에 영향을 줄 수 있습니다.
+                    </div>
+                    <div class="command-block"><button class="copy-command" data-copy="oc get pod appscan360-catalog-457gn -n openshift-marketplace\noc describe pod appscan360-catalog-457gn -n openshift-marketplace" aria-label="명령 복사"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="10" height="10" rx="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke-linecap="round"/></svg></button>oc get pod appscan360-catalog-457gn -n openshift-marketplace<br>oc describe pod appscan360-catalog-457gn -n openshift-marketplace</div>
+                    <div class="step-actions"><button class="text-btn primary">상세 분석</button><button class="text-btn">로그 확인 절차</button></div>
+                  </div>
+                </details>
+
+                <details>
+                  <summary>
+                    <span class="step-index">02</span>
+                    <span class="step-copy">
+                      <span class="step-title">etcd 데이터베이스 파편화 확인</span>
+                      <span class="step-sub">HighFragmentationRatio · 사용률 45.57%</span>
+                    </span>
+                    <span class="severity mid">중간</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </summary>
+                  <div class="step-body">
+                    <div class="impact-note">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01" stroke-linecap="round"/></svg>
+                      즉시 장애는 아니지만 백업 검증 후 유지보수 시간에 defrag를 검토하세요.
+                    </div>
+                    <div class="command-block"><button class="copy-command" data-copy="oc get pods -n openshift-etcd -l app=etcd" aria-label="명령 복사"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="10" height="10" rx="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke-linecap="round"/></svg></button>oc get pods -n openshift-etcd -l app=etcd</div>
+                    <div class="step-actions"><button class="text-btn">백업 상태 확인</button><button class="text-btn">유지보수 체크리스트</button></div>
+                  </div>
+                </details>
+
+                <details>
+                  <summary>
+                    <span class="step-index">03</span>
+                    <span class="step-copy">
+                      <span class="step-title">클러스터 업데이트 차단 요인 확인</span>
+                      <span class="step-sub">ClusterNotUpgradeable · UpdateAvailable</span>
+                    </span>
+                    <span class="severity low">검토</span>
+                    <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </summary>
+                  <div class="step-body">
+                    <div class="impact-note">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01" stroke-linecap="round"/></svg>
+                      차단 Operator와 권장 채널을 확인한 뒤 유지보수 일정에 반영하세요.
+                    </div>
+                    <div class="command-block"><button class="copy-command" data-copy="oc get clusteroperators\noc get clusterversion" aria-label="명령 복사"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="10" height="10" rx="2"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" stroke-linecap="round"/></svg></button>oc get clusteroperators<br>oc get clusterversion</div>
+                    <div class="step-actions"><button class="text-btn">차단 Operator 보기</button><button class="text-btn">업데이트 계획 생성</button></div>
+                  </div>
+                </details>
+              </div>
+
+              <details class="ignored-alerts">
+                <summary>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5v14" stroke-linecap="round"/></svg>
+                  우선순위에서 제외한 상시 경고 2개 보기
+                </summary>
+                <div class="ignored-body">Watchdog · AlertmanagerReceiversNotConfigured</div>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <div class="composer-wrap">
+          <div class="quick-prompts">
+            <button class="quick-chip" data-prompt="원인만 3줄로 요약해 줘">원인만 요약</button>
+            <button class="quick-chip" data-prompt="복사해서 바로 쓸 수 있는 조회 명령만 정리해 줘">조회 명령만</button>
+            <button class="quick-chip" data-prompt="각 조치의 서비스 영향도를 비교해 줘">영향도 비교</button>
+            <button class="quick-chip" data-prompt="작업 전 승인 체크리스트를 만들어 줘">승인 체크리스트</button>
+          </div>
+          <div class="composer">
+            <button class="attach-btn" title="첨부" aria-label="첨부">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m8.5 12.5 6.9-6.9a3 3 0 0 1 4.2 4.2l-8.3 8.3a5 5 0 0 1-7.1-7.1l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <textarea id="promptInput" rows="1" placeholder="현재 화면이나 클러스터 상태를 질문하세요"></textarea>
+            <button class="send-btn" title="전송" aria-label="전송" id="sendBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="m4 4 17 8-17 8 3-8z" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 12h14" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="composer-foot"><span class="read-only">명령 실행 전 사용자 확인</span><span>Enter 전송 · Shift+Enter 줄바꿈</span></div>
+        </div>
+      </div>
+
+      <aside class="insight-rail">
+        <h3 class="rail-title">현재 분석 컨텍스트</h3>
+        <div class="health-card">
+          <div class="health-head"><span>Cluster health score</span><span>업데이트 1분 전</span></div>
+          <div class="health-score">72<small>/ 100</small></div>
+          <div class="health-bar"><span></span></div>
+        </div>
+
+        <section class="rail-section">
+          <div class="rail-section-head"><strong>주의가 필요한 경고</strong><span>3개</span></div>
+          <div class="alert-mini"><span class="alert-mini-dot"></span><div><div class="alert-mini-title">Marketplace Catalog Pod NotReady</div><div class="alert-mini-sub">openshift-marketplace · 23분</div></div><span class="rail-badge">HIGH</span></div>
+          <div class="alert-mini"><span class="alert-mini-dot amber"></span><div><div class="alert-mini-title">etcd HighFragmentationRatio</div><div class="alert-mini-sub">etcd · 6시간</div></div><span class="rail-badge" style="color:#92400e;background:#fef3c7">MED</span></div>
+          <div class="alert-mini"><span class="alert-mini-dot amber"></span><div><div class="alert-mini-title">Cluster update blocked</div><div class="alert-mini-sub">ClusterVersion · 1일</div></div><span class="rail-badge" style="color:#1e40af;background:#dbeafe">REVIEW</span></div>
+        </section>
+
+        <section class="rail-section">
+          <div class="rail-section-head"><strong>분석 범위</strong><span>자동 감지</span></div>
+          <div class="scope-list">
+            <span class="scope-tag">prod-cluster</span>
+            <span class="scope-tag">openshift-marketplace</span>
+            <span class="scope-tag">ClusterVersion</span>
+            <span class="scope-tag">etcd</span>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="rail-section-head"><strong>최근 복사한 명령</strong><span>조회 전용</span></div>
+          <div class="rail-command"><code>oc describe pod …</code><p>Marketplace Pod 이벤트 확인</p></div>
+          <div class="rail-command"><code>oc get clusteroperators</code><p>업그레이드 차단 Operator 확인</p></div>
+        </section>
+      </aside>
+    </div>
+  </section>
+
+  <button class="launcher" id="launcher">
+    <span class="launcher-mark">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#93C5FD" stroke-width="1.8"><path d="M8 4h8M9 4v3m6-3v3M6 9h12v9H6zM3 12h3m12 0h3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </span>
+    <span><strong>KOMSCO AI Assistant</strong><small>클러스터 컨텍스트 연결됨</small></span>
+  </button>
+
+  <div class="toast" id="toast">명령을 클립보드에 복사했습니다.</div>
+
+  <script>
+    const panel = document.getElementById('copilot');
+    const scrim = document.getElementById('scrim');
+    const expandBtn = document.getElementById('expandBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const launcher = document.getElementById('launcher');
+    const toast = document.getElementById('toast');
+    const input = document.getElementById('promptInput');
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('mode') === 'expanded') {
+      panel.classList.add('is-expanded');
+      scrim.classList.add('visible');
+    }
+
+    expandBtn.addEventListener('click', () => {
+      panel.classList.toggle('is-expanded');
+      scrim.classList.toggle('visible', panel.classList.contains('is-expanded'));
+    });
+
+    scrim.addEventListener('click', () => {
+      panel.classList.remove('is-expanded');
+      scrim.classList.remove('visible');
+    });
+
+    closeBtn.addEventListener('click', () => {
+      panel.classList.add('is-hidden');
+      scrim.classList.remove('visible');
+      launcher.classList.add('visible');
+    });
+
+    launcher.addEventListener('click', () => {
+      panel.classList.remove('is-hidden');
+      launcher.classList.remove('visible');
+    });
+
+    document.querySelectorAll('.copy-command').forEach((button) => {
+      button.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const value = button.dataset.copy || '';
+        try { await navigator.clipboard.writeText(value); } catch (e) {}
+        toast.classList.add('visible');
+        setTimeout(() => toast.classList.remove('visible'), 1500);
+      });
+    });
+
+    document.querySelectorAll('.quick-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        input.value = chip.dataset.prompt || chip.textContent.trim();
+        input.focus();
+      });
+    });
+
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 110) + 'px';
+    });
+
+    document.getElementById('sendBtn').addEventListener('click', () => {
+      if (!input.value.trim()) return;
+      toast.textContent = '프로토타입입니다. 실제 전송 로직을 연결하세요.';
+      toast.classList.add('visible');
+      setTimeout(() => { toast.classList.remove('visible'); toast.textContent = '명령을 클립보드에 복사했습니다.'; }, 1700);
+    });
+
+    document.getElementById('newChatBtn').addEventListener('click', () => {
+      toast.textContent = '새 대화 버튼 — 백엔드 세션 초기화와 연결하세요.';
+      toast.classList.add('visible');
+      setTimeout(() => { toast.classList.remove('visible'); toast.textContent = '명령을 클립보드에 복사했습니다.'; }, 1700);
+    });
+  </script>
+</body>
+</html>

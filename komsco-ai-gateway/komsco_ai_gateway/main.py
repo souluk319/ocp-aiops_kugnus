@@ -1,0 +1,1233 @@
+import asyncio
+import base64
+import binascii
+import json
+import os
+import re
+import time
+import uuid
+from collections.abc import AsyncIterator, Mapping
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+app = FastAPI(title="KOMSCO AI Gateway", version="0.1.0")
+
+
+def parse_bool(value: str | None, *, default: bool = False) -> bool:
+    if value is None or value.strip() == "":
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_ols_verify(value: str | None) -> bool | str:
+    if value is None or value.strip() == "":
+        return True
+
+    normalized = value.strip().lower()
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+
+    return value
+
+
+OLS_BASE_URL = os.getenv("OLS_BASE_URL", "").rstrip("/")
+OLS_CA_FILE = parse_ols_verify(os.getenv("OLS_CA_FILE"))
+DEV_ECHO = parse_bool(os.getenv("KOMSCO_AI_DEV_ECHO"))
+OPENSHIFT_API_URL = os.getenv("OPENSHIFT_API_URL", "").rstrip("/")
+if not OPENSHIFT_API_URL and os.getenv("KUBERNETES_SERVICE_HOST"):
+    kubernetes_host = os.getenv("KUBERNETES_SERVICE_HOST")
+    kubernetes_port = os.getenv("KUBERNETES_SERVICE_PORT", "443")
+    OPENSHIFT_API_URL = f"https://{kubernetes_host}:{kubernetes_port}"
+OPENSHIFT_API_CA_FILE = parse_ols_verify(
+    os.getenv(
+        "OPENSHIFT_API_CA_FILE",
+        "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        if os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+        else "",
+    )
+)
+TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("Tool call:", "tool_call"),
+    ("Tool result:", "tool_result"),
+)
+MAX_TOOL_DETAIL_CHARS = 4000
+RUN_HEARTBEAT_SECONDS = 5.0
+MAX_IMAGE_ATTACHMENTS = 4
+MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024
+MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024
+ALLOWED_IMAGE_MIME_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
+VISION_SYSTEM_PROMPT = (
+    "You are an image analysis component for an OpenShift AIOps assistant. "
+    "Extract visible text, UI state, error messages, resource names, namespace names, "
+    "and operational signals from the attached image. Be concise and do not invent "
+    "details that are not visible."
+)
+
+
+class ImageAttachment(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=180)
+    mimeType: str = Field(min_length=1, max_length=80)
+    size: int = Field(ge=1, le=MAX_IMAGE_ATTACHMENT_BYTES)
+    data: str = Field(min_length=1)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(default="", max_length=4000)
+    pageContext: dict[str, Any] | None = None
+    conversationId: str | None = None
+    runId: str | None = None
+    attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
+
+
+def sse(data: Mapping[str, Any] | str) -> str:
+    if isinstance(data, str):
+        return f"data: {data}\n\n"
+
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+async def verify_user_access(user_auth_header: str, req: ChatRequest) -> None:
+    # TODO: add TokenReview/SelfSubjectAccessReview checks for product policy.
+    if not user_auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
+
+    if not req.message.strip() and not req.attachments:
+        raise HTTPException(status_code=400, detail="Message or image attachment is required")
+
+
+def verify_bearer_header(user_auth_header: str | None) -> str:
+    if not user_auth_header or not user_auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
+
+    return user_auth_header
+
+
+def validate_image_attachments(attachments: list[ImageAttachment]) -> None:
+    total_size = 0
+    seen_ids: set[str] = set()
+
+    for attachment in attachments:
+        if attachment.id in seen_ids:
+            raise HTTPException(status_code=400, detail="Duplicate attachment id")
+        seen_ids.add(attachment.id)
+
+        if attachment.mimeType not in ALLOWED_IMAGE_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported image type: {attachment.mimeType}")
+
+        try:
+            decoded = base64.b64decode(attachment.data, validate=True)
+        except binascii.Error as exc:
+            raise HTTPException(status_code=400, detail="Invalid image attachment data") from exc
+
+        decoded_size = len(decoded)
+        if decoded_size != attachment.size:
+            raise HTTPException(status_code=400, detail="Image attachment size mismatch")
+        if decoded_size > MAX_IMAGE_ATTACHMENT_BYTES:
+            raise HTTPException(status_code=400, detail="Image attachment is too large")
+
+        total_size += decoded_size
+
+    if total_size > MAX_IMAGE_ATTACHMENT_TOTAL_BYTES:
+        raise HTTPException(status_code=400, detail="Image attachments are too large")
+
+
+def format_bytes(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def find_condition(resource: Mapping[str, Any], condition_type: str) -> Mapping[str, Any] | None:
+    conditions = resource.get("status", {}).get("conditions", [])
+    if not isinstance(conditions, list):
+        return None
+
+    for condition in conditions:
+        if isinstance(condition, Mapping) and condition.get("type") == condition_type:
+            return condition
+
+    return None
+
+
+def condition_status(resource: Mapping[str, Any], condition_type: str) -> str | None:
+    condition = find_condition(resource, condition_type)
+    if not condition:
+        return None
+
+    status = condition.get("status")
+    return str(status) if status is not None else None
+
+
+def node_roles(node: Mapping[str, Any]) -> list[str]:
+    labels = node.get("metadata", {}).get("labels", {})
+    if not isinstance(labels, Mapping):
+        return []
+
+    roles = []
+    for key in labels:
+        prefix = "node-role.kubernetes.io/"
+        if key.startswith(prefix):
+            role = key[len(prefix) :] or "worker"
+            roles.append(role)
+
+    return sorted(roles) or ["worker"]
+
+
+def node_metric_map(node_metrics_payload: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
+    if not node_metrics_payload:
+        return {}
+
+    items = node_metrics_payload.get("items")
+    if not isinstance(items, list):
+        return {}
+
+    metrics = {}
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+
+        name = item.get("metadata", {}).get("name")
+        if isinstance(name, str):
+            metrics[name] = item
+
+    return metrics
+
+
+def summarize_node(node: Mapping[str, Any], metrics: Mapping[str, Any] | None) -> dict[str, Any]:
+    metadata = node.get("metadata", {}) if isinstance(node.get("metadata"), Mapping) else {}
+    status = node.get("status", {}) if isinstance(node.get("status"), Mapping) else {}
+    node_info = status.get("nodeInfo", {}) if isinstance(status.get("nodeInfo"), Mapping) else {}
+    name = str(metadata.get("name") or "unknown-node")
+    ready = condition_status(node, "Ready") == "True"
+    pressures = {
+        "disk": condition_status(node, "DiskPressure") == "True",
+        "memory": condition_status(node, "MemoryPressure") == "True",
+        "pid": condition_status(node, "PIDPressure") == "True",
+    }
+    usage = metrics.get("usage", {}) if isinstance(metrics, Mapping) else {}
+
+    return {
+        "name": name,
+        "roles": node_roles(node),
+        "ready": ready,
+        "pressures": pressures,
+        "kubeletVersion": node_info.get("kubeletVersion"),
+        "osImage": node_info.get("osImage"),
+        "usage": {
+            "cpu": usage.get("cpu") if isinstance(usage, Mapping) else None,
+            "memory": usage.get("memory") if isinstance(usage, Mapping) else None,
+        },
+    }
+
+
+def summarize_operator(operator: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = operator.get("metadata", {}) if isinstance(operator.get("metadata"), Mapping) else {}
+    name = str(metadata.get("name") or "unknown-operator")
+    available = condition_status(operator, "Available") == "True"
+    degraded = condition_status(operator, "Degraded") == "True"
+    progressing = condition_status(operator, "Progressing") == "True"
+    upgradeable = condition_status(operator, "Upgradeable")
+    issue_condition = (
+        find_condition(operator, "Degraded")
+        if degraded
+        else find_condition(operator, "Available")
+        if not available
+        else find_condition(operator, "Progressing")
+        if progressing
+        else find_condition(operator, "Upgradeable")
+        if upgradeable == "False"
+        else None
+    )
+
+    return {
+        "name": name,
+        "available": available,
+        "degraded": degraded,
+        "progressing": progressing,
+        "upgradeable": upgradeable,
+        "reason": issue_condition.get("reason") if issue_condition else None,
+        "message": issue_condition.get("message") if issue_condition else None,
+    }
+
+
+def compute_health_score(
+    nodes_summary: Mapping[str, Any],
+    operators_summary: Mapping[str, Any],
+    version_summary: Mapping[str, Any],
+) -> int:
+    score = 100
+    score -= min(40, int(nodes_summary.get("notReady", 0)) * 25)
+    score -= min(30, int(nodes_summary.get("pressureCount", 0)) * 10)
+    score -= min(35, int(operators_summary.get("degraded", 0)) * 12)
+    score -= min(35, int(operators_summary.get("unavailable", 0)) * 15)
+    score -= min(15, int(operators_summary.get("progressing", 0)) * 5)
+    if version_summary.get("upgradeable") is False:
+        score -= 8
+
+    return max(0, min(100, score))
+
+
+def build_cluster_summary(
+    nodes_payload: Mapping[str, Any],
+    node_metrics_payload: Mapping[str, Any] | None,
+    cluster_version_payload: Mapping[str, Any] | None,
+    cluster_operators_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    node_items = nodes_payload.get("items", [])
+    if not isinstance(node_items, list):
+        node_items = []
+
+    metrics_by_name = node_metric_map(node_metrics_payload)
+    nodes = []
+    for node in node_items:
+        if not isinstance(node, Mapping):
+            continue
+
+        metadata = node.get("metadata", {}) if isinstance(node.get("metadata"), Mapping) else {}
+        nodes.append(summarize_node(node, metrics_by_name.get(str(metadata.get("name")))))
+    ready_nodes = [node for node in nodes if node["ready"]]
+    pressure_nodes = [
+        node for node in nodes if any(bool(value) for value in node.get("pressures", {}).values())
+    ]
+    nodes_summary = {
+        "total": len(nodes),
+        "ready": len(ready_nodes),
+        "notReady": len(nodes) - len(ready_nodes),
+        "pressureCount": len(pressure_nodes),
+        "items": nodes,
+        "metricsAvailable": bool(metrics_by_name),
+    }
+
+    operator_items = (
+        cluster_operators_payload.get("items", [])
+        if isinstance(cluster_operators_payload, Mapping)
+        else []
+    )
+    if not isinstance(operator_items, list):
+        operator_items = []
+
+    operators = [
+        summarize_operator(operator) for operator in operator_items if isinstance(operator, Mapping)
+    ]
+    operator_issues = [
+        operator
+        for operator in operators
+        if not operator["available"]
+        or operator["degraded"]
+        or operator["progressing"]
+        or operator.get("upgradeable") == "False"
+    ]
+    operators_summary = {
+        "total": len(operators),
+        "available": len([operator for operator in operators if operator["available"]]),
+        "degraded": len([operator for operator in operators if operator["degraded"]]),
+        "progressing": len([operator for operator in operators if operator["progressing"]]),
+        "unavailable": len([operator for operator in operators if not operator["available"]]),
+        "issues": operator_issues[:8],
+    }
+
+    cluster_version_status = (
+        cluster_version_payload.get("status", {})
+        if isinstance(cluster_version_payload, Mapping)
+        else {}
+    )
+    desired = (
+        cluster_version_status.get("desired", {})
+        if isinstance(cluster_version_status.get("desired"), Mapping)
+        else {}
+    )
+    available_updates = cluster_version_status.get("availableUpdates")
+    upgradeable_condition = (
+        find_condition(cluster_version_payload or {}, "Upgradeable")
+        if isinstance(cluster_version_payload, Mapping)
+        else None
+    )
+    version_summary = {
+        "version": desired.get("version"),
+        "channel": cluster_version_status.get("channel"),
+        "updateAvailable": isinstance(available_updates, list) and len(available_updates) > 0,
+        "upgradeable": upgradeable_condition.get("status") != "False"
+        if upgradeable_condition
+        else None,
+        "upgradeableReason": upgradeable_condition.get("reason") if upgradeable_condition else None,
+        "upgradeableMessage": upgradeable_condition.get("message") if upgradeable_condition else None,
+    }
+
+    return {
+        "updatedAt": datetime.now(UTC).isoformat(),
+        "apiUrl": OPENSHIFT_API_URL,
+        "healthScore": compute_health_score(nodes_summary, operators_summary, version_summary),
+        "nodes": nodes_summary,
+        "operators": operators_summary,
+        "version": version_summary,
+    }
+
+
+def build_attachment_context(
+    attachments: list[ImageAttachment],
+    image_analysis: str | None = None,
+    *,
+    forwarded_to_ols: bool = False,
+) -> str:
+    if not attachments:
+        return "첨부 이미지 없음"
+
+    lines = [
+        "첨부 이미지는 Gateway에서 수신 및 검증했습니다.",
+    ]
+    if image_analysis:
+        lines.append("Gateway 비전 분석 결과:")
+        lines.append(image_analysis)
+    elif forwarded_to_ols:
+        lines.append("이미지 원본은 Lightspeed attachments로 전달했습니다.")
+    else:
+        lines.append(
+            "현재 Gateway 비전 분석이 설정되지 않았고 이 OLS 배포는 image attachment를 허용하지 않아 이미지 원본 판독은 수행하지 않았습니다."
+        )
+
+    lines.append("첨부 파일 메타데이터:")
+
+    for index, attachment in enumerate(attachments, start=1):
+        lines.append(
+            f"{index}. {attachment.name} ({attachment.mimeType}, {format_bytes(attachment.size)})"
+        )
+
+    return "\n".join(lines)
+
+
+def build_ols_attachments(attachments: list[ImageAttachment]) -> list[dict[str, str]]:
+    return [
+        {
+            "attachment_type": "image",
+            "content_type": attachment.mimeType,
+            "content": attachment.data,
+        }
+        for attachment in attachments
+    ]
+
+
+def build_ols_payload(
+    query: str,
+    conversation_id: str | None,
+    attachments: list[ImageAttachment],
+    *,
+    forward_image_attachments: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"query": query}
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
+
+    ols_attachments = build_ols_attachments(attachments) if forward_image_attachments else []
+    if ols_attachments:
+        payload["attachments"] = ols_attachments
+
+    return payload
+
+
+def read_secret_value(value: str | None, file_path: str | None) -> str | None:
+    if value:
+        return value
+    if not file_path:
+        return None
+
+    try:
+        with open(file_path, encoding="utf-8") as secret_file:
+            return secret_file.read().strip()
+    except OSError:
+        return None
+
+
+def should_forward_image_attachments_to_ols() -> bool:
+    return parse_bool(os.getenv("KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS"), default=False)
+
+
+def get_vision_config() -> dict[str, str] | None:
+    base_url = os.getenv("KOMSCO_AI_VISION_BASE_URL", "").rstrip("/")
+    model = os.getenv("KOMSCO_AI_VISION_MODEL", "").strip()
+    api_key = read_secret_value(
+        os.getenv("KOMSCO_AI_VISION_API_KEY"),
+        os.getenv("KOMSCO_AI_VISION_API_KEY_FILE"),
+    )
+
+    if not base_url or not model:
+        return None
+
+    config = {"base_url": base_url, "model": model}
+    if api_key:
+        config["api_key"] = api_key
+
+    return config
+
+
+def redact_sensitive(text: str) -> str:
+    # TODO: centralize token, password, private key, kubeconfig, and Secret redaction.
+    return text
+
+
+def truncate_detail(value: str, limit: int = MAX_TOOL_DETAIL_CHARS) -> str:
+    if len(value) <= limit:
+        return value
+
+    return f"{value[:limit]}\n... truncated ..."
+
+
+def dump_tool_detail(value: Any) -> str:
+    if isinstance(value, str):
+        return truncate_detail(value)
+
+    try:
+        return truncate_detail(json.dumps(value, ensure_ascii=False, indent=2))
+    except TypeError:
+        return truncate_detail(str(value))
+
+
+def summarize_resource_args(args: Any) -> str | None:
+    if not isinstance(args, Mapping):
+        return None
+
+    kind = args.get("kind")
+    name = args.get("name")
+    namespace = args.get("namespace")
+    if not kind or not name:
+        return None
+
+    resource_name = f"{namespace}/{name}" if namespace else str(name)
+    return f"{kind} {resource_name}"
+
+
+def summarize_resource_content(content: str) -> str | None:
+    kind_match = re.search(r"(?m)^kind:\s*([A-Za-z0-9_.-]+)\s*$", content)
+    name_match = re.search(r"(?m)^\s{2}name:\s*([A-Za-z0-9_.-]+)\s*$", content)
+    namespace_match = re.search(r"(?m)^\s{2}namespace:\s*([A-Za-z0-9_.-]+)\s*$", content)
+    if not kind_match or not name_match:
+        return None
+
+    resource_name = (
+        f"{namespace_match.group(1)}/{name_match.group(1)}"
+        if namespace_match
+        else name_match.group(1)
+    )
+    return f"{kind_match.group(1)} {resource_name}"
+
+
+def summarize_tool_payload(event_type: str, payload: Mapping[str, Any]) -> str:
+    tool_name = payload.get("name") or payload.get("tool_name")
+    if event_type == "tool_call":
+        if tool_name == "resources_get":
+            resource_ref = summarize_resource_args(payload.get("args"))
+            if resource_ref:
+                return f"{resource_ref} 상세 조회"
+
+        server_name = payload.get("server_name") or payload.get("serverName")
+        if server_name:
+            return f"{server_name} 도구 호출"
+
+        return "도구 호출"
+
+    status = payload.get("status")
+    content = payload.get("content")
+    if status and str(status).lower() in {"error", "failed", "failure"}:
+        if isinstance(content, str) and content.strip():
+            first_line = content.strip().splitlines()[0]
+            return f"조회 실패: {truncate_detail(first_line, 80)}"
+
+        return f"상태: {status}"
+
+    if isinstance(content, str):
+        if tool_name == "resources_get":
+            resource_ref = summarize_resource_content(content)
+            if resource_ref:
+                return f"{resource_ref} 조회 완료"
+
+        try:
+            parsed_content = json.loads(content)
+        except json.JSONDecodeError:
+            parsed_content = None
+
+        if isinstance(parsed_content, Mapping):
+            alerts = parsed_content.get("alerts")
+            if isinstance(alerts, list):
+                return f"경고 {len(alerts)}건 조회"
+
+    if status:
+        return f"상태: {status}"
+
+    return "도구 실행 완료"
+
+
+def summarize_alerts_detail(alerts: list[Any]) -> str:
+    lines = [f"조회 경고: {len(alerts)}건"]
+    for alert in alerts[:10]:
+        if not isinstance(alert, Mapping):
+            continue
+
+        labels = alert.get("labels") if isinstance(alert.get("labels"), Mapping) else {}
+        annotations = (
+            alert.get("annotations") if isinstance(alert.get("annotations"), Mapping) else {}
+        )
+        parts = [
+            str(labels.get("severity") or "unknown"),
+            str(labels.get("alertname") or "unknown-alert"),
+        ]
+        namespace = labels.get("namespace")
+        pod = labels.get("pod")
+        if namespace:
+            parts.append(f"namespace={namespace}")
+        if pod:
+            parts.append(f"pod={pod}")
+
+        lines.append(f"- {' / '.join(parts)}")
+        summary = annotations.get("summary")
+        if summary:
+            lines.append(f"  {summary}")
+
+    if len(alerts) > 10:
+        lines.append(f"... {len(alerts) - 10}건 더 있음")
+
+    return "\n".join(lines)
+
+
+def build_tool_detail(event_type: str, payload: Mapping[str, Any]) -> str:
+    if event_type == "tool_call":
+        lines = []
+        server_name = payload.get("server_name") or payload.get("serverName")
+        args = payload.get("args")
+        if server_name:
+            lines.append(f"도구 서버: {server_name}")
+        if args is not None:
+            lines.append(f"요청 인자:\n{dump_tool_detail(args)}")
+
+        return "\n".join(lines) or dump_tool_detail(payload)
+
+    lines = []
+    status = payload.get("status")
+    if status:
+        lines.append(f"상태: {status}")
+
+    content = payload.get("content")
+    if isinstance(content, str):
+        try:
+            parsed_content = json.loads(content)
+        except json.JSONDecodeError:
+            parsed_content = None
+
+        if isinstance(parsed_content, Mapping):
+            alerts = parsed_content.get("alerts")
+            if isinstance(alerts, list):
+                lines.append(summarize_alerts_detail(alerts))
+                return truncate_detail("\n".join(lines))
+
+            lines.append(dump_tool_detail(parsed_content))
+            return truncate_detail("\n".join(lines))
+
+        lines.append(truncate_detail(content))
+        return truncate_detail("\n".join(lines))
+
+    result = payload.get("result")
+    if result is not None:
+        lines.append(dump_tool_detail(result))
+        return truncate_detail("\n".join(lines))
+
+    return dump_tool_detail(payload)
+
+
+def normalize_tool_event(event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {
+        "type": event_type,
+        "name": payload.get("name") or payload.get("tool_name") or "unknown_tool",
+        "summary": summarize_tool_payload(event_type, payload),
+        "detail": build_tool_detail(event_type, payload),
+    }
+
+    for source_key, target_key in (
+        ("id", "id"),
+        ("args", "args"),
+        ("status", "status"),
+        ("server_name", "serverName"),
+        ("serverName", "serverName"),
+        ("round", "round"),
+    ):
+        value = payload.get(source_key)
+        if value is not None:
+            normalized[target_key] = value
+
+    return normalized
+
+
+def parse_tool_text_line(line: str) -> dict[str, Any] | None:
+    stripped = line.strip()
+    for prefix, event_type in TOOL_LINE_PREFIXES:
+        if not stripped.startswith(prefix):
+            continue
+
+        raw_payload = stripped[len(prefix) :].strip()
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            return {
+                "type": event_type,
+                "name": "unknown_tool",
+                "summary": "도구 이벤트 수신",
+                "detail": truncate_detail(raw_payload),
+            }
+
+        if isinstance(payload, Mapping):
+            return normalize_tool_event(event_type, payload)
+
+        return {
+            "type": event_type,
+            "name": "unknown_tool",
+            "summary": "도구 이벤트 수신",
+            "detail": dump_tool_detail(payload),
+        }
+
+    return None
+
+
+async def split_plain_text_events(chunks: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
+    pending = ""
+
+    async for chunk in chunks:
+        if not chunk:
+            continue
+
+        pending += chunk
+        while pending:
+            if any(prefix.startswith(pending) for prefix, _ in TOOL_LINE_PREFIXES):
+                break
+
+            matched_prefix = next(
+                (prefix for prefix, _ in TOOL_LINE_PREFIXES if pending.startswith(prefix)),
+                None,
+            )
+            if matched_prefix:
+                line_end = pending.find("\n")
+                if line_end == -1:
+                    break
+
+                line = pending[:line_end]
+                pending = pending[line_end + 1 :]
+                tool_event = parse_tool_text_line(line)
+                if tool_event:
+                    yield tool_event
+                continue
+
+            line_end = pending.find("\n")
+            if line_end == -1:
+                yield {"type": "text", "content": pending}
+                pending = ""
+                continue
+
+            yield {"type": "text", "content": pending[: line_end + 1]}
+            pending = pending[line_end + 1 :]
+
+    if pending:
+        tool_event = parse_tool_text_line(pending)
+        if tool_event:
+            yield tool_event
+        else:
+            yield {"type": "text", "content": pending}
+
+
+def build_ols_query(req: ChatRequest, image_analysis: str | None = None) -> str:
+    page_context = {
+        key: value
+        for key, value in (req.pageContext or {}).items()
+        if key in {"href", "pathname", "namespace", "resourceKind", "resourceName"}
+    }
+    forwarded_to_ols = should_forward_image_attachments_to_ols()
+    query = f"""
+[사용자 질문]
+{req.message}
+
+[현재 콘솔 컨텍스트]
+{json.dumps(page_context, ensure_ascii=False)}
+
+[첨부 이미지]
+{build_attachment_context(req.attachments, image_analysis, forwarded_to_ols=forwarded_to_ols)}
+
+AIOps 리소스 원인분석 라우팅:
+- 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
+- alert 조회는 사용자가 "경고", "alert", "알람"을 명시했거나, 리소스 상태 조회 후 관련 경고를 보강할 때 사용하세요. "활성 alert에 없음"은 HPA, Pod, PVC, Job 장애가 없다는 뜻이 아닙니다.
+- HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 근거로 설명하세요.
+- Pod/Deployment/워크로드 이름이 주어졌지만 정확한 Pod 이름이 아니면 namespace의 Pod 목록을 먼저 조회하고, `metadata.name`, `labels.app`, ownerReferences가 질문 대상과 맞는 Pod를 선택해 상세 조회하세요.
+- `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 근거로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
+- PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 근거로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
+- namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 참고 링크만 단독으로 출력하지 마세요.
+
+OpenShift 경고 분석 프로토콜:
+- 사용자가 "최근 경고", "alert", "우선 확인 항목"을 묻는 경우 먼저 active alert 목록을 조회하세요.
+- 주요 alert별 상세 조사는 아래 순서를 따르세요. 해당 상세 조회가 실패하면 실패 사실과 이유를 답변에 포함하고, 확인하지 못한 원인은 추정으로만 표현하세요.
+- 상태 표현은 엄격히 구분하세요.
+  - "상세 확인됨": 관련 리소스 상세 조회를 수행했고, 답변에 쓰는 field path가 그 결과에 존재하는 경우에만 사용하세요.
+  - "Alert 근거 확인": active alert의 labels/annotations만 근거로 삼은 경우에 사용하세요.
+  - "추가 확인 필요": 상세 조회를 하지 않았거나 도구가 실패한 경우에 사용하세요.
+- 상세 조회를 실제로 호출하지 않은 리소스의 `status.conditions`, `containerStatuses`, `events`, Secret/ConfigMap 존재 여부를 확인했다고 쓰지 마세요.
+- KubePodNotReady:
+  1. alert label의 namespace/pod 값으로 `resources_get`을 사용해 `apiVersion: v1`, `kind: Pod`, `namespace`, `name`을 조회하세요.
+  2. Pod의 `status.conditions`, `status.containerStatuses[*].state.waiting.reason/message`, `spec.containers[*].image`, ownerReferences를 근거로 원인을 작성하세요.
+  3. 이벤트 조회 도구가 있으면 해당 namespace/pod의 events도 조회하세요. 이벤트 도구가 없거나 실패하면 events는 추가 확인 명령으로만 제시하세요.
+  4. container가 시작하지 못한 상태(ImagePullBackOff, ErrImagePull 등)이면 `oc logs`를 원인 확인의 첫 명령으로 제시하지 마세요.
+- ClusterNotUpgradeable:
+  1. `resources_get`으로 `apiVersion: config.openshift.io/v1`, `kind: ClusterVersion`, `name: version`을 조회하세요.
+  2. `status.conditions[type=Upgradeable]`의 status/reason/message를 최우선 근거로 사용하세요.
+  3. `ClusterOperator` 문제라고 쓰려면 ClusterOperator 상세나 요약에서 실제 Degraded/Unavailable/Progressing이 확인된 경우에만 그렇게 표현하세요.
+- AlertmanagerReceiversNotConfigured:
+  1. alert 결과만으로 ConfigMap 또는 Secret 이름을 만들어 조회하지 마세요.
+  2. Secret 내용은 권한 또는 보안 정책상 직접 조회가 제한될 수 있으므로, 조회 시도 대신 "설정 리소스 확인은 권한상 제한될 수 있음"으로 표현하고 사용자가 확인할 안전한 명령을 제시하세요.
+- etcdDatabaseHighFragmentationRatio:
+  1. alert annotation의 비율/instance/pod를 근거로 설명하세요.
+  2. defrag는 즉시 실행 지시가 아니라 상태 확인, 영향도 판단, 공식 절차 검토, 승인 후 수행으로 표현하세요.
+- Watchdog:
+  1. Alertmanager 경로 확인용 상시 경고로 분류하고 우선 조치 대상에서 제외하세요.
+
+답변 지침:
+- 실시간 클러스터 상태(경고, 이벤트, Pod, Node, 리소스, 메트릭, 로그)가 필요한 질문이면 OpenShift MCP 도구를 먼저 사용하세요.
+- 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
+- 도구를 사용할 수 없거나 결과가 부족하면 확인하지 못했다고 말하고 사용자가 확인할 명령을 제시하세요.
+- alert 이름이나 summary만으로 원인을 단정하지 마세요. 원인, 영향, 조치 우선순위는 관련 리소스 상세 조회 결과가 있을 때만 "확인됨"으로 표현하세요.
+- 도구 결과로 확인한 사실과 추가 확인이 필요한 추정을 분리해서 작성하세요. 최종 답변에는 각 주요 항목마다 "근거"를 짧게 포함하세요.
+- 도구 실패나 권한 제한이 있으면 숨기지 말고 "조회 실패/권한 제한" 항목으로 짧게 표시하세요.
+- 사용자가 실행 가능한 조치와 근거를 함께 제시하세요.
+- Secret, token, password, private key는 절대 출력하지 마세요.
+- etcd defrag, 리소스 삭제, 재시작, 설정 변경 같은 위험 작업은 "즉시 수행"으로 단정하지 말고 상태 확인, 영향 판단, 공식 절차 검토, 승인 후 수행 순서로 표현하세요.
+- KubePodNotReady는 대상 Pod의 status.containerStatuses와 events를 확인하기 전까지 원인을 단정하지 마세요. container가 시작하지 못한 상태면 oc logs를 우선 명령으로 제시하지 말고 oc describe pod/events를 먼저 제시하세요.
+- KubePodNotReady가 openshift-marketplace의 catalog Pod라면 이미지 풀, registry, CatalogSource/PackageManifest 영향 범위를 먼저 확인하고 일반 업무 서비스 장애로 단정하지 마세요.
+- ClusterNotUpgradeable는 ClusterOperator 장애로 단정하지 마세요. ClusterVersion conditions 또는 oc adm upgrade 상당 결과의 reason/message를 확인하고, ClusterOperator가 실제 Degraded/Unavailable/Progressing일 때만 Operator 문제라고 표현하세요.
+- AlertmanagerReceiversNotConfigured는 alert 결과만으로 특정 ConfigMap/Secret 이름을 만들지 말고, 권한상 직접 확인이 제한될 수 있음을 표시하세요.
+- Watchdog alert는 Alertmanager 경로 확인용 상시 경고임을 설명하고 우선 조치 대상에서 제외하세요.
+- Markdown은 GitHub Flavored Markdown으로 작성하고, 코드블록은 반드시 삼중 백틱으로 열고 삼중 백틱으로 닫으세요.
+- 코드블록 안에는 실행 가능한 명령만 넣고, "Pod 로그 확인" 같은 설명 문장은 코드블록 밖에 작성하세요.
+- OpenShift 관점에서 설명하세요.
+"""
+    return redact_sensitive(query)
+
+
+async def analyze_image_attachments(
+    attachments: list[ImageAttachment],
+    user_message: str,
+) -> str | None:
+    if not attachments:
+        return None
+
+    config = get_vision_config()
+    if not config:
+        return None
+
+    content: list[dict[str, Any]] = [
+        {
+            "type": "text",
+            "text": (
+                f"{VISION_SYSTEM_PROMPT}\n\n"
+                f"User request: {user_message.strip() or 'Analyze the attached OpenShift image.'}"
+            ),
+        }
+    ]
+    for attachment in attachments:
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{attachment.mimeType};base64,{attachment.data}",
+                },
+            }
+        )
+
+    headers = {"Content-Type": "application/json"}
+    api_key = config.get("api_key")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    payload = {
+        "model": config["model"],
+        "messages": [{"role": "user", "content": content}],
+        "temperature": 0,
+        "max_tokens": 800,
+    }
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0)) as client:
+        response = await client.post(
+            f"{config['base_url']}/chat/completions",
+            headers=headers,
+            json=payload,
+        )
+        if response.status_code >= 400:
+            body = response.text[:500]
+            return f"비전 분석 실패: provider returned HTTP {response.status_code}: {body}"
+
+        result = response.json()
+
+    choices = result.get("choices") if isinstance(result, Mapping) else None
+    if not isinstance(choices, list) or not choices:
+        return "비전 분석 실패: provider response did not include choices"
+
+    first_choice = choices[0]
+    if not isinstance(first_choice, Mapping):
+        return "비전 분석 실패: provider response choice format is invalid"
+
+    message = first_choice.get("message")
+    if not isinstance(message, Mapping):
+        return "비전 분석 실패: provider response message format is invalid"
+
+    content_text = message.get("content")
+    if isinstance(content_text, str) and content_text.strip():
+        return content_text.strip()
+
+    return "비전 분석 실패: provider response content is empty"
+
+
+async def stream_with_heartbeats(
+    events: AsyncIterator[dict[str, Any]],
+    run_id: str,
+) -> AsyncIterator[dict[str, Any]]:
+    queue: asyncio.Queue[dict[str, Any] | BaseException | None] = asyncio.Queue()
+    started_at = time.monotonic()
+
+    async def produce() -> None:
+        try:
+            async for event in events:
+                await queue.put(event)
+        except BaseException as exc:
+            await queue.put(exc)
+        finally:
+            await queue.put(None)
+
+    producer = asyncio.create_task(produce())
+
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=RUN_HEARTBEAT_SECONDS)
+            except TimeoutError:
+                yield {
+                    "type": "run_status",
+                    "runId": run_id,
+                    "stage": "waiting",
+                    "message": "Lightspeed 응답 스트림 대기 중",
+                    "elapsedMs": int((time.monotonic() - started_at) * 1000),
+                }
+                continue
+
+            if item is None:
+                break
+
+            if isinstance(item, BaseException):
+                raise item
+
+            yield item
+    finally:
+        if not producer.done():
+            producer.cancel()
+
+
+async def call_ols_stream(
+    user_auth_header: str,
+    query: str,
+    conversation_id: str | None,
+    attachments: list[ImageAttachment],
+) -> AsyncIterator[dict[str, Any]]:
+    if DEV_ECHO or not OLS_BASE_URL:
+        yield {
+            "type": "text",
+            "content": "DEV_ECHO: Gateway is running. Configure OLS_BASE_URL for Lightspeed streaming.\n\n",
+        }
+        yield {"type": "text", "content": query[:1200]}
+        yield {"type": "end", "conversationId": conversation_id}
+        return
+
+    payload = build_ols_payload(
+        query,
+        conversation_id,
+        attachments,
+        forward_image_attachments=should_forward_image_attachments_to_ols(),
+    )
+
+    async with httpx.AsyncClient(
+        verify=OLS_CA_FILE,
+        timeout=httpx.Timeout(300.0, connect=10.0),
+    ) as client:
+        async with client.stream(
+            "POST",
+            f"{OLS_BASE_URL}/v1/streaming_query",
+            headers={
+                "Accept": "text/event-stream",
+                "Authorization": user_auth_header,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        ) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=body.decode("utf-8", errors="replace"),
+                )
+
+            content_type = response.headers.get("content-type", "")
+            if "text/event-stream" not in content_type:
+                async for event in split_plain_text_events(response.aiter_text()):
+                    yield event
+                return
+
+            buffer = ""
+            async for chunk in response.aiter_text():
+                if not chunk:
+                    continue
+
+                buffer += chunk
+                frames = buffer.split("\n\n")
+                buffer = frames.pop() or ""
+
+                for frame in frames:
+                    data_lines = [
+                        line[len("data:") :].strip()
+                        for line in frame.splitlines()
+                        if line.startswith("data:")
+                    ]
+                    if not data_lines:
+                        continue
+
+                    raw = "\n".join(data_lines)
+                    if not raw or raw == "[DONE]":
+                        continue
+
+                    try:
+                        event = json.loads(raw)
+                    except json.JSONDecodeError:
+                        tool_event = parse_tool_text_line(raw)
+                        if tool_event:
+                            yield tool_event
+                        else:
+                            yield {"type": "text", "content": raw}
+                        continue
+
+                    yield event
+
+            if buffer.strip() and not buffer.lstrip().startswith("data:"):
+                async def iter_buffer() -> AsyncIterator[str]:
+                    yield buffer
+
+                async for event in split_plain_text_events(iter_buffer()):
+                    yield event
+
+
+def normalize_ols_event(event: dict[str, Any]) -> dict[str, Any]:
+    event_type = event.get("event") or event.get("type")
+
+    if event_type == "text":
+        return {
+            "type": "text",
+            "content": event.get("data") or event.get("content") or "",
+        }
+
+    if event_type == "end":
+        return {"type": "end", "conversationId": event.get("conversation_id")}
+
+    if event_type in {"tool_call", "tool_result"}:
+        if event.get("detail") is not None and event.get("summary") is not None:
+            return event
+
+        return normalize_tool_event(event_type, event)
+
+    return event
+
+
+async def fetch_ocp_json(
+    client: httpx.AsyncClient,
+    path: str,
+    authorization: str,
+    *,
+    required: bool = False,
+) -> Mapping[str, Any] | None:
+    response = await client.get(
+        f"{OPENSHIFT_API_URL}{path}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": authorization,
+        },
+    )
+    if response.status_code >= 400:
+        if required:
+            body = response.text[:500]
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"OpenShift API request failed for {path}: {body}",
+            )
+
+        return None
+
+    payload = response.json()
+    if isinstance(payload, Mapping):
+        return payload
+
+    return None
+
+
+@app.get("/v1/cluster/summary")
+async def cluster_summary(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    if not OPENSHIFT_API_URL:
+        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        nodes_payload = await fetch_ocp_json(
+            client,
+            "/api/v1/nodes",
+            user_auth_header,
+            required=True,
+        )
+        node_metrics_payload = await fetch_ocp_json(
+            client,
+            "/apis/metrics.k8s.io/v1beta1/nodes",
+            user_auth_header,
+        )
+        cluster_version_payload = await fetch_ocp_json(
+            client,
+            "/apis/config.openshift.io/v1/clusterversions/version",
+            user_auth_header,
+        )
+        cluster_operators_payload = await fetch_ocp_json(
+            client,
+            "/apis/config.openshift.io/v1/clusteroperators",
+            user_auth_header,
+        )
+
+    return build_cluster_summary(
+        nodes_payload or {"items": []},
+        node_metrics_payload,
+        cluster_version_payload,
+        cluster_operators_payload,
+    )
+
+
+@app.post("/v1/chat/stream")
+async def chat_stream(
+    req: ChatRequest,
+    authorization: str | None = Header(default=None),
+) -> StreamingResponse:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
+
+    async def generate() -> AsyncIterator[str]:
+        run_id = req.runId or f"run-{uuid.uuid4()}"
+
+        try:
+            yield sse(
+                {
+                    "type": "run_status",
+                    "runId": run_id,
+                    "stage": "started",
+                    "message": "Gateway 실행 루프 시작",
+                    "elapsedMs": 0,
+                }
+            )
+            yield sse({"type": "tool_call", "name": "access_check"})
+            await verify_user_access(authorization, req)
+            validate_image_attachments(req.attachments)
+            yield sse({"type": "tool_result", "name": "access_check", "result": "ok"})
+
+            if req.attachments:
+                yield sse({"type": "tool_call", "name": "attachment_check"})
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "name": "attachment_check",
+                        "result": {
+                            "images": len(req.attachments),
+                            "totalBytes": sum(item.size for item in req.attachments),
+                        },
+                    }
+                )
+
+            image_analysis = None
+            if req.attachments:
+                yield sse({"type": "tool_call", "name": "vision_analysis"})
+                image_analysis = await analyze_image_attachments(req.attachments, req.message)
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "name": "vision_analysis",
+                        "result": "ok" if image_analysis else "not_configured",
+                    }
+                )
+
+            yield sse(
+                {
+                    "type": "run_status",
+                    "runId": run_id,
+                    "stage": "lightspeed",
+                    "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
+                }
+            )
+            ols_query = build_ols_query(req, image_analysis)
+            async for ols_event in stream_with_heartbeats(
+                call_ols_stream(
+                    authorization,
+                    ols_query,
+                    req.conversationId,
+                    req.attachments,
+                ),
+                run_id,
+            ):
+                yield sse(normalize_ols_event(ols_event))
+
+            yield sse(
+                {
+                    "type": "run_status",
+                    "runId": run_id,
+                    "stage": "completed",
+                    "message": "Gateway 실행 루프 완료",
+                }
+            )
+            yield sse("[DONE]")
+        except HTTPException as exc:
+            yield sse(
+                {
+                    "type": "run_status",
+                    "runId": run_id,
+                    "stage": "failed",
+                    "message": str(exc.detail) or exc.__class__.__name__,
+                }
+            )
+            yield sse({"type": "error", "message": str(exc.detail) or exc.__class__.__name__})
+            yield sse("[DONE]")
+        except Exception as exc:
+            yield sse(
+                {
+                    "type": "run_status",
+                    "runId": run_id,
+                    "stage": "failed",
+                    "message": str(exc) or exc.__class__.__name__,
+                }
+            )
+            yield sse({"type": "error", "message": str(exc) or exc.__class__.__name__})
+            yield sse("[DONE]")
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

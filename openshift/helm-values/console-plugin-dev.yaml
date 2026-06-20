@@ -1,0 +1,12 @@
+plugin:
+  name: komsco-ai-console-plugin
+  displayName: KOMSCO AI Assistant
+  description: KOMSCO AI assistant for OpenShift operations.
+  image: image-registry.openshift-image-registry.svc:5000/komsco-ai-dev/komsco-ai-console-plugin:dev
+  imagePullPolicy: Always
+  replicas: 1
+  port: 9443
+  gateway:
+    name: komsco-ai-gateway
+    namespace: komsco-ai-dev
+    port: 8443

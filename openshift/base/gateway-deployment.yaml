@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: komsco-ai-gateway
+  labels:
+    app: komsco-ai-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: komsco-ai-gateway
+  template:
+    metadata:
+      labels:
+        app: komsco-ai-gateway
+    spec:
+      serviceAccountName: komsco-ai-gateway
+      containers:
+        - name: gateway
+          image: komsco-ai-gateway:dev
+          imagePullPolicy: Always
+          ports:
+            - name: https
+              containerPort: 8443
+          env:
+            - name: OLS_BASE_URL
+              value: "https://lightspeed-app-server.openshift-lightspeed.svc:8443"
+            - name: OLS_CA_FILE
+              value: "/var/run/configmaps/service-ca/service-ca.crt"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+          volumeMounts:
+            - name: tls
+              mountPath: /var/run/secrets/tls
+              readOnly: true
+            - name: service-ca
+              mountPath: /var/run/configmaps/service-ca
+              readOnly: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tls
+          secret:
+            secretName: komsco-ai-gateway-tls
+        - name: service-ca
+          configMap:
+            name: komsco-ai-service-ca

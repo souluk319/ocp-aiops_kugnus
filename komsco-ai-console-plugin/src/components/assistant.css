@@ -1,0 +1,1970 @@
+.komsco-ai {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 9999;
+}
+
+.komsco-ai__fab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  color: var(
+    --pf-t--global--text--color--on-brand--default,
+    var(--pf-t--global--text--color--inverse)
+  );
+  background-color: var(
+    --pf-t--global--background--color--brand--default,
+    var(--pf-t--global--color--brand--default)
+  );
+  border-radius: 999px;
+  box-shadow: var(--pf-t--global--box-shadow--lg);
+}
+
+.komsco-ai__fab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+
+.komsco-ai__fab-status {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 12px;
+  height: 12px;
+  background-color: var(
+    --pf-t--global--color--status--success--default,
+    var(--pf-t--global--color--brand--default)
+  );
+  border: 2px solid var(--pf-t--global--background--color--primary--default);
+  border-radius: 999px;
+}
+
+.komsco-ai__panel {
+  display: flex;
+  width: 448px;
+  height: min(680px, calc(100vh - 48px));
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+  box-shadow: var(--pf-t--global--box-shadow--lg);
+}
+
+.komsco-ai__panel--fullscreen {
+  position: fixed;
+  inset: 24px;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+}
+
+.komsco-ai__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border-block-end: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.komsco-ai__brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.komsco-ai__brand-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--pf-t--global--icon--color--brand--default);
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai__brand-copy {
+  min-width: 0;
+}
+
+.komsco-ai__title {
+  display: block;
+  overflow: hidden;
+  font-size: var(--pf-t--global--font--size--body--default);
+  line-height: 1.25;
+  color: var(--pf-t--global--text--color--regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__subtitle {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-block-start: 2px;
+  overflow: hidden;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  line-height: 1.3;
+  color: var(--pf-t--global--text--color--subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  background-color: var(
+    --pf-t--global--color--status--success--default,
+    var(--pf-t--global--color--brand--default)
+  );
+  border-radius: 999px;
+}
+
+.komsco-ai__header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
+  align-self: flex-start;
+}
+
+.komsco-ai__icon-button {
+  flex: 0 0 auto;
+}
+
+.komsco-ai__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.komsco-ai__empty {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.komsco-ai__empty-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-block-end: 16px;
+  font-size: 24px;
+  color: var(--pf-t--global--icon--color--brand--default);
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+  box-shadow: var(--pf-t--global--box-shadow--sm);
+}
+
+.komsco-ai__empty-title {
+  font-size: var(--pf-t--global--font--size--body--lg);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  line-height: 1.3;
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai__empty-text {
+  max-width: 320px;
+  margin-block-start: 8px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  line-height: 1.55;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__quick-prompts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin-block-start: 20px;
+}
+
+.komsco-ai__quick-prompt {
+  min-width: 0;
+  min-height: 40px;
+  border-radius: 8px;
+}
+
+.komsco-ai__quick-prompt-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin-inline-end: 6px;
+}
+
+.komsco-ai__quick-prompt-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__message {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+}
+
+.komsco-ai__message--user {
+  flex-direction: row-reverse;
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__message {
+  width: min(920px, 100%);
+  max-width: min(920px, 100%);
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__message--assistant,
+.komsco-ai__panel--fullscreen .komsco-ai__message--system {
+  align-self: flex-start;
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__message--user {
+  align-self: flex-end;
+}
+
+.komsco-ai__message-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  width: min(100%, 760px);
+  max-width: calc(100% - 40px);
+}
+
+.komsco-ai__message--user .komsco-ai__message-stack {
+  align-items: flex-end;
+  width: auto;
+}
+
+.komsco-ai__message--assistant .komsco-ai__message-stack,
+.komsco-ai__message--system .komsco-ai__message-stack {
+  align-items: flex-start;
+  flex: 1 1 auto;
+}
+
+.komsco-ai__message-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-block-start: 4px;
+  color: var(--pf-t--global--icon--color--regular);
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai__message-content {
+  min-width: 0;
+  width: 100%;
+  padding: 10px 12px;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+  box-shadow: var(--pf-t--global--box-shadow--sm);
+}
+
+.komsco-ai__message--user .komsco-ai__message-content {
+  width: auto;
+  max-width: min(360px, 100%);
+  border-color: var(
+    --pf-t--global--border--color--brand--default,
+    var(--pf-t--global--border--color--default)
+  );
+}
+
+.komsco-ai__message--system .komsco-ai__message-content {
+  border-color: var(
+    --pf-t--global--border--color--status--warning--default,
+    var(--pf-t--global--border--color--default)
+  );
+}
+
+.komsco-ai__message-label {
+  max-width: 100%;
+  padding: 2px 7px;
+  overflow: hidden;
+  font-size: var(--pf-t--global--font--size--body--xs);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  line-height: 1.25;
+  color: var(--pf-t--global--text--color--subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai__message-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  font-size: var(--pf-t--global--font--size--body--default);
+  line-height: 1.55;
+  color: var(--pf-t--global--text--color--regular);
+  white-space: pre-wrap;
+}
+
+.komsco-ai__attachment-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin-block-start: 2px;
+}
+
+.komsco-ai__attachment-card {
+  display: grid;
+  grid-template-rows: 76px auto;
+  width: 118px;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  cursor: zoom-in;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai__attachment-card:hover {
+  border-color: var(
+    --pf-t--global--border--color--brand--default,
+    var(--pf-t--global--border--color--default)
+  );
+}
+
+.komsco-ai__attachment-image {
+  width: 100%;
+  height: 76px;
+  object-fit: cover;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border-block-end: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.komsco-ai__attachment-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 8px;
+}
+
+.komsco-ai__attachment-name,
+.komsco-ai__attachment-size {
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__attachment-name {
+  font-size: var(--pf-t--global--font--size--body--xs);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai__attachment-size {
+  font-size: var(--pf-t--global--font--size--body--xs);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__formatted {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--pf-t--global--font--size--body--default);
+  line-height: 1.6;
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai__formatted-line {
+  min-width: 0;
+}
+
+.komsco-ai__formatted-heading {
+  margin-block-start: 4px;
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai__formatted-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-inline-start: 18px;
+  margin: 0;
+}
+
+.komsco-ai__formatted-list-item {
+  padding-inline-start: 2px;
+}
+
+.komsco-ai__formatted-list--ordered {
+  padding-inline-start: 22px;
+}
+
+.komsco-ai__formatted-divider {
+  height: 1px;
+  margin-block: 4px;
+  background-color: var(--pf-t--global--border--color--default);
+}
+
+.komsco-ai__formatted-strong {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai__formatted-link {
+  color: var(--pf-t--global--link--color--default);
+  text-decoration: none;
+}
+
+.komsco-ai__formatted-link:hover {
+  color: var(--pf-t--global--link--color--hover);
+  text-decoration: underline;
+}
+
+.komsco-ai__formatted-code {
+  padding: 1px 5px;
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: 0.92em;
+  color: var(--pf-t--global--text--color--regular);
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 4px;
+}
+
+.komsco-ai__formatted-code-block {
+  max-width: 100%;
+  padding: 10px 12px;
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  line-height: 1.55;
+  color: var(--pf-t--global--text--color--regular);
+  white-space: pre;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai__formatted-code-block code {
+  font-family: inherit;
+}
+
+.komsco-ai__table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai__table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: var(--pf-t--global--font--size--body--sm);
+}
+
+.komsco-ai__table th,
+.komsco-ai__table td {
+  padding: 8px 10px;
+  text-align: start;
+  vertical-align: top;
+  border-block-end: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.komsco-ai__table th {
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  color: var(--pf-t--global--text--color--regular);
+  background-color: var(--pf-t--global--background--color--secondary--default);
+}
+
+.komsco-ai__table tr:last-child td {
+  border-block-end: 0;
+}
+
+.komsco-ai__reference-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-block-start: 2px;
+}
+
+.komsco-ai__reference-link {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 10px;
+  color: var(--pf-t--global--text--color--regular);
+  text-decoration: none;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai__reference-link:hover {
+  border-color: var(
+    --pf-t--global--border--color--brand--default,
+    var(--pf-t--global--border--color--default)
+  );
+  color: var(--pf-t--global--link--color--hover);
+  background-color: var(--pf-t--global--background--color--primary--default);
+}
+
+.komsco-ai__reference-title {
+  overflow: hidden;
+  font-size: var(--pf-t--global--font--size--body--xs);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__progress {
+  width: 100%;
+  min-width: 0;
+}
+
+.komsco-ai__progress-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 6px 0 10px;
+  color: var(--pf-t--global--text--color--subtle);
+  cursor: pointer;
+  border-block-end: 1px solid var(--pf-t--global--border--color--default);
+  list-style: none;
+}
+
+.komsco-ai__progress-summary::-webkit-details-marker {
+  display: none;
+}
+
+.komsco-ai__progress-toggle {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-block-start: 1px solid currentcolor;
+  border-inline-end: 1px solid currentcolor;
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.komsco-ai__progress[open] > .komsco-ai__progress-summary .komsco-ai__progress-toggle {
+  transform: rotate(135deg);
+}
+
+.komsco-ai__progress-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-block: 12px 2px;
+}
+
+.komsco-ai__progress-step {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__progress-status {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-block-start: 2px;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__progress-status::before {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background-color: currentcolor;
+  border-radius: 999px;
+}
+
+.komsco-ai__progress-status--completed {
+  color: var(
+    --pf-t--global--color--status--success--default,
+    var(--pf-t--global--color--brand--default)
+  );
+}
+
+.komsco-ai__progress-status--running {
+  color: var(--pf-t--global--color--status--info--default);
+}
+
+.komsco-ai__progress-status--running::after {
+  position: absolute;
+  inset: 2px;
+  content: "";
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  animation: komsco-ai-pulse-ring 1.4s ease-out infinite;
+}
+
+.komsco-ai__progress-status--failed {
+  color: var(--pf-t--global--color--status--danger--default);
+}
+
+.komsco-ai__progress-step-copy {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.komsco-ai__progress-step-title,
+.komsco-ai__progress-step-activity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__progress-step-title {
+  font-size: var(--pf-t--global--font--size--body--sm);
+  font-weight: var(--pf-t--global--font--weight--body--bold);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__progress-step--running .komsco-ai__progress-step-title {
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai__progress-step-separator {
+  flex: 0 0 auto;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__progress-step-activity {
+  flex: 1 1 auto;
+  font-size: var(--pf-t--global--font--size--body--xs);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__progress-step-meta {
+  flex: 0 0 auto;
+  margin-inline-start: auto;
+  font-size: var(--pf-t--global--font--size--body--xs);
+  color: var(--pf-t--global--text--color--subtle);
+  white-space: nowrap;
+}
+
+@keyframes komsco-ai-pulse-ring {
+  0% {
+    opacity: 0.8;
+    transform: scale(0.7);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+.komsco-ai__loading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  align-self: flex-start;
+  padding: 8px 10px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  color: var(--pf-t--global--text--color--subtle);
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai__input {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  align-items: flex-end;
+  padding: 12px;
+  background-color: var(--pf-t--global--background--color--primary--default);
+  border-block-start: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.komsco-ai__input--drag-active {
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  box-shadow: inset 0 0 0 2px var(--pf-t--global--border--color--brand--default);
+}
+
+.komsco-ai__composer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.komsco-ai__pending-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.komsco-ai__pending-attachment {
+  position: relative;
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  min-width: 0;
+}
+
+.komsco-ai__pending-attachment-preview {
+  display: block;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  overflow: hidden;
+  cursor: zoom-in;
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 8%);
+}
+
+.komsco-ai__pending-attachment-preview:hover {
+  border-color: var(
+    --pf-t--global--border--color--brand--default,
+    var(--pf-t--global--border--color--default)
+  );
+}
+
+.komsco-ai__pending-attachment-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.komsco-ai__pending-attachment-size,
+.komsco-ai__attachment-error {
+  font-size: var(--pf-t--global--font--size--body--xs);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__attachment-error {
+  color: var(--pf-t--global--color--status--danger--default);
+}
+
+.komsco-ai__attachment-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  min-width: 19px;
+  padding: 0;
+  color: rgb(255 255 255);
+  background: rgb(15 23 42);
+  border: 1px solid rgb(255 255 255);
+  border-radius: 999px;
+  box-shadow: 0 2px 5px rgb(15 23 42 / 24%);
+}
+
+.komsco-ai__attachment-remove:hover {
+  color: rgb(255 255 255);
+  background: rgb(51 65 85);
+}
+
+.komsco-ai__attachment-remove svg {
+  width: 9px;
+  height: 9px;
+}
+
+.komsco-ai__file-input {
+  display: none;
+}
+
+.komsco-ai__textarea {
+  min-height: 76px;
+  resize: none;
+}
+
+.komsco-ai__attach,
+.komsco-ai__send {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+@media (width <= 640px) {
+  .komsco-ai {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+  }
+
+  .komsco-ai__fab {
+    margin-inline-start: auto;
+  }
+
+  .komsco-ai__panel {
+    width: 100%;
+    max-width: none;
+    height: min(640px, calc(100vh - 24px));
+  }
+
+  .komsco-ai__panel--fullscreen {
+    inset: 8px;
+    width: auto;
+    height: auto;
+  }
+
+  .komsco-ai__quick-prompts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Demo-aligned OCP operations copilot redesign */
+.komsco-ai {
+  --komsco-ink-950: #0b1220;
+  --komsco-ink-900: #111827;
+  --komsco-ink-700: #334155;
+  --komsco-ink-600: #526173;
+  --komsco-surface: #ffffff;
+  --komsco-surface-2: #f7f9fc;
+  --komsco-surface-3: #eef3f8;
+  --komsco-line: #dbe3ee;
+  --komsco-line-soft: #e8eef6;
+  --komsco-blue-600: #2563eb;
+  --komsco-blue-700: #174ea6;
+  --komsco-blue-soft: #eff6ff;
+  --komsco-green-soft: #f0fdf4;
+  --komsco-amber-soft: #fff7ed;
+  right: 16px;
+  bottom: 16px;
+  font-family: Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+}
+
+.komsco-ai__panel {
+  flex-direction: column;
+  width: 620px;
+  height: min(852px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  background: var(--komsco-surface);
+  border: 1px solid #bcc9db;
+  border-radius: 20px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+}
+
+.komsco-ai__panel--fullscreen {
+  top: 16px !important;
+  right: 16px !important;
+  bottom: 16px !important;
+  left: 16px !important;
+  width: auto !important;
+  height: auto;
+  max-width: none !important;
+  transform: none !important;
+}
+
+.komsco-ai__header {
+  position: relative;
+  min-height: 76px;
+  padding: 14px 16px;
+  color: #fff;
+  background: var(--komsco-ink-950);
+  border-block-end: 0;
+}
+
+.komsco-ai__header::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  content: "";
+  background: var(--komsco-blue-600);
+}
+
+.komsco-ai__brand-mark {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  color: #cfe3ff;
+  background: #172337;
+  border-color: rgba(255, 255, 255, 0.14);
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.komsco-ai__brand-mark::after {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  content: "";
+  background: #22c55e;
+  border: 2px solid var(--komsco-ink-950);
+  border-radius: 999px;
+}
+
+.komsco-ai__kicker {
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1.1;
+  color: #8facd7;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.komsco-ai__title {
+  margin-block-start: 3px;
+  font-size: 14px;
+  font-weight: 760;
+  line-height: 1.1;
+  color: #fff;
+}
+
+.komsco-ai__subtitle {
+  margin-block-start: 3px;
+  font-size: 10px;
+  color: #aab8c9;
+}
+
+.komsco-ai__status-dot {
+  display: none;
+}
+
+.komsco-ai__icon-button {
+  width: 34px;
+  height: 34px;
+  color: #c7d2e0;
+  border-radius: 9px;
+}
+
+.komsco-ai__icon-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.komsco-ai__context-strip {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 43px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: #fff;
+  border-block-end: 1px solid var(--komsco-line-soft);
+  scrollbar-width: none;
+}
+
+.komsco-ai__context-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.komsco-ai__context-pill {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 31px;
+  padding: 0 11px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--komsco-ink-600);
+  background: var(--komsco-surface-2);
+  border: 1px solid var(--komsco-line);
+  border-radius: 999px;
+}
+
+.komsco-ai__context-pill svg {
+  width: 12px;
+  height: 12px;
+}
+
+.komsco-ai__context-pill--alert {
+  color: #9a3412;
+  background: var(--komsco-amber-soft);
+  border-color: #fed7aa;
+}
+
+.komsco-ai__context-pill--ok {
+  color: #166534;
+  background: var(--komsco-green-soft);
+  border-color: #bbf7d0;
+}
+
+.komsco-ai__context-pill--danger {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__context-pill--safe {
+  margin-inline-start: auto;
+  color: #166534;
+  background: var(--komsco-green-soft);
+  border-color: #bbf7d0;
+}
+
+.komsco-ai__workspace {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  background: var(--komsco-surface-2);
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__workspace {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+
+.komsco-ai__chat-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.komsco-ai__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 18px 16px 14px;
+  background: var(--komsco-surface-2);
+  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-width: thin;
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__body {
+  padding: 28px 32px 20px;
+}
+
+.komsco-ai__conversation-inner {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__conversation-inner {
+  max-width: min(1120px, 100%);
+}
+
+.komsco-ai__empty {
+  min-height: 280px;
+}
+
+.komsco-ai__empty-mark {
+  color: var(--komsco-blue-700);
+  border-color: #d8e2ee;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.komsco-ai__empty-title {
+  font-size: 18px;
+  font-weight: 760;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__empty-text {
+  font-size: 12px;
+  color: var(--komsco-ink-600);
+}
+
+.komsco-ai__message {
+  gap: 8px;
+  margin-block-end: 18px;
+}
+
+.komsco-ai__message-avatar {
+  width: 27px;
+  height: 27px;
+  color: var(--komsco-blue-700);
+  background: #fff;
+  border-color: #d8e2ee;
+  border-radius: 9px;
+}
+
+.komsco-ai__message--user {
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+.komsco-ai__message--user .komsco-ai__message-avatar {
+  display: none;
+}
+
+.komsco-ai__message--user .komsco-ai__message-stack {
+  align-items: flex-end;
+  width: fit-content;
+  max-width: min(82%, 680px);
+  margin-inline-start: auto;
+}
+
+.komsco-ai__message-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+}
+
+.komsco-ai__message--user .komsco-ai__message-head {
+  justify-content: flex-end;
+}
+
+.komsco-ai__message-label {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--komsco-ink-900);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.komsco-ai__message--assistant .komsco-ai__message-label::after {
+  margin-inline-start: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #8a98aa;
+  content: "· OLS 기반 분석";
+}
+
+.komsco-ai__message-copy {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  color: #607087;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #dce4ee;
+  border-radius: 999px;
+}
+
+.komsco-ai__message-copy:hover {
+  color: var(--komsco-blue-700);
+  background: var(--komsco-blue-soft);
+  border-color: #bfd7ff;
+}
+
+.komsco-ai__message-copy svg {
+  width: 11px;
+  height: 11px;
+}
+
+.komsco-ai__message-content {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.komsco-ai__message--user .komsco-ai__message-content {
+  width: auto;
+  max-width: 100%;
+  padding: 11px 13px;
+  color: #153e75;
+  background: #eef6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px 14px 4px;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.05);
+}
+
+.komsco-ai__message--assistant .komsco-ai__message-stack,
+.komsco-ai__message--system .komsco-ai__message-stack {
+  width: 100%;
+  max-width: 100%;
+}
+
+.komsco-ai__formatted {
+  gap: 9px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--komsco-ink-700);
+}
+
+.komsco-ai__formatted-heading {
+  margin: 0 0 2px;
+  font-size: 18px;
+  font-weight: 760;
+  line-height: 1.35;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__formatted-line {
+  color: var(--komsco-ink-600);
+}
+
+.komsco-ai__table-wrap {
+  background: #fff;
+  border-color: #d7e2ef;
+  border-radius: 13px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+}
+
+.komsco-ai__table {
+  min-width: 580px;
+  font-size: 11px;
+}
+
+.komsco-ai__table th {
+  color: var(--komsco-ink-700);
+  background: var(--komsco-surface-3);
+}
+
+.komsco-ai__formatted-list--ordered {
+  display: grid;
+  gap: 9px;
+  padding-inline-start: 0;
+  list-style: none;
+  counter-reset: komsco-runbook;
+}
+
+.komsco-ai__formatted-list--ordered > .komsco-ai__formatted-list-item {
+  position: relative;
+  min-height: 52px;
+  padding: 13px 14px 13px 48px;
+  overflow: hidden;
+  color: var(--komsco-ink-900);
+  background: #fff;
+  border: 1px solid var(--komsco-line);
+  border-radius: 13px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+  counter-increment: komsco-runbook;
+}
+
+.komsco-ai__formatted-list--ordered > .komsco-ai__formatted-list-item::before {
+  position: absolute;
+  top: 13px;
+  left: 13px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+  font-weight: 780;
+  color: var(--komsco-ink-700);
+  content: counter(komsco-runbook, decimal-leading-zero);
+  background: var(--komsco-surface-3);
+  border-radius: 9px;
+}
+
+.komsco-ai__formatted-list:not(.komsco-ai__formatted-list--ordered) {
+  gap: 5px;
+  padding-inline-start: 17px;
+  font-size: 12px;
+  color: var(--komsco-ink-600);
+}
+
+.komsco-ai__formatted-code-block {
+  position: relative;
+  padding: 11px 42px 11px 12px;
+  font-size: 10px;
+  line-height: 1.65;
+  color: #dce8f7;
+  background: #111b2b;
+  border-color: #202c3e;
+  border-radius: 10px;
+}
+
+.komsco-ai__code-copy {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  color: #aabbd0;
+  cursor: pointer;
+  background: #202d40;
+  border: 0;
+  border-radius: 7px;
+}
+
+.komsco-ai__code-copy:hover {
+  color: #fff;
+  background: #2c3d55;
+}
+
+.komsco-ai__code-copy svg {
+  width: 13px;
+  height: 13px;
+}
+
+.komsco-ai__reference-link {
+  padding: 5px 8px;
+  font-size: 10px;
+  color: #536276;
+  background: #fff;
+  border-color: #dce4ee;
+}
+
+.komsco-ai__progress {
+  margin-block: 2px 10px;
+}
+
+.komsco-ai__progress-summary {
+  padding: 0 0 10px;
+  font-size: 9px;
+  border-block-end-color: #e1e7ef;
+}
+
+.komsco-ai__progress-list {
+  gap: 10px;
+}
+
+.komsco-ai__progress-step-title {
+  font-size: 11px;
+}
+
+.komsco-ai__progress-step-activity,
+.komsco-ai__progress-step-meta {
+  font-size: 10px;
+}
+
+.komsco-ai__composer-wrap {
+  flex: 0 0 auto;
+  padding: 10px 12px 12px;
+  background: rgba(255, 255, 255, 0.96);
+  border-block-start: 1px solid var(--komsco-line-soft);
+  backdrop-filter: blur(10px);
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__composer-wrap {
+  padding: 12px 24px 16px;
+}
+
+.komsco-ai__composer-wrap--drag-active {
+  box-shadow: inset 0 0 0 2px #93b9ff;
+}
+
+.komsco-ai__quick-prompts {
+  display: flex;
+  grid-template-columns: none;
+  gap: 6px;
+  width: 100%;
+  margin-block: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.komsco-ai__quick-prompts::-webkit-scrollbar {
+  display: none;
+}
+
+.komsco-ai__quick-prompt {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 31px;
+  padding: 0 11px;
+  font-size: 11px;
+  line-height: 1;
+  color: #536276;
+  background: #f8fafc;
+  border: 1px solid #dce4ee;
+  border-radius: 999px;
+}
+
+.komsco-ai__quick-prompt:hover {
+  color: var(--komsco-blue-700);
+  background: var(--komsco-blue-soft);
+  border-color: #bfd7ff;
+}
+
+.komsco-ai__quick-prompt .pf-v6-c-button__text,
+.komsco-ai__quick-prompt .pf-c-button__text {
+  display: inline-flex;
+  align-items: center;
+}
+
+.komsco-ai__input {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 36px;
+  gap: 7px;
+  align-items: end;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #cfd9e6;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.komsco-ai__input:focus-within {
+  border-color: #93b9ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.komsco-ai__attach {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  color: #607087;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+}
+
+.komsco-ai__attach:hover {
+  color: var(--komsco-blue-700);
+  background: #eef5ff;
+}
+
+.komsco-ai__composer {
+  gap: 6px;
+  min-height: 34px;
+}
+
+.komsco-ai__textarea {
+  min-height: 34px;
+  max-height: 110px;
+  padding: 8px 2px 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--komsco-ink-900);
+  background: transparent;
+  border: 0;
+}
+
+.komsco-ai__send {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  color: #fff;
+  background: var(--komsco-blue-600);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 5px 12px rgba(37, 99, 235, 0.22);
+}
+
+.komsco-ai__send:hover {
+  background: var(--komsco-blue-700);
+}
+
+.komsco-ai__send svg {
+  width: 15px;
+  height: 15px;
+}
+
+.komsco-ai__send .pf-v6-c-button__icon,
+.komsco-ai__send .pf-c-button__icon,
+.komsco-ai__send .pf-v6-c-button__text,
+.komsco-ai__send .pf-c-button__text {
+  display: inline-grid;
+  place-items: center;
+  margin: 0;
+}
+
+.komsco-ai__image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgb(15 23 42 / 72%);
+  backdrop-filter: blur(6px);
+}
+
+.komsco-ai__image-lightbox-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1080px, 100%);
+  max-height: min(820px, calc(100vh - 56px));
+  overflow: hidden;
+  background: rgb(255 255 255);
+  border: 1px solid rgb(226 232 240 / 92%);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 32%);
+}
+
+.komsco-ai__image-lightbox-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 12px 14px;
+  border-block-end: 1px solid rgb(226 232 240);
+}
+
+.komsco-ai__image-lightbox-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.komsco-ai__image-lightbox-title strong,
+.komsco-ai__image-lightbox-title span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__image-lightbox-title strong {
+  font-size: 13px;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__image-lightbox-title span {
+  font-size: 11px;
+  color: rgb(100 116 139);
+}
+
+.komsco-ai__image-lightbox-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  color: rgb(71 85 105);
+  border-radius: 9px;
+}
+
+.komsco-ai__image-lightbox-body {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 16px;
+  overflow: auto;
+  background: rgb(248 250 252);
+}
+
+.komsco-ai__image-lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgb(148 163 184 / 35%);
+}
+
+@media (width <= 640px) {
+  .komsco-ai__image-lightbox {
+    padding: 10px;
+  }
+
+  .komsco-ai__image-lightbox-panel {
+    max-height: calc(100vh - 20px);
+    border-radius: 12px;
+  }
+
+  .komsco-ai__image-lightbox-body {
+    padding: 10px;
+  }
+
+  .komsco-ai__image-lightbox-image {
+    max-height: calc(100vh - 118px);
+  }
+}
+
+.komsco-ai__composer-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 7px 2px 0;
+  overflow: hidden;
+  font-size: 10px;
+  color: #8a98a9;
+}
+
+.komsco-ai__composer-foot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__read-only {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.komsco-ai__read-only::before {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  content: "";
+  background: #22c55e;
+  border-radius: 999px;
+}
+
+.komsco-ai__insight-rail {
+  display: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+  overflow-y: auto;
+  background: #fff;
+  border-inline-start: 1px solid var(--komsco-line-soft);
+}
+
+.komsco-ai__panel--fullscreen .komsco-ai__insight-rail {
+  display: block;
+}
+
+.komsco-ai__rail-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 780;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__health-card {
+  padding: 14px;
+  background: var(--komsco-surface-2);
+  border: 1px solid #dce5ef;
+  border-radius: 13px;
+}
+
+.komsco-ai__health-card--ok {
+  border-color: #bbf7d0;
+}
+
+.komsco-ai__health-card--warn {
+  border-color: #fed7aa;
+}
+
+.komsco-ai__health-card--danger {
+  border-color: #fecaca;
+}
+
+.komsco-ai__health-head,
+.komsco-ai__rail-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.komsco-ai__health-head span,
+.komsco-ai__rail-section-head span {
+  font-size: 10px;
+  color: #637286;
+}
+
+.komsco-ai__health-score {
+  margin-block-start: 6px;
+  font-size: 30px;
+  font-weight: 790;
+  line-height: 1;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__health-score small {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8391a3;
+}
+
+.komsco-ai__health-bar {
+  height: 7px;
+  margin-block-start: 11px;
+  overflow: hidden;
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+.komsco-ai__health-bar > span {
+  display: block;
+  width: 72%;
+  height: 100%;
+  background: var(--komsco-blue-600);
+  border-radius: inherit;
+}
+
+.komsco-ai__health-bar-fill--ok {
+  background: #16a34a !important;
+}
+
+.komsco-ai__health-bar-fill--warn {
+  background: #f59e0b !important;
+}
+
+.komsco-ai__health-bar-fill--danger {
+  background: #ef4444 !important;
+}
+
+.komsco-ai__health-bar-fill--neutral {
+  background: #94a3b8 !important;
+}
+
+.komsco-ai__rail-section {
+  margin-block-start: 20px;
+}
+
+.komsco-ai__rail-section-head {
+  margin-block-end: 9px;
+}
+
+.komsco-ai__rail-section-head strong {
+  font-size: 11px;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__alert-mini {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 10px 0;
+  border-block-end: 1px solid #eef2f6;
+}
+
+.komsco-ai__alert-mini-dot {
+  width: 7px;
+  height: 7px;
+  margin-block-start: 4px;
+  background: #ef4444;
+  border-radius: 999px;
+}
+
+.komsco-ai__alert-mini-dot--amber {
+  background: #f59e0b;
+}
+
+.komsco-ai__alert-mini-title {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 680;
+  line-height: 1.4;
+  color: var(--komsco-ink-900);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__alert-mini-sub {
+  margin-block-start: 3px;
+  overflow: hidden;
+  font-size: 10px;
+  color: #8a98aa;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__rail-badge {
+  align-self: start;
+  padding: 3px 6px;
+  font-size: 8.5px;
+  font-weight: 750;
+  color: #7f1d1d;
+  background: #fee2e2;
+  border-radius: 999px;
+}
+
+.komsco-ai__rail-badge--med {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.komsco-ai__rail-badge--review {
+  color: #1e40af;
+  background: #dbeafe;
+}
+
+.komsco-ai__rail-badge--ok {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.komsco-ai__alert-mini-dot--green {
+  background: #22c55e;
+}
+
+.komsco-ai__scope-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.komsco-ai__scope-tag {
+  padding: 5px 7px;
+  font-size: 10px;
+  color: #536276;
+  background: #fff;
+  border: 1px solid #dce4ee;
+  border-radius: 7px;
+}
+
+.komsco-ai__scope-tag--ok {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.komsco-ai__scope-tag--warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.komsco-ai__scope-tag--danger {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__scope-tag--review {
+  color: #1e40af;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.komsco-ai__scope-tag--neutral {
+  color: #536276;
+  background: #fff;
+  border-color: #dce4ee;
+}
+
+.komsco-ai__rail-command {
+  padding: 10px;
+  background: #f8fafc;
+  border: 1px solid #e1e7ef;
+  border-radius: 10px;
+}
+
+.komsco-ai__rail-command--warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.komsco-ai__rail-command--danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__rail-command + .komsco-ai__rail-command {
+  margin-block-start: 7px;
+}
+
+.komsco-ai__rail-command code {
+  font-size: 10px;
+  color: #334155;
+}
+
+.komsco-ai__rail-command p {
+  margin: 5px 0 0;
+  font-size: 9.5px;
+  color: #8a98aa;
+}
+
+.komsco-ai__rail-error,
+.komsco-ai__rail-empty {
+  margin-block-start: 10px;
+  padding: 9px 10px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: #536276;
+  background: #f8fafc;
+  border: 1px solid #e1e7ef;
+  border-radius: 10px;
+}
+
+.komsco-ai__rail-error {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+@media (width <= 760px) {
+  .komsco-ai__panel,
+  .komsco-ai__panel--fullscreen {
+    position: fixed;
+    inset: 8px;
+    width: auto;
+    height: auto;
+    max-width: none;
+    border-radius: 16px;
+    transform: none;
+  }
+
+  .komsco-ai__panel--fullscreen .komsco-ai__workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .komsco-ai__panel--fullscreen .komsco-ai__insight-rail {
+    display: none;
+  }
+
+  .komsco-ai__panel--fullscreen .komsco-ai__body {
+    padding: 18px 16px 14px;
+  }
+}

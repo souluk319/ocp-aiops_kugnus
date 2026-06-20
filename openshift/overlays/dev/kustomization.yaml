@@ -1,0 +1,49 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - lightspeed-networkpolicy.yaml
+  - namespace.yaml
+images:
+  - name: komsco-ai-gateway
+    newName: image-registry.openshift-image-registry.svc:5000/komsco-ai-dev/komsco-ai-gateway
+    newTag: dev
+patches:
+  - target:
+      kind: ServiceAccount
+      name: komsco-ai-gateway
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: ConfigMap
+      name: komsco-ai-service-ca
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: Service
+      name: komsco-ai-gateway
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: Deployment
+      name: komsco-ai-gateway
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: ClusterRoleBinding
+      name: komsco-ai-gateway-auth-delegator
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: komsco-ai-dev-gateway-auth-delegator
+      - op: replace
+        path: /subjects/0/namespace
+        value: komsco-ai-dev

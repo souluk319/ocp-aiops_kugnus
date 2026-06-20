@@ -1,0 +1,9 @@
+[
+  {
+    "type": "console.context-provider",
+    "properties": {
+      "provider": { "$codeRef": "NullContextProvider" },
+      "useValueHook": { "$codeRef": "useAssistantOverlay" }
+    }
+  }
+]

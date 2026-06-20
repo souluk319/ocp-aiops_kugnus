@@ -1,0 +1,10 @@
+.git
+.gitignore
+.devcontainer
+.vscode
+dist
+node_modules
+integration-tests/screenshots
+integration-tests/videos
+.yarn/install-state.gz
+*.log

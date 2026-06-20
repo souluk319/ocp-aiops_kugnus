@@ -1,0 +1,67 @@
+# KOMSCO AI Gateway
+
+FastAPI BFF for the KOMSCO OpenShift Console AI assistant.
+
+The console plugin forwards the current OpenShift user token through
+`ConsolePlugin.spec.proxy` with `authorization: UserToken`. This gateway keeps
+request validation, redaction, and OpenShift Lightspeed calls outside the
+browser.
+
+## Local Development
+
+From the repository root, the preferred Lightspeed-connected local flow is:
+
+```bash
+task be:dev
+```
+
+This uses `oc port-forward` from
+`openshift-lightspeed/lightspeed-app-server:8443` to `127.0.0.1:18443`, then
+runs the gateway on `http://127.0.0.1:18080` with:
+
+```bash
+OLS_BASE_URL=https://127.0.0.1:18443
+OLS_CA_FILE=false
+KOMSCO_AI_DEV_ECHO=false
+```
+
+Image attachments are accepted by `/v1/chat/stream` as base64 image payloads.
+The gateway validates MIME type, per-file size, total size, and duplicate ids,
+then optionally calls an OpenAI-compatible vision endpoint before forwarding the
+vision summary and file metadata to Lightspeed as text context. Current OLS
+deployments can reject `image/*` attachments, so raw image forwarding to OLS is
+disabled by default.
+
+Vision preprocessing is enabled with:
+
+```bash
+export KOMSCO_AI_VISION_BASE_URL=http://example-llm/v1
+export KOMSCO_AI_VISION_MODEL=vision-capable-model
+export KOMSCO_AI_VISION_API_KEY_FILE=/path/to/api-key
+```
+
+Raw OLS attachment forwarding is available only for OLS deployments that accept
+image attachments:
+
+```bash
+export KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS=true
+```
+
+Echo-only mode:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+KOMSCO_AI_DEV_ECHO=true uvicorn komsco_ai_gateway.main:app --reload --port 8080
+```
+
+When `KOMSCO_AI_DEV_ECHO=true`, `/v1/chat/stream` returns a local SSE echo
+response without requiring an in-cluster Lightspeed service.
+
+For cluster integration, set:
+
+```bash
+export OLS_BASE_URL=https://lightspeed-app-server.openshift-lightspeed.svc:8443
+export OLS_CA_FILE=/var/run/configmaps/service-ca/service-ca.crt
+```

@@ -1,0 +1,24 @@
+apiVersion: console.openshift.io/v1
+kind: ConsolePlugin
+metadata:
+  name: komsco-ai-console-plugin
+spec:
+  displayName: KOMSCO AI Assistant
+  i18n:
+    loadType: Preload
+  backend:
+    type: Service
+    service:
+      name: komsco-ai-console-plugin
+      namespace: komsco-ai-dev
+      port: 9443
+      basePath: /
+  proxy:
+    - alias: ai-gateway
+      authorization: UserToken
+      endpoint:
+        type: Service
+        service:
+          name: komsco-ai-gateway
+          namespace: komsco-ai-dev
+          port: 8443

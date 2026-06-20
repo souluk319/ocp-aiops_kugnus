@@ -1,0 +1,17 @@
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  be:dev:
+    desc: Run local FastAPI gateway connected to OpenShift Lightspeed
+    cmds:
+      - ./scripts/dev-gateway-lightspeed.sh
+
+  fe:dev:
+    desc: Run local console plugin dev server connected to the local gateway
+    cmds:
+      - ./scripts/dev-console-plugin.sh
