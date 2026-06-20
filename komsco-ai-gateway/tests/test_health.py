@@ -12,9 +12,12 @@ from komsco_ai_gateway.main import (
     build_cluster_summary,
     build_ols_payload,
     build_ols_query,
+    build_pod_status_evidence,
     parse_bool,
     parse_ols_verify,
     should_filter_gateway_api_references,
+    should_collect_pod_status_evidence,
+    should_filter_low_signal_references,
     split_plain_text_events,
     TextReferenceFilter,
     validate_image_attachments,
@@ -78,6 +81,19 @@ def test_classify_request_policy_blocks_direct_mutation_intent() -> None:
     assert policy["decision"] == "action_proposal_only"
     assert policy["mutationAllowed"] is False
     assert policy["risk"] == "approval_required"
+
+
+def test_classify_request_policy_allows_restart_count_analysis() -> None:
+    policy = classify_request_policy("현재 클러스터에서 재시작이 많은 Pod를 분석해줘")
+
+    assert policy["decision"] == "allow_read_only_evidence"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "low"
+
+
+def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> None:
+    assert should_collect_pod_status_evidence("현재 클러스터의 Pod 상태와 재시작이 많은 Pod를 분석해줘")
+    assert not should_collect_pod_status_evidence("openshift-monitoring pod 재시작해줘")
 
 
 def test_classify_request_policy_allows_read_only_investigation() -> None:
@@ -185,6 +201,15 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "상세 조회를 실제로 호출하지 않은 리소스" in query
     assert "alert 이름이나 summary만으로 원인을 단정하지 마세요" in query
     assert "status.containerStatuses와 events" in query
+    assert "Pod 상태/재시작 분석 프로토콜" in query
+    assert "`restartCount`만 보고 현재 `CrashLoopBackOff`" in query
+    assert "`restartCount`는 Pod 단위가 아니라 container 단위" in query
+    assert "`restartCount`는 누적 카운터" in query
+    assert "containerStatuses[*]" in query
+    assert "`Running` 및 `Ready=True`" in query
+    assert "--previous" in query
+    assert "Extension APIs" in query
+    assert "Admission plugins" in query
     assert "oc logs를 우선 명령으로 제시하지 말고" in query
     assert "ClusterVersion conditions" in query
     assert "apiVersion: config.openshift.io/v1" in query
@@ -222,6 +247,86 @@ def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() 
     assert "[REDACTED]" in query
 
 
+def test_build_ols_query_includes_gateway_evidence() -> None:
+    query = build_ols_query(
+        ChatRequest(message="현재 클러스터의 Pod 상태를 분석해줘"),
+        gateway_evidence="Top container restart counts:\nopenshift-lightspeed exporter restartCount=44",
+    )
+
+    assert "[Gateway 선조회 증거]" in query
+    assert "openshift-lightspeed exporter restartCount=44" in query
+
+
+def test_build_pod_status_evidence_sorts_container_restart_counts() -> None:
+    evidence = build_pod_status_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "lightspeed-app-server-abc",
+                        "namespace": "openshift-lightspeed",
+                        "ownerReferences": [{"kind": "ReplicaSet", "name": "lightspeed-app-server"}],
+                    },
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [
+                            {
+                                "name": "lightspeed-service-api",
+                                "ready": True,
+                                "restartCount": 0,
+                                "state": {"running": {"startedAt": "2026-06-16T01:40:29Z"}},
+                            },
+                            {
+                                "name": "lightspeed-to-dataverse-exporter",
+                                "ready": True,
+                                "restartCount": 44,
+                                "state": {"running": {"startedAt": "2026-06-16T05:04:55Z"}},
+                                "lastState": {
+                                    "terminated": {
+                                        "reason": "Error",
+                                        "exitCode": 137,
+                                        "finishedAt": "2026-06-16T04:59:40Z",
+                                    }
+                                },
+                            },
+                        ],
+                    },
+                },
+                {
+                    "metadata": {
+                        "name": "nginx-gateway-fabric-controller-manager-abc",
+                        "namespace": "openshift-operators",
+                    },
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [
+                            {
+                                "name": "manager",
+                                "ready": True,
+                                "restartCount": 36,
+                                "state": {"running": {"startedAt": "2026-06-20T04:54:32Z"}},
+                                "lastState": {
+                                    "terminated": {
+                                        "reason": "Error",
+                                        "exitCode": 1,
+                                        "finishedAt": "2026-06-20T04:54:32Z",
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                },
+            ]
+        }
+    )
+
+    assert "Restart counts below are cumulative container-level counts" in evidence
+    assert "`lightspeed-to-dataverse-exporter`" in evidence
+    assert "`manager`" in evidence
+    assert evidence.index("`lightspeed-to-dataverse-exporter`") < evidence.index("`manager`")
+    assert "Error/137" in evidence
+
+
 def test_gateway_api_reference_filter_removes_misleading_gateway_docs() -> None:
     text_filter = TextReferenceFilter(filter_gateway_api_references=True)
 
@@ -242,6 +347,48 @@ def test_gateway_api_reference_filter_removes_misleading_gateway_docs() -> None:
 def test_gateway_api_reference_filter_allows_explicit_gateway_api_questions() -> None:
     assert should_filter_gateway_api_references("pod 재시작해줘")
     assert not should_filter_gateway_api_references("Kubernetes Gateway API 문서 알려줘")
+
+
+def test_low_signal_reference_filter_removes_unrequested_api_index_links() -> None:
+    text_filter = TextReferenceFilter(
+        filter_gateway_api_references=False,
+        filter_low_signal_references=True,
+    )
+
+    output = [
+        text_filter.filter("분석 요약입니다.\n---\n\nExtension APIs: https://docs.openshift.com/x\n"),
+        text_filter.filter("Admission plugins: https://docs.openshift.com/y\n"),
+        text_filter.filter("TokenReview [authentication.k8s.io/v1]: https://docs.openshift.com/z\n"),
+        text_filter.filter("ClusterRole [authorization.openshift.io/v1]: https://docs.openshift.com/a\n"),
+        text_filter.flush(),
+    ]
+    filtered = "".join(output)
+
+    assert "분석 요약입니다." in filtered
+    assert "Extension APIs" not in filtered
+    assert "Admission plugins" not in filtered
+    assert "TokenReview" not in filtered
+    assert "ClusterRole" not in filtered
+    assert "---" not in filtered
+
+
+def test_low_signal_reference_filter_allows_explicit_doc_questions() -> None:
+    assert should_filter_low_signal_references("현재 pod 상태 분석해줘")
+    assert not should_filter_low_signal_references("TokenReview API 문서 링크 알려줘")
+
+
+def test_text_filter_normalizes_restart_frequency_language() -> None:
+    text_filter = TextReferenceFilter(
+        filter_gateway_api_references=False,
+        normalize_restart_language=True,
+    )
+
+    filtered = text_filter.filter("높은 빈도의 빈번한 재시작이 확인됩니다.\n")
+
+    assert "높은 빈도" not in filtered
+    assert "빈번한 재시작" not in filtered
+    assert "높은 누적 재시작 횟수" in filtered
+    assert "누적 재시작 이력" in filtered
 
 
 def test_build_cluster_summary_returns_real_operational_counts() -> None:

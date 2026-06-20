@@ -42,6 +42,22 @@ KOREAN_MUTATION_RE = re.compile(
     r"(삭제|재시작|리스타트|스케일\s*(아웃|인)?|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
 )
 KOREAN_DIRECT_RE = re.compile(r"(해줘|해주세요|수행|실행|적용해|변경해|삭제해|재시작해|늘려|줄여|처리해)")
+KOREAN_EXPLICIT_MUTATION_EXECUTION_RE = re.compile(
+    r"(재시작\s*(해|해주세요|시켜|시켜줘|수행|실행)|"
+    r"삭제\s*(해|해주세요|수행|실행)|"
+    r"스케일\s*(아웃|인)?\s*(해|해주세요|수행|실행|늘려|줄여)|"
+    r"패치\s*(해|해주세요|수행|실행)|"
+    r"적용\s*(해|해주세요|수행|실행)|"
+    r"변경\s*(해|해주세요|수행|실행)|"
+    r"드레인\s*(해|해주세요|수행|실행)|"
+    r"코든\s*(해|해주세요|수행|실행)|"
+    r"언코든\s*(해|해주세요|수행|실행))"
+)
+READ_ONLY_OPERATIONAL_ANALYSIS_RE = re.compile(
+    r"(?i)(분석|확인|조회|알려|정리|상태|현황|이력|횟수|많은|높은|원인|왜|최근|"
+    r"restart\s+(count|history|status|analysis|summary)|"
+    r"(many|high|top)\s+restarts|status)"
+)
 
 
 def now_rfc3339() -> str:
@@ -111,11 +127,23 @@ def safe_subject(user_info: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def classify_request_policy(message: str) -> dict[str, Any]:
     normalized_message = message.strip()
-    has_direct_english_mutation = bool(DIRECT_MUTATION_RE.search(normalized_message))
+    has_read_only_analysis_intent = bool(READ_ONLY_OPERATIONAL_ANALYSIS_RE.search(normalized_message))
+    has_direct_english_mutation = bool(DIRECT_MUTATION_RE.search(normalized_message)) and not (
+        has_read_only_analysis_intent and "restart" in normalized_message.lower()
+    )
     has_korean_mutation = bool(KOREAN_MUTATION_RE.search(normalized_message))
     has_direct_korean_request = bool(KOREAN_DIRECT_RE.search(normalized_message))
-    looks_like_mutation_request = has_direct_english_mutation or (
-        has_korean_mutation and has_direct_korean_request
+    has_explicit_korean_mutation_execution = bool(
+        KOREAN_EXPLICIT_MUTATION_EXECUTION_RE.search(normalized_message)
+    )
+    looks_like_mutation_request = (
+        has_direct_english_mutation
+        or has_explicit_korean_mutation_execution
+        or (
+            has_korean_mutation
+            and has_direct_korean_request
+            and not has_read_only_analysis_intent
+        )
     )
 
     if looks_like_mutation_request:

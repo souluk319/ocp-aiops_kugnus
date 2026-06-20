@@ -80,6 +80,31 @@ DISALLOWED_GATEWAY_API_REFERENCE_RE = re.compile(
 EXPLICIT_KUBERNETES_GATEWAY_API_RE = re.compile(
     r"(?i)(gatewayclass|gateway\.networking\.k8s\.io|kubernetes gateway api|openshift gateway api|gateway api)"
 )
+LOW_SIGNAL_REFERENCE_RE = re.compile(
+    r"^\s*("
+    r"Extension APIs|"
+    r"Admission plugins|"
+    r"TokenReview\s+\[authentication\.k8s\.io/v1\]|"
+    r"ClusterRole\s+\[authorization\.openshift\.io/v1\]"
+    r"):\s+https?://",
+    re.IGNORECASE,
+)
+EXPLICIT_OPENSHIFT_DOC_REFERENCE_RE = re.compile(
+    r"(?i)(문서|docs?|reference|참고 링크|api\s*문서|extension api|admission plugin|tokenreview|clusterrole)"
+)
+POD_STATUS_ANALYSIS_RE = re.compile(
+    r"(?i)((pod|pods|파드).*(상태|현황|이력|횟수|많은|높은|분석|확인|조회|"
+    r"restart\s+(count|history|status|analysis|summary)|(many|high|top)\s+restarts)|"
+    r"(상태|현황|이력|횟수|많은|높은|분석|확인|조회|restart\s+count|"
+    r"restart\s+(history|status|analysis|summary)|(many|high|top)\s+restarts).*(pod|pods|파드))"
+)
+POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("재시작 빈도", "누적 재시작 횟수"),
+    ("높은 빈도", "높은 누적 재시작 횟수"),
+    ("빈번한 재시작", "누적 재시작 이력"),
+    ("재시작이 빈번하게 발생", "재시작 이력이 누적"),
+    ("재시작이 빈번", "누적 재시작 횟수가 높음"),
+)
 VISION_SYSTEM_PROMPT = (
     "You are an image analysis component for an OpenShift AIOps assistant. "
     "Extract visible text, UI state, error messages, resource names, namespace names, "
@@ -757,12 +782,219 @@ async def split_plain_text_events(chunks: AsyncIterator[str]) -> AsyncIterator[d
             yield {"type": "text", "content": pending}
 
 
+def should_collect_pod_status_evidence(message: str) -> bool:
+    return bool(POD_STATUS_ANALYSIS_RE.search(message))
+
+
+def normalize_pod_restart_language(text: str) -> str:
+    normalized = text
+    for source, replacement in POD_RESTART_LANGUAGE_REPLACEMENTS:
+        normalized = normalized.replace(source, replacement)
+    return normalized
+
+
+def parse_rfc3339(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def state_summary(container_status: Mapping[str, Any]) -> str:
+    state = container_status.get("state")
+    if not isinstance(state, Mapping):
+        return "unknown"
+
+    if isinstance(state.get("waiting"), Mapping):
+        waiting = state["waiting"]
+        reason = waiting.get("reason") or "Waiting"
+        return f"waiting:{reason}"
+
+    if isinstance(state.get("running"), Mapping):
+        running = state["running"]
+        started_at = running.get("startedAt")
+        return f"running since {started_at}" if started_at else "running"
+
+    if isinstance(state.get("terminated"), Mapping):
+        terminated = state["terminated"]
+        reason = terminated.get("reason") or "Terminated"
+        exit_code = terminated.get("exitCode")
+        return f"terminated:{reason}/{exit_code}"
+
+    return "unknown"
+
+
+def last_termination_summary(container_status: Mapping[str, Any]) -> tuple[str, str]:
+    last_state = container_status.get("lastState")
+    if not isinstance(last_state, Mapping):
+        return "-", ""
+
+    terminated = last_state.get("terminated")
+    if not isinstance(terminated, Mapping):
+        return "-", ""
+
+    reason = terminated.get("reason") or "Terminated"
+    exit_code = terminated.get("exitCode")
+    finished_at = str(terminated.get("finishedAt") or "")
+    return f"{reason}/{exit_code}", finished_at
+
+
+def pod_ready_summary(pod: Mapping[str, Any]) -> str:
+    statuses = pod.get("status", {}).get("containerStatuses", [])
+    if not isinstance(statuses, list):
+        return "0/0"
+
+    total = len(statuses)
+    ready = sum(1 for item in statuses if isinstance(item, Mapping) and item.get("ready"))
+    return f"{ready}/{total}"
+
+
+def pod_display_state(pod: Mapping[str, Any]) -> str:
+    status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+    phase = str(status.get("phase") or "Unknown")
+    statuses = status.get("containerStatuses", [])
+    if not isinstance(statuses, list):
+        return phase
+
+    waiting_reasons = []
+    for item in statuses:
+        if not isinstance(item, Mapping):
+            continue
+        state = item.get("state")
+        waiting = state.get("waiting") if isinstance(state, Mapping) else None
+        if isinstance(waiting, Mapping):
+            waiting_reasons.append(str(waiting.get("reason") or "Waiting"))
+
+    if waiting_reasons:
+        return f"{phase} ({', '.join(sorted(set(waiting_reasons)))})"
+
+    return phase
+
+
+def pod_owner_summary(pod: Mapping[str, Any]) -> str:
+    owners = pod.get("metadata", {}).get("ownerReferences", [])
+    if not isinstance(owners, list) or not owners:
+        return "-"
+
+    owner = owners[0]
+    if not isinstance(owner, Mapping):
+        return "-"
+
+    kind = owner.get("kind") or "Owner"
+    name = owner.get("name") or "unknown"
+    return f"{kind}/{name}"
+
+
+def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
+    items = pods_payload.get("items")
+    if not isinstance(items, list):
+        return "Pod status evidence unavailable: API response did not include an items list."
+
+    rows: list[dict[str, Any]] = []
+    unhealthy_rows: list[dict[str, Any]] = []
+    for pod in items:
+        if not isinstance(pod, Mapping):
+            continue
+
+        metadata = pod.get("metadata", {}) if isinstance(pod.get("metadata"), Mapping) else {}
+        status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+        namespace = str(metadata.get("namespace") or "unknown")
+        pod_name = str(metadata.get("name") or "unknown")
+        phase = str(status.get("phase") or "Unknown")
+        ready = pod_ready_summary(pod)
+        pod_state = pod_display_state(pod)
+        owner = pod_owner_summary(pod)
+        statuses = status.get("containerStatuses", [])
+        regular_statuses = statuses if isinstance(statuses, list) else []
+        expected_ready = f"{len(regular_statuses)}/{len(regular_statuses)}"
+        is_unhealthy = phase not in {"Running", "Succeeded"} or ready != expected_ready
+
+        for container in regular_statuses:
+            if not isinstance(container, Mapping):
+                continue
+
+            last_state, last_finished_at = last_termination_summary(container)
+            row = {
+                "namespace": namespace,
+                "pod": pod_name,
+                "container": str(container.get("name") or "unknown"),
+                "phase": pod_state,
+                "ready": ready,
+                "state": state_summary(container),
+                "restartCount": int(container.get("restartCount") or 0),
+                "lastState": last_state,
+                "lastFinishedAt": last_finished_at or "-",
+                "lastFinishedSort": parse_rfc3339(last_finished_at)
+                or datetime.min.replace(tzinfo=UTC),
+                "owner": owner,
+            }
+            rows.append(row)
+            if is_unhealthy or row["state"].startswith("waiting:"):
+                unhealthy_rows.append(row)
+
+    top_restart_rows = sorted(
+        rows,
+        key=lambda item: (item["restartCount"], item["lastFinishedSort"]),
+        reverse=True,
+    )[:15]
+    top_unhealthy_rows = sorted(
+        unhealthy_rows,
+        key=lambda item: (item["restartCount"], item["lastFinishedSort"]),
+        reverse=True,
+    )[:10]
+
+    lines = [
+        "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`.",
+        "Use this as primary evidence for cluster-wide Pod restart/status analysis.",
+        "Restart counts below are cumulative container-level counts, not Pod-level rates.",
+        "",
+        "Top container restart counts:",
+        "| Namespace | Pod | Container | Current State | Ready | Restarts | Last State/Exit | Last Finished | Owner |",
+        "| :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- | :--- |",
+    ]
+    if top_restart_rows:
+        for row in top_restart_rows:
+            lines.append(
+                "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {ready} | {restartCount} | {lastState} | {lastFinishedAt} | {owner} |".format(
+                    **row
+                )
+            )
+    else:
+        lines.append("| - | - | - | - | - | 0 | - | - | - |")
+
+    lines.extend(
+        [
+            "",
+            "Currently non-healthy or waiting container evidence:",
+            "| Namespace | Pod | Container | Current State | Ready | Restarts | Last State/Exit | Owner |",
+            "| :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+        ]
+    )
+    if top_unhealthy_rows:
+        for row in top_unhealthy_rows:
+            lines.append(
+                "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {ready} | {restartCount} | {lastState} | {owner} |".format(
+                    **row
+                )
+            )
+    else:
+        lines.append(
+            "| - | - | - | 현재 non-healthy/waiting container가 evidence 상위권에 없음 | - | 0 | - | - |"
+        )
+
+    return "\n".join(lines)
+
+
 def build_ols_query(
     req: ChatRequest,
     image_analysis: str | None = None,
     *,
     policy: Mapping[str, Any] | None = None,
     subject: Mapping[str, Any] | None = None,
+    gateway_evidence: str | None = None,
 ) -> str:
     page_context = {
         key: value
@@ -791,6 +1023,9 @@ def build_ols_query(
 [첨부 이미지]
 {build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
 
+[Gateway 선조회 증거]
+{redact_sensitive(gateway_evidence) if gateway_evidence else "Gateway 선조회 증거 없음"}
+
 AIOps 리소스 원인분석 라우팅:
 - 이 프롬프트에서 "Gateway"는 KOMSCO AI Gateway/BFF 보안 경계를 뜻합니다. 사용자가 Kubernetes Gateway API를 명시적으로 묻지 않았다면 `gateway.networking.k8s.io`, `Gateway`, `GatewayClass` 문서 링크를 추가하지 마세요.
 - 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
@@ -801,6 +1036,18 @@ AIOps 리소스 원인분석 라우팅:
 - `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 근거로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
 - PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 근거로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
 - namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 참고 링크만 단독으로 출력하지 마세요.
+
+Pod 상태/재시작 분석 프로토콜:
+- Pod 상태 또는 재시작 이력 질문은 현재 상태와 과거 재시작 이력을 먼저 분리하세요. 현재 상태는 `status.phase`, `Ready` condition, `status.containerStatuses[*].ready`, `status.containerStatuses[*].state`를 기준으로 표현하세요.
+- `restartCount`만 보고 현재 `CrashLoopBackOff`, "현재 진행 중", "지속 오류"라고 단정하지 마세요. 현재 `state.waiting.reason` 또는 `oc get pods` STATUS가 `CrashLoopBackOff`인 경우에만 현재 CrashLoopBackOff라고 쓰세요.
+- `restartCount`는 Pod 단위가 아니라 container 단위입니다. 멀티컨테이너 Pod는 반드시 container 이름별로 `restartCount`, `lastState.terminated.reason`, `exitCode`, `finishedAt`, 현재 `state`를 구분해 쓰세요.
+- `restartCount`는 누적 카운터입니다. 특정 시간 구간의 증가량이나 여러 종료 시각이 확인되지 않았다면 "빈번", "빈도", "계속 발생"이라고 표현하지 말고 "재시작 이력/누적 재시작 횟수"라고 쓰세요.
+- `oc get pods -A --sort-by=.status.containerStatuses[0].restartCount`는 첫 번째 컨테이너 기준이라 멀티컨테이너 Pod의 재시작을 놓칠 수 있습니다. 가능하면 JSON 결과의 모든 `containerStatuses[*]`를 기준으로 상위 항목을 판단하세요.
+- `Running` 및 `Ready=True`이면서 restartCount가 높은 Pod는 "현재 CrashLoop"가 아니라 "과거 또는 최근 재시작 이력/최근 복구됨"으로 표현하고, 마지막 종료 시각과 현재 startedAt을 같이 제시하세요.
+- `Last State`가 `Error`와 exit code만 제공되면 일반적인 원인을 나열하기 전에 `--previous` 로그 또는 이벤트 근거를 확인하세요. `exitCode=137`은 OOMKilled일 수 있지만 `reason`이 `OOMKilled`가 아니면 단정하지 말고 "강제 종료 가능성, 추가 확인 필요"로 표현하세요.
+- 이전 종료 원인을 볼 때는 `oc logs <pod> -n <namespace> -c <container> --previous --tail=120`처럼 컨테이너명을 포함하세요. 단일 컨테이너 Pod도 컨테이너명을 명시하면 근거가 더 명확합니다.
+- 우선순위는 1) 현재 `Pending`, `NotReady`, `CrashLoopBackOff`, `ImagePullBackOff` 등 비정상 상태, 2) 현재 Running/Ready지만 최근에 재시작된 컨테이너, 3) 오래된 재시작 이력 순으로 정리하세요.
+- 최종 답변 표에는 가능한 경우 `Namespace`, `Pod`, `Container`, `현재 상태`, `Ready`, `Restart Count`, `Last State/Exit`, `마지막 종료 시각`, `근거`를 포함하세요.
 
 OpenShift 경고 분석 프로토콜:
 - 사용자가 "최근 경고", "alert", "우선 확인 항목"을 묻는 경우 먼저 active alert 목록을 조회하세요.
@@ -833,6 +1080,7 @@ OpenShift 경고 분석 프로토콜:
 - 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
 - 도구를 사용할 수 없거나 결과가 부족하면 확인하지 못했다고 말하고 사용자가 확인할 명령을 제시하세요.
 - 참고 링크는 사용자가 문서를 요청했거나 답변의 대상 리소스와 직접 관련된 경우에만 제시하세요. KOMSCO AI Gateway 보안 경계를 설명하면서 Kubernetes Gateway API 또는 GatewayClass 문서를 붙이지 마세요.
+- 참고 링크가 필요한 경우에도 답변의 근거가 된 리소스/경고와 직접 관련된 문서만 1-2개로 제한하세요. Pod 상태 분석 답변 끝에 `Extension APIs`, `Admission plugins`, `TokenReview`, `ClusterRole`처럼 분석 대상과 무관한 API 색인 링크를 붙이지 마세요.
 - alert 이름이나 summary만으로 원인을 단정하지 마세요. 원인, 영향, 조치 우선순위는 관련 리소스 상세 조회 결과가 있을 때만 "확인됨"으로 표현하세요.
 - 도구 결과로 확인한 사실과 추가 확인이 필요한 추정을 분리해서 작성하세요. 최종 답변에는 각 주요 항목마다 "근거"를 짧게 포함하세요.
 - 도구 실패나 권한 제한이 있으면 숨기지 말고 "조회 실패/권한 제한" 항목으로 짧게 표시하세요.
@@ -1086,18 +1334,38 @@ def should_filter_gateway_api_references(message: str) -> bool:
     return not bool(EXPLICIT_KUBERNETES_GATEWAY_API_RE.search(message))
 
 
+def should_filter_low_signal_references(message: str) -> bool:
+    return not bool(EXPLICIT_OPENSHIFT_DOC_REFERENCE_RE.search(message))
+
+
 def is_disallowed_gateway_api_reference(line: str) -> bool:
     return bool(DISALLOWED_GATEWAY_API_REFERENCE_RE.search(line))
 
 
+def is_low_signal_reference(line: str) -> bool:
+    return bool(LOW_SIGNAL_REFERENCE_RE.search(line))
+
+
 class TextReferenceFilter:
-    def __init__(self, *, filter_gateway_api_references: bool) -> None:
+    def __init__(
+        self,
+        *,
+        filter_gateway_api_references: bool,
+        filter_low_signal_references: bool = False,
+        normalize_restart_language: bool = False,
+    ) -> None:
         self.filter_gateway_api_references = filter_gateway_api_references
+        self.filter_low_signal_references = filter_low_signal_references
+        self.normalize_restart_language = normalize_restart_language
         self.pending = ""
         self.held_lines: list[str] = []
 
     def filter(self, content: str, *, final: bool = False) -> str:
-        if not self.filter_gateway_api_references:
+        if (
+            not self.filter_gateway_api_references
+            and not self.filter_low_signal_references
+            and not self.normalize_restart_language
+        ):
             return content
 
         text = f"{self.pending}{content}"
@@ -1113,10 +1381,13 @@ class TextReferenceFilter:
             complete = text[: last_newline + 1]
             self.pending = text[last_newline + 1 :]
 
+        if self.normalize_restart_language:
+            complete = normalize_pod_restart_language(complete)
+
         lines = complete.splitlines(keepends=True)
         filtered_lines: list[str] = []
         for line in lines:
-            if is_disallowed_gateway_api_reference(line):
+            if self.is_disallowed_reference(line):
                 self.held_lines = []
                 continue
 
@@ -1135,6 +1406,15 @@ class TextReferenceFilter:
             filtered_lines.append(line)
 
         return "".join(filtered_lines)
+
+    def is_disallowed_reference(self, line: str) -> bool:
+        return (
+            self.filter_gateway_api_references
+            and is_disallowed_gateway_api_reference(line)
+        ) or (
+            self.filter_low_signal_references
+            and is_low_signal_reference(line)
+        )
 
     def flush(self) -> str:
         filtered = self.filter("", final=True)
@@ -1173,6 +1453,25 @@ async def fetch_ocp_json(
         return payload
 
     return None
+
+
+async def collect_pod_status_evidence(user_auth_header: str) -> str:
+    if not OPENSHIFT_API_URL:
+        return "Pod status evidence unavailable: OPENSHIFT_API_URL is not configured."
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        pods_payload = await fetch_ocp_json(client, "/api/v1/pods", user_auth_header)
+
+    if not pods_payload:
+        return (
+            "Pod status evidence unavailable: Kubernetes API pod list was not returned. "
+            "This may be a permission or API availability issue."
+        )
+
+    return build_pod_status_evidence(pods_payload)
 
 
 def log_audit_record(record: Mapping[str, Any]) -> None:
@@ -1294,8 +1593,11 @@ async def chat_stream(
         incident_id = req.conversationId or f"inc-{uuid.uuid4()}"
         policy = classify_request_policy(req.message)
         subject = safe_subject(None)
+        gateway_evidence: str | None = None
         text_reference_filter = TextReferenceFilter(
-            filter_gateway_api_references=should_filter_gateway_api_references(req.message)
+            filter_gateway_api_references=should_filter_gateway_api_references(req.message),
+            filter_low_signal_references=should_filter_low_signal_references(req.message),
+            normalize_restart_language=should_collect_pod_status_evidence(req.message),
         )
 
         try:
@@ -1430,6 +1732,45 @@ async def chat_stream(
                     }
                 )
 
+            if should_collect_pod_status_evidence(req.message):
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-pod-status-evidence",
+                        "name": "pod_status_evidence",
+                        "summary": "Pod 상태/재시작 증거 수집",
+                    }
+                )
+                try:
+                    gateway_evidence = await collect_pod_status_evidence(authorization)
+                    evidence_status = (
+                        "skipped"
+                        if gateway_evidence.startswith("Pod status evidence unavailable:")
+                        else "success"
+                    )
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": gateway_evidence,
+                            "id": f"{request_id}-pod-status-evidence",
+                            "name": "pod_status_evidence",
+                            "status": evidence_status,
+                            "summary": "Pod 상태/재시작 증거 수집 완료",
+                        }
+                    )
+                except Exception as exc:
+                    gateway_evidence = f"Pod status evidence unavailable: {type(exc).__name__}: {exc}"
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": gateway_evidence,
+                            "id": f"{request_id}-pod-status-evidence",
+                            "name": "pod_status_evidence",
+                            "status": "error",
+                            "summary": "Pod 상태/재시작 증거 수집 실패",
+                        }
+                    )
+
             yield sse(
                 {
                     "type": "run_status",
@@ -1438,7 +1779,13 @@ async def chat_stream(
                     "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
                 }
             )
-            ols_query = build_ols_query(req, image_analysis, policy=policy, subject=subject)
+            ols_query = build_ols_query(
+                req,
+                image_analysis,
+                policy=policy,
+                subject=subject,
+                gateway_evidence=gateway_evidence,
+            )
             async for ols_event in stream_with_heartbeats(
                 call_ols_stream(
                     authorization,
