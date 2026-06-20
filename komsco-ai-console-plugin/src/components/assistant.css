@@ -1489,14 +1489,23 @@
 }
 
 .komsco-ai__textarea {
-  min-height: 34px;
+  --pf-v6-c-form-control--BackgroundColor: transparent;
+  --pf-v6-c-form-control--BorderRadius: 0;
+  --pf-v6-c-form-control--Color: var(--komsco-ink-900);
+  --pf-v6-c-form-control--FontSize: 12px;
+  --pf-v6-c-form-control--LineHeight: 1.45;
+  --pf-v6-c-form-control--OutlineOffset: 0;
+  --pf-v6-c-form-control--before--BorderWidth: 0;
+  --pf-v6-c-form-control--after--BorderWidth: 0;
+  --pf-v6-c-form-control--hover--after--BorderWidth: 0;
+  --pf-v6-c-form-control__textarea--PaddingBlockStart: 7px;
+  --pf-v6-c-form-control__textarea--PaddingBlockEnd: 7px;
+  --pf-v6-c-form-control__textarea--PaddingInlineStart: 2px;
+  --pf-v6-c-form-control__textarea--PaddingInlineEnd: 2px;
+
+  min-height: 35px;
   max-height: 110px;
-  padding: 8px 2px 6px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--komsco-ink-900);
-  background: transparent;
-  border: 0;
+  overflow: hidden;
 }
 
 .komsco-ai__send {

@@ -2027,6 +2027,7 @@ const AssistantLauncher: React.FC = () => {
                     )}
                     <TextArea
                       aria-label="Question"
+                      autoResize
                       className="komsco-ai__textarea"
                       onChange={(_, value) => setInput(value)}
                       onKeyDown={(event) => {
@@ -2038,6 +2039,7 @@ const AssistantLauncher: React.FC = () => {
                       onPaste={handlePaste}
                       placeholder="현재 화면이나 클러스터 상태를 질문하세요"
                       rows={1}
+                      style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
                       value={input}
                     />
                   </div>
