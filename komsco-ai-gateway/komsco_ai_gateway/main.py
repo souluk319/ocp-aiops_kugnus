@@ -73,6 +73,13 @@ MAX_IMAGE_ATTACHMENTS = 4
 MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024
 ALLOWED_IMAGE_MIME_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
+DISALLOWED_GATEWAY_API_REFERENCE_RE = re.compile(
+    r"^\s*(Gateway|GatewayClass)\s+\[gateway\.networking\.k8s\.io/v1\]:\s+https?://",
+    re.IGNORECASE,
+)
+EXPLICIT_KUBERNETES_GATEWAY_API_RE = re.compile(
+    r"(?i)(gatewayclass|gateway\.networking\.k8s\.io|kubernetes gateway api|openshift gateway api|gateway api)"
+)
 VISION_SYSTEM_PROMPT = (
     "You are an image analysis component for an OpenShift AIOps assistant. "
     "Extract visible text, UI state, error messages, resource names, namespace names, "
@@ -785,10 +792,12 @@ def build_ols_query(
 {build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
 
 AIOps 리소스 원인분석 라우팅:
+- 이 프롬프트에서 "Gateway"는 KOMSCO AI Gateway/BFF 보안 경계를 뜻합니다. 사용자가 Kubernetes Gateway API를 명시적으로 묻지 않았다면 `gateway.networking.k8s.io`, `Gateway`, `GatewayClass` 문서 링크를 추가하지 마세요.
 - 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
 - alert 조회는 사용자가 "경고", "alert", "알람"을 명시했거나, 리소스 상태 조회 후 관련 경고를 보강할 때 사용하세요. "활성 alert에 없음"은 HPA, Pod, PVC, Job 장애가 없다는 뜻이 아닙니다.
 - HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 근거로 설명하세요.
 - Pod/Deployment/워크로드 이름이 주어졌지만 정확한 Pod 이름이 아니면 namespace의 Pod 목록을 먼저 조회하고, `metadata.name`, `labels.app`, ownerReferences가 질문 대상과 맞는 Pod를 선택해 상세 조회하세요.
+- 사용자가 Pod 재시작, rollout restart, delete pod, scale 같은 변경 요청을 했지만 대상 namespace 또는 리소스 이름이 없으면 임의로 Gateway API나 다른 동음이의어 리소스로 해석하지 마세요. "대상 미지정"으로 표시하고 `namespace`, `Pod 또는 관리 객체 이름`, 장애 증상만 요청하세요.
 - `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 근거로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
 - PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 근거로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
 - namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 참고 링크만 단독으로 출력하지 마세요.
@@ -823,12 +832,15 @@ OpenShift 경고 분석 프로토콜:
 - 실시간 클러스터 상태(경고, 이벤트, Pod, Node, 리소스, 메트릭, 로그)가 필요한 질문이면 OpenShift MCP 도구를 먼저 사용하세요.
 - 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
 - 도구를 사용할 수 없거나 결과가 부족하면 확인하지 못했다고 말하고 사용자가 확인할 명령을 제시하세요.
+- 참고 링크는 사용자가 문서를 요청했거나 답변의 대상 리소스와 직접 관련된 경우에만 제시하세요. KOMSCO AI Gateway 보안 경계를 설명하면서 Kubernetes Gateway API 또는 GatewayClass 문서를 붙이지 마세요.
 - alert 이름이나 summary만으로 원인을 단정하지 마세요. 원인, 영향, 조치 우선순위는 관련 리소스 상세 조회 결과가 있을 때만 "확인됨"으로 표현하세요.
 - 도구 결과로 확인한 사실과 추가 확인이 필요한 추정을 분리해서 작성하세요. 최종 답변에는 각 주요 항목마다 "근거"를 짧게 포함하세요.
 - 도구 실패나 권한 제한이 있으면 숨기지 말고 "조회 실패/권한 제한" 항목으로 짧게 표시하세요.
 - 사용자가 실행 가능한 조치와 근거를 함께 제시하세요.
 - Secret, token, password, private key는 절대 출력하지 마세요.
 - etcd defrag, 리소스 삭제, 재시작, 설정 변경 같은 위험 작업은 "즉시 수행"으로 단정하지 말고 상태 확인, 영향 판단, 공식 절차 검토, 승인 후 수행 순서로 표현하세요.
+- 대상이 특정되지 않은 재시작 요청에는 `oc get pods -A`를 기본 제안하지 마세요. 현재 콘솔 컨텍스트 namespace가 있으면 `oc get pods -n <namespace>`를 제시하고, namespace도 없으면 namespace와 Pod/Deployment/StatefulSet/DaemonSet 이름을 먼저 요청하세요.
+- `oc delete pod`는 기본 재시작 방법으로 제시하지 마세요. ownerReferences, replica 수, PDB, 현재 rollout 상태를 확인했고 승인 단계가 있다는 조건을 명시한 경우에만 보조 선택지로 언급하세요. Deployment가 확인되면 승인 후 계획의 기본 후보는 `oc rollout restart deployment/<name> -n <namespace>`입니다.
 - KubePodNotReady는 대상 Pod의 status.containerStatuses와 events를 확인하기 전까지 원인을 단정하지 마세요. container가 시작하지 못한 상태면 oc logs를 우선 명령으로 제시하지 말고 oc describe pod/events를 먼저 제시하세요.
 - KubePodNotReady가 openshift-marketplace의 catalog Pod라면 이미지 풀, registry, CatalogSource/PackageManifest 영향 범위를 먼저 확인하고 일반 업무 서비스 장애로 단정하지 마세요.
 - ClusterNotUpgradeable는 ClusterOperator 장애로 단정하지 마세요. ClusterVersion conditions 또는 oc adm upgrade 상당 결과의 reason/message를 확인하고, ClusterOperator가 실제 Degraded/Unavailable/Progressing일 때만 Operator 문제라고 표현하세요.
@@ -1070,6 +1082,68 @@ def normalize_ols_event(event: dict[str, Any]) -> dict[str, Any]:
     return event
 
 
+def should_filter_gateway_api_references(message: str) -> bool:
+    return not bool(EXPLICIT_KUBERNETES_GATEWAY_API_RE.search(message))
+
+
+def is_disallowed_gateway_api_reference(line: str) -> bool:
+    return bool(DISALLOWED_GATEWAY_API_REFERENCE_RE.search(line))
+
+
+class TextReferenceFilter:
+    def __init__(self, *, filter_gateway_api_references: bool) -> None:
+        self.filter_gateway_api_references = filter_gateway_api_references
+        self.pending = ""
+        self.held_lines: list[str] = []
+
+    def filter(self, content: str, *, final: bool = False) -> str:
+        if not self.filter_gateway_api_references:
+            return content
+
+        text = f"{self.pending}{content}"
+        if final:
+            complete = text
+            self.pending = ""
+        else:
+            last_newline = text.rfind("\n")
+            if last_newline == -1:
+                self.pending = text
+                return ""
+
+            complete = text[: last_newline + 1]
+            self.pending = text[last_newline + 1 :]
+
+        lines = complete.splitlines(keepends=True)
+        filtered_lines: list[str] = []
+        for line in lines:
+            if is_disallowed_gateway_api_reference(line):
+                self.held_lines = []
+                continue
+
+            if self.held_lines:
+                if not line.strip():
+                    self.held_lines.append(line)
+                    continue
+
+                filtered_lines.extend(self.held_lines)
+                self.held_lines = []
+
+            if line.strip() == "---":
+                self.held_lines = [line]
+                continue
+
+            filtered_lines.append(line)
+
+        return "".join(filtered_lines)
+
+    def flush(self) -> str:
+        filtered = self.filter("", final=True)
+        if self.held_lines:
+            filtered = f"{filtered}{''.join(self.held_lines)}"
+            self.held_lines = []
+        return filtered
+
+
 async def fetch_ocp_json(
     client: httpx.AsyncClient,
     path: str,
@@ -1220,6 +1294,9 @@ async def chat_stream(
         incident_id = req.conversationId or f"inc-{uuid.uuid4()}"
         policy = classify_request_policy(req.message)
         subject = safe_subject(None)
+        text_reference_filter = TextReferenceFilter(
+            filter_gateway_api_references=should_filter_gateway_api_references(req.message)
+        )
 
         try:
             yield sse(
@@ -1372,6 +1449,19 @@ async def chat_stream(
                 run_id,
             ):
                 normalized_event = normalize_ols_event(ols_event)
+                if normalized_event.get("type") == "text":
+                    filtered_content = text_reference_filter.filter(
+                        str(normalized_event.get("content") or "")
+                    )
+                    if filtered_content:
+                        yield sse({"type": "text", "content": filtered_content})
+                    continue
+
+                if normalized_event.get("type") == "end":
+                    final_text = text_reference_filter.flush()
+                    if final_text:
+                        yield sse({"type": "text", "content": final_text})
+
                 yield sse(normalized_event)
                 if normalized_event.get("type") == "tool_result":
                     evidence_ref = build_evidence_reference(

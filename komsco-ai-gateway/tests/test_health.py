@@ -14,7 +14,9 @@ from komsco_ai_gateway.main import (
     build_ols_query,
     parse_bool,
     parse_ols_verify,
+    should_filter_gateway_api_references,
     split_plain_text_events,
+    TextReferenceFilter,
     validate_image_attachments,
 )
 from komsco_ai_gateway.security import (
@@ -193,6 +195,13 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "즉시 수행" in query
     assert "삼중 백틱" in query
     assert "catalog Pod" in query
+    assert "gateway.networking.k8s.io" in query
+    assert "GatewayClass 문서" in query
+    assert "대상 미지정" in query
+    assert "oc get pods -A" in query
+    assert "기본 제안하지 마세요" in query
+    assert "oc delete pod" in query
+    assert "기본 재시작 방법으로 제시하지 마세요" in query
     assert "title" not in query
     assert "OKD" not in query
 
@@ -211,6 +220,28 @@ def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() 
     assert "user@example.com" in query
     assert "my-secret-token-value" not in query
     assert "[REDACTED]" in query
+
+
+def test_gateway_api_reference_filter_removes_misleading_gateway_docs() -> None:
+    text_filter = TextReferenceFilter(filter_gateway_api_references=True)
+
+    output = [
+        text_filter.filter("대상 미지정입니다.\n---\n\nGateway [gateway.networking.k8s.io/v1]: "),
+        text_filter.filter("https://docs.openshift.com/container-platform/4.20/rest_api/network_apis/gateway-gateway-networking-k8s-io-v1.html\n"),
+        text_filter.filter("GatewayClass [gateway.networking.k8s.io/v1]: https://docs.openshift.com/container-platform/4.20/rest_api/network_apis/gatewayclass-gateway-networking-k8s-io-v1.html\n"),
+        text_filter.flush(),
+    ]
+    filtered = "".join(output)
+
+    assert "대상 미지정입니다." in filtered
+    assert "gateway.networking.k8s.io" not in filtered
+    assert "GatewayClass" not in filtered
+    assert "---" not in filtered
+
+
+def test_gateway_api_reference_filter_allows_explicit_gateway_api_questions() -> None:
+    assert should_filter_gateway_api_references("pod 재시작해줘")
+    assert not should_filter_gateway_api_references("Kubernetes Gateway API 문서 알려줘")
 
 
 def test_build_cluster_summary_returns_real_operational_counts() -> None:
