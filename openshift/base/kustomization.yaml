@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - gateway-ca-configmap.yaml
   - gateway-deployment.yaml
+  - gateway-networkpolicy.yaml
   - gateway-rbac.yaml
   - gateway-service.yaml
   - gateway-serviceaccount.yaml

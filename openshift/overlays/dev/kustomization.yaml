@@ -38,6 +38,13 @@ patches:
         path: /metadata/namespace
         value: komsco-ai-dev
   - target:
+      kind: NetworkPolicy
+      name: komsco-ai-gateway-ingress
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
       kind: ClusterRoleBinding
       name: komsco-ai-gateway-auth-delegator
     patch: |-

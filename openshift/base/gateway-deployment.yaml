@@ -27,6 +27,10 @@ spec:
               value: "https://lightspeed-app-server.openshift-lightspeed.svc:8443"
             - name: OLS_CA_FILE
               value: "/var/run/configmaps/service-ca/service-ca.crt"
+            - name: KOMSCO_AI_SECURITY_PHASE
+              value: "phase0-1"
+            - name: KOMSCO_AI_ENABLE_MUTATIONS
+              value: "false"
           readinessProbe:
             httpGet:
               path: /healthz

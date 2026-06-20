@@ -15,6 +15,15 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from .security import (
+    build_evidence_reference,
+    build_gateway_guardrail,
+    build_trace_record,
+    classify_request_policy,
+    redact_sensitive,
+    safe_subject,
+)
+
 app = FastAPI(title="KOMSCO AI Gateway", version="0.1.0")
 
 
@@ -476,11 +485,6 @@ def get_vision_config() -> dict[str, str] | None:
     return config
 
 
-def redact_sensitive(text: str) -> str:
-    # TODO: centralize token, password, private key, kubeconfig, and Secret redaction.
-    return text
-
-
 def truncate_detail(value: str, limit: int = MAX_TOOL_DETAIL_CHARS) -> str:
     if len(value) <= limit:
         return value
@@ -746,22 +750,39 @@ async def split_plain_text_events(chunks: AsyncIterator[str]) -> AsyncIterator[d
             yield {"type": "text", "content": pending}
 
 
-def build_ols_query(req: ChatRequest, image_analysis: str | None = None) -> str:
+def build_ols_query(
+    req: ChatRequest,
+    image_analysis: str | None = None,
+    *,
+    policy: Mapping[str, Any] | None = None,
+    subject: Mapping[str, Any] | None = None,
+) -> str:
     page_context = {
         key: value
         for key, value in (req.pageContext or {}).items()
         if key in {"href", "pathname", "namespace", "resourceKind", "resourceName"}
     }
     forwarded_to_ols = should_forward_image_attachments_to_ols()
+    effective_policy = policy or classify_request_policy(req.message)
+    subject_metadata = subject or safe_subject(None)
     query = f"""
+[Gateway 보안 경계]
+{build_gateway_guardrail(effective_policy)}
+
+[Gateway 정책 결정]
+{json.dumps(redact_sensitive(effective_policy), ensure_ascii=False)}
+
+[API 서버 관찰 주체]
+{json.dumps(redact_sensitive(subject_metadata), ensure_ascii=False)}
+
 [사용자 질문]
-{req.message}
+{redact_sensitive(req.message)}
 
 [현재 콘솔 컨텍스트]
-{json.dumps(page_context, ensure_ascii=False)}
+{json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
 
 [첨부 이미지]
-{build_attachment_context(req.attachments, image_analysis, forwarded_to_ols=forwarded_to_ols)}
+{build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
 
 AIOps 리소스 원인분석 라우팅:
 - 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
@@ -1080,6 +1101,71 @@ async def fetch_ocp_json(
     return None
 
 
+def log_audit_record(record: Mapping[str, Any]) -> None:
+    print(
+        json.dumps({"aiopsAudit": redact_sensitive(dict(record))}, ensure_ascii=False),
+        flush=True,
+    )
+
+
+async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
+    if not OPENSHIFT_API_URL:
+        return safe_subject(None)
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(10.0, connect=5.0),
+    ) as client:
+        response = await client.post(
+            f"{OPENSHIFT_API_URL}/apis/authentication.k8s.io/v1/selfsubjectreviews",
+            headers={
+                "Accept": "application/json",
+                "Authorization": user_auth_header,
+                "Content-Type": "application/json",
+            },
+            json={
+                "apiVersion": "authentication.k8s.io/v1",
+                "kind": "SelfSubjectReview",
+            },
+        )
+
+    if response.status_code >= 400:
+        body = response.text[:500]
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"OpenShift subject review failed: {body}",
+        )
+
+    payload = response.json()
+    user_info = payload.get("status", {}).get("userInfo", {}) if isinstance(payload, Mapping) else {}
+    return safe_subject(user_info if isinstance(user_info, Mapping) else None)
+
+
+def summarize_policy_detail(policy: Mapping[str, Any]) -> str:
+    return "\n".join(
+        [
+            f"decision: {policy.get('decision')}",
+            f"risk: {policy.get('risk')}",
+            f"mutationAllowed: {policy.get('mutationAllowed')}",
+            f"reason: {policy.get('reason')}",
+        ]
+    )
+
+
+def summarize_subject_detail(subject: Mapping[str, Any], *, live_review: bool) -> str:
+    if not live_review:
+        return "OPENSHIFT_API_URL 미설정: bearer 형식만 확인했고 live SelfSubjectReview는 건너뜀"
+
+    return "\n".join(
+        [
+            f"username: {subject.get('username')}",
+            f"uid: {subject.get('uid')}",
+            f"groupsDigest: {subject.get('groupsDigest')}",
+            f"authenticatedByCluster: {subject.get('authenticatedByCluster')}",
+        ]
+    )
+
+
 @app.get("/v1/cluster/summary")
 async def cluster_summary(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -1130,6 +1216,10 @@ async def chat_stream(
 
     async def generate() -> AsyncIterator[str]:
         run_id = req.runId or f"run-{uuid.uuid4()}"
+        request_id = f"req-{uuid.uuid4()}"
+        incident_id = req.conversationId or f"inc-{uuid.uuid4()}"
+        policy = classify_request_policy(req.message)
+        subject = safe_subject(None)
 
         try:
             yield sse(
@@ -1141,10 +1231,102 @@ async def chat_stream(
                     "elapsedMs": 0,
                 }
             )
+            yield sse(
+                {
+                    "type": "tool_call",
+                    "id": f"{request_id}-security-boundary",
+                    "name": "security_boundary",
+                    "summary": "Phase 0-1 보안 경계 적용",
+                }
+            )
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "detail": (
+                        "UserToken은 Gateway 내부와 OLS forwarding에만 사용합니다.\n"
+                        "Agent/Model prompt, audit payload, evidence event에는 redacted metadata만 전달합니다.\n"
+                        "Mutation execution은 Phase 0-1에서 비활성화되어 있습니다."
+                    ),
+                    "id": f"{request_id}-security-boundary",
+                    "name": "security_boundary",
+                    "status": "success",
+                    "summary": "Gateway credential boundary 확인",
+                }
+            )
             yield sse({"type": "tool_call", "name": "access_check"})
             await verify_user_access(authorization, req)
             validate_image_attachments(req.attachments)
             yield sse({"type": "tool_result", "name": "access_check", "result": "ok"})
+
+            yield sse(
+                {
+                    "type": "tool_call",
+                    "id": f"{request_id}-subject-review",
+                    "name": "subject_review",
+                    "summary": "API 서버 관찰 주체 확인",
+                }
+            )
+            subject = await fetch_self_subject_review(authorization)
+            live_review = bool(OPENSHIFT_API_URL)
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "detail": summarize_subject_detail(subject, live_review=live_review),
+                    "id": f"{request_id}-subject-review",
+                    "name": "subject_review",
+                    "result": subject,
+                    "status": "success" if live_review else "skipped",
+                    "summary": "주체 확인 완료" if live_review else "주체 확인 생략",
+                }
+            )
+
+            yield sse(
+                {
+                    "type": "tool_call",
+                    "id": f"{request_id}-policy-check",
+                    "name": "policy_check",
+                    "summary": "읽기 전용 정책 확인",
+                }
+            )
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "detail": summarize_policy_detail(policy),
+                    "id": f"{request_id}-policy-check",
+                    "name": "policy_check",
+                    "result": policy,
+                    "status": "success",
+                    "summary": (
+                        "Action proposal only"
+                        if policy.get("decision") == "action_proposal_only"
+                        else "Read-only evidence allowed"
+                    ),
+                }
+            )
+            accepted_audit_record = build_trace_record(
+                action="chat_request_accepted",
+                incident_id=incident_id,
+                policy=policy,
+                request_id=request_id,
+                run_id=run_id,
+                subject=subject,
+                target={"attachments": len(req.attachments), "messageLength": len(req.message)},
+            )
+            log_audit_record(accepted_audit_record)
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "detail": json.dumps(
+                        redact_sensitive(accepted_audit_record),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    "id": accepted_audit_record["auditId"],
+                    "name": "audit_record",
+                    "status": "success",
+                    "summary": "감사 레코드 기록",
+                }
+            )
 
             if req.attachments:
                 yield sse({"type": "tool_call", "name": "attachment_check"})
@@ -1179,7 +1361,7 @@ async def chat_stream(
                     "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
                 }
             )
-            ols_query = build_ols_query(req, image_analysis)
+            ols_query = build_ols_query(req, image_analysis, policy=policy, subject=subject)
             async for ols_event in stream_with_heartbeats(
                 call_ols_stream(
                     authorization,
@@ -1189,7 +1371,38 @@ async def chat_stream(
                 ),
                 run_id,
             ):
-                yield sse(normalize_ols_event(ols_event))
+                normalized_event = normalize_ols_event(ols_event)
+                yield sse(normalized_event)
+                if normalized_event.get("type") == "tool_result":
+                    evidence_ref = build_evidence_reference(
+                        event=normalized_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        subject=subject,
+                    )
+                    yield sse(
+                        {
+                            "type": "tool_call",
+                            "id": evidence_ref["evidenceId"],
+                            "name": "evidence_ref",
+                            "summary": "증거 참조 생성",
+                        }
+                    )
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": json.dumps(
+                                redact_sensitive(evidence_ref),
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            "id": evidence_ref["evidenceId"],
+                            "name": "evidence_ref",
+                            "result": evidence_ref,
+                            "status": "success",
+                            "summary": f"{evidence_ref['evidenceId']} 기록",
+                        }
+                    )
 
             yield sse(
                 {
@@ -1199,8 +1412,28 @@ async def chat_stream(
                     "message": "Gateway 실행 루프 완료",
                 }
             )
+            completed_audit_record = build_trace_record(
+                action="chat_request_completed",
+                incident_id=incident_id,
+                policy=policy,
+                request_id=request_id,
+                run_id=run_id,
+                subject=subject,
+            )
+            log_audit_record(completed_audit_record)
             yield sse("[DONE]")
         except HTTPException as exc:
+            log_audit_record(
+                build_trace_record(
+                    action="chat_request_failed",
+                    incident_id=incident_id,
+                    policy=policy,
+                    request_id=request_id,
+                    run_id=run_id,
+                    subject=subject,
+                    target={"error": str(exc.detail) or exc.__class__.__name__},
+                )
+            )
             yield sse(
                 {
                     "type": "run_status",
@@ -1212,6 +1445,17 @@ async def chat_stream(
             yield sse({"type": "error", "message": str(exc.detail) or exc.__class__.__name__})
             yield sse("[DONE]")
         except Exception as exc:
+            log_audit_record(
+                build_trace_record(
+                    action="chat_request_failed",
+                    incident_id=incident_id,
+                    policy=policy,
+                    request_id=request_id,
+                    run_id=run_id,
+                    subject=subject,
+                    target={"error": str(exc) or exc.__class__.__name__},
+                )
+            )
             yield sse(
                 {
                     "type": "run_status",

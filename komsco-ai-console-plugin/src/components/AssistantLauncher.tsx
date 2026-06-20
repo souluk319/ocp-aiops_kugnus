@@ -33,7 +33,8 @@ const QUICK_PROMPTS = [
   {
     icon: <ExclamationTriangleIcon />,
     label: '최근 경고',
-    prompt: '최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.',
+    prompt:
+      '최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.',
   },
   {
     icon: <TerminalIcon />,
@@ -100,8 +101,10 @@ const RESPONSE_WAIT_STEP_ID = 'assistant-response-wait';
 const ANSWER_STREAM_STEP_ID = 'assistant-answer-stream';
 const TOOL_LABELS: Record<string, string> = {
   access_check: '접근 권한 확인',
+  audit_record: '감사 기록',
   attachment_check: '이미지 첨부 확인',
   configuration_view: '클러스터 설정 조회',
+  evidence_ref: '증거 참조 기록',
   events_list: '이벤트 조회',
   execute_instant_query: '현재 메트릭 조회',
   execute_range_query: '기간 메트릭 조회',
@@ -126,7 +129,11 @@ const TOOL_LABELS: Record<string, string> = {
   projects_list: '프로젝트 조회',
   resources_get: '리소스 상세 조회',
   resources_list: '리소스 목록 조회',
+  policy_check: '정책 확인',
+  security_boundary: '보안 경계 확인',
   show_timeseries: '시계열 차트 준비',
+  subject_review: '사용자 주체 확인',
+  vision_analysis: '이미지 분석',
 };
 const PREP_SUBTASKS = [
   {
@@ -342,7 +349,7 @@ const getResponseWaitMessage = (startedAt: number): string => {
 
 const cleanMarkdownLabel = (label: string): string =>
   label
-    .replace(/\\([\[\]])/g, '$1')
+    .replace(/\\(\[|\])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -383,15 +390,15 @@ const collectIndentedBlock = (lines: string[], startIndex: number): string[] => 
   return block;
 };
 
-const renderCodeBlock = (
-  lines: string[],
-  key: string,
-  language?: string,
-): React.ReactNode => {
+const renderCodeBlock = (lines: string[], key: string, language?: string): React.ReactNode => {
   const code = lines.join('\n').trimEnd();
 
   return (
-    <pre className="komsco-ai__formatted-code-block" data-language={language || undefined} key={key}>
+    <pre
+      className="komsco-ai__formatted-code-block"
+      data-language={language || undefined}
+      key={key}
+    >
       <code>{code}</code>
       <button
         aria-label="명령 복사"
@@ -845,7 +852,10 @@ const getDisplaySteps = (steps: ProgressStep[]): ProgressStep[] =>
   steps
     .flatMap(expandProgressStep)
     .filter((step) => step.name !== RUN_LOOP_STEP_ID)
-    .filter((step) => !(isAnswerStreamStep(step) && step.status === 'completed' && getElapsedMs(step) < 300));
+    .filter(
+      (step) =>
+        !(isAnswerStreamStep(step) && step.status === 'completed' && getElapsedMs(step) < 300),
+    );
 
 const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = ({
   active,
@@ -1077,7 +1087,11 @@ const renderContextStrip = (summary: ClusterSummary | null, loading: boolean) =>
   <div className="komsco-ai__context-strip">
     <span className="komsco-ai__context-pill">
       <ServerIcon />
-      {summary ? `Node ${summary.nodes.ready}/${summary.nodes.total}` : loading ? '상태 수집 중' : '현재 콘솔'}
+      {summary
+        ? `Node ${summary.nodes.ready}/${summary.nodes.total}`
+        : loading
+          ? '상태 수집 중'
+          : '현재 콘솔'}
     </span>
     <span className={`komsco-ai__context-pill ${getContextHealthClass(summary)}`}>
       <ExclamationTriangleIcon />
@@ -1090,11 +1104,7 @@ const renderContextStrip = (summary: ClusterSummary | null, loading: boolean) =>
   </div>
 );
 
-const renderInsightRail = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  error: string,
-) => (
+const renderInsightRail = (summary: ClusterSummary | null, loading: boolean, error: string) => (
   <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
     <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
     <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
@@ -1149,9 +1159,7 @@ const renderInsightRail = (
             <div className="komsco-ai__alert-mini-sub">{formatNodeUsage(node)}</div>
           </div>
           <span
-            className={`komsco-ai__rail-badge${
-              node.ready ? ' komsco-ai__rail-badge--ok' : ''
-            }`}
+            className={`komsco-ai__rail-badge${node.ready ? ' komsco-ai__rail-badge--ok' : ''}`}
           >
             {node.ready ? 'READY' : 'CHECK'}
           </span>
@@ -1455,7 +1463,9 @@ const AssistantLauncher: React.FC = () => {
         setPendingAttachments((prev) => [...prev, ...attachments]);
         setAttachmentError('');
       } catch (error) {
-        setAttachmentError(error instanceof Error ? error.message : '이미지 파일을 읽지 못했습니다.');
+        setAttachmentError(
+          error instanceof Error ? error.message : '이미지 파일을 읽지 못했습니다.',
+        );
       }
     },
     [pendingAttachments],
@@ -1542,9 +1552,7 @@ const AssistantLauncher: React.FC = () => {
 
           gatewayPrepStartedAt = startedAt;
           upsertProgressStep({
-            detail:
-              gatewayPrepDetails.join('\n') ||
-              '사용자 권한과 요청 본문을 확인합니다.',
+            detail: gatewayPrepDetails.join('\n') || '사용자 권한과 요청 본문을 확인합니다.',
             elapsedMs: status === 'running' ? undefined : now - startedAt,
             endedAt: status === 'running' ? undefined : now,
             id: GATEWAY_PREP_STEP_ID,
@@ -1568,8 +1576,7 @@ const AssistantLauncher: React.FC = () => {
           responseWaitStartedAt = now;
           responseWaitStepId = id;
           upsertProgressStep({
-            detail:
-              'OpenShift Lightspeed가 실제 응답 스트림을 시작하기를 기다리는 중입니다.',
+            detail: 'OpenShift Lightspeed가 실제 응답 스트림을 시작하기를 기다리는 중입니다.',
             id,
             name: RESPONSE_WAIT_STEP_ID,
             startedAt: now,
@@ -1728,7 +1735,12 @@ const AssistantLauncher: React.FC = () => {
           });
         };
 
-        for await (const event of streamChat({ attachments, message: question, pageContext, runId })) {
+        for await (const event of streamChat({
+          attachments,
+          message: question,
+          pageContext,
+          runId,
+        })) {
           if (event.type === 'run_status') {
             handleRunStatusEvent(event);
           }
@@ -1900,7 +1912,10 @@ const AssistantLauncher: React.FC = () => {
                             )}
                           </div>
                           {hasProgress && message.progressSteps && (
-                            <ProgressTimeline active={activeMessage} steps={message.progressSteps} />
+                            <ProgressTimeline
+                              active={activeMessage}
+                              steps={message.progressSteps}
+                            />
                           )}
                           {(hasContent || !hasProgress) && (
                             <div className="komsco-ai__message-content">
@@ -2036,7 +2051,7 @@ const AssistantLauncher: React.FC = () => {
                   </Button>
                 </div>
                 <div className="komsco-ai__composer-foot">
-                  <span className="komsco-ai__read-only">명령 실행 전 사용자 확인</span>
+                  <span className="komsco-ai__read-only">읽기 전용 · 실행은 승인 필요</span>
                   <span>Enter 전송 · Shift+Enter 줄바꿈</span>
                 </div>
               </div>

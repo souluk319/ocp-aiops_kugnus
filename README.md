@@ -54,6 +54,19 @@ OLS owns live read-only OpenShift observation through its MCP tools. The gateway
 owns validation, redaction, streaming normalization, attachments, and future
 internal integrations. See [docs/ols-gateway-tool-boundary.md](docs/ols-gateway-tool-boundary.md).
 
+The current implementation is the approved Phase 0-1 envelope from
+[docs/aiops-agent-architecture-proposal.md](docs/aiops-agent-architecture-proposal.md):
+
+- Gateway keeps the console `UserToken` at the boundary and forwards it only to
+  OpenShift/Lightspeed APIs that need it.
+- Gateway emits structured `security_boundary`, `subject_review`,
+  `policy_check`, `audit_record`, and `evidence_ref` stream events.
+- Request text, page context, audit payloads, and evidence references are
+  redacted before they are used as model or UI-facing metadata.
+- Direct mutation requests are downgraded to action proposals. Actual
+  remediation execution remains disabled until the Approval API and Action
+  Executor are implemented.
+
 Manual gateway echo mode:
 
 ```bash

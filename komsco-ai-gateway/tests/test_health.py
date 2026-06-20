@@ -17,6 +17,12 @@ from komsco_ai_gateway.main import (
     split_plain_text_events,
     validate_image_attachments,
 )
+from komsco_ai_gateway.security import (
+    build_evidence_reference,
+    classify_request_policy,
+    redact_sensitive,
+    safe_subject,
+)
 
 
 def test_healthz() -> None:
@@ -47,6 +53,36 @@ def test_parse_ols_verify() -> None:
     assert parse_ols_verify("/var/run/configmaps/service-ca/service-ca.crt") == (
         "/var/run/configmaps/service-ca/service-ca.crt"
     )
+
+
+def test_redact_sensitive_removes_tokens_and_secret_values() -> None:
+    raw = {
+        "authorization": "Bearer abcdefghijklmnopqrstuvwxyz",
+        "message": "password=supersecret token: sha256~abcdef Bearer abcdefghijklmnopqrstuvwxyz",
+        "nested": {"clientSecret": "should-not-leak"},
+    }
+
+    redacted = redact_sensitive(raw)
+
+    assert redacted["authorization"] == "[REDACTED]"
+    assert "supersecret" not in redacted["message"]
+    assert "abcdefghijklmnopqrstuvwxyz" not in redacted["message"]
+    assert redacted["nested"]["clientSecret"] == "[REDACTED]"
+
+
+def test_classify_request_policy_blocks_direct_mutation_intent() -> None:
+    policy = classify_request_policy("openshift-monitoring pod 재시작해줘")
+
+    assert policy["decision"] == "action_proposal_only"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "approval_required"
+
+
+def test_classify_request_policy_allows_read_only_investigation() -> None:
+    policy = classify_request_policy("최근 경고와 원인을 근거 기준으로 정리해줘")
+
+    assert policy["decision"] == "allow_read_only_evidence"
+    assert policy["mutationAllowed"] is False
 
 
 def test_validate_image_attachments_accepts_supported_base64_image() -> None:
@@ -159,6 +195,22 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "catalog Pod" in query
     assert "title" not in query
     assert "OKD" not in query
+
+
+def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() -> None:
+    policy = classify_request_policy("deployment restart 해줘 token=my-secret-token-value")
+    query = build_ols_query(
+        ChatRequest(message="deployment restart 해줘 token=my-secret-token-value"),
+        policy=policy,
+        subject=safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["a"]}),
+    )
+
+    assert "Gateway Phase 0-1 Security Envelope" in query
+    assert "action_proposal_only" in query
+    assert "mutation을 실행하지 않습니다" in query
+    assert "user@example.com" in query
+    assert "my-secret-token-value" not in query
+    assert "[REDACTED]" in query
 
 
 def test_build_cluster_summary_returns_real_operational_counts() -> None:
@@ -291,3 +343,26 @@ def test_split_plain_text_events_summarizes_resource_get_progress() -> None:
     assert events[0]["summary"] == "Pod openshift-marketplace/appscan360-catalog-457gn 상세 조회"
     assert events[1]["summary"] == "Pod openshift-marketplace/appscan360-catalog-457gn 조회 완료"
     assert events[2]["summary"] == "조회 실패: Tool failed: resource not allowed"
+
+
+def test_build_evidence_reference_uses_redacted_digest_projection() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    event = {
+        "type": "tool_result",
+        "name": "resources_get",
+        "status": "success",
+        "summary": "Pod 조회 완료",
+        "detail": "token=my-secret-token-value\nkind: Pod",
+    }
+
+    evidence = build_evidence_reference(
+        event=event,
+        incident_id="inc-1",
+        run_id="run-1",
+        subject=subject,
+    )
+
+    assert evidence["evidenceId"].startswith("ev-")
+    assert evidence["contentDigest"].startswith("sha256:")
+    assert evidence["originatingSubject"]["username"] == "user@example.com"
+    assert evidence["summary"] == "Pod 조회 완료"
