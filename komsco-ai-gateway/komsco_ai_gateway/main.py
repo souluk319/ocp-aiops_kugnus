@@ -3726,6 +3726,7 @@ def build_empty_answer_fallback(
     req: ChatRequest,
     policy: Mapping[str, Any],
     tool_results: list[Mapping[str, Any]],
+    gateway_evidence: str | None = None,
 ) -> str:
     if policy.get("decision") == "action_proposal_only":
         return build_action_proposal_fallback(req, policy)
@@ -3742,7 +3743,15 @@ def build_empty_answer_fallback(
             status_text = event.get("status") or "-"
             summary = event.get("summary") or event.get("detail") or "-"
             lines.append(f"{index}. `{name}` status={status_text}: {truncate_detail(str(summary), 500)}")
-    else:
+    if gateway_evidence:
+        lines.extend(
+            [
+                "",
+                "### Gateway 사전 수집 증거",
+                truncate_detail(gateway_evidence, 1800),
+            ]
+        )
+    if not tool_results and not gateway_evidence:
         lines.extend(["", "- 도구 결과가 없어 현재 답변은 추가 조회가 필요합니다."])
 
     lines.extend(
@@ -4873,50 +4882,67 @@ async def chat_stream(
             )
             emitted_answer_text = False
             ols_tool_results: list[Mapping[str, Any]] = []
-            async for ols_event in stream_with_heartbeats(
-                call_ols_stream(
-                    authorization,
-                    ols_query,
-                    req.conversationId,
-                    req.attachments,
-                ),
-                run_id,
-            ):
-                normalized_event = normalize_ols_event(ols_event)
-                if normalized_event.get("type") == "text":
-                    filtered_content = text_reference_filter.filter(
-                        str(normalized_event.get("content") or "")
-                    )
-                    if filtered_content:
-                        if filtered_content.strip():
-                            emitted_answer_text = True
-                        yield sse({"type": "text", "content": filtered_content})
-                    continue
+            try:
+                async for ols_event in stream_with_heartbeats(
+                    call_ols_stream(
+                        authorization,
+                        ols_query,
+                        req.conversationId,
+                        req.attachments,
+                    ),
+                    run_id,
+                ):
+                    normalized_event = normalize_ols_event(ols_event)
+                    if normalized_event.get("type") == "text":
+                        filtered_content = text_reference_filter.filter(
+                            str(normalized_event.get("content") or "")
+                        )
+                        if filtered_content:
+                            if filtered_content.strip():
+                                emitted_answer_text = True
+                            yield sse({"type": "text", "content": filtered_content})
+                        continue
 
-                if normalized_event.get("type") == "end":
-                    final_text = text_reference_filter.flush()
-                    if final_text:
-                        if final_text.strip():
-                            emitted_answer_text = True
-                        yield sse({"type": "text", "content": final_text})
+                    if normalized_event.get("type") == "end":
+                        final_text = text_reference_filter.flush()
+                        if final_text:
+                            if final_text.strip():
+                                emitted_answer_text = True
+                            yield sse({"type": "text", "content": final_text})
 
-                yield sse(normalized_event)
-                if normalized_event.get("type") == "tool_result":
-                    ols_tool_results.append(dict(normalized_event))
-                    for evidence_event in build_evidence_reference_events(
-                        event=normalized_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="ols-tool-result",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
+                    yield sse(normalized_event)
+                    if normalized_event.get("type") == "tool_result":
+                        ols_tool_results.append(dict(normalized_event))
+                        for evidence_event in build_evidence_reference_events(
+                            event=normalized_event,
+                            incident_id=incident_id,
+                            run_id=run_id,
+                            source_type="ols-tool-result",
+                            subject=subject,
+                        ):
+                            yield sse(evidence_event)
+            except Exception as exc:
+                ols_error_event = {
+                    "type": "tool_result",
+                    "detail": f"{type(exc).__name__}: {exc}",
+                    "id": f"{request_id}-lightspeed-stream",
+                    "name": "lightspeed_stream",
+                    "status": "error",
+                    "summary": "OpenShift Lightspeed stream failed; Gateway fallback will answer from collected evidence",
+                }
+                ols_tool_results.append(ols_error_event)
+                yield sse(ols_error_event)
 
             if not emitted_answer_text:
                 yield sse(
                     {
                         "type": "text",
-                        "content": build_empty_answer_fallback(req, policy, ols_tool_results),
+                        "content": build_empty_answer_fallback(
+                            req,
+                            policy,
+                            ols_tool_results,
+                            gateway_evidence,
+                        ),
                     }
                 )
 

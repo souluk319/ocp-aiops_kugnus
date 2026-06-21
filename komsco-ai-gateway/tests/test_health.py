@@ -465,6 +465,29 @@ def test_empty_answer_fallback_includes_question_and_tool_summary() -> None:
     assert "조회 완료" in fallback
 
 
+def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> None:
+    policy = classify_request_policy("Failed Pod를 현재 장애로 봐도 되는지 판단해줘")
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="Failed Pod를 현재 장애로 봐도 되는지 판단해줘"),
+        policy,
+        [
+            {
+                "name": "lightspeed_stream",
+                "status": "error",
+                "summary": "OpenShift Lightspeed stream failed",
+            }
+        ],
+        (
+            "Pod phase/startTime indicate the current Pod object state.\n"
+            "ClusterOperator status evidence from Kubernetes API."
+        ),
+    )
+
+    assert "lightspeed_stream" in fallback
+    assert "startTime" in fallback
+    assert "ClusterOperator" in fallback
+
+
 def test_cronjob_activity_evidence_trigger_for_15_minute_activity() -> None:
     assert should_collect_cronjob_activity_evidence("여기 15분 단위로 이러는데 맞아?")
     assert should_collect_cronjob_activity_evidence("notebook-cleaner CronJob 이 정상인지 확인해줘")
