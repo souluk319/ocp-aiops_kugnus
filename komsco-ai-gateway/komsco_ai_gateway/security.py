@@ -42,6 +42,7 @@ KOREAN_MUTATION_RE = re.compile(
     r"(삭제|재시작|리스타트|스케일\s*(아웃|인)?|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
 )
 KOREAN_DIRECT_RE = re.compile(r"(해줘|해주세요|수행|실행|적용해|변경해|삭제해|재시작해|늘려|줄여|처리해)")
+KOREAN_ACTION_PROPOSAL_RE = re.compile(r"(계획|제안|승인\s*요청|승인\s*절차|초안|수립)")
 KOREAN_EXPLICIT_MUTATION_EXECUTION_RE = re.compile(
     r"(재시작\s*(해|해주세요|시켜|시켜줘|수행|실행)|"
     r"삭제\s*(해|해주세요|수행|실행)|"
@@ -133,12 +134,14 @@ def classify_request_policy(message: str) -> dict[str, Any]:
     )
     has_korean_mutation = bool(KOREAN_MUTATION_RE.search(normalized_message))
     has_direct_korean_request = bool(KOREAN_DIRECT_RE.search(normalized_message))
+    has_korean_action_proposal_intent = bool(KOREAN_ACTION_PROPOSAL_RE.search(normalized_message))
     has_explicit_korean_mutation_execution = bool(
         KOREAN_EXPLICIT_MUTATION_EXECUTION_RE.search(normalized_message)
     )
     looks_like_mutation_request = (
         has_direct_english_mutation
         or has_explicit_korean_mutation_execution
+        or (has_korean_mutation and has_korean_action_proposal_intent)
         or (
             has_korean_mutation
             and has_direct_korean_request

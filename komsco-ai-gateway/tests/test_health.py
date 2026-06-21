@@ -10,8 +10,10 @@ from komsco_ai_gateway.main import (
     TextReferenceFilter,
     app,
     build_attachment_context,
+    build_action_proposal_fallback,
     build_cluster_summary,
     build_cronjob_activity_evidence,
+    build_empty_answer_fallback,
     build_ols_payload,
     build_ols_query,
     build_pod_status_evidence,
@@ -79,6 +81,14 @@ def test_redact_sensitive_removes_tokens_and_secret_values() -> None:
 
 def test_classify_request_policy_blocks_direct_mutation_intent() -> None:
     policy = classify_request_policy("openshift-monitoring pod 재시작해줘")
+
+    assert policy["decision"] == "action_proposal_only"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "approval_required"
+
+
+def test_classify_request_policy_blocks_mutation_action_plan_intent() -> None:
+    policy = classify_request_policy("deployment 재시작 계획을 세워줘")
 
     assert policy["decision"] == "action_proposal_only"
     assert policy["mutationAllowed"] is False
@@ -261,6 +271,34 @@ def test_build_ols_query_includes_gateway_evidence() -> None:
 
     assert "[Gateway 선조회 증거]" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
+
+
+def test_action_proposal_fallback_is_non_empty_and_requests_target() -> None:
+    policy = classify_request_policy("Pod 하나 재시작해줘")
+    fallback = build_action_proposal_fallback(ChatRequest(message="Pod 하나 재시작해줘"), policy)
+
+    assert "직접 실행할 수 없습니다" in fallback
+    assert "namespace" in fallback
+    assert "Pod 또는 관리 객체" in fallback
+
+
+def test_empty_answer_fallback_includes_question_and_tool_summary() -> None:
+    policy = classify_request_policy("ClusterOperator authentication 상태를 확인해줘")
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="ClusterOperator authentication 상태를 확인해줘"),
+        policy,
+        [
+            {
+                "name": "resources_list",
+                "status": "success",
+                "summary": "ClusterOperator authentication 조회 완료",
+            }
+        ],
+    )
+
+    assert "authentication" in fallback
+    assert "resources_list" in fallback
+    assert "조회 완료" in fallback
 
 
 def test_cronjob_activity_evidence_trigger_for_15_minute_activity() -> None:

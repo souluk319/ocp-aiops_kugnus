@@ -1867,6 +1867,61 @@ def summarize_subject_detail(subject: Mapping[str, Any], *, live_review: bool) -
     )
 
 
+def build_action_proposal_fallback(req: ChatRequest, policy: Mapping[str, Any]) -> str:
+    return "\n".join(
+        [
+            "현재 요청은 변경/재시작/삭제/스케일/패치 계열 작업으로 분류되어 직접 실행할 수 없습니다.",
+            "",
+            "### 조치 제안",
+            f"- 요청: {redact_sensitive(req.message.strip()) or '미지정'}",
+            "- 현재 단계: Gateway Phase 0-1",
+            f"- 정책 결정: `{policy.get('decision')}`",
+            "- 실행 가능 범위: 읽기 전용 증거 수집, 영향도 설명, 승인 전 조치 계획 작성",
+            "",
+            "### 승인 필요 여부",
+            "- 필요함. 실제 mutation 실행은 Approval API와 Action Executor 단계에서만 허용됩니다.",
+            "",
+            "### 추가로 필요한 대상 정보",
+            "- namespace",
+            "- Pod 또는 관리 객체(Deployment/StatefulSet/DaemonSet 등) 이름",
+            "- 원하는 작업이 단순 재시작인지, 장애 원인 분석 후 조치인지",
+        ]
+    )
+
+
+def build_empty_answer_fallback(
+    req: ChatRequest,
+    policy: Mapping[str, Any],
+    tool_results: list[Mapping[str, Any]],
+) -> str:
+    if policy.get("decision") == "action_proposal_only":
+        return build_action_proposal_fallback(req, policy)
+
+    lines = [
+        "Live 조회는 완료됐지만 모델의 최종 요약 텍스트가 비어 있어 Gateway가 안전한 요약을 생성했습니다.",
+        "",
+        f"- 질문: {redact_sensitive(req.message.strip()) or '미지정'}",
+    ]
+    if tool_results:
+        lines.extend(["", "### 확인된 도구 결과"])
+        for index, event in enumerate(tool_results[-3:], start=1):
+            name = event.get("name") or "tool_result"
+            status_text = event.get("status") or "-"
+            summary = event.get("summary") or event.get("detail") or "-"
+            lines.append(f"{index}. `{name}` status={status_text}: {truncate_detail(str(summary), 500)}")
+    else:
+        lines.extend(["", "- 도구 결과가 없어 현재 답변은 추가 조회가 필요합니다."])
+
+    lines.extend(
+        [
+            "",
+            "### 다음 확인",
+            "- 위 도구 결과의 상세 진행 항목을 기준으로 상태/원인/조치 우선순위를 다시 요청하세요.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 @app.get("/v1/cluster/summary")
 async def cluster_summary(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -2165,6 +2220,8 @@ async def chat_stream(
                 subject=subject,
                 gateway_evidence=gateway_evidence,
             )
+            emitted_answer_text = False
+            ols_tool_results: list[Mapping[str, Any]] = []
             async for ols_event in stream_with_heartbeats(
                 call_ols_stream(
                     authorization,
@@ -2180,16 +2237,21 @@ async def chat_stream(
                         str(normalized_event.get("content") or "")
                     )
                     if filtered_content:
+                        if filtered_content.strip():
+                            emitted_answer_text = True
                         yield sse({"type": "text", "content": filtered_content})
                     continue
 
                 if normalized_event.get("type") == "end":
                     final_text = text_reference_filter.flush()
                     if final_text:
+                        if final_text.strip():
+                            emitted_answer_text = True
                         yield sse({"type": "text", "content": final_text})
 
                 yield sse(normalized_event)
                 if normalized_event.get("type") == "tool_result":
+                    ols_tool_results.append(dict(normalized_event))
                     evidence_ref = build_evidence_reference(
                         event=normalized_event,
                         incident_id=incident_id,
@@ -2219,6 +2281,14 @@ async def chat_stream(
                             "summary": f"{evidence_ref['evidenceId']} 기록",
                         }
                     )
+
+            if not emitted_answer_text:
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": build_empty_answer_fallback(req, policy, ols_tool_results),
+                    }
+                )
 
             yield sse(
                 {
