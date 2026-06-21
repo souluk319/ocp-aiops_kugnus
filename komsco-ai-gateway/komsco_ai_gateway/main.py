@@ -101,6 +101,11 @@ EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
 WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
 DIAGNOSTICS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_DIAGNOSTICS_ENABLED"), default=False)
 DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000"))
+HOST_DIAGNOSTICS_CONTROLLER_URL = os.getenv("KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "").rstrip("/")
+HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN = os.getenv(
+    "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN",
+    "",
+)
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
 ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
@@ -711,6 +716,67 @@ def build_diagnostic_request_record(
         },
         "subject": redact_sensitive(dict(subject)),
     }
+
+
+async def submit_diagnostic_request_to_controller(record: dict[str, Any]) -> dict[str, Any]:
+    status = record["spec"]["status"]
+    if not DIAGNOSTICS_ENABLED:
+        return record
+    if not HOST_DIAGNOSTICS_CONTROLLER_URL:
+        status.update(
+            {
+                "phase": "controller_unconfigured",
+                "reason": "Host diagnostics controller URL is not configured.",
+                "submittedToController": False,
+            }
+        )
+        return record
+
+    headers: dict[str, str] = {}
+    if HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN:
+        headers["Authorization"] = f"Bearer {HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN}"
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
+            response = await client.post(
+                f"{HOST_DIAGNOSTICS_CONTROLLER_URL}/v1/controller/diagnostics/requests",
+                headers=headers,
+                json={"diagnosticRequest": record},
+            )
+    except httpx.HTTPError as exc:
+        status.update(
+            {
+                "phase": "controller_submission_failed",
+                "reason": f"Host diagnostics controller request failed: {exc.__class__.__name__}",
+                "submittedToController": False,
+            }
+        )
+        return record
+
+    if response.status_code >= 400:
+        status.update(
+            {
+                "phase": "controller_submission_failed",
+                "reason": f"Host diagnostics controller returned HTTP {response.status_code}",
+                "submittedToController": False,
+                "controllerError": redact_sensitive(response.text[:1000]),
+            }
+        )
+        return record
+
+    try:
+        controller_result = response.json()
+    except ValueError:
+        controller_result = {"raw": response.text[:1000]}
+    status.update(
+        {
+            "phase": "controller_submitted",
+            "reason": "Host diagnostics controller accepted the request.",
+            "submittedToController": True,
+            "controllerSubmission": redact_sensitive(controller_result),
+        }
+    )
+    return record
 
 
 def expires_at_rfc3339(delta: timedelta) -> str:
@@ -4111,6 +4177,7 @@ async def get_diagnostic_collectors(authorization: str | None = Header(default=N
         "spec": {
             "digest": HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
             "diagnosticsEnabled": DIAGNOSTICS_ENABLED,
+            "controllerConfigured": bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
             "collectors": list(HOST_DIAGNOSTIC_COLLECTORS.values()),
         },
     }
@@ -4124,6 +4191,7 @@ async def create_diagnostic_request(
     user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
     record = build_diagnostic_request_record(req, subject)
+    record = await submit_diagnostic_request_to_controller(record)
     request_id = str(record["metadata"]["name"])
     bounded_put(DIAGNOSTIC_REQUESTS, request_id, record, DIAGNOSTIC_MAX_RECORDS)
     increment_metric("aiops_diagnostic_requests_total")
