@@ -12,6 +12,7 @@ from komsco_ai_gateway.main import (
     build_attachment_context,
     build_action_proposal_fallback,
     build_cluster_summary,
+    build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
     build_empty_answer_fallback,
     build_ols_payload,
@@ -223,6 +224,8 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "`restartCount`는 누적 카운터" in query
     assert "containerStatuses[*]" in query
     assert "`Running` 및 `Ready=True`" in query
+    assert "과거 실패 Pod 이력, 현재 Operator 상태는 정상" in query
+    assert "CatalogSource" in query
     assert "--previous" in query
     assert "Extension APIs" in query
     assert "Admission plugins" in query
@@ -474,6 +477,64 @@ def test_build_pod_status_evidence_sorts_container_restart_counts() -> None:
     assert "Error/137" in evidence
 
 
+def test_build_pod_status_evidence_marks_failed_pod_start_time() -> None:
+    evidence = build_pod_status_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "installer-1-node-a", "namespace": "openshift-example"},
+                    "status": {
+                        "phase": "Failed",
+                        "startTime": "2026-06-09T08:55:51Z",
+                        "containerStatuses": [
+                            {
+                                "name": "installer",
+                                "ready": False,
+                                "restartCount": 0,
+                                "state": {
+                                    "terminated": {
+                                        "reason": "Error",
+                                        "exitCode": 1,
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        }
+    )
+
+    assert "old Failed pods can be historical artifacts" in evidence
+    assert "2026-06-09T08:55:51Z" in evidence
+    assert "Failed / terminated:Error/1" in evidence
+
+
+def test_build_cluster_operator_status_evidence_summarizes_operator_health() -> None:
+    evidence = build_cluster_operator_status_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "example-operator"},
+                    "status": {
+                        "versions": [{"version": "4.20.23"}],
+                        "conditions": [
+                            {"type": "Available", "status": "True"},
+                            {"type": "Degraded", "status": "False"},
+                            {"type": "Progressing", "status": "False"},
+                        ],
+                    },
+                }
+            ]
+        }
+    )
+
+    assert "ClusterOperator status evidence" in evidence
+    assert "example-operator" in evidence
+    assert "Available | Degraded | Progressing" in evidence
+    assert "True | False | False" in evidence
+
+
 def test_gateway_api_reference_filter_removes_misleading_gateway_docs() -> None:
     text_filter = TextReferenceFilter(filter_gateway_api_references=True)
 
@@ -646,13 +707,13 @@ def test_split_plain_text_events_summarizes_resource_get_progress() -> None:
     async def chunks():
         yield (
             'Tool call: {"name": "resources_get", "args": {"apiVersion": "v1", '
-            '"kind": "Pod", "namespace": "openshift-marketplace", '
-            '"name": "appscan360-catalog-457gn"}, "id": "tool-1"}\n'
+            '"kind": "Pod", "namespace": "example-namespace", '
+            '"name": "example-catalog-pod"}, "id": "tool-1"}\n'
         )
         yield (
             'Tool result: {"name": "resources_get", "status": "success", '
             '"content": "apiVersion: v1\\nkind: Pod\\nmetadata:\\n  name: '
-            'appscan360-catalog-457gn\\n  namespace: openshift-marketplace\\n", '
+            'example-catalog-pod\\n  namespace: example-namespace\\n", '
             '"id": "tool-1"}\n'
         )
         yield (
@@ -665,8 +726,8 @@ def test_split_plain_text_events_summarizes_resource_get_progress() -> None:
 
     events = asyncio.run(run())
 
-    assert events[0]["summary"] == "Pod openshift-marketplace/appscan360-catalog-457gn 상세 조회"
-    assert events[1]["summary"] == "Pod openshift-marketplace/appscan360-catalog-457gn 조회 완료"
+    assert events[0]["summary"] == "Pod example-namespace/example-catalog-pod 상세 조회"
+    assert events[1]["summary"] == "Pod example-namespace/example-catalog-pod 조회 완료"
     assert events[2]["summary"] == "조회 실패: Tool failed: resource not allowed"
 
 

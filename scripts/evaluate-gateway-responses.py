@@ -152,6 +152,29 @@ def restart_count(pod: Mapping[str, Any]) -> int:
     return total
 
 
+def container_reasons(pod: Mapping[str, Any]) -> set[str]:
+    statuses = status(pod).get("containerStatuses")
+    if not isinstance(statuses, list):
+        return set()
+
+    reasons: set[str] = set()
+    for container in statuses:
+        if not isinstance(container, Mapping):
+            continue
+        state = container.get("state")
+        if not isinstance(state, Mapping):
+            continue
+        for state_value in state.values():
+            if isinstance(state_value, Mapping) and state_value.get("reason"):
+                reasons.add(str(state_value["reason"]))
+
+    return reasons
+
+
+def is_failed_terminated_pod(pod: Mapping[str, Any]) -> bool:
+    return str(status(pod).get("phase") or "") == "Failed" and "Error" in container_reasons(pod)
+
+
 def cron_minute_interval(schedule: str) -> int | None:
     fields = schedule.split()
     if len(fields) < 5:
@@ -219,6 +242,12 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
         for pod in pods
         if str(status(pod).get("phase") or "") not in {"Running", "Succeeded"}
         or ready_pod_count(pod) == 0
+    ]
+    failed_terminated_pods = [pod for pod in pods if is_failed_terminated_pod(pod)]
+    image_pull_pods = [
+        pod
+        for pod in pods
+        if container_reasons(pod) & {"ImagePullBackOff", "ErrImagePull"}
     ]
     interval_cronjobs = [
         cronjob
@@ -321,6 +350,61 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                 ),
                 source="oc:get pods -A",
                 expect_answer_regex=(re.escape(resource_name(pod)),),
+            ),
+        )
+
+    for pod in failed_terminated_pods[:2]:
+        if not resource_name(pod) or not resource_namespace(pod):
+            continue
+        add_case(
+            cases,
+            QuestionCase(
+                category="pod-failed-historical",
+                question=(
+                    f"`{resource_namespace(pod)}` 네임스페이스의 Failed Pod "
+                    f"`{resource_name(pod)}` 를 현재 장애로 봐도 되는지 "
+                    "ClusterOperator 상태와 함께 판단해줘."
+                ),
+                source="oc:get pods -A",
+                expect_events=("pod_status_evidence",),
+                expect_answer_regex=(re.escape(resource_name(pod)), r"(ClusterOperator|Operator|오퍼레이터)"),
+                forbid_answer_regex=(r"현재\s*제어면\s*장애로\s*확정", r"현재\s*장애라고\s*단정"),
+            ),
+        )
+
+    for pod in image_pull_pods[:2]:
+        if not resource_name(pod) or not resource_namespace(pod):
+            continue
+        add_case(
+            cases,
+            QuestionCase(
+                category="pod-imagepull-catalog",
+                question=(
+                    f"`{resource_namespace(pod)}` 네임스페이스의 Pod "
+                    f"`{resource_name(pod)}` ImagePullBackOff 원인을 "
+                    "이벤트와 catalog/registry 관점으로 확인해줘."
+                ),
+                source="oc:get pods -A",
+                expect_events=("pod_status_evidence",),
+                expect_answer_regex=(re.escape(resource_name(pod)), r"(ImagePull|이미지|CatalogSource|registry|레지스트리)"),
+            ),
+        )
+
+    if failed_terminated_pods:
+        add_case(
+            cases,
+            QuestionCase(
+                category="pod-failed-list-screen",
+                question=(
+                    "화면에 Failed 상태 Pod 목록이 보이는데, 이것만 보고 현재 장애라고 "
+                    "판단해도 되는지 기준을 정리해줘."
+                ),
+                source="oc:get pods -A",
+                expect_events=("pod_status_evidence",),
+                expect_answer_regex=(r"(startTime|ClusterOperator|과거|현재)",),
+                forbid_answer_regex=(
+                    r"Failed\s*Pod\s*목록만으로\s*현재\s*장애(로)?\s*(확정|단정|판단해야)",
+                ),
             ),
         )
 

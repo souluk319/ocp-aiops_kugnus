@@ -94,8 +94,10 @@ EXPLICIT_OPENSHIFT_DOC_REFERENCE_RE = re.compile(
 )
 POD_STATUS_ANALYSIS_RE = re.compile(
     r"(?i)((pod|pods|파드).*(상태|현황|이력|횟수|많은|높은|분석|확인|조회|"
-    r"restart\s+(count|history|status|analysis|summary)|(many|high|top)\s+restarts)|"
-    r"(상태|현황|이력|횟수|많은|높은|분석|확인|조회|restart\s+count|"
+    r"crashloop|imagepull|backoff|failed|error|pending|restart\s+(count|history|status|analysis|summary)|"
+    r"(many|high|top)\s+restarts)|"
+    r"(상태|현황|이력|횟수|많은|높은|분석|확인|조회|crashloop|imagepull|backoff|failed|"
+    r"error|pending|restart\s+count|"
     r"restart\s+(history|status|analysis|summary)|(many|high|top)\s+restarts).*(pod|pods|파드))"
 )
 CRONJOB_ACTIVITY_ANALYSIS_RE = re.compile(
@@ -929,6 +931,7 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
         namespace = str(metadata.get("namespace") or "unknown")
         pod_name = str(metadata.get("name") or "unknown")
         phase = str(status.get("phase") or "Unknown")
+        pod_start_time = str(status.get("startTime") or "-")
         ready = pod_ready_summary(pod)
         pod_state = pod_display_state(pod)
         owner = pod_owner_summary(pod)
@@ -947,6 +950,7 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
                 "pod": pod_name,
                 "container": str(container.get("name") or "unknown"),
                 "phase": pod_state,
+                "podStartTime": pod_start_time,
                 "ready": ready,
                 "state": state_summary(container),
                 "restartCount": int(container.get("restartCount") or 0),
@@ -975,40 +979,149 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
         "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`.",
         "Use this as primary evidence for cluster-wide Pod restart/status analysis.",
         "Restart counts below are cumulative container-level counts, not Pod-level rates.",
+        "Pod phase/startTime indicate the current Pod object state; old Failed pods can be historical artifacts.",
+        "Do not infer current control-plane or service impact from Failed pods alone; correlate with owner/controller/operator status.",
         "",
         "Top container restart counts:",
-        "| Namespace | Pod | Container | Current State | Ready | Restarts | Last State/Exit | Last Finished | Owner |",
-        "| :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- | :--- |",
+        "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Last Finished | Owner |",
+        "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- | :--- |",
     ]
     if top_restart_rows:
         for row in top_restart_rows:
             lines.append(
-                "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {ready} | {restartCount} | {lastState} | {lastFinishedAt} | {owner} |".format(
+                "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {podStartTime} | {ready} | {restartCount} | {lastState} | {lastFinishedAt} | {owner} |".format(
                     **row
                 )
             )
     else:
-        lines.append("| - | - | - | - | - | 0 | - | - | - |")
+        lines.append("| - | - | - | - | - | - | 0 | - | - | - |")
 
     lines.extend(
         [
             "",
             "Currently non-healthy or waiting container evidence:",
-            "| Namespace | Pod | Container | Current State | Ready | Restarts | Last State/Exit | Owner |",
-            "| :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+            "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |",
+            "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
         ]
     )
     if top_unhealthy_rows:
         for row in top_unhealthy_rows:
             lines.append(
-                "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {ready} | {restartCount} | {lastState} | {owner} |".format(
+                "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {podStartTime} | {ready} | {restartCount} | {lastState} | {owner} |".format(
                     **row
                 )
             )
     else:
         lines.append(
-            "| - | - | - | 현재 non-healthy/waiting container가 evidence 상위권에 없음 | - | 0 | - | - |"
+            "| - | - | - | 현재 non-healthy/waiting container가 evidence 상위권에 없음 | - | - | 0 | - | - |"
         )
+
+    return "\n".join(lines)
+
+
+def cluster_operator_condition(
+    operator: Mapping[str, Any],
+    condition_type: str,
+) -> tuple[str, str, str]:
+    conditions = operator.get("status", {}).get("conditions", [])
+    if not isinstance(conditions, list):
+        return "-", "-", "-"
+
+    for condition in conditions:
+        if not isinstance(condition, Mapping) or condition.get("type") != condition_type:
+            continue
+        return (
+            str(condition.get("status") or "-"),
+            str(condition.get("reason") or "-"),
+            str(condition.get("message") or "-"),
+        )
+
+    return "-", "-", "-"
+
+
+def build_cluster_operator_status_evidence(cluster_operators_payload: Mapping[str, Any]) -> str:
+    items = cluster_operators_payload.get("items")
+    if not isinstance(items, list):
+        return "ClusterOperator evidence unavailable: API response did not include an items list."
+
+    rows: list[dict[str, str]] = []
+    for operator in items:
+        if not isinstance(operator, Mapping):
+            continue
+
+        metadata = operator.get("metadata", {}) if isinstance(operator.get("metadata"), Mapping) else {}
+        status = operator.get("status", {}) if isinstance(operator.get("status"), Mapping) else {}
+        available, available_reason, available_message = cluster_operator_condition(
+            operator,
+            "Available",
+        )
+        degraded, degraded_reason, degraded_message = cluster_operator_condition(
+            operator,
+            "Degraded",
+        )
+        progressing, progressing_reason, progressing_message = cluster_operator_condition(
+            operator,
+            "Progressing",
+        )
+        rows.append(
+            {
+                "name": str(metadata.get("name") or "unknown"),
+                "version": str(status.get("versions", [{}])[0].get("version") or "-")
+                if isinstance(status.get("versions"), list) and status.get("versions")
+                else "-",
+                "available": available,
+                "degraded": degraded,
+                "progressing": progressing,
+                "reason": next(
+                    (
+                        value
+                        for value in [
+                            degraded_reason if degraded == "True" else "",
+                            progressing_reason if progressing == "True" else "",
+                            available_reason if available != "True" else "",
+                        ]
+                        if value and value != "-"
+                    ),
+                    "-",
+                ),
+                "message": truncate_detail(
+                    next(
+                        (
+                            value
+                            for value in [
+                                degraded_message if degraded == "True" else "",
+                                progressing_message if progressing == "True" else "",
+                                available_message if available != "True" else "",
+                            ]
+                            if value and value != "-"
+                        ),
+                        "-",
+                    ),
+                    300,
+                ),
+            }
+        )
+
+    issue_rows = [
+        row
+        for row in rows
+        if row["available"] != "True" or row["degraded"] == "True" or row["progressing"] == "True"
+    ]
+    selected_rows = issue_rows or rows[:10]
+    lines = [
+        "Gateway-collected ClusterOperator status evidence from Kubernetes API `/apis/config.openshift.io/v1/clusteroperators`.",
+        "Use this to avoid treating historical Failed control-plane/operator installer pods as current outages when operators are healthy.",
+        "| ClusterOperator | Version | Available | Degraded | Progressing | Reason | Message |",
+        "| :--- | :--- | :---: | :---: | :---: | :--- | :--- |",
+    ]
+    for row in selected_rows[:15]:
+        lines.append(
+            "| {name} | {version} | {available} | {degraded} | {progressing} | {reason} | {message} |".format(
+                **row
+            )
+        )
+    if not selected_rows:
+        lines.append("| - | - | - | - | - | - | - |")
 
     return "\n".join(lines)
 
@@ -1348,9 +1461,12 @@ Pod 상태/재시작 분석 프로토콜:
 - `restartCount`는 누적 카운터입니다. 특정 시간 구간의 증가량이나 여러 종료 시각이 확인되지 않았다면 "빈번", "빈도", "계속 발생"이라고 표현하지 말고 "재시작 이력/누적 재시작 횟수"라고 쓰세요.
 - `oc get pods -A --sort-by=.status.containerStatuses[0].restartCount`는 첫 번째 컨테이너 기준이라 멀티컨테이너 Pod의 재시작을 놓칠 수 있습니다. 가능하면 JSON 결과의 모든 `containerStatuses[*]`를 기준으로 상위 항목을 판단하세요.
 - `Running` 및 `Ready=True`이면서 restartCount가 높은 Pod는 "현재 CrashLoop"가 아니라 "과거 또는 최근 재시작 이력/최근 복구됨"으로 표현하고, 마지막 종료 시각과 현재 startedAt을 같이 제시하세요.
+- `status.phase=Failed`이고 현재 `state.terminated`인 Pod는 현재 재시작 중인 Pod가 아니라 종료된 Pod 객체일 수 있습니다. `startTime`, `finishedAt`, owner/controller/operator 상태를 함께 보고 "과거 실패 이력"과 "현재 장애"를 분리하세요.
+- OpenShift 관리 namespace의 installer/revisioner/pruner 같은 단발성 작업 Pod가 Failed로 남아 있더라도 관련 ClusterOperator가 `Available=True`, `Degraded=False`, `Progressing=False`이면 현재 제어면 장애라고 단정하지 마세요. "과거 실패 Pod 이력, 현재 Operator 상태는 정상"처럼 표현하세요.
 - `Last State`가 `Error`와 exit code만 제공되면 일반적인 원인을 나열하기 전에 `--previous` 로그 또는 이벤트 근거를 확인하세요. `exitCode=137`은 OOMKilled일 수 있지만 `reason`이 `OOMKilled`가 아니면 단정하지 말고 "강제 종료 가능성, 추가 확인 필요"로 표현하세요.
 - 이전 종료 원인을 볼 때는 `oc logs <pod> -n <namespace> -c <container> --previous --tail=120`처럼 컨테이너명을 포함하세요. 단일 컨테이너 Pod도 컨테이너명을 명시하면 근거가 더 명확합니다.
 - 우선순위는 1) 현재 `Pending`, `NotReady`, `CrashLoopBackOff`, `ImagePullBackOff` 등 비정상 상태, 2) 현재 Running/Ready지만 최근에 재시작된 컨테이너, 3) 오래된 재시작 이력 순으로 정리하세요.
+- `ImagePullBackOff` 또는 `ErrImagePull`은 `status.containerStatuses[*].state.waiting.message`와 Events를 최우선 근거로 삼고, catalog/marketplace 성격의 Pod라면 관련 `CatalogSource` 상태와 image registry 접근성도 확인 항목에 포함하세요.
 - 최종 답변 표에는 가능한 경우 `Namespace`, `Pod`, `Container`, `현재 상태`, `Ready`, `Restart Count`, `Last State/Exit`, `마지막 종료 시각`, `근거`를 포함하세요.
 
 OpenShift 경고 분석 프로토콜:
@@ -1768,6 +1884,11 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
         timeout=httpx.Timeout(20.0, connect=5.0),
     ) as client:
         pods_payload = await fetch_ocp_json(client, "/api/v1/pods", user_auth_header)
+        cluster_operators_payload = await fetch_ocp_json(
+            client,
+            "/apis/config.openshift.io/v1/clusteroperators",
+            user_auth_header,
+        )
 
     if not pods_payload:
         return (
@@ -1775,7 +1896,14 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
             "This may be a permission or API availability issue."
         )
 
-    return build_pod_status_evidence(pods_payload)
+    evidence = build_pod_status_evidence(pods_payload)
+    if cluster_operators_payload:
+        evidence = append_gateway_evidence(
+            evidence,
+            build_cluster_operator_status_evidence(cluster_operators_payload),
+        )
+
+    return evidence
 
 
 async def collect_cronjob_activity_evidence(user_auth_header: str, context_text: str) -> str:
