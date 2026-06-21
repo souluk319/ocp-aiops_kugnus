@@ -132,6 +132,9 @@ POD_STATUS_ANALYSIS_RE = re.compile(
     r"error|pending|restart\s+count|"
     r"restart\s+(history|status|analysis|summary)|(many|high|top)\s+restarts).*(pod|pods|파드))"
 )
+CLUSTER_OPERATOR_ANALYSIS_RE = re.compile(
+    r"(?i)(clusteroperator|cluster\s*operator|클러스터\s*오퍼레이터|operator\s+status|오퍼레이터\s*상태)"
+)
 CRONJOB_ACTIVITY_ANALYSIS_RE = re.compile(
     r"(?i)(cron\s*job|cronjob|크론잡|scheduled\s+job|schedule|스케줄|"
     r"\d+\s*(분|minute|min)|\*/\d+|0/\d+|"
@@ -1607,7 +1610,7 @@ async def split_plain_text_events(chunks: AsyncIterator[str]) -> AsyncIterator[d
 
 
 def should_collect_pod_status_evidence(message: str) -> bool:
-    return bool(POD_STATUS_ANALYSIS_RE.search(message))
+    return bool(POD_STATUS_ANALYSIS_RE.search(message) or CLUSTER_OPERATOR_ANALYSIS_RE.search(message))
 
 
 def should_collect_cronjob_activity_evidence(

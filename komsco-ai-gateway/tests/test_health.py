@@ -191,6 +191,7 @@ def test_classify_request_policy_allows_restart_count_analysis() -> None:
 
 def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> None:
     assert should_collect_pod_status_evidence("현재 클러스터의 Pod 상태와 재시작이 많은 Pod를 분석해줘")
+    assert should_collect_pod_status_evidence("ClusterOperator authentication 상태를 확인해줘")
     assert not should_collect_pod_status_evidence("openshift-monitoring pod 재시작해줘")
 
 
