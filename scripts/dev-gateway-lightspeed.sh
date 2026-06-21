@@ -13,8 +13,10 @@ OLS_SERVICE="${OLS_SERVICE:-lightspeed-app-server}"
 OLS_SERVICE_PORT="${OLS_SERVICE_PORT:-8443}"
 OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
+PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
+PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
 
-PF_PID=""
+PF_SUPERVISOR_PID=""
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -44,10 +46,81 @@ wait_for_port() {
   return 1
 }
 
+log_port_forward() {
+  printf '[%s] %s\n' "$(date -Is)" "$*" >>"$PF_LOG"
+}
+
+run_port_forward_supervisor() {
+  local pf_pid=""
+
+  cleanup_supervisor() {
+    if [ -n "$pf_pid" ] && kill -0 "$pf_pid" >/dev/null 2>&1; then
+      kill "$pf_pid" >/dev/null 2>&1 || true
+      wait "$pf_pid" >/dev/null 2>&1 || true
+    fi
+  }
+
+  trap 'cleanup_supervisor; exit 0' INT TERM
+  trap cleanup_supervisor EXIT
+
+  while true; do
+    if [ -n "$pf_pid" ] && ! kill -0 "$pf_pid" >/dev/null 2>&1; then
+      wait "$pf_pid" >/dev/null 2>&1 || true
+      log_port_forward "Lightspeed port-forward exited; restarting after ${PF_RESTART_DELAY}s"
+      pf_pid=""
+      sleep "$PF_RESTART_DELAY"
+    fi
+
+    if [ -z "$pf_pid" ]; then
+      if port_open "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
+        sleep "$PF_CHECK_INTERVAL"
+        continue
+      fi
+
+      log_port_forward "Starting Lightspeed port-forward: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
+      oc -n "$OLS_NAMESPACE" port-forward \
+        --address "$GATEWAY_HOST" \
+        "svc/${OLS_SERVICE}" \
+        "${OLS_LOCAL_PORT}:${OLS_SERVICE_PORT}" \
+        >>"$PF_LOG" 2>&1 &
+      pf_pid="$!"
+
+      if wait_for_port "$GATEWAY_HOST" "$OLS_LOCAL_PORT" 40; then
+        sleep "$PF_CHECK_INTERVAL"
+        continue
+      fi
+
+      if kill -0 "$pf_pid" >/dev/null 2>&1; then
+        log_port_forward "Lightspeed port-forward did not become ready; restarting after ${PF_RESTART_DELAY}s"
+        kill "$pf_pid" >/dev/null 2>&1 || true
+        wait "$pf_pid" >/dev/null 2>&1 || true
+      else
+        wait "$pf_pid" >/dev/null 2>&1 || true
+        log_port_forward "Lightspeed port-forward exited before becoming ready; restarting after ${PF_RESTART_DELAY}s"
+      fi
+
+      pf_pid=""
+      sleep "$PF_RESTART_DELAY"
+      continue
+    fi
+
+    if ! port_open "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
+      log_port_forward "Lightspeed local port ${GATEWAY_HOST}:${OLS_LOCAL_PORT} is unavailable; restarting port-forward"
+      kill "$pf_pid" >/dev/null 2>&1 || true
+      wait "$pf_pid" >/dev/null 2>&1 || true
+      pf_pid=""
+      sleep "$PF_RESTART_DELAY"
+      continue
+    fi
+
+    sleep "$PF_CHECK_INTERVAL"
+  done
+}
+
 cleanup() {
-  if [ -n "$PF_PID" ] && kill -0 "$PF_PID" >/dev/null 2>&1; then
-    kill "$PF_PID" >/dev/null 2>&1 || true
-    wait "$PF_PID" >/dev/null 2>&1 || true
+  if [ -n "$PF_SUPERVISOR_PID" ] && kill -0 "$PF_SUPERVISOR_PID" >/dev/null 2>&1; then
+    kill "$PF_SUPERVISOR_PID" >/dev/null 2>&1 || true
+    wait "$PF_SUPERVISOR_PID" >/dev/null 2>&1 || true
   fi
 }
 
@@ -63,26 +136,18 @@ fi
 
 oc -n "$OLS_NAMESPACE" get "svc/${OLS_SERVICE}" >/dev/null
 
-if port_open "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
-  echo "Using existing local Lightspeed endpoint: https://${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
-else
-  : > "$PF_LOG"
-  oc -n "$OLS_NAMESPACE" port-forward \
-    --address "$GATEWAY_HOST" \
-    "svc/${OLS_SERVICE}" \
-    "${OLS_LOCAL_PORT}:${OLS_SERVICE_PORT}" \
-    >"$PF_LOG" 2>&1 &
-  PF_PID="$!"
+: > "$PF_LOG"
+run_port_forward_supervisor &
+PF_SUPERVISOR_PID="$!"
 
-  if ! wait_for_port "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
-    echo "Lightspeed port-forward failed. Log: $PF_LOG" >&2
-    cat "$PF_LOG" >&2
-    exit 1
-  fi
-
-  echo "Lightspeed port-forward: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
-  echo "Port-forward log: $PF_LOG"
+if ! wait_for_port "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
+  echo "Lightspeed port-forward failed. Log: $PF_LOG" >&2
+  cat "$PF_LOG" >&2
+  exit 1
 fi
+
+echo "Lightspeed endpoint supervised: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
+echo "Port-forward log: $PF_LOG"
 
 cd "$GATEWAY_DIR"
 
