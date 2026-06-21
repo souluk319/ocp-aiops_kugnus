@@ -57,6 +57,7 @@ from komsco_ai_gateway.main import (
     build_sealed_action_plan_record,
     candidate_action_request_digest,
     can_subject_read_record,
+    compact_controller_submission,
     build_pod_status_evidence,
     DiagnosticEvidencePolicy,
     DiagnosticLimits,
@@ -69,6 +70,7 @@ from komsco_ai_gateway.main import (
     parse_bool,
     parse_ols_verify,
     normalize_console_page_context,
+    normalize_controller_phase,
     product_access_review_status,
     sealed_action_plan_digest,
     summarize_product_access_review,
@@ -1321,6 +1323,28 @@ def test_diagnostic_controller_unconfigured_status_is_recorded(monkeypatch) -> N
 
     assert submitted["spec"]["status"]["phase"] == "controller_unconfigured"
     assert submitted["spec"]["status"]["submittedToController"] is False
+
+
+def test_controller_submission_compaction_keeps_digest_not_raw_log() -> None:
+    compacted = compact_controller_submission(
+        {
+            "spec": {
+                "phase": "completed",
+                "collectorPod": {
+                    "podPhase": "Succeeded",
+                    "logPreview": '{"kind":"HostDiagnosticEvidence","spec":{"requestId":"diag-a"}}',
+                    "evidenceSummary": {"sections": ["kernel_summary"]},
+                },
+            }
+        }
+    )
+    collector_pod = compacted["spec"]["collectorPod"]
+
+    assert normalize_controller_phase("completed") == "succeeded"
+    assert "logPreview" not in collector_pod
+    assert collector_pod["logPreviewDigest"].startswith("sha256:")
+    assert collector_pod["logPreviewBytes"] > 0
+    assert collector_pod["evidenceSummary"]["sections"] == ["kernel_summary"]
 
 
 def test_action_registry_contains_only_initial_allow_list() -> None:

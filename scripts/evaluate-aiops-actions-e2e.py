@@ -21,6 +21,12 @@ DEFAULT_NAMESPACE = "komsco-ai-dev"
 DEFAULT_REPORT_PATH = Path("/tmp/komsco-ai-actions-e2e.json")
 
 
+class HostDiagnosticError(RuntimeError):
+    def __init__(self, message: str, request_id: str) -> None:
+        super().__init__(message)
+        self.request_id = request_id
+
+
 def run_oc(
     args: list[str],
     *,
@@ -464,23 +470,26 @@ def run_host_diagnostic(
         current = api_get(client, f"/v1/diagnostics/requests/{request_id}", token)
         status = current.get("spec", {}).get("status", {})
         phase = str(status.get("phase") or "")
-        if phase in {"collector_succeeded", "collector_failed"}:
+        if phase in {"collector_succeeded", "collector_completed", "collector_failed"}:
             return current
         controller = status.get("controllerSubmission")
         if isinstance(controller, Mapping):
             controller_phase = str(controller.get("spec", {}).get("phase") or "")
-            if controller_phase in {"succeeded", "failed"}:
+            if controller_phase in {"completed", "succeeded", "failed"}:
                 return current
         return None
 
-    terminal = wait_for("host diagnostic completion", fetch_terminal, timeout_seconds=180)
+    try:
+        terminal = wait_for("host diagnostic completion", fetch_terminal, timeout_seconds=180)
+    except TimeoutError as exc:
+        raise HostDiagnosticError(str(exc), request_id) from exc
     phase = str(terminal.get("spec", {}).get("status", {}).get("phase") or "")
-    if phase != "collector_succeeded":
+    if phase not in {"collector_succeeded", "collector_completed"}:
         raise RuntimeError(f"host diagnostic did not succeed: {phase}")
     return {
         "requestId": request_id,
         "targetNode": request["spec"]["candidate"]["targetNode"],
-        "phase": phase,
+        "phase": "collector_succeeded" if phase == "collector_completed" else phase,
     }
 
 
@@ -644,6 +653,9 @@ def main() -> int:
         report["ok"] = True
         return 0
     except Exception as exc:  # noqa: BLE001 - report any e2e failure.
+        if isinstance(exc, HostDiagnosticError):
+            diagnostic_request_id = exc.request_id
+            report["hostDiagnostic"] = {"requestId": exc.request_id, "error": str(exc)}
         report["error"] = str(exc)
         return 1
     finally:

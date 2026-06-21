@@ -629,6 +629,7 @@ async def record_store_request(
     path: str,
     *,
     body: Mapping[str, Any] | None = None,
+    content_type: str = "application/json",
 ) -> httpx.Response:
     if not OPENSHIFT_API_URL:
         raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
@@ -637,7 +638,7 @@ async def record_store_request(
         "Authorization": record_store_auth_header(),
     }
     if body is not None:
-        headers["Content-Type"] = "application/json"
+        headers["Content-Type"] = content_type
     async with httpx.AsyncClient(
         verify=OPENSHIFT_API_CA_FILE,
         timeout=httpx.Timeout(20.0, connect=5.0),
@@ -688,7 +689,12 @@ async def persist_record_store(store_name: str) -> None:
     data_value = json.dumps(redact_sensitive(store), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     patch_body = {"data": {key: data_value}}
     try:
-        response = await record_store_request("PATCH", record_store_path(namespace), body=patch_body)
+        response = await record_store_request(
+            "PATCH",
+            record_store_path(namespace),
+            body=patch_body,
+            content_type="application/merge-patch+json",
+        )
         if response.status_code == 404:
             create_body = {
                 "apiVersion": "v1",
@@ -933,6 +939,24 @@ async def submit_diagnostic_request_to_controller(record: dict[str, Any]) -> dic
     return record
 
 
+def compact_controller_submission(controller_result: Mapping[str, Any]) -> dict[str, Any]:
+    compacted = redact_sensitive(dict(controller_result))
+    spec = compacted.get("spec") if isinstance(compacted.get("spec"), Mapping) else {}
+    collector_pod = spec.get("collectorPod") if isinstance(spec.get("collectorPod"), Mapping) else {}
+    log_preview = collector_pod.get("logPreview")
+    if isinstance(log_preview, str):
+        collector_pod["logPreviewDigest"] = canonical_digest(log_preview)
+        collector_pod["logPreviewBytes"] = len(log_preview.encode("utf-8"))
+        collector_pod.pop("logPreview", None)
+    return compacted
+
+
+def normalize_controller_phase(phase: str) -> str:
+    if phase == "completed":
+        return "succeeded"
+    return phase
+
+
 async def refresh_diagnostic_request_from_controller(record: dict[str, Any]) -> dict[str, Any]:
     status = record["spec"]["status"]
     if not DIAGNOSTICS_ENABLED or not HOST_DIAGNOSTICS_CONTROLLER_URL:
@@ -962,8 +986,8 @@ async def refresh_diagnostic_request_from_controller(record: dict[str, Any]) -> 
     )
     phase = controller_spec.get("phase") if isinstance(controller_spec, Mapping) else None
     if isinstance(phase, str) and phase:
-        status["phase"] = f"collector_{phase}"
-    status["controllerSubmission"] = redact_sensitive(controller_result)
+        status["phase"] = f"collector_{normalize_controller_phase(phase)}"
+    status["controllerSubmission"] = compact_controller_submission(controller_result)
     return record
 
 
