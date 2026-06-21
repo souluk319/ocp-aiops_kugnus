@@ -5,6 +5,14 @@ import pytest
 from fastapi import HTTPException
 
 from komsco_ai_gateway.main import (
+    ACTION_PROPOSALS,
+    ACTION_REGISTRY_DIGEST,
+    ACTION_REGISTRY_ENTRIES,
+    APPROVAL_DECISIONS,
+    EXECUTION_RECORDS,
+    SEALED_ACTION_PLANS,
+    ActionProposalCreate,
+    ActionTarget,
     ChatRequest,
     DIAGNOSTIC_REQUESTS,
     EVIDENCE_RECORDS,
@@ -14,6 +22,7 @@ from komsco_ai_gateway.main import (
     WORKFLOW_RECORDS,
     app,
     build_attachment_context,
+    build_action_proposal_record,
     build_action_proposal_fallback,
     build_cluster_summary,
     build_cluster_operator_status_evidence,
@@ -25,7 +34,8 @@ from komsco_ai_gateway.main import (
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
-    diagnostic_request_digest,
+    build_sealed_action_plan_record,
+    candidate_action_request_digest,
     can_subject_read_record,
     build_pod_status_evidence,
     DiagnosticEvidencePolicy,
@@ -33,10 +43,12 @@ from komsco_ai_gateway.main import (
     DiagnosticRequestCreate,
     DiagnosticTargetNode,
     DiagnosticTimeRange,
+    diagnostic_request_digest,
     parse_bool,
     parse_ols_verify,
     normalize_console_page_context,
     product_access_review_status,
+    sealed_action_plan_digest,
     summarize_product_access_review,
     should_collect_cronjob_activity_evidence,
     should_collect_pod_status_evidence,
@@ -1085,5 +1097,153 @@ def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorizat
         assert payload["spec"]["status"]["submittedToController"] is False
         assert read_response.status_code == 200
         assert read_response.json()["metadata"]["name"] == request_id
+
+    asyncio.run(run())
+
+
+def test_action_registry_contains_only_initial_allow_list() -> None:
+    assert ACTION_REGISTRY_DIGEST.startswith("sha256:")
+    assert set(ACTION_REGISTRY_ENTRIES) == {
+        "rollout_restart_deployment",
+        "set_replicas_within_bounds",
+        "evict_one_unhealthy_controller_owned_pod",
+    }
+    assert "patch_resource" not in ACTION_REGISTRY_ENTRIES
+    assert "apply_manifest" not in ACTION_REGISTRY_ENTRIES
+
+
+def test_action_proposal_digest_uses_runtime_target_not_hardcoded_target() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    request = ActionProposalCreate(
+        toolName="rollout_restart_deployment",
+        target=ActionTarget(
+            apiVersion="apps/v1",
+            kind="Deployment",
+            namespace="team-a",
+            name="web-a",
+            uid="deployment-uid-a",
+        ),
+        parameters={"restartedAt": "2026-06-21T00:00:00Z"},
+    )
+    changed_target_request = request.model_copy(
+        update={
+            "target": ActionTarget(
+                apiVersion="apps/v1",
+                kind="Deployment",
+                namespace="team-b",
+                name="web-b",
+                uid="deployment-uid-b",
+            )
+        }
+    )
+    record = build_action_proposal_record(request, subject)
+    changed_record = build_action_proposal_record(changed_target_request, subject)
+    candidate = record["spec"]["candidateActionRequest"]
+    changed_candidate = changed_record["spec"]["candidateActionRequest"]
+
+    assert candidate["target"]["namespace"] == "team-a"
+    assert candidate["target"]["name"] == "web-a"
+    assert candidate_action_request_digest(candidate) != candidate_action_request_digest(changed_candidate)
+
+
+def test_sealed_action_plan_digest_excludes_mutable_status_and_digest_fields() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    proposal = build_action_proposal_record(
+        ActionProposalCreate(
+            toolName="rollout_restart_deployment",
+            target=ActionTarget(
+                apiVersion="apps/v1",
+                kind="Deployment",
+                namespace="team-a",
+                name="web-a",
+                uid="deployment-uid-a",
+            ),
+            parameters={"restartedAt": "2026-06-21T00:00:00Z"},
+        ),
+        subject,
+    )
+    plan_record = build_sealed_action_plan_record(proposal)
+    plan = plan_record["spec"]["sealedActionPlan"]
+    plan_digest = plan["digest"]["planDigest"]
+    mutable_copy = {
+        **plan,
+        "digest": {"planDigest": "sha256:tampered"},
+        "executionStatus": {"phase": "mutation_succeeded"},
+    }
+
+    assert sealed_action_plan_digest(plan) == plan_digest
+    assert sealed_action_plan_digest(mutable_copy) == plan_digest
+
+
+def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            registry_response = await client.get("/v1/actions/registry", headers=headers)
+            proposal_response = await client.post(
+                "/v1/actions/proposals",
+                headers=headers,
+                json={
+                    "incidentId": "inc-action",
+                    "runId": "run-action",
+                    "toolName": "rollout_restart_deployment",
+                    "target": {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "namespace": "team-a",
+                        "name": "web-a",
+                        "uid": "deployment-uid-a",
+                    },
+                    "parameters": {"restartedAt": "2026-06-21T00:00:00Z"},
+                },
+            )
+            proposal_id = proposal_response.json()["metadata"]["name"]
+            plan_response = await client.post(
+                "/v1/actions/plans",
+                headers=headers,
+                json={"proposalId": proposal_id},
+            )
+            plan_payload = plan_response.json()
+            plan_id = plan_payload["metadata"]["name"]
+            plan_digest = plan_payload["spec"]["sealedActionPlan"]["digest"]["planDigest"]
+            stale_approval_response = await client.post(
+                "/v1/actions/approvals",
+                headers=headers,
+                json={"planId": plan_id, "expectedPlanDigest": "sha256:stale"},
+            )
+            approval_response = await client.post(
+                "/v1/actions/approvals",
+                headers=headers,
+                json={"planId": plan_id, "expectedPlanDigest": plan_digest},
+            )
+            approval_id = approval_response.json()["metadata"]["name"]
+            execution_response = await client.post(
+                "/v1/actions/execute",
+                headers=headers,
+                json={
+                    "approvalId": approval_id,
+                    "planId": plan_id,
+                    "expectedPlanDigest": plan_digest,
+                },
+            )
+
+        assert registry_response.status_code == 200
+        assert registry_response.json()["spec"]["mutationsEnabled"] is False
+        assert proposal_response.status_code == 200
+        assert plan_response.status_code == 200
+        assert stale_approval_response.status_code == 409
+        assert approval_response.status_code == 200
+        assert execution_response.status_code == 403
+        assert execution_response.json()["detail"]["mutationOutcome"]["status"] == "mutation_disabled"
+        assert len(EXECUTION_RECORDS) == 1
+        execution_record = next(iter(EXECUTION_RECORDS.values()))
+        assert execution_record["spec"]["executionGrantRef"]["bearerGrantStored"] is False
+        assert "claims" not in execution_record["spec"]["executionGrantRef"]
 
     asyncio.run(run())

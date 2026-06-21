@@ -7,7 +7,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
@@ -93,6 +93,8 @@ WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
 DIAGNOSTICS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_DIAGNOSTICS_ENABLED"), default=False)
 DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000"))
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
+MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
+ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -193,13 +195,78 @@ METRICS: dict[str, int] = {
     "aiops_chat_failed_total": 0,
     "aiops_evidence_records_total": 0,
     "aiops_diagnostic_requests_total": 0,
+    "aiops_action_proposals_total": 0,
+    "aiops_action_plans_total": 0,
+    "aiops_approval_decisions_total": 0,
+    "aiops_execution_requests_total": 0,
     "aiops_product_access_reviews_total": 0,
     "aiops_rate_limited_total": 0,
 }
 EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
 WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
 DIAGNOSTIC_REQUESTS: dict[str, dict[str, Any]] = {}
+ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
+SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
+APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
+EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+ACTION_REGISTRY_VERSION = "v1"
+ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
+    "rollout_restart_deployment": {
+        "toolName": "rollout_restart_deployment",
+        "toolVersion": "v1",
+        "targetKind": "Deployment",
+        "risk": "low",
+        "authorization": {
+            "apiGroup": "apps",
+            "resource": "deployments",
+            "subresource": "",
+            "verb": "patch",
+        },
+        "request": {
+            "method": "PATCH",
+            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+        },
+    },
+    "set_replicas_within_bounds": {
+        "toolName": "set_replicas_within_bounds",
+        "toolVersion": "v1",
+        "targetKind": "Deployment",
+        "risk": "medium",
+        "authorization": {
+            "apiGroup": "apps",
+            "resource": "deployments",
+            "subresource": "scale",
+            "verb": "update",
+        },
+        "request": {
+            "method": "PATCH",
+            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale",
+        },
+    },
+    "evict_one_unhealthy_controller_owned_pod": {
+        "toolName": "evict_one_unhealthy_controller_owned_pod",
+        "toolVersion": "v1",
+        "targetKind": "Pod",
+        "risk": "medium",
+        "authorization": {
+            "apiGroup": "",
+            "resource": "pods",
+            "subresource": "eviction",
+            "verb": "create",
+        },
+        "request": {
+            "method": "POST",
+            "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}/eviction",
+        },
+    },
+}
+ACTION_REGISTRY_BUNDLE = {
+    "schemaVersion": "v1",
+    "version": ACTION_REGISTRY_VERSION,
+    "entries": ACTION_REGISTRY_ENTRIES,
+}
+ACTION_REGISTRY_DIGEST = canonical_digest(ACTION_REGISTRY_BUNDLE)
 DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "schemaVersion",
     "clusterId",
@@ -212,6 +279,23 @@ DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "limits",
     "evidencePolicy",
     "policy",
+)
+CANDIDATE_ACTION_DIGEST_FIELDS = (
+    "schemaVersion",
+    "clusterId",
+    "requester",
+    "target",
+    "action",
+    "policy",
+)
+SEALED_ACTION_PLAN_DIGEST_FIELDS = (
+    "schemaVersion",
+    "clusterId",
+    "metadata",
+    "target",
+    "action",
+    "safety",
+    "approvalPresentation",
 )
 
 
@@ -357,6 +441,359 @@ def build_diagnostic_request_record(
     }
 
 
+def expires_at_rfc3339(delta: timedelta) -> str:
+    return (datetime.now(UTC) + delta).isoformat()
+
+
+def get_action_registry_entry(tool_name: str, tool_version: str) -> dict[str, Any]:
+    entry = ACTION_REGISTRY_ENTRIES.get(tool_name)
+    if not entry or entry.get("toolVersion") != tool_version:
+        raise HTTPException(status_code=400, detail="Action is not in the configured allow-list")
+    return entry
+
+
+def normalize_action_parameters(
+    action: Mapping[str, Any],
+    parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    tool_name = action.get("toolName")
+    if tool_name == "rollout_restart_deployment":
+        restarted_at = parameters.get("restartedAt")
+        return {
+            "restartedAt": restarted_at if isinstance(restarted_at, str) else now_rfc3339(),
+        }
+
+    if tool_name == "set_replicas_within_bounds":
+        replicas = parameters.get("replicas")
+        min_replicas = parameters.get("minReplicas", 0)
+        max_replicas = parameters.get("maxReplicas", 20)
+        if (
+            isinstance(replicas, bool)
+            or isinstance(min_replicas, bool)
+            or isinstance(max_replicas, bool)
+            or not isinstance(replicas, int)
+            or not isinstance(min_replicas, int)
+            or not isinstance(max_replicas, int)
+        ):
+            raise HTTPException(status_code=400, detail="replicas bounds must be integer values")
+        if min_replicas < 0 or max_replicas < min_replicas or not (min_replicas <= replicas <= max_replicas):
+            raise HTTPException(status_code=400, detail="replicas must be within minReplicas/maxReplicas")
+        return {
+            "maxReplicas": max_replicas,
+            "minReplicas": min_replicas,
+            "replicas": replicas,
+        }
+
+    if tool_name == "evict_one_unhealthy_controller_owned_pod":
+        reason = parameters.get("reason")
+        return {"reason": reason if isinstance(reason, str) else "approved_unhealthy_pod_eviction"}
+
+    raise HTTPException(status_code=400, detail="Unsupported action")
+
+
+def validate_action_target(action: Mapping[str, Any], target: "ActionTarget") -> None:
+    expected_kind = action.get("targetKind")
+    if expected_kind and target.kind != expected_kind:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Action target kind must be {expected_kind}",
+        )
+
+
+def default_policy_binding(policy: Mapping[str, Any]) -> dict[str, Any]:
+    policy_projection = redact_sensitive(dict(policy))
+    policy_digest = canonical_digest(policy_projection)
+    return {
+        "policyDecisionId": policy_projection.get("policyDecisionId") or "pd-local-foundation",
+        "policyBundleHash": policy_projection.get("policyBundleHash") or "sha256:local-foundation",
+        "policyInputDigest": policy_projection.get("policyInputDigest") or policy_digest,
+        "policyDecisionDigest": policy_projection.get("policyDecisionDigest") or policy_digest,
+    }
+
+
+def subject_digest(subject: Mapping[str, Any]) -> str:
+    return canonical_digest(
+        {
+            "groupsDigest": subject.get("groupsDigest"),
+            "uid": subject.get("uid"),
+            "username": subject.get("username"),
+        }
+    )
+
+
+def normalized_parameters_digest(candidate: Mapping[str, Any]) -> str:
+    action = candidate.get("action") if isinstance(candidate.get("action"), Mapping) else {}
+    return canonical_digest(action.get("normalizedParameters") or {})
+
+
+def policy_binding_digest(policy: Mapping[str, Any]) -> str:
+    return canonical_digest(default_policy_binding(policy))
+
+
+def candidate_action_request_digest(candidate: Mapping[str, Any]) -> str:
+    projection = {field: candidate.get(field) for field in CANDIDATE_ACTION_DIGEST_FIELDS}
+    return canonical_digest(redact_sensitive(projection))
+
+
+def sealed_action_plan_digest(plan: Mapping[str, Any]) -> str:
+    projection = {field: plan.get(field) for field in SEALED_ACTION_PLAN_DIGEST_FIELDS}
+    return canonical_digest(redact_sensitive(projection))
+
+
+def build_candidate_action_request(
+    request: "ActionProposalCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    registry_entry = get_action_registry_entry(request.toolName, request.toolVersion)
+    validate_action_target(registry_entry, request.target)
+    normalized_parameters = normalize_action_parameters(registry_entry, request.parameters)
+    return {
+        "schemaVersion": "v1",
+        "clusterId": CLUSTER_ID,
+        "requester": redact_sensitive(dict(subject)),
+        "target": request.target.model_dump(),
+        "action": {
+            "toolName": request.toolName,
+            "toolVersion": request.toolVersion,
+            "actionRegistry": {
+                "version": ACTION_REGISTRY_VERSION,
+                "digest": ACTION_REGISTRY_DIGEST,
+            },
+            "authorization": registry_entry["authorization"],
+            "request": registry_entry["request"],
+            "normalizedParameters": normalized_parameters,
+        },
+        "policy": default_policy_binding(request.policy),
+    }
+
+
+def build_action_proposal_record(
+    request: "ActionProposalCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidate = build_candidate_action_request(request, subject)
+    candidate_digest = candidate_action_request_digest(candidate)
+    proposal_id = f"proposal-{candidate_digest.removeprefix('sha256:')[:16]}"
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ActionProposalRecord",
+        "metadata": {
+            "name": proposal_id,
+            "createdAt": now_rfc3339(),
+        },
+        "spec": {
+            "candidateActionRequest": candidate,
+            "candidateRequestDigest": candidate_digest,
+            "digestSchema": {
+                "name": "candidate-action-request-digest-v1",
+                "canonicalization": "stable-json-sort-keys",
+                "includedFields": list(CANDIDATE_ACTION_DIGEST_FIELDS),
+            },
+            "evidenceRefs": redact_sensitive(request.evidenceRefs),
+            "incidentId": request.incidentId,
+            "runId": request.runId,
+            "runbookRefs": redact_sensitive(request.runbookRefs),
+            "status": {"phase": "proposed"},
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+
+
+def build_sealed_action_plan_record(
+    proposal: Mapping[str, Any],
+) -> dict[str, Any]:
+    spec = proposal.get("spec") if isinstance(proposal.get("spec"), Mapping) else {}
+    candidate = spec.get("candidateActionRequest") if isinstance(spec.get("candidateActionRequest"), Mapping) else {}
+    action = candidate.get("action") if isinstance(candidate.get("action"), Mapping) else {}
+    target = candidate.get("target") if isinstance(candidate.get("target"), Mapping) else {}
+    requester = candidate.get("requester") if isinstance(candidate.get("requester"), Mapping) else safe_subject(None)
+    policy = candidate.get("policy") if isinstance(candidate.get("policy"), Mapping) else {}
+    registry_digest = action.get("actionRegistry", {}).get("digest") if isinstance(action.get("actionRegistry"), Mapping) else ""
+    plan_id = f"plan-{uuid.uuid4()}"
+    incident_id = spec.get("incidentId") or f"inc-{uuid.uuid4()}"
+    created_at = now_rfc3339()
+    expires_at = expires_at_rfc3339(timedelta(minutes=5))
+    dry_run_projection = {
+        "candidateRequestDigest": spec.get("candidateRequestDigest"),
+        "decision": "not_executed_foundation",
+        "mutationsEnabled": MUTATIONS_ENABLED,
+    }
+    impact_projection = {
+        "action": action.get("toolName"),
+        "target": target,
+    }
+    plan = {
+        "schemaVersion": "v1",
+        "clusterId": CLUSTER_ID,
+        "metadata": {
+            "planId": plan_id,
+            "incidentId": incident_id,
+            "requester": requester,
+            "idempotencyKey": f"idem-{uuid.uuid4()}",
+            "createdAt": created_at,
+            "apiCallTimeout": "30s",
+            "verificationDeadline": "10m",
+            "maxMutationAttempts": 1,
+            "maxVerificationAttempts": 3,
+        },
+        "target": target,
+        "action": action,
+        "safety": {
+            "risk": get_action_registry_entry(str(action.get("toolName")), str(action.get("toolVersion")))[
+                "risk"
+            ],
+            "policy": default_policy_binding(policy),
+            "dryRun": {
+                "requestDigest": canonical_digest(dry_run_projection),
+                "normalizedDiffDigest": canonical_digest(dry_run_projection),
+                "decision": "not_executed_foundation",
+            },
+            "preconditions": [
+                {"type": "UIDEquals", "value": target.get("uid")},
+                {"type": "ActionRegistryDigestEquals", "value": registry_digest},
+                {"type": "RequiresFreshDryRun", "value": True},
+            ],
+            "hardPostconditions": [
+                {"type": "ExecutionRecordTerminalState", "value": True},
+            ],
+            "observationalPostconditions": [],
+            "rollbackDescription": "No automatic rollback is generated by this foundation API.",
+            "typedRollbackAction": None,
+            "rollbackRequiresApproval": False,
+            "rollbackPossible": False,
+            "expiresAt": expires_at,
+        },
+        "approvalPresentation": {
+            "impact": {
+                "affectedWorkloads": 1,
+                "affectedPods": None,
+                "availabilityRisk": "unknown",
+                "summaryDigest": canonical_digest(impact_projection),
+            },
+            "dryRun": {
+                "normalizedDiffDigest": canonical_digest(dry_run_projection),
+                "decision": "not_executed_foundation",
+            },
+            "evidenceRefs": spec.get("evidenceRefs") or [],
+            "runbookRefs": spec.get("runbookRefs") or [],
+        },
+    }
+    plan_digest = sealed_action_plan_digest(plan)
+    plan["digest"] = {
+        "planDigest": plan_digest,
+        "canonicalization": "stable-json-sort-keys",
+        "digestSchema": "sealed-action-plan-digest-v1",
+        "includedFields": list(SEALED_ACTION_PLAN_DIGEST_FIELDS),
+        "excludedFields": ["/digest"],
+    }
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "SealedActionPlanRecord",
+        "metadata": {"name": plan_id, "createdAt": created_at},
+        "spec": {"sealedActionPlan": plan, "status": {"phase": "sealed"}},
+        "subject": redact_sensitive(dict(requester)),
+    }
+
+
+def same_observed_subject(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    return (
+        left.get("username") == right.get("username")
+        and left.get("uid") == right.get("uid")
+        and left.get("groupsDigest") == right.get("groupsDigest")
+    )
+
+
+def build_approval_decision_record(
+    plan_record: Mapping[str, Any],
+    request: "ApprovalDecisionCreate",
+    approver: Mapping[str, Any],
+) -> dict[str, Any]:
+    plan = plan_record["spec"]["sealedActionPlan"]
+    plan_digest = plan["digest"]["planDigest"]
+    if request.expectedPlanDigest != plan_digest:
+        raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
+    risk = plan["safety"]["risk"]
+    requester = plan["metadata"]["requester"]
+    if risk in {"medium", "high"} and same_observed_subject(requester, approver):
+        raise HTTPException(status_code=409, detail="separation of duties requires requester and approver to differ")
+
+    approval_id = f"approval-{uuid.uuid4()}"
+    approved_at = now_rfc3339()
+    expires_at = expires_at_rfc3339(timedelta(minutes=5))
+    action = plan["action"]
+    target = plan["target"]
+    authorization = action.get("authorization") if isinstance(action.get("authorization"), Mapping) else {}
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ApprovalDecisionRecord",
+        "metadata": {"name": approval_id, "createdAt": approved_at},
+        "spec": {
+            "approvalDecision": {
+                "approvalId": approval_id,
+                "planDigest": plan_digest,
+                "status": "approved",
+                "approver": redact_sensitive(dict(approver)),
+                "approvedAt": approved_at,
+                "expiresAt": expires_at,
+                "approvalScope": request.approvalScope,
+                "target": target,
+                "kubernetesAuthorization": {
+                    "apiGroup": authorization.get("apiGroup", ""),
+                    "resource": authorization.get("resource", ""),
+                    "subresource": authorization.get("subresource", ""),
+                    "verb": authorization.get("verb", ""),
+                    "ssarDecision": "not_revalidated_foundation",
+                    "evaluatedAt": approved_at,
+                },
+                "action": {
+                    "toolName": action.get("toolName"),
+                    "toolVersion": action.get("toolVersion"),
+                    "actionRegistry": action.get("actionRegistry"),
+                },
+            }
+        },
+        "subject": redact_sensitive(dict(approver)),
+    }
+
+
+def build_execution_grant_reference(
+    approval: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    approver: Mapping[str, Any],
+) -> dict[str, Any]:
+    decision = approval["spec"]["approvalDecision"]
+    sealed_plan = plan["spec"]["sealedActionPlan"]
+    grant_id = f"exec-grant-{uuid.uuid4()}"
+    issued_at = now_rfc3339()
+    expires_at = expires_at_rfc3339(timedelta(seconds=30))
+    grant_claims = {
+        "schemaVersion": "v1",
+        "issuer": "aiops-approval-api",
+        "audience": "aiops-action-executor",
+        "grantId": grant_id,
+        "issuedAt": issued_at,
+        "notBefore": issued_at,
+        "expiresAt": expires_at,
+        "clusterId": CLUSTER_ID,
+        "planDigest": decision["planDigest"],
+        "approvalId": decision["approvalId"],
+        "approver": redact_sensitive(dict(approver)),
+        "action": decision["action"],
+        "target": decision["target"],
+        "kubernetesAuthorization": decision["kubernetesAuthorization"],
+        "policyBundleHash": sealed_plan["safety"]["policy"]["policyBundleHash"],
+    }
+    return {
+        "grantId": grant_id,
+        "grantDigest": canonical_digest(grant_claims),
+        "bearerGrantStored": False,
+        "claims": grant_claims,
+    }
+
+
 class ImageAttachment(BaseModel):
     id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=180)
@@ -410,6 +847,42 @@ class DiagnosticRequestCreate(StrictBaseModel):
     limits: DiagnosticLimits = Field(default_factory=DiagnosticLimits)
     evidencePolicy: DiagnosticEvidencePolicy = Field(default_factory=DiagnosticEvidencePolicy)
     policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class ActionTarget(StrictBaseModel):
+    apiVersion: str = Field(min_length=1, max_length=80)
+    kind: str = Field(min_length=1, max_length=80)
+    namespace: str = Field(min_length=1, max_length=253)
+    name: str = Field(min_length=1, max_length=253)
+    uid: str = Field(min_length=1, max_length=128)
+
+
+class ActionProposalCreate(StrictBaseModel):
+    incidentId: str | None = Field(default=None, max_length=120)
+    runId: str | None = Field(default=None, max_length=120)
+    toolName: str = Field(min_length=1, max_length=120)
+    toolVersion: str = Field(default="v1", min_length=1, max_length=64)
+    target: ActionTarget
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    runbookRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class SealedActionPlanCreate(StrictBaseModel):
+    proposalId: str = Field(min_length=1, max_length=120)
+
+
+class ApprovalDecisionCreate(StrictBaseModel):
+    planId: str = Field(min_length=1, max_length=120)
+    expectedPlanDigest: str = Field(min_length=1, max_length=128)
+    approvalScope: str = Field(default="single-target", min_length=1, max_length=80)
+
+
+class ActionExecutionCreate(StrictBaseModel):
+    approvalId: str = Field(min_length=1, max_length=120)
+    planId: str = Field(min_length=1, max_length=120)
+    expectedPlanDigest: str = Field(min_length=1, max_length=128)
 
 
 def decode_path_segment(segment: str | None) -> str | None:
@@ -2690,6 +3163,180 @@ async def get_diagnostic_request(
     }
 
 
+@app.get("/v1/actions/registry")
+async def get_action_registry(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    verify_bearer_header(authorization)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ActionRegistry",
+        "metadata": {
+            "name": "mutation-action-registry",
+            "version": ACTION_REGISTRY_VERSION,
+        },
+        "spec": {
+            "digest": ACTION_REGISTRY_DIGEST,
+            "mutationsEnabled": MUTATIONS_ENABLED,
+            "entries": list(ACTION_REGISTRY_ENTRIES.values()),
+        },
+    }
+
+
+@app.post("/v1/actions/proposals")
+async def create_action_proposal(
+    req: ActionProposalCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = build_action_proposal_record(req, subject)
+    proposal_id = str(record["metadata"]["name"])
+    bounded_put(ACTION_PROPOSALS, proposal_id, record, ACTION_MAX_RECORDS)
+    increment_metric("aiops_action_proposals_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ActionProposal",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.get("/v1/actions/proposals/{proposal_id}")
+async def get_action_proposal(
+    proposal_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = ACTION_PROPOSALS.get(proposal_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Action proposal not found")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ActionProposal",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.post("/v1/actions/plans")
+async def create_action_plan(
+    req: SealedActionPlanCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    proposal = ACTION_PROPOSALS.get(req.proposalId)
+    if not proposal or not can_subject_read_record(proposal, subject):
+        raise HTTPException(status_code=404, detail="Action proposal not found")
+    record = build_sealed_action_plan_record(proposal)
+    plan_id = str(record["metadata"]["name"])
+    bounded_put(SEALED_ACTION_PLANS, plan_id, record, ACTION_MAX_RECORDS)
+    increment_metric("aiops_action_plans_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "SealedActionPlan",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.get("/v1/actions/plans/{plan_id}")
+async def get_action_plan(
+    plan_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = SEALED_ACTION_PLANS.get(plan_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Sealed action plan not found")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "SealedActionPlan",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.post("/v1/actions/approvals")
+async def create_approval_decision(
+    req: ApprovalDecisionCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    plan = SEALED_ACTION_PLANS.get(req.planId)
+    if not plan or not can_subject_read_record(plan, subject):
+        raise HTTPException(status_code=404, detail="Sealed action plan not found")
+    record = build_approval_decision_record(plan, req, subject)
+    approval_id = str(record["metadata"]["name"])
+    bounded_put(APPROVAL_DECISIONS, approval_id, record, ACTION_MAX_RECORDS)
+    increment_metric("aiops_approval_decisions_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ApprovalDecision",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.post("/v1/actions/execute")
+async def execute_action(
+    req: ActionExecutionCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    plan = SEALED_ACTION_PLANS.get(req.planId)
+    approval = APPROVAL_DECISIONS.get(req.approvalId)
+    if not plan or not can_subject_read_record(plan, subject):
+        raise HTTPException(status_code=404, detail="Sealed action plan not found")
+    if not approval or not can_subject_read_record(approval, subject):
+        raise HTTPException(status_code=404, detail="Approval decision not found")
+
+    sealed_plan = plan["spec"]["sealedActionPlan"]
+    plan_digest = sealed_plan["digest"]["planDigest"]
+    approval_decision = approval["spec"]["approvalDecision"]
+    if req.expectedPlanDigest != plan_digest or approval_decision["planDigest"] != plan_digest:
+        raise HTTPException(status_code=409, detail="Execution request is stale for this sealed plan")
+    if approval_decision["status"] != "approved":
+        raise HTTPException(status_code=409, detail="Approval decision is not approved")
+
+    grant_reference = build_execution_grant_reference(approval, plan, subject)
+    execution_id = f"execution-{uuid.uuid4()}"
+    status = "mutation_disabled" if not MUTATIONS_ENABLED else "executor_not_configured"
+    record = {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ExecutionRecord",
+        "metadata": {"name": execution_id, "createdAt": now_rfc3339()},
+        "spec": {
+            "executionId": execution_id,
+            "approvalId": req.approvalId,
+            "planId": req.planId,
+            "planDigest": plan_digest,
+            "executionGrantRef": {
+                key: value for key, value in grant_reference.items() if key != "claims"
+            },
+            "mutationOutcome": {
+                "status": status,
+                "reason": (
+                    "KOMSCO_AI_ENABLE_MUTATIONS is false."
+                    if not MUTATIONS_ENABLED
+                    else "Action Executor integration is not configured in this gateway."
+                ),
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+    bounded_put(EXECUTION_RECORDS, execution_id, record, ACTION_MAX_RECORDS)
+    increment_metric("aiops_execution_requests_total")
+    if not MUTATIONS_ENABLED:
+        raise HTTPException(status_code=403, detail=record["spec"])
+    raise HTTPException(status_code=501, detail=record["spec"])
+
+
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics() -> str:
     lines = []
@@ -2702,6 +3349,14 @@ async def metrics() -> str:
     lines.append(f"aiops_workflow_records {len(WORKFLOW_RECORDS)}")
     lines.append("# TYPE aiops_diagnostic_request_records gauge")
     lines.append(f"aiops_diagnostic_request_records {len(DIAGNOSTIC_REQUESTS)}")
+    lines.append("# TYPE aiops_action_proposal_records gauge")
+    lines.append(f"aiops_action_proposal_records {len(ACTION_PROPOSALS)}")
+    lines.append("# TYPE aiops_sealed_action_plan_records gauge")
+    lines.append(f"aiops_sealed_action_plan_records {len(SEALED_ACTION_PLANS)}")
+    lines.append("# TYPE aiops_approval_decision_records gauge")
+    lines.append(f"aiops_approval_decision_records {len(APPROVAL_DECISIONS)}")
+    lines.append("# TYPE aiops_execution_records gauge")
+    lines.append(f"aiops_execution_records {len(EXECUTION_RECORDS)}")
     return "\n".join(lines) + "\n"
 
 
