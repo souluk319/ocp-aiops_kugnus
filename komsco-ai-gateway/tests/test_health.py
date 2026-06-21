@@ -132,6 +132,24 @@ def test_validate_image_attachments_accepts_supported_base64_image() -> None:
     assert "image/png" in context
 
 
+def test_build_attachment_context_without_vision_uses_metadata_only_language() -> None:
+    attachment = ImageAttachment(
+        data="iVBORw0KGgo=",
+        id="image-1",
+        mimeType="image/png",
+        name="catalog-screen.png",
+        size=8,
+    )
+
+    context = build_attachment_context([attachment])
+
+    assert "비활성화" in context
+    assert "첨부 파일 메타데이터" in context
+    assert "사용자 설명" in context
+    assert "도구 조회 결과" in context
+    assert "이미지 원본 판독은 수행하지 않았습니다" not in context
+
+
 def test_build_ols_payload_does_not_forward_image_attachments_by_default() -> None:
     attachment = ImageAttachment(
         data="iVBORw0KGgo=",
@@ -204,6 +222,9 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     )
 
     assert "최근 OpenShift 경고" in query
+    assert "스크린샷이나 이미지가 전달된 것이 아닙니다" in query
+    assert '답변에 "이미지를 직접 판독할 수 없다"' in query
+    assert "경로 기준으로는 Catalog 페이지로 보입니다" in query
     assert "OpenShift MCP 도구를 먼저 사용하세요" in query
     assert "도구 결과에 없는 alert" in query
     assert "OpenShift 경고 분석 프로토콜" in query
@@ -248,6 +269,25 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "기본 재시작 방법으로 제시하지 마세요" in query
     assert "title" not in query
     assert "OKD" not in query
+
+
+def test_build_ols_query_treats_console_path_as_context_not_image() -> None:
+    query = build_ols_query(
+        ChatRequest(
+            message="현재 보고 있는 콘솔 화면이 무엇인지 설명해줘.",
+            pageContext={
+                "href": "http://localhost:9000/catalog/ns/team-a",
+                "pathname": "/catalog/ns/team-a",
+                "namespace": "team-a",
+            },
+        )
+    )
+
+    assert "첨부 이미지 없음" in query
+    assert "/catalog/ns/team-a" in query
+    assert '"namespace": "team-a"' in query
+    assert "현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다" in query
+    assert "화면의 시각적 내용 자체라고 단정하지 말고" in query
 
 
 def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() -> None:

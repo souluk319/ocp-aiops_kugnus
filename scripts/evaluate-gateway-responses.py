@@ -38,6 +38,7 @@ class QuestionCase:
     category: str
     question: str
     source: str
+    page_context: Mapping[str, Any] | None = None
     expect_events: tuple[str, ...] = ()
     expect_policy_decision: str | None = None
     expect_answer_regex: tuple[str, ...] = ()
@@ -287,6 +288,25 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
             source="generic",
         ),
     )
+    if namespace:
+        add_case(
+            cases,
+            QuestionCase(
+                category="console-page-no-image",
+                question="현재 보고 있는 콘솔 화면이 무엇인지 설명해줘.",
+                source="pageContext:/catalog/ns/<namespace>",
+                page_context={
+                    "href": f"http://localhost:9000/catalog/ns/{namespace}",
+                    "pathname": f"/catalog/ns/{namespace}",
+                    "namespace": namespace,
+                },
+                expect_answer_regex=(r"(Catalog|catalog|카탈로그|/catalog/ns)",),
+                forbid_answer_regex=(
+                    r"이미지.*(직접\s*)?(판독|읽|볼).*수\s*없",
+                    r"스크린샷.*(없|못|제공되지|전달되지|볼\s*수\s*없)",
+                ),
+            ),
+        )
 
     if nodes:
         node = nodes[0]
@@ -672,6 +692,9 @@ async def call_gateway(
     case: QuestionCase,
 ) -> tuple[str, float]:
     started = time.monotonic()
+    payload: dict[str, Any] = {"message": case.question}
+    if case.page_context:
+        payload["pageContext"] = dict(case.page_context)
     response = await client.post(
         gateway_url,
         headers={
@@ -679,7 +702,7 @@ async def call_gateway(
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         },
-        json={"message": case.question},
+        json=payload,
     )
     response.raise_for_status()
     return response.text, time.monotonic() - started

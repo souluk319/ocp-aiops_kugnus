@@ -452,7 +452,8 @@ def build_attachment_context(
         lines.append("이미지 원본은 Lightspeed attachments로 전달했습니다.")
     else:
         lines.append(
-            "현재 Gateway 비전 분석이 설정되지 않았고 이 OLS 배포는 image attachment를 허용하지 않아 이미지 원본 판독은 수행하지 않았습니다."
+            "현재 Gateway 비전 분석과 OLS image attachment 전달이 비활성화되어 있습니다. "
+            "답변에는 첨부 파일 메타데이터, 사용자 설명, 도구 조회 결과만 근거로 사용하세요."
         )
 
     lines.append("첨부 파일 메타데이터:")
@@ -1433,6 +1434,11 @@ def build_ols_query(
 
 [Gateway 선조회 증거]
 {redact_sensitive(gateway_evidence) if gateway_evidence else "Gateway 선조회 증거 없음"}
+
+이미지/화면 컨텍스트 처리:
+- [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 근거로 답하세요.
+- [현재 콘솔 컨텍스트]는 URL, namespace, resource metadata입니다. 화면의 시각적 내용 자체라고 단정하지 말고, `/catalog/ns/<namespace>` 같은 경로가 있으면 "경로 기준으로는 Catalog 페이지로 보입니다"처럼 근거 범위를 분리하세요.
+- [첨부 이미지]에 Gateway 비전 분석 결과가 없으면 이미지 내부 텍스트, 색상, 표 항목을 보았다고 말하지 마세요. 필요한 경우 이미지 첨부 또는 비전 분석 설정이 필요하다는 점을 별도 전제로만 짧게 표시하세요.
 
 AIOps 리소스 원인분석 라우팅:
 - 이 프롬프트에서 "Gateway"는 KOMSCO AI Gateway/BFF 보안 경계를 뜻합니다. 사용자가 Kubernetes Gateway API를 명시적으로 묻지 않았다면 `gateway.networking.k8s.io`, `Gateway`, `GatewayClass` 문서 링크를 추가하지 마세요.
