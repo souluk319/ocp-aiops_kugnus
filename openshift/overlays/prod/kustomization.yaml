@@ -92,3 +92,68 @@ patches:
       - op: replace
         path: /subjects/0/namespace
         value: komsco-ai
+  - target:
+      kind: ServiceAccount
+      name: komsco-ai-host-diagnostics-controller
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+  - target:
+      kind: ServiceAccount
+      name: komsco-ai-host-diagnostics-runner
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+  - target:
+      kind: Role
+      name: komsco-ai-host-diagnostics-controller
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+  - target:
+      kind: RoleBinding
+      name: komsco-ai-host-diagnostics-controller
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+      - op: replace
+        path: /subjects/0/namespace
+        value: komsco-ai
+  - target:
+      kind: Service
+      name: komsco-ai-host-diagnostics-controller
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+  - target:
+      kind: Deployment
+      name: komsco-ai-host-diagnostics-controller
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/value
+        value: image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
+  - target:
+      kind: NetworkPolicy
+      name: komsco-ai-host-diagnostics-controller-ingress
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+  - target:
+      kind: ClusterRoleBinding
+      name: komsco-ai-host-diagnostics-runner-scc
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: komsco-ai-host-diagnostics-runner-scc
+      - op: replace
+        path: /subjects/0/namespace
+        value: komsco-ai

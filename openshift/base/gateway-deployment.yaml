@@ -33,6 +33,10 @@ spec:
               value: "false"
             - name: KOMSCO_AI_ACTION_EXECUTOR_URL
               value: "http://komsco-ai-action-executor:8080"
+            - name: KOMSCO_AI_DIAGNOSTICS_ENABLED
+              value: "true"
+            - name: KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL
+              value: "http://komsco-ai-host-diagnostics-controller:8080"
             - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED
               value: "true"
             - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED

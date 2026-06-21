@@ -12,3 +12,10 @@ resources:
   - gateway-rbac.yaml
   - gateway-service.yaml
   - gateway-serviceaccount.yaml
+  - host-diagnostics-controller-deployment.yaml
+  - host-diagnostics-controller-networkpolicy.yaml
+  - host-diagnostics-controller-rbac.yaml
+  - host-diagnostics-controller-service.yaml
+  - host-diagnostics-controller-serviceaccount.yaml
+  - host-diagnostics-runner-scc.yaml
+  - host-diagnostics-runner-serviceaccount.yaml
