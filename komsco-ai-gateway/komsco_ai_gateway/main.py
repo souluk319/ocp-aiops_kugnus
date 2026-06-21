@@ -100,6 +100,9 @@ APPROVAL_ACCESS_REVIEW_REQUIRED = parse_bool(
     default=False,
 )
 RUNBOOK_MAX_RECORDS = int(os.getenv("KOMSCO_AI_RUNBOOK_MAX_RECORDS", "1000"))
+BREAK_GLASS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_BREAK_GLASS_ENABLED"), default=False)
+BREAK_GLASS_MAX_RECORDS = int(os.getenv("KOMSCO_AI_BREAK_GLASS_MAX_RECORDS", "1000"))
+BREAK_GLASS_IMAGE_DIGEST = os.getenv("KOMSCO_AI_BREAK_GLASS_IMAGE_DIGEST", "")
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -210,6 +213,7 @@ METRICS: dict[str, int] = {
     "aiops_evidence_freshness_failures_total": 0,
     "aiops_runbook_plans_total": 0,
     "aiops_preapproved_patch_requests_total": 0,
+    "aiops_break_glass_requests_total": 0,
     "aiops_product_access_reviews_total": 0,
     "aiops_rate_limited_total": 0,
 }
@@ -222,6 +226,7 @@ APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
 EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
 RUNBOOK_PLANS: dict[str, dict[str, Any]] = {}
 PREAPPROVED_PATCH_REQUESTS: dict[str, dict[str, Any]] = {}
+BREAK_GLASS_REQUESTS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 ACTION_REGISTRY_VERSION = "v1"
 ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
@@ -379,6 +384,46 @@ PREAPPROVED_PATCH_FIELD_BUNDLE = {
     "schemas": PREAPPROVED_PATCH_FIELD_SCHEMAS,
 }
 PREAPPROVED_PATCH_FIELD_DIGEST = canonical_digest(PREAPPROVED_PATCH_FIELD_BUNDLE)
+BREAK_GLASS_PROFILE_VERSION = "v1"
+BREAK_GLASS_PROFILES: dict[str, dict[str, Any]] = {
+    "node_readonly_triage_v1": {
+        "profileId": "node_readonly_triage_v1",
+        "profileVersion": BREAK_GLASS_PROFILE_VERSION,
+        "enabled": BREAK_GLASS_ENABLED and bool(BREAK_GLASS_IMAGE_DIGEST),
+        "imageDigest": BREAK_GLASS_IMAGE_DIGEST or "not-configured",
+        "fixedEntrypoint": ["/aiops/breakglass-runner", "--profile", "node-readonly-triage"],
+        "arbitraryCommandInputAllowed": False,
+        "privilegedJob": {
+            "enabled": BREAK_GLASS_ENABLED and bool(BREAK_GLASS_IMAGE_DIGEST),
+            "hostPID": True,
+            "privileged": True,
+            "readOnlyRootFilesystem": True,
+        },
+        "scheduling": {
+            "nodeBinding": "targetNodeNameAndUid",
+            "tolerations": "profile-defined-only",
+            "serviceAccount": "aiops-breakglass",
+        },
+        "network": {
+            "egressPolicy": "deny-except-controller",
+        },
+        "cleanup": {
+            "activeDeadlineSeconds": 300,
+            "ttlSecondsAfterFinished": 600,
+            "reconciliationCleanupRequired": True,
+        },
+        "audit": {
+            "stream": "aiopsBreakGlassAudit",
+            "separateAuditRequired": True,
+        },
+    }
+}
+BREAK_GLASS_PROFILE_BUNDLE = {
+    "schemaVersion": "v1",
+    "version": BREAK_GLASS_PROFILE_VERSION,
+    "profiles": BREAK_GLASS_PROFILES,
+}
+BREAK_GLASS_PROFILE_DIGEST = canonical_digest(BREAK_GLASS_PROFILE_BUNDLE)
 DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "schemaVersion",
     "clusterId",
@@ -1214,6 +1259,92 @@ def build_preapproved_patch_record(
     }
 
 
+def get_break_glass_profile(profile_id: str) -> dict[str, Any]:
+    profile = BREAK_GLASS_PROFILES.get(profile_id)
+    if not profile:
+        raise HTTPException(status_code=400, detail="Break-glass profile is not configured")
+    return profile
+
+
+def build_break_glass_request_record(
+    request: "BreakGlassRequestCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    profile = get_break_glass_profile(request.profileId)
+    policy = default_policy_binding(request.policy)
+    request_projection = {
+        "schemaVersion": "v1",
+        "clusterId": CLUSTER_ID,
+        "requester": redact_sensitive(dict(subject)),
+        "profile": {
+            "profileId": profile["profileId"],
+            "profileVersion": profile["profileVersion"],
+            "profileDigest": BREAK_GLASS_PROFILE_DIGEST,
+            "imageDigest": profile["imageDigest"],
+            "fixedEntrypoint": profile["fixedEntrypoint"],
+        },
+        "targetNode": request.targetNode.model_dump(),
+        "justificationDigest": canonical_digest(redact_sensitive(request.justification)),
+        "policy": policy,
+        "evidenceRefs": redact_sensitive(request.evidenceRefs),
+    }
+    request_digest = canonical_digest(request_projection)
+    request_id = f"breakglass-{request_digest.removeprefix('sha256:')[:16]}"
+    enabled = bool(profile.get("enabled"))
+    phase = "pending_privileged_job_controller" if enabled else "disabled"
+    reason = (
+        "Break-glass profile is enabled and ready for a dedicated controller."
+        if enabled
+        else "Break-glass host operations are disabled by configuration or missing fixed image digest."
+    )
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "BreakGlassRequestRecord",
+        "metadata": {"name": request_id, "createdAt": now_rfc3339()},
+        "spec": {
+            "profile": {
+                "profileId": profile["profileId"],
+                "profileVersion": profile["profileVersion"],
+                "profileDigest": BREAK_GLASS_PROFILE_DIGEST,
+                "enabled": enabled,
+                "imageDigest": profile["imageDigest"],
+                "fixedEntrypoint": profile["fixedEntrypoint"],
+                "arbitraryCommandInputAllowed": False,
+            },
+            "targetNode": request.targetNode.model_dump(),
+            "justificationDigest": canonical_digest(redact_sensitive(request.justification)),
+            "policy": policy,
+            "evidenceRefs": redact_sensitive(request.evidenceRefs),
+            "incidentId": request.incidentId,
+            "runId": request.runId,
+            "jobTemplateConstraints": {
+                "privilegedJob": profile["privilegedJob"],
+                "scheduling": {
+                    **profile["scheduling"],
+                    "targetNodeName": request.targetNode.name,
+                    "targetNodeUid": request.targetNode.uid,
+                },
+                "network": profile["network"],
+                "cleanup": profile["cleanup"],
+            },
+            "digest": {
+                "breakGlassRequestDigest": request_digest,
+                "profileBundleDigest": BREAK_GLASS_PROFILE_DIGEST,
+                "canonicalization": "stable-json-sort-keys",
+            },
+            "audit": profile["audit"],
+            "status": {
+                "phase": phase,
+                "jobSubmitted": False,
+                "arbitraryCommandRejected": True,
+                "reason": reason,
+            },
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+
+
 class ImageAttachment(BaseModel):
     id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=180)
@@ -1321,6 +1452,21 @@ class PatchPreapprovedFieldCreate(StrictBaseModel):
     runId: str | None = Field(default=None, max_length=120)
     target: ActionTarget
     value: Any
+    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class BreakGlassTargetNode(StrictBaseModel):
+    name: str = Field(min_length=1, max_length=253)
+    uid: str = Field(min_length=1, max_length=128)
+
+
+class BreakGlassRequestCreate(StrictBaseModel):
+    profileId: str = Field(min_length=1, max_length=160)
+    incidentId: str | None = Field(default=None, max_length=120)
+    runId: str | None = Field(default=None, max_length=120)
+    targetNode: BreakGlassTargetNode
+    justification: str = Field(min_length=12, max_length=1000)
     evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     policy: dict[str, Any] = Field(default_factory=dict)
 
@@ -3180,6 +3326,13 @@ def log_audit_record(record: Mapping[str, Any]) -> None:
     )
 
 
+def log_break_glass_audit_record(record: Mapping[str, Any]) -> None:
+    print(
+        json.dumps({"aiopsBreakGlassAudit": redact_sensitive(dict(record))}, ensure_ascii=False),
+        flush=True,
+    )
+
+
 def build_evidence_reference_events(
     *,
     event: Mapping[str, Any],
@@ -3868,6 +4021,74 @@ async def get_preapproved_patch_request(
     }
 
 
+@app.get("/v1/breakglass/profiles")
+async def get_break_glass_profiles(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    verify_bearer_header(authorization)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "BreakGlassProfileRegistry",
+        "metadata": {"name": "break-glass-profile-registry", "version": BREAK_GLASS_PROFILE_VERSION},
+        "spec": {
+            "enabled": BREAK_GLASS_ENABLED,
+            "digest": BREAK_GLASS_PROFILE_DIGEST,
+            "profiles": list(BREAK_GLASS_PROFILES.values()),
+        },
+    }
+
+
+@app.post("/v1/breakglass/requests")
+async def create_break_glass_request(
+    req: BreakGlassRequestCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = build_break_glass_request_record(req, subject)
+    request_id = str(record["metadata"]["name"])
+    bounded_put(BREAK_GLASS_REQUESTS, request_id, record, BREAK_GLASS_MAX_RECORDS)
+    increment_metric("aiops_break_glass_requests_total")
+    log_break_glass_audit_record(
+        build_trace_record(
+            action="break_glass_request_recorded",
+            incident_id=req.incidentId or request_id,
+            policy=record["spec"]["policy"],
+            request_id=request_id,
+            run_id=req.runId or request_id,
+            subject=subject,
+            target={
+                "profileId": req.profileId,
+                "targetNode": req.targetNode.model_dump(),
+                "phase": record["spec"]["status"]["phase"],
+                "jobSubmitted": False,
+            },
+        )
+    )
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "BreakGlassRequest",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.get("/v1/breakglass/requests/{request_id}")
+async def get_break_glass_request(
+    request_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = BREAK_GLASS_REQUESTS.get(request_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Break-glass request not found")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "BreakGlassRequest",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics() -> str:
     lines = []
@@ -3892,6 +4113,8 @@ async def metrics() -> str:
     lines.append(f"aiops_runbook_plan_records {len(RUNBOOK_PLANS)}")
     lines.append("# TYPE aiops_preapproved_patch_request_records gauge")
     lines.append(f"aiops_preapproved_patch_request_records {len(PREAPPROVED_PATCH_REQUESTS)}")
+    lines.append("# TYPE aiops_break_glass_request_records gauge")
+    lines.append(f"aiops_break_glass_request_records {len(BREAK_GLASS_REQUESTS)}")
     return "\n".join(lines) + "\n"
 
 

@@ -10,6 +10,9 @@ from komsco_ai_gateway.main import (
     ACTION_REGISTRY_DIGEST,
     ACTION_REGISTRY_ENTRIES,
     APPROVAL_DECISIONS,
+    BREAK_GLASS_PROFILE_DIGEST,
+    BREAK_GLASS_PROFILES,
+    BREAK_GLASS_REQUESTS,
     EXECUTION_RECORDS,
     PREAPPROVED_PATCH_REQUESTS,
     RUNBOOK_PLANS,
@@ -18,6 +21,8 @@ from komsco_ai_gateway.main import (
     SEALED_ACTION_PLANS,
     ActionProposalCreate,
     ActionTarget,
+    BreakGlassRequestCreate,
+    BreakGlassTargetNode,
     ChatRequest,
     DIAGNOSTIC_REQUESTS,
     EVIDENCE_RECORDS,
@@ -39,6 +44,7 @@ from komsco_ai_gateway.main import (
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
+    build_break_glass_request_record,
     build_preapproved_patch_record,
     build_runbook_plan_record,
     build_sealed_action_plan_record,
@@ -1448,5 +1454,81 @@ def test_runbook_and_preapproved_patch_apis_expose_foundation_records() -> None:
         assert patch_response.json()["spec"]["status"]["mutationSubmitted"] is False
         assert len(RUNBOOK_PLANS) == 1
         assert len(PREAPPROVED_PATCH_REQUESTS) == 1
+
+    asyncio.run(run())
+
+
+def test_break_glass_profile_is_disabled_by_default_and_fixed_entrypoint_only() -> None:
+    profile = BREAK_GLASS_PROFILES["node_readonly_triage_v1"]
+
+    assert BREAK_GLASS_PROFILE_DIGEST.startswith("sha256:")
+    assert profile["enabled"] is False
+    assert profile["imageDigest"] == "not-configured"
+    assert profile["arbitraryCommandInputAllowed"] is False
+    assert profile["fixedEntrypoint"] == [
+        "/aiops/breakglass-runner",
+        "--profile",
+        "node-readonly-triage",
+    ]
+    assert profile["cleanup"]["activeDeadlineSeconds"] == 300
+    assert profile["cleanup"]["ttlSecondsAfterFinished"] == 600
+    assert profile["network"]["egressPolicy"] == "deny-except-controller"
+
+
+def test_break_glass_request_records_disabled_status_without_job_submission() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    request = BreakGlassRequestCreate(
+        profileId="node_readonly_triage_v1",
+        targetNode=BreakGlassTargetNode(name="worker-a.example.com", uid="node-uid-a"),
+        justification="Need emergency read-only node diagnostics for incident review.",
+    )
+
+    record = build_break_glass_request_record(request, subject)
+
+    assert record["metadata"]["name"].startswith("breakglass-")
+    assert record["spec"]["profile"]["enabled"] is False
+    assert record["spec"]["profile"]["arbitraryCommandInputAllowed"] is False
+    assert record["spec"]["status"]["phase"] == "disabled"
+    assert record["spec"]["status"]["jobSubmitted"] is False
+    assert record["spec"]["jobTemplateConstraints"]["scheduling"]["targetNodeName"] == "worker-a.example.com"
+    assert record["spec"]["jobTemplateConstraints"]["scheduling"]["targetNodeUid"] == "node-uid-a"
+    assert record["spec"]["audit"]["stream"] == "aiopsBreakGlassAudit"
+
+
+def test_break_glass_api_rejects_arbitrary_command_input_and_records_request() -> None:
+    BREAK_GLASS_REQUESTS.clear()
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            profiles_response = await client.get("/v1/breakglass/profiles", headers=headers)
+            command_response = await client.post(
+                "/v1/breakglass/requests",
+                headers=headers,
+                json={
+                    "profileId": "node_readonly_triage_v1",
+                    "targetNode": {"name": "worker-a.example.com", "uid": "node-uid-a"},
+                    "justification": "Need emergency read-only node diagnostics for incident review.",
+                    "command": "nsenter --mount=/proc/1/ns/mnt sh",
+                },
+            )
+            request_response = await client.post(
+                "/v1/breakglass/requests",
+                headers=headers,
+                json={
+                    "profileId": "node_readonly_triage_v1",
+                    "targetNode": {"name": "worker-a.example.com", "uid": "node-uid-a"},
+                    "justification": "Need emergency read-only node diagnostics for incident review.",
+                },
+            )
+
+        assert profiles_response.status_code == 200
+        assert profiles_response.json()["spec"]["enabled"] is False
+        assert command_response.status_code == 422
+        assert request_response.status_code == 200
+        assert request_response.json()["spec"]["status"]["phase"] == "disabled"
+        assert request_response.json()["spec"]["status"]["jobSubmitted"] is False
+        assert len(BREAK_GLASS_REQUESTS) == 1
 
     asyncio.run(run())
