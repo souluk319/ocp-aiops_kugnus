@@ -76,11 +76,15 @@ The gateway exposes the current implementation foundation as JSON APIs:
 - `POST /v1/diagnostics/requests` creates a host diagnostic request candidate,
   digest, and grant reference. It does not create DiagnosticRequest CRDs unless
   controller submission is enabled in a later integration.
+- `GET /v1/diagnostics/collectors` returns the host diagnostics collector
+  registry used to validate node OS/runtime triage requests.
 - `GET /v1/actions/registry` returns the typed action allow-list.
 - `POST /v1/actions/proposals`, `/v1/actions/plans`,
   `/v1/actions/approvals`, and `/v1/actions/execute` model the
-  approval-gated action lifecycle. Execution records are created, but Kubernetes
-  mutation remains blocked while `KOMSCO_AI_ENABLE_MUTATIONS=false`.
+  approval-gated action lifecycle. Kubernetes mutation remains blocked while
+  `KOMSCO_AI_ENABLE_MUTATIONS=false`; when enabled, the executor only performs
+  typed allow-list requests and rejects generic `patch_resource`, `apply_manifest`,
+  `run_command`, `exec`, and arbitrary host command flows.
 - `GET /metrics` exposes core counters and in-memory record gauges.
 
 Run the gateway checks with:

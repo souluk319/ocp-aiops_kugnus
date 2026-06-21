@@ -11,6 +11,44 @@ images:
 patches:
   - target:
       kind: ServiceAccount
+      name: komsco-ai-action-executor
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: Service
+      name: komsco-ai-action-executor
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: Deployment
+      name: komsco-ai-action-executor
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: NetworkPolicy
+      name: komsco-ai-action-executor-ingress
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: ClusterRoleBinding
+      name: komsco-ai-action-executor
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: komsco-ai-dev-action-executor
+      - op: replace
+        path: /subjects/0/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: ServiceAccount
       name: komsco-ai-gateway
     patch: |-
       - op: add

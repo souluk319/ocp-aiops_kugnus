@@ -112,6 +112,8 @@ ACTION_EXECUTOR_FIELD_MANAGER = os.getenv(
     "KOMSCO_AI_ACTION_EXECUTOR_FIELD_MANAGER",
     "komsco-ai-action-executor",
 )
+ACTION_EXECUTOR_URL = os.getenv("KOMSCO_AI_ACTION_EXECUTOR_URL", "").rstrip("/")
+ACTION_EXECUTOR_SHARED_TOKEN = os.getenv("KOMSCO_AI_ACTION_EXECUTOR_SHARED_TOKEN", "")
 APPROVAL_ACCESS_REVIEW_REQUIRED = parse_bool(
     os.getenv("KOMSCO_AI_APPROVAL_ACCESS_REVIEW_REQUIRED"),
     default=False,
@@ -3927,6 +3929,63 @@ async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str,
         }
 
 
+async def execute_action_with_executor(
+    sealed_plan: Mapping[str, Any],
+    grant_reference: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not ACTION_EXECUTOR_URL:
+        return await execute_typed_action_plan(sealed_plan)
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    if ACTION_EXECUTOR_SHARED_TOKEN:
+        headers["Authorization"] = f"Bearer {ACTION_EXECUTOR_SHARED_TOKEN}"
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
+        response = await client.post(
+            f"{ACTION_EXECUTOR_URL}/v1/executor/actions/execute",
+            headers=headers,
+            json={
+                "sealedActionPlan": redact_sensitive(dict(sealed_plan)),
+                "executionGrantRef": redact_sensitive(dict(grant_reference)),
+            },
+        )
+
+    if response.status_code >= 400:
+        return {
+            "mutationOutcome": {
+                "status": "mutation_failed",
+                "reason": "action_executor_request_failed",
+                "httpStatus": response.status_code,
+                "body": response.text[:1000],
+            },
+            "remediationOutcome": {"status": "mutation_failed"},
+            "executorTrace": {
+                "executorUrlConfigured": True,
+                "mutationSubmitted": False,
+            },
+        }
+
+    payload = response.json()
+    spec = payload.get("spec") if isinstance(payload, Mapping) else {}
+    if isinstance(spec, Mapping):
+        return dict(spec)
+
+    return {
+        "mutationOutcome": {
+            "status": "indeterminate",
+            "reason": "action_executor_response_invalid",
+        },
+        "remediationOutcome": {"status": "inconclusive"},
+        "executorTrace": {
+            "executorUrlConfigured": True,
+            "mutationSubmitted": True,
+        },
+    }
+
+
 @app.get("/v1/cluster/summary")
 async def cluster_summary(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -4239,7 +4298,7 @@ async def execute_action(
     grant_reference = build_execution_grant_reference(approval, plan, subject)
     execution_id = f"execution-{uuid.uuid4()}"
     if MUTATIONS_ENABLED:
-        executor_result = await execute_typed_action_plan(sealed_plan)
+        executor_result = await execute_action_with_executor(sealed_plan, grant_reference)
     else:
         executor_result = {
             "mutationOutcome": {

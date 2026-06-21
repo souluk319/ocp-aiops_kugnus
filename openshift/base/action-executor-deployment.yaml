@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: komsco-ai-action-executor
+  labels:
+    app: komsco-ai-action-executor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: komsco-ai-action-executor
+  template:
+    metadata:
+      labels:
+        app: komsco-ai-action-executor
+    spec:
+      serviceAccountName: komsco-ai-action-executor
+      containers:
+        - name: action-executor
+          image: komsco-ai-gateway:dev
+          imagePullPolicy: Always
+          command:
+            - uvicorn
+          args:
+            - komsco_ai_gateway.action_executor:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: KOMSCO_AI_ACTION_EXECUTOR_ENABLED
+              value: "true"
+            - name: KOMSCO_AI_ENABLE_MUTATIONS
+              value: "true"
+            - name: KOMSCO_AI_ACTION_EXECUTOR_TOKEN_FILE
+              value: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+            - name: OPENSHIFT_API_CA_FILE
+              value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault

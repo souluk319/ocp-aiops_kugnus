@@ -68,8 +68,15 @@ The current implementation follows the approved security envelope from
 - Host diagnostics and approval-gated action lifecycle foundation APIs are
   present, including request/plan digests, grant references, approval decisions,
   and execution records.
-- Direct mutation requests are downgraded to action proposals. Actual Kubernetes
-  remediation remains disabled by default with `KOMSCO_AI_ENABLE_MUTATIONS=false`.
+- A typed AIOps core action engine is present for unhealthy controller-owned Pod
+  eviction, Deployment rollout restart, bounded Deployment scale, Deployment
+  rollback to a ReplicaSet revision, and HPA min/max bound changes. The default
+  Gateway deployment still keeps `KOMSCO_AI_ENABLE_MUTATIONS=false`; when enabled,
+  execution goes through dry-run, UID/precondition validation, and the
+  `komsco-ai-action-executor` ServiceAccount.
+- Host OS diagnostics are requested through a collector registry. Arbitrary host
+  commands are not accepted; node OS/runtime triage requests must use registered
+  read-only collector profiles.
 
 Manual gateway echo mode:
 

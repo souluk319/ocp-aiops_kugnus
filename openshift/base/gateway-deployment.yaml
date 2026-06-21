@@ -31,6 +31,8 @@ spec:
               value: "phase0-1"
             - name: KOMSCO_AI_ENABLE_MUTATIONS
               value: "false"
+            - name: KOMSCO_AI_ACTION_EXECUTOR_URL
+              value: "http://komsco-ai-action-executor:8080"
             - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED
               value: "true"
             - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: komsco-ai-action-executor
+  labels:
+    app: komsco-ai-action-executor
+spec:
+  selector:
+    app: komsco-ai-action-executor
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
