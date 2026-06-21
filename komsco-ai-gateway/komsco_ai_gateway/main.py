@@ -4206,6 +4206,13 @@ async def verify_typed_action_postcondition(
     if tool_name == "evict_one_unhealthy_controller_owned_pod":
         if target_resource is None:
             return {"status": "verified", "reason": "target_pod_removed"}
+        deletion_timestamp = target_resource.get("metadata", {}).get("deletionTimestamp")
+        if deletion_timestamp:
+            return {
+                "status": "verified",
+                "reason": "target_pod_deleting",
+                "deletionTimestamp": deletion_timestamp,
+            }
         observed_uid = str(target_resource.get("metadata", {}).get("uid") or "")
         if observed_uid != str(target.get("uid") or ""):
             return {"status": "verified", "reason": "target_pod_replaced"}
