@@ -6,8 +6,11 @@ from fastapi import HTTPException
 
 from komsco_ai_gateway.main import (
     ChatRequest,
+    EVIDENCE_RECORDS,
     ImageAttachment,
+    METRICS,
     TextReferenceFilter,
+    WORKFLOW_RECORDS,
     app,
     build_attachment_context,
     build_action_proposal_fallback,
@@ -19,6 +22,7 @@ from komsco_ai_gateway.main import (
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
+    can_subject_read_record,
     build_pod_status_evidence,
     parse_bool,
     parse_ols_verify,
@@ -880,3 +884,83 @@ def test_build_evidence_reference_events_supports_gateway_preflight_source() -> 
     assert events[1]["type"] == "tool_result"
     assert events[1]["result"]["sourceType"] == "gateway-preflight-evidence"
     assert events[1]["result"]["summary"] == "Pod 상태/재시작 증거 수집 완료"
+
+
+def test_can_subject_read_record_requires_same_observed_identity() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    other_subject = safe_subject({"username": "other@example.com", "uid": "uid-2", "groups": ["ops"]})
+    record = {"originatingSubject": subject}
+
+    assert can_subject_read_record(record, subject)
+    assert not can_subject_read_record(record, other_subject)
+
+
+def test_evidence_api_reads_stored_evidence_with_read_time_authorization() -> None:
+    EVIDENCE_RECORDS.clear()
+    subject = safe_subject(None)
+    event = {
+        "type": "tool_result",
+        "name": "resources_get",
+        "status": "success",
+        "summary": "테스트 증거",
+        "detail": "password=secret-value\nkind: Pod",
+    }
+    events = build_evidence_reference_events(
+        event=event,
+        incident_id="inc-test",
+        run_id="run-test",
+        source_type="gateway-preflight-evidence",
+        subject=subject,
+    )
+    evidence_id = events[1]["result"]["evidenceId"]
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/v1/evidence/{evidence_id}",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            list_response = await client.get(
+                "/v1/evidence?incidentId=inc-test",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "Evidence"
+        assert payload["spec"]["detail"] == "password=[REDACTED]\nkind: Pod"
+        assert list_response.status_code == 200
+        assert list_response.json()["items"][0]["evidenceId"] == evidence_id
+        assert "detail" not in list_response.json()["items"][0]
+
+    asyncio.run(run())
+
+
+def test_workflow_and_metrics_endpoints_expose_non_secret_runtime_state() -> None:
+    WORKFLOW_RECORDS.clear()
+    METRICS["aiops_chat_requests_total"] = 3
+    subject = safe_subject(None)
+    WORKFLOW_RECORDS["run-test"] = {
+        "runId": "run-test",
+        "status": "completed",
+        "subject": subject,
+        "target": {"messageLength": 10},
+    }
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            workflow_response = await client.get(
+                "/v1/workflows/run-test",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            metrics_response = await client.get("/metrics")
+
+        assert workflow_response.status_code == 200
+        assert workflow_response.json()["spec"]["status"] == "completed"
+        assert metrics_response.status_code == 200
+        assert "aiops_chat_requests_total 3" in metrics_response.text
+        assert "Bearer" not in metrics_response.text
+
+    asyncio.run(run())

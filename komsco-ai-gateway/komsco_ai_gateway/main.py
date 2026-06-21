@@ -12,15 +12,17 @@ from typing import Any
 from urllib.parse import unquote
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
     build_trace_record,
+    canonical_digest,
     classify_request_policy,
+    now_rfc3339,
     redact_sensitive,
     safe_subject,
 )
@@ -85,6 +87,9 @@ PRODUCT_ACCESS_REVIEW_NAME = os.getenv(
     "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME",
     "komsco-ai-console-plugin",
 )
+RATE_LIMIT_PER_MINUTE = int(os.getenv("KOMSCO_AI_RATE_LIMIT_PER_MINUTE", "60"))
+EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
+WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -179,6 +184,83 @@ PAGE_CONTEXT_ALLOWED_KEYS = {
     "resourceName",
     "route",
 }
+METRICS: dict[str, int] = {
+    "aiops_chat_requests_total": 0,
+    "aiops_chat_completed_total": 0,
+    "aiops_chat_failed_total": 0,
+    "aiops_evidence_records_total": 0,
+    "aiops_product_access_reviews_total": 0,
+    "aiops_rate_limited_total": 0,
+}
+EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
+WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
+RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+
+
+def increment_metric(name: str, value: int = 1) -> None:
+    METRICS[name] = METRICS.get(name, 0) + value
+
+
+def bounded_put(store: dict[str, dict[str, Any]], key: str, value: dict[str, Any], limit: int) -> None:
+    store[key] = value
+    while len(store) > limit:
+        oldest_key = next(iter(store))
+        store.pop(oldest_key, None)
+
+
+def enforce_rate_limit(user_auth_header: str) -> None:
+    if RATE_LIMIT_PER_MINUTE <= 0:
+        return
+
+    now = time.monotonic()
+    bucket_key = canonical_digest(user_auth_header)
+    bucket = [item for item in RATE_LIMIT_BUCKETS.get(bucket_key, []) if now - item < 60.0]
+    if len(bucket) >= RATE_LIMIT_PER_MINUTE:
+        increment_metric("aiops_rate_limited_total")
+        raise HTTPException(status_code=429, detail="KOMSCO AI request rate limit exceeded")
+
+    bucket.append(now)
+    RATE_LIMIT_BUCKETS[bucket_key] = bucket
+
+
+def record_workflow(
+    *,
+    run_id: str,
+    incident_id: str,
+    policy: Mapping[str, Any],
+    request_id: str,
+    stage: str,
+    status: str,
+    subject: Mapping[str, Any] | None,
+    target: Mapping[str, Any] | None = None,
+) -> None:
+    existing = WORKFLOW_RECORDS.get(run_id, {})
+    record = {
+        "schemaVersion": "v1",
+        "createdAt": existing.get("createdAt") or now_rfc3339(),
+        "incidentId": incident_id,
+        "lastUpdatedAt": now_rfc3339(),
+        "policy": redact_sensitive(dict(policy)),
+        "requestId": request_id,
+        "runId": run_id,
+        "stage": stage,
+        "status": status,
+        "subject": redact_sensitive(dict(subject or safe_subject(None))),
+        "target": redact_sensitive(dict(target or existing.get("target") or {})),
+    }
+    bounded_put(WORKFLOW_RECORDS, run_id, record, WORKFLOW_MAX_RECORDS)
+
+
+def can_subject_read_record(record: Mapping[str, Any], subject: Mapping[str, Any]) -> bool:
+    record_subject = record.get("originatingSubject") or record.get("subject") or {}
+    if not isinstance(record_subject, Mapping):
+        return False
+
+    return (
+        record_subject.get("username") == subject.get("username")
+        and record_subject.get("uid") == subject.get("uid")
+        and record_subject.get("groupsDigest") == subject.get("groupsDigest")
+    )
 
 
 class ImageAttachment(BaseModel):
@@ -276,12 +358,13 @@ async def healthz() -> dict[str, str]:
 
 
 async def verify_user_access(user_auth_header: str, req: ChatRequest) -> None:
-    # TODO: add TokenReview/SelfSubjectAccessReview checks for product policy.
     if not user_auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
 
     if not req.message.strip() and not req.attachments:
         raise HTTPException(status_code=400, detail="Message or image attachment is required")
+
+    enforce_rate_limit(user_auth_header)
 
 
 def verify_bearer_header(user_auth_header: str | None) -> str:
@@ -2076,6 +2159,19 @@ def build_evidence_reference_events(
         source_type=source_type,
         subject=subject,
     )
+    evidence_record = {
+        **evidence_ref,
+        "detail": redact_sensitive(event.get("detail") or event.get("result") or ""),
+        "eventName": event.get("name"),
+        "eventStatus": event.get("status"),
+    }
+    bounded_put(
+        EVIDENCE_RECORDS,
+        str(evidence_ref["evidenceId"]),
+        evidence_record,
+        EVIDENCE_MAX_RECORDS,
+    )
+    increment_metric("aiops_evidence_records_total")
     return [
         {
             "type": "tool_call",
@@ -2360,6 +2456,82 @@ async def cluster_summary(authorization: str | None = Header(default=None)) -> d
     )
 
 
+@app.get("/v1/evidence")
+async def list_evidence(
+    authorization: str | None = Header(default=None),
+    incident_id: str | None = Query(default=None, alias="incidentId"),
+    run_id: str | None = Query(default=None, alias="runId"),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    items = []
+    for record in EVIDENCE_RECORDS.values():
+        if incident_id and record.get("incidentId") != incident_id:
+            continue
+        if run_id and record.get("runId") != run_id:
+            continue
+        if not can_subject_read_record(record, subject):
+            continue
+        items.append({key: value for key, value in record.items() if key != "detail"})
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "items": items,
+        "kind": "EvidenceReferenceList",
+    }
+
+
+@app.get("/v1/evidence/{evidence_id}")
+async def get_evidence(
+    evidence_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = EVIDENCE_RECORDS.get(evidence_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "Evidence",
+        "metadata": {"name": evidence_id},
+        "spec": record,
+    }
+
+
+@app.get("/v1/workflows/{run_id}")
+async def get_workflow(
+    run_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = WORKFLOW_RECORDS.get(run_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "Workflow",
+        "metadata": {"name": run_id},
+        "spec": record,
+    }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def metrics() -> str:
+    lines = []
+    for name in sorted(METRICS):
+        lines.append(f"# TYPE {name} counter")
+        lines.append(f"{name} {METRICS[name]}")
+    lines.append("# TYPE aiops_evidence_records gauge")
+    lines.append(f"aiops_evidence_records {len(EVIDENCE_RECORDS)}")
+    lines.append("# TYPE aiops_workflow_records gauge")
+    lines.append(f"aiops_workflow_records {len(WORKFLOW_RECORDS)}")
+    return "\n".join(lines) + "\n"
+
+
 @app.post("/v1/chat/stream")
 async def chat_stream(
     req: ChatRequest,
@@ -2380,6 +2552,21 @@ async def chat_stream(
             filter_gateway_api_references=should_filter_gateway_api_references(req.message),
             filter_low_signal_references=should_filter_low_signal_references(req.message),
             normalize_restart_language=should_collect_pod_status_evidence(req.message),
+        )
+        increment_metric("aiops_chat_requests_total")
+        record_workflow(
+            run_id=run_id,
+            incident_id=incident_id,
+            policy=policy,
+            request_id=request_id,
+            stage="started",
+            status="running",
+            subject=subject,
+            target={
+                "attachments": len(req.attachments),
+                "messageLength": len(req.message),
+                "pageContext": normalize_console_page_context(req.pageContext),
+            },
         )
 
         try:
@@ -2450,6 +2637,7 @@ async def chat_stream(
                 }
             )
             product_access_review = await fetch_product_access_review(authorization)
+            increment_metric("aiops_product_access_reviews_total")
             yield sse(
                 {
                     "type": "tool_result",
@@ -2462,6 +2650,21 @@ async def chat_stream(
                 }
             )
             enforce_product_access_review(product_access_review)
+            record_workflow(
+                run_id=run_id,
+                incident_id=incident_id,
+                policy=policy,
+                request_id=request_id,
+                stage="authorized",
+                status="running",
+                subject=subject,
+                target={
+                    "attachments": len(req.attachments),
+                    "messageLength": len(req.message),
+                    "pageContext": normalize_console_page_context(req.pageContext),
+                    "productAccessReview": product_access_review,
+                },
+            )
 
             yield sse(
                 {
@@ -2740,6 +2943,16 @@ async def chat_stream(
                 subject=subject,
             )
             log_audit_record(completed_audit_record)
+            increment_metric("aiops_chat_completed_total")
+            record_workflow(
+                run_id=run_id,
+                incident_id=incident_id,
+                policy=policy,
+                request_id=request_id,
+                stage="completed",
+                status="completed",
+                subject=subject,
+            )
             yield sse("[DONE]")
         except HTTPException as exc:
             log_audit_record(
@@ -2752,6 +2965,17 @@ async def chat_stream(
                     subject=subject,
                     target={"error": str(exc.detail) or exc.__class__.__name__},
                 )
+            )
+            increment_metric("aiops_chat_failed_total")
+            record_workflow(
+                run_id=run_id,
+                incident_id=incident_id,
+                policy=policy,
+                request_id=request_id,
+                stage="failed",
+                status="failed",
+                subject=subject,
+                target={"error": str(exc.detail) or exc.__class__.__name__},
             )
             yield sse(
                 {
@@ -2774,6 +2998,17 @@ async def chat_stream(
                     subject=subject,
                     target={"error": str(exc) or exc.__class__.__name__},
                 )
+            )
+            increment_metric("aiops_chat_failed_total")
+            record_workflow(
+                run_id=run_id,
+                incident_id=incident_id,
+                policy=policy,
+                request_id=request_id,
+                stage="failed",
+                status="failed",
+                subject=subject,
+                target={"error": str(exc) or exc.__class__.__name__},
             )
             yield sse(
                 {
