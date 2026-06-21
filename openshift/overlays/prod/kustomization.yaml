@@ -148,12 +148,12 @@ patches:
         path: /metadata/namespace
         value: komsco-ai
   - target:
-      kind: ClusterRoleBinding
+      kind: RoleBinding
       name: komsco-ai-host-diagnostics-runner-scc
     patch: |-
-      - op: replace
-        path: /metadata/name
-        value: komsco-ai-host-diagnostics-runner-scc
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
       - op: replace
         path: /subjects/0/namespace
         value: komsco-ai
