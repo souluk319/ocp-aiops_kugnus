@@ -206,6 +206,14 @@ def test_classify_request_policy_blocks_mutation_action_plan_intent() -> None:
     assert policy["risk"] == "approval_required"
 
 
+def test_classify_request_policy_blocks_rollback_action_plan_intent() -> None:
+    policy = classify_request_policy("deployment rollout 문제가 있을 때 롤백 계획을 세워줘")
+
+    assert policy["decision"] == "action_proposal_only"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "approval_required"
+
+
 def test_classify_request_policy_allows_restart_count_analysis() -> None:
     policy = classify_request_policy("현재 클러스터에서 재시작이 많은 Pod를 분석해줘")
 
