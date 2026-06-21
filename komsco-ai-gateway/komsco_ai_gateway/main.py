@@ -100,11 +100,12 @@ POD_STATUS_ANALYSIS_RE = re.compile(
 )
 CRONJOB_ACTIVITY_ANALYSIS_RE = re.compile(
     r"(?i)(cron\s*job|cronjob|크론잡|scheduled\s+job|schedule|스케줄|"
-    r"15\s*(분|minute|min)|\*/15|0/15|workspace[-_ ]?reaper|reaper|"
+    r"\d+\s*(분|minute|min)|\*/\d+|0/\d+|"
     r"반복\s*(실행|활동)|주기|activity|활동|이벤트)"
 )
 CRONJOB_POLICY_ENV_RE = re.compile(
-    r"(?i)(workspace|hibernate|delete|ttl|expire|expiration|cleanup|reaper|retention)"
+    r"(?i)(workspace|notebook|sandbox|hibernate|suspend|sleep|idle|delete|ttl|"
+    r"expire|expiration|cleanup|retention|prune|archive|max[_-]?age|timeout|gc)"
 )
 SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credential|key)")
 POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
@@ -1012,9 +1013,40 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def schedule_is_every_15_minutes(schedule: str) -> bool:
+def cron_minute_interval(schedule: str) -> int | None:
     fields = schedule.split()
-    return len(fields) >= 5 and fields[0] in {"*/15", "0/15"}
+    if len(fields) < 5:
+        return None
+
+    minute_field = fields[0]
+    match = re.fullmatch(r"(?:\*|0)/(\d+)", minute_field)
+    if not match:
+        return None
+
+    interval = int(match.group(1))
+    return interval if interval > 0 else None
+
+
+def requested_minute_interval(context_text: str) -> int | None:
+    cron_match = re.search(r"(?:\*|0)/(\d+)", context_text)
+    if cron_match:
+        interval = int(cron_match.group(1))
+        return interval if interval > 0 else None
+
+    minute_match = re.search(r"(?i)(\d+)\s*(분|minute|min)", context_text)
+    if minute_match:
+        interval = int(minute_match.group(1))
+        return interval if interval > 0 else None
+
+    return None
+
+
+def schedule_interval_summary(schedule: str) -> str:
+    interval = cron_minute_interval(schedule)
+    if interval is None:
+        return "-"
+
+    return f"{interval}분마다"
 
 
 def format_seconds_duration(value: str) -> str:
@@ -1090,13 +1122,16 @@ def cronjob_matches_context(cronjob: Mapping[str, Any], context_text: str) -> bo
     namespace = str(metadata.get("namespace") or "")
     schedule = str(spec.get("schedule") or "")
     context = context_text.lower()
+    requested_interval = requested_minute_interval(context_text)
 
     if name and name.lower() in context:
         return True
     if namespace and namespace.lower() in context and ("cron" in context or "크론" in context):
         return True
-    if schedule_is_every_15_minutes(schedule) and re.search(
-        r"(?i)(15\s*(분|minute|min)|\*/15|0/15|주기|반복|활동|이벤트)",
+    if requested_interval is not None and cron_minute_interval(schedule) == requested_interval:
+        return True
+    if cron_minute_interval(schedule) is not None and re.search(
+        r"(?i)(주기|반복|활동|이벤트|activity|schedule|스케줄)",
         context_text,
     ):
         return True
@@ -1118,11 +1153,14 @@ def build_cronjob_activity_evidence(
         item for item in cronjobs if isinstance(item, Mapping) and cronjob_matches_context(item, context_text)
     ]
     if not matched:
+        requested_interval = requested_minute_interval(context_text)
         matched = [
             item
             for item in cronjobs
             if isinstance(item, Mapping)
-            and schedule_is_every_15_minutes(str(item.get("spec", {}).get("schedule") or ""))
+            and requested_interval is not None
+            and cron_minute_interval(str(item.get("spec", {}).get("schedule") or ""))
+            == requested_interval
         ]
     if not matched:
         matched = [item for item in cronjobs if isinstance(item, Mapping)][:10]
@@ -1145,13 +1183,13 @@ def build_cronjob_activity_evidence(
     lines = [
         "Gateway-collected CronJob activity evidence from Kubernetes API `/apis/batch/v1/cronjobs`.",
         "Use this as primary evidence for scheduled Activity/CronJob questions.",
-        "If a matched CronJob schedule is `*/15 * * * *`, answer first that 15-minute Activity is expected by configuration.",
+        "If a matched CronJob uses an interval schedule, answer first whether the observed interval is expected by configuration.",
         "Do not overstate intent from the name alone; use env/settings as policy hints and say when behavior needs log confirmation.",
         "Env seconds are threshold values only; do not infer created-time or idle-time basis unless logs or source confirm it.",
         "",
         "Matched CronJobs:",
-        "| Namespace | CronJob | Schedule | Concurrency | Suspend | Successful history | Failed history | Image |",
-        "| :--- | :--- | :--- | :--- | :---: | ---: | ---: | :--- |",
+        "| Namespace | CronJob | Schedule | Derived interval | Concurrency | Suspend | Successful history | Failed history | Image |",
+        "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | ---: | :--- |",
     ]
 
     policy_env_rows: list[str] = []
@@ -1166,9 +1204,11 @@ def build_cronjob_activity_evidence(
         success_history = str(spec.get("successfulJobsHistoryLimit", "-"))
         failed_history = str(spec.get("failedJobsHistoryLimit", "-"))
         image_summary, env_items = cronjob_container_summary(cronjob)
+        interval_summary = schedule_interval_summary(schedule)
         lines.append(
-            f"| {namespace} | `{name}` | `{schedule}` | {concurrency_policy} | {suspend} | "
-            f"{success_history} | {failed_history} | `{image_summary}` |"
+            f"| {namespace} | `{name}` | `{schedule}` | {interval_summary} | "
+            f"{concurrency_policy} | {suspend} | {success_history} | {failed_history} | "
+            f"`{image_summary}` |"
         )
 
         for env_item in env_items:
@@ -1293,9 +1333,9 @@ AIOps 리소스 원인분석 라우팅:
 - namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 참고 링크만 단독으로 출력하지 마세요.
 
 CronJob/Activity 분석 프로토콜:
-- 사용자가 콘솔 Activity, 15분 단위 반복, CronJob, Job, schedule, `workspace-reaper`를 묻는 경우에는 CronJob `spec.schedule`, `spec.concurrencyPolicy`, `successfulJobsHistoryLimit`, `failedJobsHistoryLimit`, container image, policy 관련 env, 최근 Job 실행 이력을 근거로 답하세요.
-- `spec.schedule`이 `*/15 * * * *`이면 첫 문장에 "네, 설정상 의도된 15분 주기입니다"처럼 정상 여부를 먼저 명확히 답하세요.
-- 이름만 보고 "삭제 작업"이라고 단정하지 말고, `PBS_WORKSPACE_HIBERNATE_AFTER_SECONDS`, `PBS_WORKSPACE_DELETE_AFTER_SECONDS` 같은 env가 확인된 경우에만 hibernate/delete 정책으로 보인다고 쓰세요.
+- 사용자가 콘솔 Activity, 반복 실행, CronJob, Job, schedule, 특정 분 단위 주기를 묻는 경우에는 CronJob `spec.schedule`, `spec.concurrencyPolicy`, `successfulJobsHistoryLimit`, `failedJobsHistoryLimit`, container image, lifecycle/retention 관련 env, 최근 Job 실행 이력을 근거로 답하세요.
+- `spec.schedule`에서 분 단위 interval이 확인되면 첫 문장에 "네, 설정상 의도된 <N>분 주기입니다"처럼 정상 여부를 먼저 명확히 답하세요.
+- 이름만 보고 작업 목적을 단정하지 말고, env 이름에 hibernate/suspend/sleep/idle/delete/ttl/expire/cleanup/retention/prune/archive/max_age/timeout 같은 lifecycle/retention 신호가 확인된 경우에만 해당 정책으로 보인다고 쓰세요.
 - 초 단위 env는 사람이 읽는 값으로 같이 풀어 쓰되 "기준값"으로만 표현하세요. 예: `1800`은 30분, `1209600`은 14일입니다. 로그나 소스 근거 없이 생성 후/마지막 사용 후/유휴 시간 기준인지 단정하지 마세요.
 - `concurrencyPolicy: Forbid`는 이전 실행이 끝나지 않았을 때 중복 실행을 막는 설정으로 설명하고, `successfulJobsHistoryLimit`는 콘솔에 남는 성공 Job 이력 수를 설명할 때만 사용하세요.
 - 실제로 어떤 리소스를 처리했는지는 CronJob 설정만으로 단정하지 말고 최근 Job 로그 확인이 필요하다고 분리하세요.
