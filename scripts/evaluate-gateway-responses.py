@@ -654,13 +654,14 @@ async def run_eval(
     gateway_url: str,
     concurrency: int,
     timeout: float,
+    verify_tls: bool,
 ) -> list[EvalResult]:
     token = run_oc(["whoami", "--show-token"]).strip()
     limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
     semaphore = asyncio.Semaphore(concurrency)
     timeout_config = httpx.Timeout(timeout, connect=10.0)
 
-    async with httpx.AsyncClient(timeout=timeout_config, limits=limits) as client:
+    async with httpx.AsyncClient(timeout=timeout_config, limits=limits, verify=verify_tls) as client:
         async def run_one(index: int, case: QuestionCase) -> EvalResult:
             async with semaphore:
                 try:
@@ -705,6 +706,11 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--timeout", type=float, default=120.0)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
+    parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable TLS verification for local service port-forward checks.",
+    )
     args = parser.parse_args()
 
     data = inventory()
@@ -716,6 +722,7 @@ def main() -> int:
             gateway_url=args.gateway_url,
             concurrency=max(1, args.concurrency),
             timeout=args.timeout,
+            verify_tls=not args.insecure,
         )
     )
     finished = datetime.now(UTC)
@@ -723,6 +730,7 @@ def main() -> int:
         "startedAt": started.isoformat(),
         "finishedAt": finished.isoformat(),
         "gatewayUrl": args.gateway_url,
+        "verifyTls": not args.insecure,
         "questionCount": len(cases),
         "passed": sum(1 for result in results if result.ok),
         "failed": sum(1 for result in results if not result.ok),
