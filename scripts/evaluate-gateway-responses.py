@@ -408,7 +408,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                 source="oc:get pods -A",
                 expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("pod_status_evidence",),
-                expect_answer_regex=(re.escape(resource_name(pod)), r"(ClusterOperator|Operator|오퍼레이터)"),
+                expect_answer_regex=(r"(ClusterOperator|Operator|오퍼레이터)", r"(과거|현재|historical)"),
                 forbid_answer_regex=(r"현재\s*제어면\s*장애로\s*확정", r"현재\s*장애라고\s*단정"),
             ),
         )
