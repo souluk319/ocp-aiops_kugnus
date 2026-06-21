@@ -7,19 +7,21 @@ from fastapi import HTTPException
 from komsco_ai_gateway.main import (
     ChatRequest,
     ImageAttachment,
+    TextReferenceFilter,
     app,
     build_attachment_context,
     build_cluster_summary,
+    build_cronjob_activity_evidence,
     build_ols_payload,
     build_ols_query,
     build_pod_status_evidence,
     parse_bool,
     parse_ols_verify,
-    should_filter_gateway_api_references,
+    should_collect_cronjob_activity_evidence,
     should_collect_pod_status_evidence,
+    should_filter_gateway_api_references,
     should_filter_low_signal_references,
     split_plain_text_events,
-    TextReferenceFilter,
     validate_image_attachments,
 )
 from komsco_ai_gateway.security import (
@@ -202,6 +204,10 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "alert 이름이나 summary만으로 원인을 단정하지 마세요" in query
     assert "status.containerStatuses와 events" in query
     assert "Pod 상태/재시작 분석 프로토콜" in query
+    assert "CronJob/Activity 분석 프로토콜" in query
+    assert "설정상 의도된 15분 주기" in query
+    assert "PBS_WORKSPACE_HIBERNATE_AFTER_SECONDS" in query
+    assert "로그나 소스 근거 없이 생성 후" in query
     assert "`restartCount`만 보고 현재 `CrashLoopBackOff`" in query
     assert "`restartCount`는 Pod 단위가 아니라 container 단위" in query
     assert "`restartCount`는 누적 카운터" in query
@@ -255,6 +261,86 @@ def test_build_ols_query_includes_gateway_evidence() -> None:
 
     assert "[Gateway 선조회 증거]" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
+
+
+def test_cronjob_activity_evidence_trigger_for_15_minute_activity() -> None:
+    assert should_collect_cronjob_activity_evidence("여기 15분 단위로 이러는데 맞아?")
+    assert should_collect_cronjob_activity_evidence("workspace-reaper CronJob 이 정상인지 확인해줘")
+    assert not should_collect_cronjob_activity_evidence("현재 노드 상태 요약해줘")
+
+
+def test_build_cronjob_activity_evidence_includes_schedule_env_and_recent_jobs() -> None:
+    evidence = build_cronjob_activity_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"namespace": "pbs-ocpops", "name": "workspace-reaper"},
+                    "spec": {
+                        "schedule": "*/15 * * * *",
+                        "concurrencyPolicy": "Forbid",
+                        "successfulJobsHistoryLimit": 2,
+                        "failedJobsHistoryLimit": 3,
+                        "jobTemplate": {
+                            "spec": {
+                                "template": {
+                                    "spec": {
+                                        "containers": [
+                                            {
+                                                "image": (
+                                                    "ghcr.io/jungyuoo/"
+                                                    "ocpops-playbookstudio-sandbox:dev"
+                                                ),
+                                                "env": [
+                                                    {
+                                                        "name": (
+                                                            "PBS_WORKSPACE_HIBERNATE_AFTER_SECONDS"
+                                                        ),
+                                                        "value": "1800",
+                                                    },
+                                                    {
+                                                        "name": "PBS_WORKSPACE_DELETE_AFTER_SECONDS",
+                                                        "value": "1209600",
+                                                    },
+                                                ],
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                    },
+                }
+            ]
+        },
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "namespace": "pbs-ocpops",
+                        "name": "workspace-reaper-29147292",
+                        "creationTimestamp": "2026-06-21T03:00:00Z",
+                        "ownerReferences": [{"kind": "CronJob", "name": "workspace-reaper"}],
+                    },
+                    "status": {
+                        "startTime": "2026-06-21T03:00:01Z",
+                        "completionTime": "2026-06-21T03:00:05Z",
+                        "succeeded": 1,
+                    },
+                }
+            ]
+        },
+        context_text="workspace-reaper가 15분마다 보여",
+    )
+
+    assert "`workspace-reaper`" in evidence
+    assert "`*/15 * * * *`" in evidence
+    assert "Forbid" in evidence
+    assert "2 | 3" in evidence
+    assert "`PBS_WORKSPACE_HIBERNATE_AFTER_SECONDS`" in evidence
+    assert "1800초 (30분)" in evidence
+    assert "1209600초 (14일)" in evidence
+    assert "threshold values only" in evidence
+    assert "`workspace-reaper-29147292`" in evidence
 
 
 def test_build_pod_status_evidence_sorts_container_restart_counts() -> None:

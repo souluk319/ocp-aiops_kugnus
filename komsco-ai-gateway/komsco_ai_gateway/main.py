@@ -98,6 +98,15 @@ POD_STATUS_ANALYSIS_RE = re.compile(
     r"(상태|현황|이력|횟수|많은|높은|분석|확인|조회|restart\s+count|"
     r"restart\s+(history|status|analysis|summary)|(many|high|top)\s+restarts).*(pod|pods|파드))"
 )
+CRONJOB_ACTIVITY_ANALYSIS_RE = re.compile(
+    r"(?i)(cron\s*job|cronjob|크론잡|scheduled\s+job|schedule|스케줄|"
+    r"15\s*(분|minute|min)|\*/15|0/15|workspace[-_ ]?reaper|reaper|"
+    r"반복\s*(실행|활동)|주기|activity|활동|이벤트)"
+)
+CRONJOB_POLICY_ENV_RE = re.compile(
+    r"(?i)(workspace|hibernate|delete|ttl|expire|expiration|cleanup|reaper|retention)"
+)
+SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credential|key)")
 POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("재시작 빈도", "누적 재시작 횟수"),
     ("높은 빈도", "높은 누적 재시작 횟수"),
@@ -786,6 +795,21 @@ def should_collect_pod_status_evidence(message: str) -> bool:
     return bool(POD_STATUS_ANALYSIS_RE.search(message))
 
 
+def should_collect_cronjob_activity_evidence(
+    message: str,
+    image_analysis: str | None = None,
+) -> bool:
+    combined = f"{message}\n{image_analysis or ''}".strip()
+    return bool(combined and CRONJOB_ACTIVITY_ANALYSIS_RE.search(combined))
+
+
+def append_gateway_evidence(current: str | None, new_evidence: str) -> str:
+    if not current:
+        return new_evidence
+
+    return f"{current}\n\n{new_evidence}"
+
+
 def normalize_pod_restart_language(text: str) -> str:
     normalized = text
     for source, replacement in POD_RESTART_LANGUAGE_REPLACEMENTS:
@@ -988,6 +1012,237 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def schedule_is_every_15_minutes(schedule: str) -> bool:
+    fields = schedule.split()
+    return len(fields) >= 5 and fields[0] in {"*/15", "0/15"}
+
+
+def format_seconds_duration(value: str) -> str:
+    try:
+        seconds = int(value)
+    except ValueError:
+        return value
+
+    if seconds <= 0:
+        return f"{seconds}초"
+    if seconds % 86400 == 0:
+        days = seconds // 86400
+        return f"{seconds}초 ({days}일)"
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{seconds}초 ({hours}시간)"
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{seconds}초 ({minutes}분)"
+
+    return f"{seconds}초"
+
+
+def safe_env_value(env_item: Mapping[str, Any]) -> str:
+    name = str(env_item.get("name") or "")
+    if SECRET_ENV_RE.search(name):
+        return "[REDACTED]"
+
+    value = env_item.get("value")
+    if value is not None:
+        return str(value)
+
+    value_from = env_item.get("valueFrom")
+    if isinstance(value_from, Mapping):
+        if "secretKeyRef" in value_from:
+            return "[REDACTED:valueFrom.secretKeyRef]"
+        return f"valueFrom.{next(iter(value_from.keys()), 'unknown')}"
+
+    return "-"
+
+
+def cronjob_container_summary(cronjob: Mapping[str, Any]) -> tuple[str, list[Mapping[str, Any]]]:
+    containers = (
+        cronjob.get("spec", {})
+        .get("jobTemplate", {})
+        .get("spec", {})
+        .get("template", {})
+        .get("spec", {})
+        .get("containers", [])
+    )
+    if not isinstance(containers, list):
+        return "-", []
+
+    images = []
+    env_items: list[Mapping[str, Any]] = []
+    for container in containers:
+        if not isinstance(container, Mapping):
+            continue
+        image = container.get("image")
+        if image:
+            images.append(str(image))
+        env = container.get("env", [])
+        if isinstance(env, list):
+            env_items.extend(item for item in env if isinstance(item, Mapping))
+
+    return ", ".join(images) if images else "-", env_items
+
+
+def cronjob_matches_context(cronjob: Mapping[str, Any], context_text: str) -> bool:
+    metadata = cronjob.get("metadata", {}) if isinstance(cronjob.get("metadata"), Mapping) else {}
+    spec = cronjob.get("spec", {}) if isinstance(cronjob.get("spec"), Mapping) else {}
+    name = str(metadata.get("name") or "")
+    namespace = str(metadata.get("namespace") or "")
+    schedule = str(spec.get("schedule") or "")
+    context = context_text.lower()
+
+    if name and name.lower() in context:
+        return True
+    if namespace and namespace.lower() in context and ("cron" in context or "크론" in context):
+        return True
+    if schedule_is_every_15_minutes(schedule) and re.search(
+        r"(?i)(15\s*(분|minute|min)|\*/15|0/15|주기|반복|활동|이벤트)",
+        context_text,
+    ):
+        return True
+
+    return False
+
+
+def build_cronjob_activity_evidence(
+    cronjobs_payload: Mapping[str, Any],
+    jobs_payload: Mapping[str, Any] | None = None,
+    *,
+    context_text: str = "",
+) -> str:
+    cronjobs = cronjobs_payload.get("items")
+    if not isinstance(cronjobs, list):
+        return "CronJob activity evidence unavailable: API response did not include an items list."
+
+    matched: list[Mapping[str, Any]] = [
+        item for item in cronjobs if isinstance(item, Mapping) and cronjob_matches_context(item, context_text)
+    ]
+    if not matched:
+        matched = [
+            item
+            for item in cronjobs
+            if isinstance(item, Mapping)
+            and schedule_is_every_15_minutes(str(item.get("spec", {}).get("schedule") or ""))
+        ]
+    if not matched:
+        matched = [item for item in cronjobs if isinstance(item, Mapping)][:10]
+
+    matched = sorted(
+        matched,
+        key=lambda item: (
+            str(item.get("metadata", {}).get("namespace") or ""),
+            str(item.get("metadata", {}).get("name") or ""),
+        ),
+    )[:10]
+    matched_keys = {
+        (
+            str(item.get("metadata", {}).get("namespace") or ""),
+            str(item.get("metadata", {}).get("name") or ""),
+        )
+        for item in matched
+    }
+
+    lines = [
+        "Gateway-collected CronJob activity evidence from Kubernetes API `/apis/batch/v1/cronjobs`.",
+        "Use this as primary evidence for scheduled Activity/CronJob questions.",
+        "If a matched CronJob schedule is `*/15 * * * *`, answer first that 15-minute Activity is expected by configuration.",
+        "Do not overstate intent from the name alone; use env/settings as policy hints and say when behavior needs log confirmation.",
+        "Env seconds are threshold values only; do not infer created-time or idle-time basis unless logs or source confirm it.",
+        "",
+        "Matched CronJobs:",
+        "| Namespace | CronJob | Schedule | Concurrency | Suspend | Successful history | Failed history | Image |",
+        "| :--- | :--- | :--- | :--- | :---: | ---: | ---: | :--- |",
+    ]
+
+    policy_env_rows: list[str] = []
+    for cronjob in matched:
+        metadata = cronjob.get("metadata", {}) if isinstance(cronjob.get("metadata"), Mapping) else {}
+        spec = cronjob.get("spec", {}) if isinstance(cronjob.get("spec"), Mapping) else {}
+        namespace = str(metadata.get("namespace") or "unknown")
+        name = str(metadata.get("name") or "unknown")
+        schedule = str(spec.get("schedule") or "-")
+        concurrency_policy = str(spec.get("concurrencyPolicy") or "-")
+        suspend = str(spec.get("suspend", False))
+        success_history = str(spec.get("successfulJobsHistoryLimit", "-"))
+        failed_history = str(spec.get("failedJobsHistoryLimit", "-"))
+        image_summary, env_items = cronjob_container_summary(cronjob)
+        lines.append(
+            f"| {namespace} | `{name}` | `{schedule}` | {concurrency_policy} | {suspend} | "
+            f"{success_history} | {failed_history} | `{image_summary}` |"
+        )
+
+        for env_item in env_items:
+            env_name = str(env_item.get("name") or "")
+            if not CRONJOB_POLICY_ENV_RE.search(env_name):
+                continue
+            raw_value = safe_env_value(env_item)
+            interpreted = format_seconds_duration(raw_value) if raw_value.isdigit() else raw_value
+            policy_env_rows.append(f"| {namespace} | `{name}` | `{env_name}` | `{raw_value}` | {interpreted} |")
+
+    lines.extend(
+        [
+            "",
+            "Policy-related environment hints:",
+            "| Namespace | CronJob | Env | Raw value | Interpreted value |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+    )
+    lines.extend(policy_env_rows or ["| - | - | - | - | 관련 env 힌트 없음 |"])
+
+    jobs = jobs_payload.get("items") if isinstance(jobs_payload, Mapping) else None
+    recent_job_rows: list[dict[str, Any]] = []
+    if isinstance(jobs, list):
+        for job in jobs:
+            if not isinstance(job, Mapping):
+                continue
+            metadata = job.get("metadata", {}) if isinstance(job.get("metadata"), Mapping) else {}
+            status = job.get("status", {}) if isinstance(job.get("status"), Mapping) else {}
+            namespace = str(metadata.get("namespace") or "")
+            owner_name = "-"
+            owners = metadata.get("ownerReferences", [])
+            if isinstance(owners, list):
+                for owner in owners:
+                    if isinstance(owner, Mapping) and owner.get("kind") == "CronJob":
+                        owner_name = str(owner.get("name") or "-")
+                        break
+            if (namespace, owner_name) not in matched_keys:
+                continue
+
+            created_at = str(metadata.get("creationTimestamp") or "")
+            recent_job_rows.append(
+                {
+                    "namespace": namespace,
+                    "name": str(metadata.get("name") or "unknown"),
+                    "owner": owner_name,
+                    "createdAt": created_at,
+                    "startTime": str(status.get("startTime") or "-"),
+                    "completionTime": str(status.get("completionTime") or "-"),
+                    "succeeded": int(status.get("succeeded") or 0),
+                    "failed": int(status.get("failed") or 0),
+                    "active": int(status.get("active") or 0),
+                    "createdSort": parse_rfc3339(created_at) or datetime.min.replace(tzinfo=UTC),
+                }
+            )
+
+    lines.extend(
+        [
+            "",
+            "Recent Jobs owned by matched CronJobs:",
+            "| Namespace | Job | Owner CronJob | Created | Started | Completed | Succeeded | Failed | Active |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: |",
+        ]
+    )
+    for row in sorted(recent_job_rows, key=lambda item: item["createdSort"], reverse=True)[:10]:
+        lines.append(
+            "| {namespace} | `{name}` | `{owner}` | {createdAt} | {startTime} | {completionTime} | "
+            "{succeeded} | {failed} | {active} |".format(**row)
+        )
+    if not recent_job_rows:
+        lines.append("| - | - | - | - | - | - | 0 | 0 | 0 |")
+
+    return "\n".join(lines)
+
+
 def build_ols_query(
     req: ChatRequest,
     image_analysis: str | None = None,
@@ -1036,6 +1291,15 @@ AIOps 리소스 원인분석 라우팅:
 - `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 근거로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
 - PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 근거로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
 - namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 참고 링크만 단독으로 출력하지 마세요.
+
+CronJob/Activity 분석 프로토콜:
+- 사용자가 콘솔 Activity, 15분 단위 반복, CronJob, Job, schedule, `workspace-reaper`를 묻는 경우에는 CronJob `spec.schedule`, `spec.concurrencyPolicy`, `successfulJobsHistoryLimit`, `failedJobsHistoryLimit`, container image, policy 관련 env, 최근 Job 실행 이력을 근거로 답하세요.
+- `spec.schedule`이 `*/15 * * * *`이면 첫 문장에 "네, 설정상 의도된 15분 주기입니다"처럼 정상 여부를 먼저 명확히 답하세요.
+- 이름만 보고 "삭제 작업"이라고 단정하지 말고, `PBS_WORKSPACE_HIBERNATE_AFTER_SECONDS`, `PBS_WORKSPACE_DELETE_AFTER_SECONDS` 같은 env가 확인된 경우에만 hibernate/delete 정책으로 보인다고 쓰세요.
+- 초 단위 env는 사람이 읽는 값으로 같이 풀어 쓰되 "기준값"으로만 표현하세요. 예: `1800`은 30분, `1209600`은 14일입니다. 로그나 소스 근거 없이 생성 후/마지막 사용 후/유휴 시간 기준인지 단정하지 마세요.
+- `concurrencyPolicy: Forbid`는 이전 실행이 끝나지 않았을 때 중복 실행을 막는 설정으로 설명하고, `successfulJobsHistoryLimit`는 콘솔에 남는 성공 Job 이력 수를 설명할 때만 사용하세요.
+- 실제로 어떤 리소스를 처리했는지는 CronJob 설정만으로 단정하지 말고 최근 Job 로그 확인이 필요하다고 분리하세요.
+- 로그 확인 명령은 가능하면 `oc -n <namespace> logs job/<job-name>` 형태로 제시하고, 최근 Job 이름 확인 명령은 `oc -n <namespace> get jobs --sort-by=.metadata.creationTimestamp | grep <cronjob-name>` 형태를 우선 제시하세요.
 
 Pod 상태/재시작 분석 프로토콜:
 - Pod 상태 또는 재시작 이력 질문은 현재 상태와 과거 재시작 이력을 먼저 분리하세요. 현재 상태는 `status.phase`, `Ready` condition, `status.containerStatuses[*].ready`, `status.containerStatuses[*].state`를 기준으로 표현하세요.
@@ -1474,6 +1738,30 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
     return build_pod_status_evidence(pods_payload)
 
 
+async def collect_cronjob_activity_evidence(user_auth_header: str, context_text: str) -> str:
+    if not OPENSHIFT_API_URL:
+        return "CronJob activity evidence unavailable: OPENSHIFT_API_URL is not configured."
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        cronjobs_payload = await fetch_ocp_json(client, "/apis/batch/v1/cronjobs", user_auth_header)
+        jobs_payload = await fetch_ocp_json(client, "/apis/batch/v1/jobs?limit=500", user_auth_header)
+
+    if not cronjobs_payload:
+        return (
+            "CronJob activity evidence unavailable: Kubernetes API CronJob list was not returned. "
+            "This may be a permission or API availability issue."
+        )
+
+    return build_cronjob_activity_evidence(
+        cronjobs_payload,
+        jobs_payload,
+        context_text=context_text,
+    )
+
+
 def log_audit_record(record: Mapping[str, Any]) -> None:
     print(
         json.dumps({"aiopsAudit": redact_sensitive(dict(record))}, ensure_ascii=False),
@@ -1732,6 +2020,55 @@ async def chat_stream(
                     }
                 )
 
+            if should_collect_cronjob_activity_evidence(req.message, image_analysis):
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-cronjob-activity-evidence",
+                        "name": "cronjob_activity_evidence",
+                        "summary": "CronJob/Activity 주기 증거 수집",
+                    }
+                )
+                try:
+                    cronjob_context = "\n".join(
+                        item for item in [req.message, image_analysis] if item
+                    )
+                    cronjob_evidence = await collect_cronjob_activity_evidence(
+                        authorization,
+                        cronjob_context,
+                    )
+                    evidence_status = (
+                        "skipped"
+                        if cronjob_evidence.startswith("CronJob activity evidence unavailable:")
+                        else "success"
+                    )
+                    gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": cronjob_evidence,
+                            "id": f"{request_id}-cronjob-activity-evidence",
+                            "name": "cronjob_activity_evidence",
+                            "status": evidence_status,
+                            "summary": "CronJob/Activity 주기 증거 수집 완료",
+                        }
+                    )
+                except Exception as exc:
+                    cronjob_evidence = (
+                        f"CronJob activity evidence unavailable: {type(exc).__name__}: {exc}"
+                    )
+                    gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": cronjob_evidence,
+                            "id": f"{request_id}-cronjob-activity-evidence",
+                            "name": "cronjob_activity_evidence",
+                            "status": "error",
+                            "summary": "CronJob/Activity 주기 증거 수집 실패",
+                        }
+                    )
+
             if should_collect_pod_status_evidence(req.message):
                 yield sse(
                     {
@@ -1742,16 +2079,17 @@ async def chat_stream(
                     }
                 )
                 try:
-                    gateway_evidence = await collect_pod_status_evidence(authorization)
+                    pod_evidence = await collect_pod_status_evidence(authorization)
                     evidence_status = (
                         "skipped"
-                        if gateway_evidence.startswith("Pod status evidence unavailable:")
+                        if pod_evidence.startswith("Pod status evidence unavailable:")
                         else "success"
                     )
+                    gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
                     yield sse(
                         {
                             "type": "tool_result",
-                            "detail": gateway_evidence,
+                            "detail": pod_evidence,
                             "id": f"{request_id}-pod-status-evidence",
                             "name": "pod_status_evidence",
                             "status": evidence_status,
@@ -1759,11 +2097,12 @@ async def chat_stream(
                         }
                     )
                 except Exception as exc:
-                    gateway_evidence = f"Pod status evidence unavailable: {type(exc).__name__}: {exc}"
+                    pod_evidence = f"Pod status evidence unavailable: {type(exc).__name__}: {exc}"
+                    gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
                     yield sse(
                         {
                             "type": "tool_result",
-                            "detail": gateway_evidence,
+                            "detail": pod_evidence,
                             "id": f"{request_id}-pod-status-evidence",
                             "name": "pod_status_evidence",
                             "status": "error",
