@@ -26,6 +26,8 @@ from komsco_ai_gateway.main import (
     ChatRequest,
     DIAGNOSTIC_REQUESTS,
     EVIDENCE_RECORDS,
+    HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
+    HOST_DIAGNOSTIC_COLLECTORS,
     ImageAttachment,
     METRICS,
     TextReferenceFilter,
@@ -72,6 +74,13 @@ from komsco_ai_gateway.main import (
     should_filter_low_signal_references,
     split_plain_text_events,
     validate_image_attachments,
+)
+from komsco_ai_gateway.aiops_core import (
+    AiopsCoreError,
+    build_hpa_bounds_request,
+    build_mutation_request,
+    build_rollback_request,
+    matching_hpas_for_deployment,
 )
 from komsco_ai_gateway.security import (
     build_evidence_reference,
@@ -1008,7 +1017,7 @@ def test_diagnostic_request_digest_uses_request_projection_without_target_hardco
     subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
     request = DiagnosticRequestCreate(
         targetNode=DiagnosticTargetNode(name="node-a.example.com", uid="node-uid-a"),
-        collector="kubelet_logs",
+        collector="node_os_readonly_triage",
         timeRange=DiagnosticTimeRange(
             since="2026-06-21T00:00:00Z",
             until="2026-06-21T00:05:00Z",
@@ -1044,7 +1053,7 @@ def test_diagnostic_request_record_stores_only_grant_reference() -> None:
     subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
     request = DiagnosticRequestCreate(
         targetNode=DiagnosticTargetNode(name="node-a.example.com", uid="node-uid-a"),
-        collector="kubelet_logs",
+        collector="node_os_readonly_triage",
         timeRange=DiagnosticTimeRange(
             since="2026-06-21T00:00:00Z",
             until="2026-06-21T00:05:00Z",
@@ -1060,12 +1069,27 @@ def test_diagnostic_request_record_stores_only_grant_reference() -> None:
     assert "Bearer" not in str(record)
 
 
+def test_host_diagnostic_collector_registry_rejects_arbitrary_collectors() -> None:
+    assert HOST_DIAGNOSTIC_COLLECTOR_DIGEST.startswith("sha256:")
+    assert set(HOST_DIAGNOSTIC_COLLECTORS) == {
+        "node_os_readonly_triage",
+        "node_runtime_readonly_triage",
+    }
+    assert HOST_DIAGNOSTIC_COLLECTORS["node_os_readonly_triage"]["arbitraryCommandInputAllowed"] is False
+    assert "run_command" not in str(HOST_DIAGNOSTIC_COLLECTORS)
+    assert "nsenter" not in str(HOST_DIAGNOSTIC_COLLECTORS)
+
+
 def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorization() -> None:
     DIAGNOSTIC_REQUESTS.clear()
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            collectors_response = await client.get(
+                "/v1/diagnostics/collectors",
+                headers={"Authorization": "Bearer test-token"},
+            )
             create_response = await client.post(
                 "/v1/diagnostics/requests",
                 headers={"Authorization": "Bearer test-token"},
@@ -1073,7 +1097,7 @@ def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorizat
                     "incidentId": "inc-diag",
                     "runId": "run-diag",
                     "targetNode": {"name": "node-a.example.com", "uid": "node-uid-a"},
-                    "collector": "kubelet_logs",
+                    "collector": "node_os_readonly_triage",
                     "timeRange": {
                         "since": "2026-06-21T00:00:00Z",
                         "until": "2026-06-21T00:05:00Z",
@@ -1082,6 +1106,8 @@ def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorizat
                 },
             )
 
+        assert collectors_response.status_code == 200
+        assert collectors_response.json()["spec"]["digest"] == HOST_DIAGNOSTIC_COLLECTOR_DIGEST
         assert create_response.status_code == 422
 
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -1092,7 +1118,7 @@ def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorizat
                     "incidentId": "inc-diag",
                     "runId": "run-diag",
                     "targetNode": {"name": "node-a.example.com", "uid": "node-uid-a"},
-                    "collector": "kubelet_logs",
+                    "collector": "node_os_readonly_triage",
                     "timeRange": {
                         "since": "2026-06-21T00:00:00Z",
                         "until": "2026-06-21T00:05:00Z",
@@ -1110,6 +1136,8 @@ def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorizat
         assert payload["kind"] == "DiagnosticRequest"
         assert payload["spec"]["candidate"]["requester"]["username"] == "unknown"
         assert payload["spec"]["candidate"]["targetNode"]["name"] == "node-a.example.com"
+        assert payload["spec"]["candidate"]["collectorRegistry"]["digest"] == HOST_DIAGNOSTIC_COLLECTOR_DIGEST
+        assert payload["spec"]["candidate"]["collectorConstraints"]["arbitraryCommandInputAllowed"] is False
         assert payload["spec"]["grantRef"]["bearerGrantStored"] is False
         assert payload["spec"]["status"]["submittedToController"] is False
         assert read_response.status_code == 200
@@ -1124,9 +1152,159 @@ def test_action_registry_contains_only_initial_allow_list() -> None:
         "rollout_restart_deployment",
         "set_replicas_within_bounds",
         "evict_one_unhealthy_controller_owned_pod",
+        "rollback_deployment_to_revision",
+        "set_hpa_bounds",
     }
     assert "patch_resource" not in ACTION_REGISTRY_ENTRIES
     assert "apply_manifest" not in ACTION_REGISTRY_ENTRIES
+    assert "run_command" not in ACTION_REGISTRY_ENTRIES
+
+
+def test_core_action_hpa_guard_requires_review_for_deployment_scale() -> None:
+    plan = {
+        "target": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "namespace": "team-a",
+            "name": "web-a",
+            "uid": "deployment-uid-a",
+        },
+        "action": {
+            "toolName": "set_replicas_within_bounds",
+            "normalizedParameters": {
+                "replicas": 4,
+                "minReplicas": 1,
+                "maxReplicas": 5,
+                "hpaReviewed": False,
+            },
+        },
+    }
+    deployment = {
+        "metadata": {"namespace": "team-a", "name": "web-a", "uid": "deployment-uid-a"},
+        "spec": {"replicas": 2},
+    }
+    hpa = {
+        "metadata": {"namespace": "team-a", "name": "web-hpa", "uid": "hpa-uid-a"},
+        "spec": {
+            "scaleTargetRef": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "name": "web-a",
+            }
+        },
+    }
+
+    assert matching_hpas_for_deployment([hpa], plan["target"])[0]["metadata"]["name"] == "web-hpa"
+    with pytest.raises(AiopsCoreError):
+        build_mutation_request(plan, live_target=deployment, hpas=[hpa])
+
+    reviewed_plan = {
+        **plan,
+        "action": {
+            **plan["action"],
+            "normalizedParameters": {
+                **plan["action"]["normalizedParameters"],
+                "hpaReviewed": True,
+            },
+        },
+    }
+    request = build_mutation_request(reviewed_plan, live_target=deployment, hpas=[hpa])
+
+    assert request.path.endswith("/deployments/web-a/scale")
+    assert request.body == {"spec": {"replicas": 4}}
+
+
+def test_core_action_rollback_uses_owned_replicaset_revision() -> None:
+    plan = {
+        "target": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "namespace": "team-a",
+            "name": "web-a",
+            "uid": "deployment-uid-a",
+        },
+        "action": {
+            "toolName": "rollback_deployment_to_revision",
+            "normalizedParameters": {"revision": 2},
+        },
+    }
+    deployment = {
+        "metadata": {
+            "namespace": "team-a",
+            "name": "web-a",
+            "uid": "deployment-uid-a",
+            "annotations": {"deployment.kubernetes.io/revision": "3"},
+        },
+        "spec": {"template": {"metadata": {"labels": {"app": "web"}}}},
+    }
+    replica_set = {
+        "metadata": {
+            "namespace": "team-a",
+            "name": "web-a-abc",
+            "uid": "rs-uid-a",
+            "annotations": {"deployment.kubernetes.io/revision": "2"},
+            "ownerReferences": [{"uid": "deployment-uid-a", "controller": True}],
+        },
+        "spec": {
+            "template": {
+                "metadata": {
+                    "labels": {"app": "web", "pod-template-hash": "abc"},
+                    "annotations": {"deployment.kubernetes.io/revision": "2"},
+                },
+                "spec": {"containers": [{"name": "web", "image": "example/web:v1"}]},
+            }
+        },
+    }
+
+    request = build_rollback_request(plan, deployment, [replica_set])
+    template = request.body["spec"]["template"]
+
+    assert request.path.endswith("/deployments/web-a")
+    assert template["metadata"]["labels"] == {"app": "web"}
+    assert template["metadata"]["annotations"]["aiops.komsco/rollback-revision"] == "2"
+    assert "pod-template-hash" not in str(template)
+
+
+def test_core_action_hpa_bounds_blocks_unreviewed_max_increase() -> None:
+    plan = {
+        "target": {
+            "apiVersion": "autoscaling/v2",
+            "kind": "HorizontalPodAutoscaler",
+            "namespace": "team-a",
+            "name": "web-hpa",
+            "uid": "hpa-uid-a",
+        },
+        "action": {
+            "toolName": "set_hpa_bounds",
+            "normalizedParameters": {
+                "minReplicas": 2,
+                "maxReplicas": 8,
+                "allowMaxIncrease": False,
+            },
+        },
+    }
+    hpa = {
+        "metadata": {"namespace": "team-a", "name": "web-hpa", "uid": "hpa-uid-a"},
+        "spec": {"minReplicas": 1, "maxReplicas": 5},
+    }
+
+    with pytest.raises(AiopsCoreError):
+        build_hpa_bounds_request(plan, hpa)
+
+    approved_plan = {
+        **plan,
+        "action": {
+            **plan["action"],
+            "normalizedParameters": {
+                **plan["action"]["normalizedParameters"],
+                "allowMaxIncrease": True,
+            },
+        },
+    }
+    request = build_hpa_bounds_request(approved_plan, hpa)
+
+    assert request.path.endswith("/horizontalpodautoscalers/web-hpa")
+    assert request.body == {"spec": {"minReplicas": 2, "maxReplicas": 8}}
 
 
 def test_action_proposal_digest_uses_runtime_target_not_hardcoded_target() -> None:
@@ -1343,6 +1521,8 @@ def test_runbook_registry_allows_only_runbook_defined_action_steps() -> None:
         "deployment_rollout_restart_v1",
         "deployment_bounded_scale_v1",
         "controller_owned_unhealthy_pod_eviction_v1",
+        "deployment_rollout_rollback_v1",
+        "hpa_bounds_adjustment_v1",
     }
     for runbook in RUNBOOK_REGISTRY_ENTRIES.values():
         for step in runbook["allowedSteps"]:

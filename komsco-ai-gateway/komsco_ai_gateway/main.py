@@ -16,6 +16,15 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from .aiops_core import (
+    HOST_DIAGNOSTIC_COLLECTORS,
+    AiopsCoreError,
+    action_from_plan,
+    build_mutation_request,
+    get_host_diagnostic_collector,
+    target_path,
+    target_from_plan,
+)
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -95,6 +104,14 @@ DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
 ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
+ACTION_EXECUTOR_TOKEN_FILE = os.getenv(
+    "KOMSCO_AI_ACTION_EXECUTOR_TOKEN_FILE",
+    "/var/run/secrets/kubernetes.io/serviceaccount/token",
+)
+ACTION_EXECUTOR_FIELD_MANAGER = os.getenv(
+    "KOMSCO_AI_ACTION_EXECUTOR_FIELD_MANAGER",
+    "komsco-ai-action-executor",
+)
 APPROVAL_ACCESS_REVIEW_REQUIRED = parse_bool(
     os.getenv("KOMSCO_AI_APPROVAL_ACCESS_REVIEW_REQUIRED"),
     default=False,
@@ -210,6 +227,9 @@ METRICS: dict[str, int] = {
     "aiops_action_plans_total": 0,
     "aiops_approval_decisions_total": 0,
     "aiops_execution_requests_total": 0,
+    "aiops_execution_dry_run_total": 0,
+    "aiops_execution_mutation_succeeded_total": 0,
+    "aiops_execution_mutation_failed_total": 0,
     "aiops_evidence_freshness_failures_total": 0,
     "aiops_runbook_plans_total": 0,
     "aiops_preapproved_patch_requests_total": 0,
@@ -276,6 +296,38 @@ ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
         "request": {
             "method": "POST",
             "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}/eviction",
+        },
+    },
+    "rollback_deployment_to_revision": {
+        "toolName": "rollback_deployment_to_revision",
+        "toolVersion": "v1",
+        "targetKind": "Deployment",
+        "risk": "medium",
+        "authorization": {
+            "apiGroup": "apps",
+            "resource": "deployments",
+            "subresource": "",
+            "verb": "patch",
+        },
+        "request": {
+            "method": "PATCH",
+            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+        },
+    },
+    "set_hpa_bounds": {
+        "toolName": "set_hpa_bounds",
+        "toolVersion": "v1",
+        "targetKind": "HorizontalPodAutoscaler",
+        "risk": "medium",
+        "authorization": {
+            "apiGroup": "autoscaling",
+            "resource": "horizontalpodautoscalers",
+            "subresource": "",
+            "verb": "patch",
+        },
+        "request": {
+            "method": "PATCH",
+            "pathTemplate": "/apis/autoscaling/v2/namespaces/{namespace}/horizontalpodautoscalers/{name}",
         },
     },
 }
@@ -347,6 +399,47 @@ RUNBOOK_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
             "controllerOwnerRequired": True,
             "pdbReviewRequired": True,
             "replacementCapacityReviewRequired": True,
+        },
+    },
+    "deployment_rollout_rollback_v1": {
+        "runbookId": "deployment_rollout_rollback_v1",
+        "runbookVersion": "v1",
+        "incidentClass": "deployment_bad_rollout_recovery",
+        "targetKind": "Deployment",
+        "allowedSteps": [
+            {
+                "stepId": "rollback_deployment",
+                "toolName": "rollback_deployment_to_revision",
+                "toolVersion": "v1",
+                "requiredParameters": ["revision"],
+            }
+        ],
+        "policyChecks": {
+            "namespaceRequired": True,
+            "targetUidRequired": True,
+            "platformNamespaceRequiresExplicitPolicy": True,
+            "ownerReviewRequired": True,
+            "rollbackRevisionReviewRequired": True,
+        },
+    },
+    "hpa_bounds_adjustment_v1": {
+        "runbookId": "hpa_bounds_adjustment_v1",
+        "runbookVersion": "v1",
+        "incidentClass": "hpa_scaling_policy_adjustment",
+        "targetKind": "HorizontalPodAutoscaler",
+        "allowedSteps": [
+            {
+                "stepId": "set_hpa_bounds",
+                "toolName": "set_hpa_bounds",
+                "toolVersion": "v1",
+                "requiredParameters": ["minReplicas", "maxReplicas"],
+            }
+        ],
+        "policyChecks": {
+            "namespaceRequired": True,
+            "targetUidRequired": True,
+            "platformNamespaceRequiresExplicitPolicy": True,
+            "hpaPolicyReviewRequired": True,
         },
     },
 }
@@ -424,6 +517,13 @@ BREAK_GLASS_PROFILE_BUNDLE = {
     "profiles": BREAK_GLASS_PROFILES,
 }
 BREAK_GLASS_PROFILE_DIGEST = canonical_digest(BREAK_GLASS_PROFILE_BUNDLE)
+HOST_DIAGNOSTIC_COLLECTOR_VERSION = "v1"
+HOST_DIAGNOSTIC_COLLECTOR_BUNDLE = {
+    "schemaVersion": "v1",
+    "version": HOST_DIAGNOSTIC_COLLECTOR_VERSION,
+    "collectors": HOST_DIAGNOSTIC_COLLECTORS,
+}
+HOST_DIAGNOSTIC_COLLECTOR_DIGEST = canonical_digest(HOST_DIAGNOSTIC_COLLECTOR_BUNDLE)
 DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "schemaVersion",
     "clusterId",
@@ -531,6 +631,14 @@ def build_diagnostic_request_candidate(
     request: "DiagnosticRequestCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
+    try:
+        collector_profile = get_host_diagnostic_collector(request.collector)
+    except AiopsCoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if request.collectorVersion != collector_profile["collectorVersion"]:
+        raise HTTPException(status_code=400, detail="collectorVersion does not match the registry")
+    if request.collectorProfile != collector_profile["collectorProfile"]:
+        raise HTTPException(status_code=400, detail="collectorProfile does not match the registry")
     candidate = {
         "schemaVersion": "v1",
         "clusterId": CLUSTER_ID,
@@ -539,6 +647,11 @@ def build_diagnostic_request_candidate(
         "collector": request.collector,
         "collectorVersion": request.collectorVersion,
         "collectorProfile": request.collectorProfile,
+        "collectorRegistry": {
+            "version": HOST_DIAGNOSTIC_COLLECTOR_VERSION,
+            "digest": HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
+        },
+        "collectorConstraints": collector_profile,
         "timeRange": request.timeRange.model_dump(),
         "limits": request.limits.model_dump(),
         "evidencePolicy": request.evidencePolicy.model_dump(),
@@ -624,10 +737,12 @@ def normalize_action_parameters(
         replicas = parameters.get("replicas")
         min_replicas = parameters.get("minReplicas", 0)
         max_replicas = parameters.get("maxReplicas", 20)
+        hpa_reviewed = parameters.get("hpaReviewed", False)
         if (
             isinstance(replicas, bool)
             or isinstance(min_replicas, bool)
             or isinstance(max_replicas, bool)
+            or not isinstance(hpa_reviewed, bool)
             or not isinstance(replicas, int)
             or not isinstance(min_replicas, int)
             or not isinstance(max_replicas, int)
@@ -639,11 +754,40 @@ def normalize_action_parameters(
             "maxReplicas": max_replicas,
             "minReplicas": min_replicas,
             "replicas": replicas,
+            "hpaReviewed": hpa_reviewed,
         }
 
     if tool_name == "evict_one_unhealthy_controller_owned_pod":
         reason = parameters.get("reason")
         return {"reason": reason if isinstance(reason, str) else "approved_unhealthy_pod_eviction"}
+
+    if tool_name == "rollback_deployment_to_revision":
+        revision = parameters.get("revision")
+        if revision is None:
+            return {"revision": None}
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            raise HTTPException(status_code=400, detail="rollback revision must be a positive integer")
+        return {"revision": revision}
+
+    if tool_name == "set_hpa_bounds":
+        min_replicas = parameters.get("minReplicas")
+        max_replicas = parameters.get("maxReplicas")
+        allow_max_increase = parameters.get("allowMaxIncrease", False)
+        if (
+            isinstance(min_replicas, bool)
+            or isinstance(max_replicas, bool)
+            or not isinstance(min_replicas, int)
+            or not isinstance(max_replicas, int)
+            or not isinstance(allow_max_increase, bool)
+        ):
+            raise HTTPException(status_code=400, detail="HPA replica bounds must be integer values")
+        if min_replicas < 1 or max_replicas < min_replicas:
+            raise HTTPException(status_code=400, detail="HPA maxReplicas must be >= minReplicas")
+        return {
+            "allowMaxIncrease": allow_max_increase,
+            "maxReplicas": max_replicas,
+            "minReplicas": min_replicas,
+        }
 
     raise HTTPException(status_code=400, detail="Unsupported action")
 
@@ -1093,6 +1237,10 @@ def evaluate_runbook_policy(
         warnings.append("owner, GitOps, Operator, and external controller review required before execution")
     if checks.get("hpaReviewRequired"):
         warnings.append("HPA ownership review required before bounded scale execution")
+    if checks.get("hpaPolicyReviewRequired"):
+        warnings.append("HPA min/max bounds and targetRef review required before execution")
+    if checks.get("rollbackRevisionReviewRequired"):
+        warnings.append("ReplicaSet revision, image digest, and template diff review required before rollback")
     if checks.get("controllerOwnerRequired"):
         warnings.append("controller owner reference must be verified before eviction execution")
     if checks.get("pdbReviewRequired"):
@@ -3605,6 +3753,180 @@ def build_empty_answer_fallback(
     return "\n".join(lines)
 
 
+def append_query(path: str, query: Mapping[str, str]) -> str:
+    separator = "&" if "?" in path else "?"
+    encoded = "&".join(f"{key}={value}" for key, value in query.items())
+    return f"{path}{separator}{encoded}"
+
+
+def executor_auth_header() -> str:
+    token = read_secret_value(
+        os.getenv("KOMSCO_AI_ACTION_EXECUTOR_BEARER_TOKEN"),
+        ACTION_EXECUTOR_TOKEN_FILE,
+    )
+    if not token:
+        raise HTTPException(status_code=503, detail="Action Executor service account token is not configured")
+    return f"Bearer {token}"
+
+
+async def fetch_executor_live_state(
+    client: httpx.AsyncClient,
+    authorization: str,
+    plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    target = target_from_plan(plan)
+    action = action_from_plan(plan)
+    live_target = await fetch_ocp_json(
+        client,
+        target_path(target),
+        authorization,
+        required=True,
+    )
+    live_state: dict[str, Any] = {"target": live_target or {}}
+    namespace = str(target.get("namespace") or "")
+    tool_name = str(action.get("toolName") or "")
+    if tool_name == "set_replicas_within_bounds":
+        hpas = await fetch_ocp_json(
+            client,
+            f"/apis/autoscaling/v2/namespaces/{namespace}/horizontalpodautoscalers",
+            authorization,
+        )
+        items = hpas.get("items") if isinstance(hpas, Mapping) else []
+        live_state["hpas"] = [item for item in items if isinstance(item, Mapping)] if isinstance(items, list) else []
+    if tool_name == "rollback_deployment_to_revision":
+        replica_sets = await fetch_ocp_json(
+            client,
+            f"/apis/apps/v1/namespaces/{namespace}/replicasets",
+            authorization,
+        )
+        items = replica_sets.get("items") if isinstance(replica_sets, Mapping) else []
+        live_state["replicaSets"] = (
+            [item for item in items if isinstance(item, Mapping)] if isinstance(items, list) else []
+        )
+    return live_state
+
+
+async def submit_ocp_request(
+    client: httpx.AsyncClient,
+    authorization: str,
+    *,
+    method: str,
+    path: str,
+    content_type: str,
+    body: Mapping[str, Any],
+) -> httpx.Response:
+    return await client.request(
+        method,
+        f"{OPENSHIFT_API_URL}{path}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": authorization,
+            "Content-Type": content_type,
+        },
+        json=body,
+    )
+
+
+async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
+    if not OPENSHIFT_API_URL:
+        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
+
+    executor_auth = executor_auth_header()
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(30.0, connect=5.0),
+    ) as client:
+        live_state = await fetch_executor_live_state(client, executor_auth, sealed_plan)
+        try:
+            mutation = build_mutation_request(
+                sealed_plan,
+                live_target=live_state["target"],
+                hpas=live_state.get("hpas") or (),
+                replica_sets=live_state.get("replicaSets") or (),
+            )
+        except AiopsCoreError as exc:
+            raise HTTPException(status_code=409, detail={"reason": exc.reason, "message": str(exc)}) from exc
+
+        dry_run_path = append_query(
+            mutation.path,
+            {
+                "dryRun": "All",
+                "fieldManager": ACTION_EXECUTOR_FIELD_MANAGER,
+            },
+        )
+        dry_run_response = await submit_ocp_request(
+            client,
+            executor_auth,
+            method=mutation.method,
+            path=dry_run_path,
+            content_type=mutation.content_type,
+            body=mutation.body,
+        )
+        increment_metric("aiops_execution_dry_run_total")
+        if dry_run_response.status_code not in mutation.expected_statuses:
+            return {
+                "mutationOutcome": {
+                    "status": "mutation_failed",
+                    "reason": "server_side_dry_run_failed",
+                    "httpStatus": dry_run_response.status_code,
+                    "body": dry_run_response.text[:1000],
+                },
+                "remediationOutcome": {"status": "mutation_failed"},
+                "executorTrace": {"dryRunPath": dry_run_path, "mutationSubmitted": False},
+            }
+
+        mutate_path = append_query(
+            mutation.path,
+            {
+                "fieldManager": ACTION_EXECUTOR_FIELD_MANAGER,
+            },
+        )
+        mutation_response = await submit_ocp_request(
+            client,
+            executor_auth,
+            method=mutation.method,
+            path=mutate_path,
+            content_type=mutation.content_type,
+            body=mutation.body,
+        )
+        if mutation_response.status_code not in mutation.expected_statuses:
+            increment_metric("aiops_execution_mutation_failed_total")
+            return {
+                "mutationOutcome": {
+                    "status": "mutation_failed",
+                    "reason": "kubernetes_api_request_failed",
+                    "httpStatus": mutation_response.status_code,
+                    "body": mutation_response.text[:1000],
+                },
+                "remediationOutcome": {"status": "mutation_failed"},
+                "executorTrace": {
+                    "dryRunPath": dry_run_path,
+                    "mutationPath": mutate_path,
+                    "mutationSubmitted": True,
+                },
+            }
+
+        increment_metric("aiops_execution_mutation_succeeded_total")
+        return {
+            "mutationOutcome": {
+                "status": "mutation_succeeded",
+                "reason": "typed_action_executed",
+                "httpStatus": mutation_response.status_code,
+            },
+            "remediationOutcome": {
+                "status": "verification_pending",
+                "reason": "hard postcondition watch is not yet externalized from the integrated executor",
+            },
+            "executorTrace": {
+                "dryRunPath": dry_run_path,
+                "mutationPath": mutate_path,
+                "mutationSubmitted": True,
+                "toolName": action_from_plan(sealed_plan).get("toolName"),
+                "target": target_from_plan(sealed_plan),
+            },
+        }
+
+
 @app.get("/v1/cluster/summary")
 async def cluster_summary(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -3705,6 +4027,24 @@ async def get_workflow(
         "kind": "Workflow",
         "metadata": {"name": run_id},
         "spec": record,
+    }
+
+
+@app.get("/v1/diagnostics/collectors")
+async def get_diagnostic_collectors(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    verify_bearer_header(authorization)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "HostDiagnosticCollectorRegistry",
+        "metadata": {
+            "name": "host-diagnostic-collector-registry",
+            "version": HOST_DIAGNOSTIC_COLLECTOR_VERSION,
+        },
+        "spec": {
+            "digest": HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
+            "diagnosticsEnabled": DIAGNOSTICS_ENABLED,
+            "collectors": list(HOST_DIAGNOSTIC_COLLECTORS.values()),
+        },
     }
 
 
@@ -3898,7 +4238,17 @@ async def execute_action(
 
     grant_reference = build_execution_grant_reference(approval, plan, subject)
     execution_id = f"execution-{uuid.uuid4()}"
-    status = "mutation_disabled" if not MUTATIONS_ENABLED else "executor_not_configured"
+    if MUTATIONS_ENABLED:
+        executor_result = await execute_typed_action_plan(sealed_plan)
+    else:
+        executor_result = {
+            "mutationOutcome": {
+                "status": "mutation_disabled",
+                "reason": "KOMSCO_AI_ENABLE_MUTATIONS is false.",
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+            "executorTrace": {"mutationSubmitted": False},
+        }
     record = {
         "schemaVersion": "v1",
         "apiVersion": "aiops.komsco/v1",
@@ -3912,15 +4262,9 @@ async def execute_action(
             "executionGrantRef": {
                 key: value for key, value in grant_reference.items() if key != "claims"
             },
-            "mutationOutcome": {
-                "status": status,
-                "reason": (
-                    "KOMSCO_AI_ENABLE_MUTATIONS is false."
-                    if not MUTATIONS_ENABLED
-                    else "Action Executor integration is not configured in this gateway."
-                ),
-            },
-            "remediationOutcome": {"status": "not_remediated"},
+            "mutationOutcome": executor_result["mutationOutcome"],
+            "remediationOutcome": executor_result["remediationOutcome"],
+            "executorTrace": redact_sensitive(executor_result.get("executorTrace") or {}),
         },
         "subject": redact_sensitive(dict(subject)),
     }
@@ -3928,7 +4272,12 @@ async def execute_action(
     increment_metric("aiops_execution_requests_total")
     if not MUTATIONS_ENABLED:
         raise HTTPException(status_code=403, detail=record["spec"])
-    raise HTTPException(status_code=501, detail=record["spec"])
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ExecutionRecord",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
 
 
 @app.get("/v1/runbooks/registry")
