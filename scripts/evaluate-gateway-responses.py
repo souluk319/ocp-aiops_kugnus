@@ -39,6 +39,7 @@ class QuestionCase:
     question: str
     source: str
     page_context: Mapping[str, Any] | None = None
+    expect_evidence_source_types: tuple[str, ...] = ()
     expect_events: tuple[str, ...] = ()
     expect_policy_decision: str | None = None
     expect_answer_regex: tuple[str, ...] = ()
@@ -325,6 +326,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
             category="pod-status",
             question="현재 클러스터의 Pod 상태와 재시작 이력을 분리해서 분석해줘.",
             source="generic",
+            expect_evidence_source_types=("gateway-preflight-evidence",),
             expect_events=("pod_status_evidence",),
             forbid_answer_regex=(r"현재\s*CrashLoopBackOff.*restartCount",),
         ),
@@ -335,6 +337,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
             category="pod-restarts",
             question="재시작 횟수가 높은 Pod를 container 기준으로 정리해줘.",
             source="generic",
+            expect_evidence_source_types=("gateway-preflight-evidence",),
             expect_events=("pod_status_evidence",),
             expect_answer_regex=(r"(container|컨테이너|restartCount|재시작)",),
         ),
@@ -352,6 +355,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                     f"`{resource_name(pod)}` 상태와 재시작 이력을 확인해줘."
                 ),
                 source="oc:get pods -A",
+                expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("pod_status_evidence",),
                 expect_answer_regex=(re.escape(resource_name(pod)),),
             ),
@@ -386,6 +390,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                     "ClusterOperator 상태와 함께 판단해줘."
                 ),
                 source="oc:get pods -A",
+                expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("pod_status_evidence",),
                 expect_answer_regex=(re.escape(resource_name(pod)), r"(ClusterOperator|Operator|오퍼레이터)"),
                 forbid_answer_regex=(r"현재\s*제어면\s*장애로\s*확정", r"현재\s*장애라고\s*단정"),
@@ -405,6 +410,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                     "이벤트와 catalog/registry 관점으로 확인해줘."
                 ),
                 source="oc:get pods -A",
+                expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("pod_status_evidence",),
                 expect_answer_regex=(re.escape(resource_name(pod)), r"(ImagePull|이미지|CatalogSource|registry|레지스트리)"),
             ),
@@ -420,6 +426,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                     "판단해도 되는지 기준을 정리해줘."
                 ),
                 source="oc:get pods -A",
+                expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("pod_status_evidence",),
                 expect_answer_regex=(r"(startTime|ClusterOperator|과거|현재)",),
                 forbid_answer_regex=(
@@ -458,6 +465,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                     f"`{resource_name(cronjob)}` 이 {interval}분 단위로 보이는데 정상인지 설명해줘."
                 ),
                 source="oc:get cronjobs -A",
+                expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("cronjob_activity_evidence",),
                 expect_answer_regex=(re.escape(resource_name(cronjob)), rf"{interval}\s*분"),
                 forbid_answer_regex=(r"생성된 지",),
@@ -475,6 +483,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                     f"`{resource_name(cronjob)}` schedule과 최근 실행 이력을 확인해줘."
                 ),
                 source="oc:get cronjobs -A",
+                expect_evidence_source_types=("gateway-preflight-evidence",),
                 expect_events=("cronjob_activity_evidence",),
                 expect_answer_regex=(re.escape(resource_name(cronjob)),),
             ),
@@ -685,6 +694,20 @@ def policy_decision(events: list[Mapping[str, Any]]) -> str | None:
     return None
 
 
+def evidence_source_types(events: list[Mapping[str, Any]]) -> set[str]:
+    source_types: set[str] = set()
+    for event in events:
+        if event.get("name") != "evidence_ref" or event.get("type") != "tool_result":
+            continue
+        result = event.get("result")
+        if not isinstance(result, Mapping):
+            continue
+        source_type = result.get("sourceType")
+        if source_type:
+            source_types.add(str(source_type))
+    return source_types
+
+
 async def call_gateway(
     client: httpx.AsyncClient,
     gateway_url: str,
@@ -712,6 +735,7 @@ def validate_case(case: QuestionCase, events: list[dict[str, Any]], elapsed_seco
     text = answer_text(events)
     names = event_names(events)
     decision = policy_decision(events)
+    evidence_sources = evidence_source_types(events)
     errors: list[str] = []
     checks = {
         "done": any(event.get("type") == "done" for event in events),
@@ -724,7 +748,11 @@ def validate_case(case: QuestionCase, events: list[dict[str, Any]], elapsed_seco
         and "All connection attempts failed" not in json.dumps(events, ensure_ascii=False),
         "no_low_signal_refs": not any(reference in text for reference in LOW_SIGNAL_REFERENCES),
         "answer_not_empty": bool(text.strip()),
+        "product_access_review": "product_access_review" in names,
         "expected_events": all(expected in names for expected in case.expect_events),
+        "expected_evidence_sources": all(
+            expected in evidence_sources for expected in case.expect_evidence_source_types
+        ),
         "expected_policy": (
             decision == case.expect_policy_decision
             if case.expect_policy_decision

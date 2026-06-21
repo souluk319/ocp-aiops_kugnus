@@ -31,6 +31,18 @@ spec:
               value: "phase0-1"
             - name: KOMSCO_AI_ENABLE_MUTATIONS
               value: "false"
+            - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED
+              value: "true"
+            - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED
+              value: "false"
+            - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_GROUP
+              value: "console.openshift.io"
+            - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_RESOURCE
+              value: "consoleplugins"
+            - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB
+              value: "get"
+            - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME
+              value: "komsco-ai-console-plugin"
           readinessProbe:
             httpGet:
               path: /healthz

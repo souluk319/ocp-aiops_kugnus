@@ -222,6 +222,7 @@ def build_evidence_reference(
     event: Mapping[str, Any],
     incident_id: str,
     run_id: str,
+    source_type: str = "ols-tool-result",
     subject: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     evidence_projection = {
@@ -246,6 +247,6 @@ def build_evidence_reference(
         "originatingSubject": redact_sensitive(dict(subject or safe_subject(None))),
         "redactionProfile": "gateway-phase0-v1",
         "runId": run_id,
-        "sourceType": "ols-tool-result",
+        "sourceType": source_type,
         "summary": event.get("summary") or event.get("name") or "tool result",
     }

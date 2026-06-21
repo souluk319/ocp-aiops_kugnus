@@ -15,11 +15,16 @@ from komsco_ai_gateway.main import (
     build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
     build_empty_answer_fallback,
+    build_evidence_reference_events,
     build_ols_payload,
     build_ols_query,
+    build_product_access_review_request,
     build_pod_status_evidence,
     parse_bool,
     parse_ols_verify,
+    normalize_console_page_context,
+    product_access_review_status,
+    summarize_product_access_review,
     should_collect_cronjob_activity_evidence,
     should_collect_pod_status_evidence,
     should_filter_gateway_api_references,
@@ -63,6 +68,61 @@ def test_parse_ols_verify() -> None:
     assert parse_ols_verify("/var/run/configmaps/service-ca/service-ca.crt") == (
         "/var/run/configmaps/service-ca/service-ca.crt"
     )
+
+
+def test_normalize_console_page_context_extracts_namespaced_resource() -> None:
+    context = normalize_console_page_context(
+        {
+            "href": "http://localhost:9000/k8s/ns/team-a/deployments/web",
+            "pathname": "/k8s/ns/team-a/deployments/web",
+            "title": "ignored browser title",
+        }
+    )
+
+    assert context["route"] == "k8s"
+    assert context["namespace"] == "team-a"
+    assert context["resourceList"] == "deployments"
+    assert context["resourceKind"] == "Deployment"
+    assert context["resourceName"] == "web"
+    assert "title" not in context
+
+
+def test_normalize_console_page_context_extracts_catalog_namespace() -> None:
+    context = normalize_console_page_context(
+        {
+            "href": "http://localhost:9000/catalog/ns/team-a",
+            "pathname": "/catalog/ns/team-a",
+        }
+    )
+
+    assert context["route"] == "catalog"
+    assert context["namespace"] == "team-a"
+    assert context["resourceKind"] == "Catalog"
+    assert context["perspective"] == "developer"
+
+
+def test_product_access_review_request_is_config_driven_ssar() -> None:
+    request = build_product_access_review_request()
+
+    assert request["apiVersion"] == "authorization.k8s.io/v1"
+    assert request["kind"] == "SelfSubjectAccessReview"
+    attributes = request["spec"]["resourceAttributes"]
+    assert attributes["verb"]
+    assert attributes["resource"]
+    assert "token" not in str(request).lower()
+
+
+def test_product_access_review_statuses_are_nonblocking_by_default() -> None:
+    review = {
+        "allowed": False,
+        "enabled": True,
+        "reason": "not allowed in this namespace",
+        "required": False,
+        "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+    }
+
+    assert product_access_review_status(review) == "warning"
+    assert "required: False" in summarize_product_access_review(review)
 
 
 def test_redact_sensitive_removes_tokens_and_secret_values() -> None:
@@ -286,6 +346,8 @@ def test_build_ols_query_treats_console_path_as_context_not_image() -> None:
     assert "첨부 이미지 없음" in query
     assert "/catalog/ns/team-a" in query
     assert '"namespace": "team-a"' in query
+    assert '"route": "catalog"' in query
+    assert '"resourceKind": "Catalog"' in query
     assert "현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다" in query
     assert "화면의 시각적 내용 자체라고 단정하지 말고" in query
 
@@ -791,4 +853,30 @@ def test_build_evidence_reference_uses_redacted_digest_projection() -> None:
     assert evidence["evidenceId"].startswith("ev-")
     assert evidence["contentDigest"].startswith("sha256:")
     assert evidence["originatingSubject"]["username"] == "user@example.com"
+    assert evidence["sourceType"] == "ols-tool-result"
     assert evidence["summary"] == "Pod 조회 완료"
+
+
+def test_build_evidence_reference_events_supports_gateway_preflight_source() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    event = {
+        "type": "tool_result",
+        "name": "pod_status_evidence",
+        "status": "success",
+        "summary": "Pod 상태/재시작 증거 수집 완료",
+        "detail": "Gateway-collected Pod status evidence",
+    }
+
+    events = build_evidence_reference_events(
+        event=event,
+        incident_id="inc-1",
+        run_id="run-1",
+        source_type="gateway-preflight-evidence",
+        subject=subject,
+    )
+
+    assert events[0]["type"] == "tool_call"
+    assert events[0]["name"] == "evidence_ref"
+    assert events[1]["type"] == "tool_result"
+    assert events[1]["result"]["sourceType"] == "gateway-preflight-evidence"
+    assert events[1]["result"]["summary"] == "Pod 상태/재시작 증거 수집 완료"

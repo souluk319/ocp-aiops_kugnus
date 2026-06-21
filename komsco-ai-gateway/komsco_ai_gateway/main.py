@@ -9,6 +9,7 @@ import uuid
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException
@@ -62,6 +63,27 @@ OPENSHIFT_API_CA_FILE = parse_ols_verify(
         if os.path.exists("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
         else "",
     )
+)
+PRODUCT_ACCESS_REVIEW_ENABLED = parse_bool(
+    os.getenv("KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED"),
+    default=True,
+)
+PRODUCT_ACCESS_REVIEW_REQUIRED = parse_bool(
+    os.getenv("KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED"),
+    default=False,
+)
+PRODUCT_ACCESS_REVIEW_GROUP = os.getenv(
+    "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_GROUP",
+    "console.openshift.io",
+)
+PRODUCT_ACCESS_REVIEW_RESOURCE = os.getenv(
+    "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_RESOURCE",
+    "consoleplugins",
+)
+PRODUCT_ACCESS_REVIEW_VERB = os.getenv("KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB", "get")
+PRODUCT_ACCESS_REVIEW_NAME = os.getenv(
+    "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME",
+    "komsco-ai-console-plugin",
 )
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
@@ -123,6 +145,40 @@ VISION_SYSTEM_PROMPT = (
     "and operational signals from the attached image. Be concise and do not invent "
     "details that are not visible."
 )
+K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT = {
+    "buildconfigs": "BuildConfig",
+    "configmaps": "ConfigMap",
+    "cronjobs": "CronJob",
+    "daemonsets": "DaemonSet",
+    "deployments": "Deployment",
+    "deploymentconfigs": "DeploymentConfig",
+    "events": "Event",
+    "horizontalpodautoscalers": "HorizontalPodAutoscaler",
+    "hpas": "HorizontalPodAutoscaler",
+    "ingresses": "Ingress",
+    "jobs": "Job",
+    "namespaces": "Namespace",
+    "nodes": "Node",
+    "pods": "Pod",
+    "projects": "Project",
+    "replicasets": "ReplicaSet",
+    "replicationcontrollers": "ReplicationController",
+    "routes": "Route",
+    "secrets": "Secret",
+    "services": "Service",
+    "statefulsets": "StatefulSet",
+}
+PAGE_CONTEXT_ALLOWED_KEYS = {
+    "clusterScope",
+    "href",
+    "namespace",
+    "pathname",
+    "perspective",
+    "resourceKind",
+    "resourceList",
+    "resourceName",
+    "route",
+}
 
 
 class ImageAttachment(BaseModel):
@@ -139,6 +195,72 @@ class ChatRequest(BaseModel):
     conversationId: str | None = None
     runId: str | None = None
     attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
+
+
+def decode_path_segment(segment: str | None) -> str | None:
+    if not segment:
+        return None
+
+    try:
+        return unquote(segment)
+    except Exception:
+        return segment
+
+
+def normalize_console_page_context(page_context: Mapping[str, Any] | None) -> dict[str, Any]:
+    raw_context = page_context or {}
+    normalized: dict[str, Any] = {}
+    for key, value in raw_context.items():
+        if key in PAGE_CONTEXT_ALLOWED_KEYS and value is not None and value != "":
+            normalized[key] = value
+    pathname = str(normalized.get("pathname") or "")
+    segments = [segment for segment in pathname.split("/") if segment]
+
+    route = decode_path_segment(segments[0] if segments else None)
+    if route and "route" not in normalized:
+        normalized["route"] = route
+
+    if "namespace" not in normalized and "ns" in segments:
+        ns_index = segments.index("ns")
+        namespace = decode_path_segment(segments[ns_index + 1] if len(segments) > ns_index + 1 else None)
+        if namespace:
+            normalized["namespace"] = namespace
+
+    if segments[:2] == ["k8s", "cluster"]:
+        normalized.setdefault("clusterScope", True)
+
+    ns_index = segments.index("ns") if "ns" in segments else -1
+    resource_segment_index = -1
+    if ns_index >= 0:
+        resource_segment_index = ns_index + 2
+    elif segments[:2] == ["k8s", "cluster"]:
+        resource_segment_index = 2
+
+    resource_list = decode_path_segment(
+        segments[resource_segment_index] if len(segments) > resource_segment_index >= 0 else None
+    )
+    if resource_list:
+        normalized.setdefault("resourceList", resource_list)
+        resource_kind = K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT.get(resource_list.lower())
+        if resource_kind:
+            normalized.setdefault("resourceKind", resource_kind)
+            resource_name = decode_path_segment(
+                segments[resource_segment_index + 1]
+                if len(segments) > resource_segment_index + 1
+                else None
+            )
+            if resource_name:
+                normalized.setdefault("resourceName", resource_name)
+
+    if route == "catalog":
+        normalized.setdefault("perspective", "developer")
+        normalized.setdefault("resourceKind", "Catalog")
+    elif route == "topology":
+        normalized.setdefault("perspective", "developer")
+    elif route == "monitoring":
+        normalized.setdefault("perspective", "administrator")
+
+    return redact_sensitive(normalized)
 
 
 def sse(data: Mapping[str, Any] | str) -> str:
@@ -1405,11 +1527,7 @@ def build_ols_query(
     subject: Mapping[str, Any] | None = None,
     gateway_evidence: str | None = None,
 ) -> str:
-    page_context = {
-        key: value
-        for key, value in (req.pageContext or {}).items()
-        if key in {"href", "pathname", "namespace", "resourceKind", "resourceName"}
-    }
+    page_context = normalize_console_page_context(req.pageContext)
     forwarded_to_ols = should_forward_image_attachments_to_ols()
     effective_policy = policy or classify_request_policy(req.message)
     subject_metadata = subject or safe_subject(None)
@@ -1943,6 +2061,152 @@ def log_audit_record(record: Mapping[str, Any]) -> None:
     )
 
 
+def build_evidence_reference_events(
+    *,
+    event: Mapping[str, Any],
+    incident_id: str,
+    run_id: str,
+    source_type: str,
+    subject: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    evidence_ref = build_evidence_reference(
+        event=event,
+        incident_id=incident_id,
+        run_id=run_id,
+        source_type=source_type,
+        subject=subject,
+    )
+    return [
+        {
+            "type": "tool_call",
+            "id": evidence_ref["evidenceId"],
+            "name": "evidence_ref",
+            "summary": "증거 참조 생성",
+        },
+        {
+            "type": "tool_result",
+            "detail": json.dumps(redact_sensitive(evidence_ref), ensure_ascii=False, indent=2),
+            "id": evidence_ref["evidenceId"],
+            "name": "evidence_ref",
+            "result": evidence_ref,
+            "status": "success",
+            "summary": f"{evidence_ref['evidenceId']} 기록",
+        },
+    ]
+
+
+def build_product_access_review_request() -> dict[str, Any]:
+    resource_attributes: dict[str, Any] = {
+        "resource": PRODUCT_ACCESS_REVIEW_RESOURCE,
+        "verb": PRODUCT_ACCESS_REVIEW_VERB,
+    }
+    if PRODUCT_ACCESS_REVIEW_GROUP:
+        resource_attributes["group"] = PRODUCT_ACCESS_REVIEW_GROUP
+    if PRODUCT_ACCESS_REVIEW_NAME:
+        resource_attributes["name"] = PRODUCT_ACCESS_REVIEW_NAME
+
+    return {
+        "apiVersion": "authorization.k8s.io/v1",
+        "kind": "SelfSubjectAccessReview",
+        "spec": {"resourceAttributes": resource_attributes},
+    }
+
+
+async def fetch_product_access_review(user_auth_header: str) -> dict[str, Any]:
+    if not PRODUCT_ACCESS_REVIEW_ENABLED:
+        return {
+            "allowed": True,
+            "enabled": False,
+            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
+            "skipped": True,
+            "reason": "product access review disabled",
+        }
+
+    review_request = build_product_access_review_request()
+    if not OPENSHIFT_API_URL:
+        return {
+            "allowed": not PRODUCT_ACCESS_REVIEW_REQUIRED,
+            "enabled": True,
+            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+            "skipped": True,
+            "reason": "OPENSHIFT_API_URL is not configured",
+        }
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(10.0, connect=5.0),
+    ) as client:
+        response = await client.post(
+            f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+            headers={
+                "Accept": "application/json",
+                "Authorization": user_auth_header,
+                "Content-Type": "application/json",
+            },
+            json=review_request,
+        )
+
+    if response.status_code >= 400:
+        return {
+            "allowed": False,
+            "enabled": True,
+            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+            "reason": f"SelfSubjectAccessReview failed with HTTP {response.status_code}",
+            "evaluationError": response.text[:500],
+        }
+
+    payload = response.json()
+    status_payload = payload.get("status", {}) if isinstance(payload, Mapping) else {}
+    status_map = status_payload if isinstance(status_payload, Mapping) else {}
+    return {
+        "allowed": bool(status_map.get("allowed")),
+        "denied": bool(status_map.get("denied")),
+        "enabled": True,
+        "evaluationError": status_map.get("evaluationError") or "",
+        "reason": status_map.get("reason") or "",
+        "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
+        "resourceAttributes": review_request["spec"]["resourceAttributes"],
+        "skipped": False,
+    }
+
+
+def product_access_review_status(review: Mapping[str, Any]) -> str:
+    if review.get("skipped"):
+        return "skipped"
+    if review.get("allowed") is True:
+        return "success"
+    if review.get("required") is True:
+        return "error"
+    return "warning"
+
+
+def summarize_product_access_review(review: Mapping[str, Any]) -> str:
+    if review.get("enabled") is False:
+        return "Product access SSAR is disabled by configuration."
+
+    attributes = review.get("resourceAttributes")
+    attributes_text = json.dumps(redact_sensitive(attributes), ensure_ascii=False)
+    return "\n".join(
+        [
+            f"enabled: {review.get('enabled')}",
+            f"required: {review.get('required')}",
+            f"allowed: {review.get('allowed')}",
+            f"denied: {review.get('denied', False)}",
+            f"resourceAttributes: {attributes_text}",
+            f"reason: {review.get('reason') or '-'}",
+            f"evaluationError: {review.get('evaluationError') or '-'}",
+        ]
+    )
+
+
+def enforce_product_access_review(review: Mapping[str, Any]) -> None:
+    if review.get("required") is True and review.get("allowed") is not True:
+        reason = review.get("reason") or review.get("evaluationError") or "product access denied"
+        raise HTTPException(status_code=403, detail=f"KOMSCO AI product access denied: {reason}")
+
+
 async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         return safe_subject(None)
@@ -2110,6 +2374,7 @@ async def chat_stream(
         incident_id = req.conversationId or f"inc-{uuid.uuid4()}"
         policy = classify_request_policy(req.message)
         subject = safe_subject(None)
+        product_access_review: dict[str, Any] | None = None
         gateway_evidence: str | None = None
         text_reference_filter = TextReferenceFilter(
             filter_gateway_api_references=should_filter_gateway_api_references(req.message),
@@ -2179,6 +2444,28 @@ async def chat_stream(
             yield sse(
                 {
                     "type": "tool_call",
+                    "id": f"{request_id}-product-access-review",
+                    "name": "product_access_review",
+                    "summary": "제품 접근 SelfSubjectAccessReview 확인",
+                }
+            )
+            product_access_review = await fetch_product_access_review(authorization)
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "detail": summarize_product_access_review(product_access_review),
+                    "id": f"{request_id}-product-access-review",
+                    "name": "product_access_review",
+                    "result": product_access_review,
+                    "status": product_access_review_status(product_access_review),
+                    "summary": "제품 접근 확인 완료",
+                }
+            )
+            enforce_product_access_review(product_access_review)
+
+            yield sse(
+                {
+                    "type": "tool_call",
                     "id": f"{request_id}-policy-check",
                     "name": "policy_check",
                     "summary": "읽기 전용 정책 확인",
@@ -2206,7 +2493,12 @@ async def chat_stream(
                 request_id=request_id,
                 run_id=run_id,
                 subject=subject,
-                target={"attachments": len(req.attachments), "messageLength": len(req.message)},
+                target={
+                    "attachments": len(req.attachments),
+                    "messageLength": len(req.message),
+                    "pageContext": normalize_console_page_context(req.pageContext),
+                    "productAccessReview": product_access_review,
+                },
             )
             log_audit_record(accepted_audit_record)
             yield sse(
@@ -2272,31 +2564,45 @@ async def chat_stream(
                         else "success"
                     )
                     gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": cronjob_evidence,
-                            "id": f"{request_id}-cronjob-activity-evidence",
-                            "name": "cronjob_activity_evidence",
-                            "status": evidence_status,
-                            "summary": "CronJob/Activity 주기 증거 수집 완료",
-                        }
-                    )
+                    cronjob_event = {
+                        "type": "tool_result",
+                        "detail": cronjob_evidence,
+                        "id": f"{request_id}-cronjob-activity-evidence",
+                        "name": "cronjob_activity_evidence",
+                        "status": evidence_status,
+                        "summary": "CronJob/Activity 주기 증거 수집 완료",
+                    }
+                    yield sse(cronjob_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=cronjob_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
                 except Exception as exc:
                     cronjob_evidence = (
                         f"CronJob activity evidence unavailable: {type(exc).__name__}: {exc}"
                     )
                     gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": cronjob_evidence,
-                            "id": f"{request_id}-cronjob-activity-evidence",
-                            "name": "cronjob_activity_evidence",
-                            "status": "error",
-                            "summary": "CronJob/Activity 주기 증거 수집 실패",
-                        }
-                    )
+                    cronjob_event = {
+                        "type": "tool_result",
+                        "detail": cronjob_evidence,
+                        "id": f"{request_id}-cronjob-activity-evidence",
+                        "name": "cronjob_activity_evidence",
+                        "status": "error",
+                        "summary": "CronJob/Activity 주기 증거 수집 실패",
+                    }
+                    yield sse(cronjob_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=cronjob_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
 
             if should_collect_pod_status_evidence(req.message):
                 yield sse(
@@ -2315,29 +2621,43 @@ async def chat_stream(
                         else "success"
                     )
                     gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": pod_evidence,
-                            "id": f"{request_id}-pod-status-evidence",
-                            "name": "pod_status_evidence",
-                            "status": evidence_status,
-                            "summary": "Pod 상태/재시작 증거 수집 완료",
-                        }
-                    )
+                    pod_event = {
+                        "type": "tool_result",
+                        "detail": pod_evidence,
+                        "id": f"{request_id}-pod-status-evidence",
+                        "name": "pod_status_evidence",
+                        "status": evidence_status,
+                        "summary": "Pod 상태/재시작 증거 수집 완료",
+                    }
+                    yield sse(pod_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=pod_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
                 except Exception as exc:
                     pod_evidence = f"Pod status evidence unavailable: {type(exc).__name__}: {exc}"
                     gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": pod_evidence,
-                            "id": f"{request_id}-pod-status-evidence",
-                            "name": "pod_status_evidence",
-                            "status": "error",
-                            "summary": "Pod 상태/재시작 증거 수집 실패",
-                        }
-                    )
+                    pod_event = {
+                        "type": "tool_result",
+                        "detail": pod_evidence,
+                        "id": f"{request_id}-pod-status-evidence",
+                        "name": "pod_status_evidence",
+                        "status": "error",
+                        "summary": "Pod 상태/재시작 증거 수집 실패",
+                    }
+                    yield sse(pod_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=pod_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
 
             yield sse(
                 {
@@ -2386,35 +2706,14 @@ async def chat_stream(
                 yield sse(normalized_event)
                 if normalized_event.get("type") == "tool_result":
                     ols_tool_results.append(dict(normalized_event))
-                    evidence_ref = build_evidence_reference(
+                    for evidence_event in build_evidence_reference_events(
                         event=normalized_event,
                         incident_id=incident_id,
                         run_id=run_id,
+                        source_type="ols-tool-result",
                         subject=subject,
-                    )
-                    yield sse(
-                        {
-                            "type": "tool_call",
-                            "id": evidence_ref["evidenceId"],
-                            "name": "evidence_ref",
-                            "summary": "증거 참조 생성",
-                        }
-                    )
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": json.dumps(
-                                redact_sensitive(evidence_ref),
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                            "id": evidence_ref["evidenceId"],
-                            "name": "evidence_ref",
-                            "result": evidence_ref,
-                            "status": "success",
-                            "summary": f"{evidence_ref['evidenceId']} 기록",
-                        }
-                    )
+                    ):
+                        yield sse(evidence_event)
 
             if not emitted_answer_text:
                 yield sse(
