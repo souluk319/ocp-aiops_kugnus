@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from komsco_ai_gateway.main import (
     ChatRequest,
+    DIAGNOSTIC_REQUESTS,
     EVIDENCE_RECORDS,
     ImageAttachment,
     METRICS,
@@ -17,13 +18,21 @@ from komsco_ai_gateway.main import (
     build_cluster_summary,
     build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
+    build_diagnostic_request_candidate,
+    build_diagnostic_request_record,
     build_empty_answer_fallback,
     build_evidence_reference_events,
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
+    diagnostic_request_digest,
     can_subject_read_record,
     build_pod_status_evidence,
+    DiagnosticEvidencePolicy,
+    DiagnosticLimits,
+    DiagnosticRequestCreate,
+    DiagnosticTargetNode,
+    DiagnosticTimeRange,
     parse_bool,
     parse_ols_verify,
     normalize_console_page_context,
@@ -962,5 +971,119 @@ def test_workflow_and_metrics_endpoints_expose_non_secret_runtime_state() -> Non
         assert metrics_response.status_code == 200
         assert "aiops_chat_requests_total 3" in metrics_response.text
         assert "Bearer" not in metrics_response.text
+
+    asyncio.run(run())
+
+
+def test_diagnostic_request_digest_uses_request_projection_without_target_hardcoding() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    request = DiagnosticRequestCreate(
+        targetNode=DiagnosticTargetNode(name="node-a.example.com", uid="node-uid-a"),
+        collector="kubelet_logs",
+        timeRange=DiagnosticTimeRange(
+            since="2026-06-21T00:00:00Z",
+            until="2026-06-21T00:05:00Z",
+        ),
+        limits=DiagnosticLimits(deadline="30s", maxBytes=4096, maxLines=1000),
+        evidencePolicy=DiagnosticEvidencePolicy(
+            classification="restricted",
+            rawStorageAllowed=False,
+            redactionPolicyDigest="sha256:redaction-policy",
+        ),
+        policy={
+            "policyDecisionId": "pd-1",
+            "policyBundleHash": "sha256:bundle",
+            "policyInputDigest": "sha256:input",
+            "policyDecisionDigest": "sha256:decision",
+        },
+    )
+    candidate = build_diagnostic_request_candidate(request, subject)
+    digest = diagnostic_request_digest(candidate)
+
+    changed_target = request.model_copy(
+        update={"targetNode": DiagnosticTargetNode(name="node-b.example.com", uid="node-uid-b")}
+    )
+    changed_candidate = build_diagnostic_request_candidate(changed_target, subject)
+
+    assert digest.startswith("sha256:")
+    assert candidate["requester"]["username"] == "user@example.com"
+    assert candidate["targetNode"]["name"] == "node-a.example.com"
+    assert diagnostic_request_digest(changed_candidate) != digest
+
+
+def test_diagnostic_request_record_stores_only_grant_reference() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    request = DiagnosticRequestCreate(
+        targetNode=DiagnosticTargetNode(name="node-a.example.com", uid="node-uid-a"),
+        collector="kubelet_logs",
+        timeRange=DiagnosticTimeRange(
+            since="2026-06-21T00:00:00Z",
+            until="2026-06-21T00:05:00Z",
+        ),
+    )
+
+    record = build_diagnostic_request_record(request, subject)
+
+    assert record["metadata"]["name"].startswith("diag-")
+    assert record["spec"]["grantRef"]["bearerGrantStored"] is False
+    assert record["spec"]["status"]["submittedToController"] is False
+    assert record["spec"]["status"]["phase"] in {"disabled", "pending_controller_submission"}
+    assert "Bearer" not in str(record)
+
+
+def test_diagnostic_request_api_creates_disabled_foundation_with_read_authorization() -> None:
+    DIAGNOSTIC_REQUESTS.clear()
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                "/v1/diagnostics/requests",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "incidentId": "inc-diag",
+                    "runId": "run-diag",
+                    "targetNode": {"name": "node-a.example.com", "uid": "node-uid-a"},
+                    "collector": "kubelet_logs",
+                    "timeRange": {
+                        "since": "2026-06-21T00:00:00Z",
+                        "until": "2026-06-21T00:05:00Z",
+                    },
+                    "requester": {"username": "attacker@example.com"},
+                },
+            )
+
+        assert create_response.status_code == 422
+
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                "/v1/diagnostics/requests",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "incidentId": "inc-diag",
+                    "runId": "run-diag",
+                    "targetNode": {"name": "node-a.example.com", "uid": "node-uid-a"},
+                    "collector": "kubelet_logs",
+                    "timeRange": {
+                        "since": "2026-06-21T00:00:00Z",
+                        "until": "2026-06-21T00:05:00Z",
+                    },
+                },
+            )
+            payload = create_response.json()
+            request_id = payload["metadata"]["name"]
+            read_response = await client.get(
+                f"/v1/diagnostics/requests/{request_id}",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert create_response.status_code == 200
+        assert payload["kind"] == "DiagnosticRequest"
+        assert payload["spec"]["candidate"]["requester"]["username"] == "unknown"
+        assert payload["spec"]["candidate"]["targetNode"]["name"] == "node-a.example.com"
+        assert payload["spec"]["grantRef"]["bearerGrantStored"] is False
+        assert payload["spec"]["status"]["submittedToController"] is False
+        assert read_response.status_code == 200
+        assert read_response.json()["metadata"]["name"] == request_id
 
     asyncio.run(run())

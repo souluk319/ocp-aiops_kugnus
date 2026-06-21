@@ -14,7 +14,7 @@ from urllib.parse import unquote
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .security import (
     build_evidence_reference,
@@ -90,6 +90,9 @@ PRODUCT_ACCESS_REVIEW_NAME = os.getenv(
 RATE_LIMIT_PER_MINUTE = int(os.getenv("KOMSCO_AI_RATE_LIMIT_PER_MINUTE", "60"))
 EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
 WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
+DIAGNOSTICS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_DIAGNOSTICS_ENABLED"), default=False)
+DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000"))
+CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -189,12 +192,27 @@ METRICS: dict[str, int] = {
     "aiops_chat_completed_total": 0,
     "aiops_chat_failed_total": 0,
     "aiops_evidence_records_total": 0,
+    "aiops_diagnostic_requests_total": 0,
     "aiops_product_access_reviews_total": 0,
     "aiops_rate_limited_total": 0,
 }
 EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
 WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
+DIAGNOSTIC_REQUESTS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
+    "schemaVersion",
+    "clusterId",
+    "requester",
+    "targetNode",
+    "collector",
+    "collectorVersion",
+    "collectorProfile",
+    "timeRange",
+    "limits",
+    "evidencePolicy",
+    "policy",
+)
 
 
 def increment_metric(name: str, value: int = 1) -> None:
@@ -263,6 +281,82 @@ def can_subject_read_record(record: Mapping[str, Any], subject: Mapping[str, Any
     )
 
 
+def diagnostic_request_digest(candidate: Mapping[str, Any]) -> str:
+    projection = {field: candidate.get(field) for field in DIAGNOSTIC_REQUEST_DIGEST_FIELDS}
+    return canonical_digest(redact_sensitive(projection))
+
+
+def build_diagnostic_request_candidate(
+    request: "DiagnosticRequestCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidate = {
+        "schemaVersion": "v1",
+        "clusterId": CLUSTER_ID,
+        "requester": redact_sensitive(dict(subject)),
+        "targetNode": request.targetNode.model_dump(),
+        "collector": request.collector,
+        "collectorVersion": request.collectorVersion,
+        "collectorProfile": request.collectorProfile,
+        "timeRange": request.timeRange.model_dump(),
+        "limits": request.limits.model_dump(),
+        "evidencePolicy": request.evidencePolicy.model_dump(),
+        "policy": redact_sensitive(dict(request.policy)),
+    }
+    return candidate
+
+
+def build_diagnostic_request_record(
+    request: "DiagnosticRequestCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    candidate = build_diagnostic_request_candidate(request, subject)
+    request_digest = diagnostic_request_digest(candidate)
+    request_id = f"diag-{request_digest.removeprefix('sha256:')[:16]}"
+    grant_reference_digest = canonical_digest(
+        {
+            "audience": "aiops-host-diagnostics-controller",
+            "requestDigest": request_digest,
+            "requestId": request_id,
+        }
+    )
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "DiagnosticRequestRecord",
+        "metadata": {
+            "name": request_id,
+            "createdAt": now_rfc3339(),
+        },
+        "spec": {
+            "candidate": candidate,
+            "diagnosticRequestDigest": request_digest,
+            "digestSchema": {
+                "name": "diagnostic-request-digest-v1",
+                "canonicalization": "stable-json-sort-keys",
+                "includedFields": list(DIAGNOSTIC_REQUEST_DIGEST_FIELDS),
+            },
+            "grantRef": {
+                "grantId": f"diag-grant-{request_digest.removeprefix('sha256:')[:16]}",
+                "grantDigest": grant_reference_digest,
+                "bearerGrantStored": False,
+            },
+            "incidentId": request.incidentId,
+            "runId": request.runId,
+            "status": {
+                "phase": "pending_controller_submission" if DIAGNOSTICS_ENABLED else "disabled",
+                "reason": (
+                    "Host diagnostics controller submission is enabled."
+                    if DIAGNOSTICS_ENABLED
+                    else "Host diagnostics controller submission is disabled by configuration."
+                ),
+                "submittedToController": False,
+            },
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+
+
 class ImageAttachment(BaseModel):
     id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=180)
@@ -277,6 +371,45 @@ class ChatRequest(BaseModel):
     conversationId: str | None = None
     runId: str | None = None
     attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
+
+
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DiagnosticTargetNode(StrictBaseModel):
+    name: str = Field(min_length=1, max_length=253)
+    uid: str = Field(min_length=1, max_length=128)
+
+
+class DiagnosticTimeRange(StrictBaseModel):
+    since: str = Field(min_length=1, max_length=80)
+    until: str = Field(min_length=1, max_length=80)
+
+
+class DiagnosticLimits(StrictBaseModel):
+    deadline: str = Field(default="30s", min_length=1, max_length=32)
+    maxBytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    maxLines: int = Field(default=50000, ge=1, le=500000)
+
+
+class DiagnosticEvidencePolicy(StrictBaseModel):
+    classification: str = Field(default="restricted", min_length=1, max_length=64)
+    rawStorageAllowed: bool = False
+    redactionPolicyDigest: str = Field(default="sha256:unspecified", min_length=1, max_length=128)
+
+
+class DiagnosticRequestCreate(StrictBaseModel):
+    incidentId: str | None = Field(default=None, max_length=120)
+    runId: str | None = Field(default=None, max_length=120)
+    targetNode: DiagnosticTargetNode
+    collector: str = Field(min_length=1, max_length=120)
+    collectorVersion: str = Field(default="v1", min_length=1, max_length=64)
+    collectorProfile: str = Field(default="passive-readonly", min_length=1, max_length=80)
+    timeRange: DiagnosticTimeRange
+    limits: DiagnosticLimits = Field(default_factory=DiagnosticLimits)
+    evidencePolicy: DiagnosticEvidencePolicy = Field(default_factory=DiagnosticEvidencePolicy)
+    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 def decode_path_segment(segment: str | None) -> str | None:
@@ -2519,6 +2652,44 @@ async def get_workflow(
     }
 
 
+@app.post("/v1/diagnostics/requests")
+async def create_diagnostic_request(
+    req: DiagnosticRequestCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = build_diagnostic_request_record(req, subject)
+    request_id = str(record["metadata"]["name"])
+    bounded_put(DIAGNOSTIC_REQUESTS, request_id, record, DIAGNOSTIC_MAX_RECORDS)
+    increment_metric("aiops_diagnostic_requests_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "DiagnosticRequest",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.get("/v1/diagnostics/requests/{request_id}")
+async def get_diagnostic_request(
+    request_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = DIAGNOSTIC_REQUESTS.get(request_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Diagnostic request not found")
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "DiagnosticRequest",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics() -> str:
     lines = []
@@ -2529,6 +2700,8 @@ async def metrics() -> str:
     lines.append(f"aiops_evidence_records {len(EVIDENCE_RECORDS)}")
     lines.append("# TYPE aiops_workflow_records gauge")
     lines.append(f"aiops_workflow_records {len(WORKFLOW_RECORDS)}")
+    lines.append("# TYPE aiops_diagnostic_request_records gauge")
+    lines.append(f"aiops_diagnostic_request_records {len(DIAGNOSTIC_REQUESTS)}")
     return "\n".join(lines) + "\n"
 
 
