@@ -4806,11 +4806,17 @@ async def execute_action(
 ) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
+    product_access_review = await fetch_product_access_review(user_auth_header)
+    product_access_allowed = bool(product_access_review.get("allowed"))
     plan = SEALED_ACTION_PLANS.get(req.planId)
     approval = APPROVAL_DECISIONS.get(req.approvalId)
-    if not plan or not can_subject_read_record(plan, subject):
+    if not plan or (
+        not can_subject_read_record(plan, subject) and not product_access_allowed
+    ):
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    if not approval or not can_subject_read_record(approval, subject):
+    if not approval or (
+        not can_subject_read_record(approval, subject) and not product_access_allowed
+    ):
         raise HTTPException(status_code=404, detail="Approval decision not found")
 
     sealed_plan = plan["spec"]["sealedActionPlan"]

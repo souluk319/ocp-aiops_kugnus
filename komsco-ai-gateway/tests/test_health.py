@@ -1723,6 +1723,81 @@ def test_medium_risk_action_requires_separation_of_duties() -> None:
     asyncio.run(run())
 
 
+def test_approved_different_subject_can_execute_with_product_access(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+    requester = safe_subject({"username": "requester@example.com", "uid": "uid-requester", "groups": ["ops"]})
+    approver = safe_subject({"username": "approver@example.com", "uid": "uid-approver", "groups": ["ops"]})
+
+    async def fake_subject_review(user_auth_header: str) -> dict:
+        if user_auth_header == "Bearer requester-token":
+            return requester
+        return approver
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {"allowed": True, "enabled": True, "required": False}
+
+    async def fake_action_access_review(_user_auth_header: str, _plan: dict) -> dict:
+        return {"allowed": True, "enabled": True, "resourceAttributes": {"resource": "deployments"}}
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_action_access_review", fake_action_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        requester_headers = {"Authorization": "Bearer requester-token"}
+        approver_headers = {"Authorization": "Bearer approver-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            proposal_response = await client.post(
+                "/v1/actions/proposals",
+                headers=requester_headers,
+                json={
+                    "toolName": "set_replicas_within_bounds",
+                    "target": {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "namespace": "team-a",
+                        "name": "web-a",
+                        "uid": "deployment-uid-a",
+                    },
+                    "parameters": {"replicas": 2, "minReplicas": 1, "maxReplicas": 3},
+                },
+            )
+            proposal_id = proposal_response.json()["metadata"]["name"]
+            plan_response = await client.post(
+                "/v1/actions/plans",
+                headers=requester_headers,
+                json={"proposalId": proposal_id},
+            )
+            plan_payload = plan_response.json()
+            plan_digest = plan_payload["spec"]["sealedActionPlan"]["digest"]["planDigest"]
+            approval_response = await client.post(
+                "/v1/actions/approvals",
+                headers=approver_headers,
+                json={"planId": plan_payload["metadata"]["name"], "expectedPlanDigest": plan_digest},
+            )
+            execution_response = await client.post(
+                "/v1/actions/execute",
+                headers=approver_headers,
+                json={
+                    "approvalId": approval_response.json()["metadata"]["name"],
+                    "planId": plan_payload["metadata"]["name"],
+                    "expectedPlanDigest": plan_digest,
+                },
+            )
+
+        assert proposal_response.status_code == 200
+        assert plan_response.status_code == 200
+        assert approval_response.status_code == 200
+        assert execution_response.status_code == 403
+        assert execution_response.json()["detail"]["mutationOutcome"]["status"] == "mutation_disabled"
+
+    asyncio.run(run())
+
+
 def test_runbook_registry_allows_only_runbook_defined_action_steps() -> None:
     assert RUNBOOK_REGISTRY_DIGEST.startswith("sha256:")
     assert set(RUNBOOK_REGISTRY_ENTRIES) == {
