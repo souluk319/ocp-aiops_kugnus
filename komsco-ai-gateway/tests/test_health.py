@@ -1111,6 +1111,7 @@ def test_host_diagnostic_collector_registry_rejects_arbitrary_collectors() -> No
         "node_runtime_readonly_triage",
     }
     assert HOST_DIAGNOSTIC_COLLECTORS["node_os_readonly_triage"]["arbitraryCommandInputAllowed"] is False
+    assert HOST_DIAGNOSTIC_COLLECTORS["node_runtime_readonly_triage"]["hostAccess"]["hostPID"] is False
     assert "run_command" not in str(HOST_DIAGNOSTIC_COLLECTORS)
     assert "nsenter" not in str(HOST_DIAGNOSTIC_COLLECTORS)
 
@@ -1244,6 +1245,7 @@ def test_host_diagnostics_controller_job_manifest_is_fixed_readonly_job() -> Non
 
     assert manifest["kind"] == "Job"
     assert manifest["spec"]["template"]["spec"]["nodeName"] == "node-a.example.com"
+    assert "seccompProfile" not in str(manifest["spec"]["template"]["spec"])
     assert manifest["spec"]["activeDeadlineSeconds"] == 30
     assert container["command"] == ["python", "-m", "komsco_ai_gateway.host_diagnostics_collector"]
     assert container["securityContext"]["runAsUser"] == 0

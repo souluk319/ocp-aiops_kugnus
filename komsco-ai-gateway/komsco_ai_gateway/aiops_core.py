@@ -441,7 +441,7 @@ HOST_DIAGNOSTIC_COLLECTORS: dict[str, dict[str, Any]] = {
         "collectorProfile": "elevated-readonly",
         "risk": "medium",
         "hostAccess": {
-            "hostPID": True,
+            "hostPID": False,
             "hostNetwork": False,
             "runtimeSocket": True,
             "hostPaths": [

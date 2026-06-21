@@ -243,7 +243,6 @@ def build_diagnostic_job_manifest(
                     "nodeName": str(target_node["name"]),
                     "hostPID": bool(collector_profile.get("hostAccess", {}).get("hostPID")),
                     "hostNetwork": bool(collector_profile.get("hostAccess", {}).get("hostNetwork")),
-                    "securityContext": {"seccompProfile": {"type": "RuntimeDefault"}},
                     "containers": [
                         {
                             "name": "collector",
