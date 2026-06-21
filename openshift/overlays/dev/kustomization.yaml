@@ -75,6 +75,9 @@ patches:
       - op: add
         path: /metadata/namespace
         value: komsco-ai-dev
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: "true"
   - target:
       kind: NetworkPolicy
       name: komsco-ai-gateway-ingress
@@ -89,6 +92,23 @@ patches:
       - op: replace
         path: /metadata/name
         value: komsco-ai-dev-gateway-auth-delegator
+      - op: replace
+        path: /subjects/0/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: Role
+      name: komsco-ai-gateway-ledger
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
+  - target:
+      kind: RoleBinding
+      name: komsco-ai-gateway-ledger
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai-dev
       - op: replace
         path: /subjects/0/namespace
         value: komsco-ai-dev

@@ -1,4 +1,33 @@
 apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: komsco-ai-gateway-ledger
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: komsco-ai-gateway-ledger
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: komsco-ai-gateway-ledger
+subjects:
+  - kind: ServiceAccount
+    name: komsco-ai-gateway
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: komsco-ai-gateway-auth-delegator

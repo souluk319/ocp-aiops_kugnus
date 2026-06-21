@@ -69,6 +69,35 @@ export type ClusterSummary = {
   };
 };
 
+type AiopsRecord = {
+  kind?: string;
+  metadata?: {
+    createdAt?: string;
+    name?: string;
+  };
+  spec?: Record<string, unknown>;
+};
+
+export type AiopsRuntimeStatus = {
+  spec: {
+    capabilities: {
+      actionExecutorConfigured: boolean;
+      diagnosticsControllerConfigured: boolean;
+      diagnosticsEnabled: boolean;
+      mutationsEnabled: boolean;
+      recordStoreConfigMap?: string;
+      recordStoreEnabled: boolean;
+    };
+    records: {
+      actionProposals: AiopsRecord[];
+      approvalDecisions: AiopsRecord[];
+      diagnosticRequests: AiopsRecord[];
+      executionRecords: AiopsRecord[];
+      sealedActionPlans: AiopsRecord[];
+    };
+  };
+};
+
 type StreamEvent =
   | { type: 'text'; content: string }
   | {
@@ -103,6 +132,8 @@ type StreamEvent =
 const GATEWAY_STREAM_URL = '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/chat/stream';
 const GATEWAY_CLUSTER_SUMMARY_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/cluster/summary';
+const GATEWAY_AIOPS_STATUS_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/aiops/status';
 
 export async function fetchClusterSummary(): Promise<ClusterSummary> {
   const response = await consoleFetch(
@@ -121,6 +152,25 @@ export async function fetchClusterSummary(): Promise<ClusterSummary> {
   }
 
   return (await response.json()) as ClusterSummary;
+}
+
+export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {
+  const response = await consoleFetch(
+    GATEWAY_AIOPS_STATUS_URL,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'GET',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(`AIOps status request failed: ${response.status}`);
+  }
+
+  return (await response.json()) as AiopsRuntimeStatus;
 }
 
 export async function* streamChat(payload: ChatRequest): AsyncGenerator<StreamEvent> {

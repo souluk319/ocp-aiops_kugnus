@@ -40,6 +40,7 @@ from komsco_ai_gateway.main import (
     build_attachment_context,
     build_action_proposal_record,
     build_action_proposal_fallback,
+    build_action_access_review_request,
     build_cluster_summary,
     build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
@@ -1048,6 +1049,50 @@ def test_workflow_and_metrics_endpoints_expose_non_secret_runtime_state() -> Non
     asyncio.run(run())
 
 
+def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> None:
+    DIAGNOSTIC_REQUESTS.clear()
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+    subject = safe_subject(None)
+    DIAGNOSTIC_REQUESTS["diag-runtime"] = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "DiagnosticRequestRecord",
+        "metadata": {"name": "diag-runtime", "createdAt": "2026-06-21T00:00:00Z"},
+        "spec": {"status": {"phase": "collector_succeeded"}},
+        "subject": subject,
+    }
+    EXECUTION_RECORDS["execution-runtime"] = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ExecutionRecord",
+        "metadata": {"name": "execution-runtime", "createdAt": "2026-06-21T00:01:00Z"},
+        "spec": {"mutationOutcome": {"status": "mutation_succeeded"}},
+        "subject": subject,
+    }
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "AIOpsRuntimeStatus"
+        assert payload["spec"]["capabilities"]["recordStoreConfigMap"] in {
+            "",
+            "komsco-ai-gateway-ledger",
+        }
+        assert payload["spec"]["records"]["diagnosticRequests"][0]["metadata"]["name"] == "diag-runtime"
+        assert payload["spec"]["records"]["executionRecords"][0]["metadata"]["name"] == "execution-runtime"
+        assert "Bearer" not in json.dumps(payload)
+
+    asyncio.run(run())
+
+
 def test_diagnostic_request_digest_uses_request_projection_without_target_hardcoding() -> None:
     subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
     request = DiagnosticRequestCreate(
@@ -1473,6 +1518,35 @@ def test_action_proposal_digest_uses_runtime_target_not_hardcoded_target() -> No
     assert candidate_action_request_digest(candidate) != candidate_action_request_digest(changed_candidate)
 
 
+def test_action_access_review_request_is_derived_from_sealed_plan_target() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    proposal = build_action_proposal_record(
+        ActionProposalCreate(
+            toolName="set_hpa_bounds",
+            target=ActionTarget(
+                apiVersion="autoscaling/v2",
+                kind="HorizontalPodAutoscaler",
+                namespace="dynamic-team",
+                name="web-hpa",
+                uid="hpa-uid-a",
+            ),
+            parameters={"minReplicas": 2, "maxReplicas": 5},
+        ),
+        subject,
+    )
+    plan_record = build_sealed_action_plan_record(proposal)
+    review_request = build_action_access_review_request(plan_record["spec"]["sealedActionPlan"])
+    attributes = review_request["spec"]["resourceAttributes"]
+
+    assert attributes == {
+        "group": "autoscaling",
+        "resource": "horizontalpodautoscalers",
+        "verb": "patch",
+        "namespace": "dynamic-team",
+        "name": "web-hpa",
+    }
+
+
 def test_sealed_action_plan_digest_excludes_mutable_status_and_digest_fields() -> None:
     subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
     proposal = build_action_proposal_record(
@@ -1590,12 +1664,14 @@ def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> N
         approval_decision = approval_response.json()["spec"]["approvalDecision"]
         assert approval_decision["authorizationAttestationRef"]["bearerAttestationStored"] is False
         assert approval_decision["authorizationAttestationRef"]["attestationDigest"].startswith("sha256:")
+        assert approval_decision["kubernetesAuthorization"]["ssarDecision"] == "allowed"
         assert execution_response.status_code == 403
         assert execution_response.json()["detail"]["mutationOutcome"]["status"] == "mutation_disabled"
         assert len(EXECUTION_RECORDS) == 1
         execution_record = next(iter(EXECUTION_RECORDS.values()))
         assert execution_record["spec"]["executionGrantRef"]["bearerGrantStored"] is False
         assert "claims" not in execution_record["spec"]["executionGrantRef"]
+        assert execution_record["spec"]["executionAuthorization"]["allowed"] is True
 
     asyncio.run(run())
 

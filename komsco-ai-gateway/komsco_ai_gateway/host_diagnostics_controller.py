@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -284,6 +285,7 @@ async def kubernetes_request(
     path: str,
     *,
     json_body: Mapping[str, Any] | None = None,
+    expect_json: bool = True,
 ) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
@@ -301,6 +303,8 @@ async def kubernetes_request(
     if response.status_code >= 400:
         detail = response.text[:1000]
         raise HTTPException(status_code=response.status_code, detail=f"Kubernetes API request failed: {detail}")
+    if not expect_json:
+        return {"raw": response.text}
     return response.json() if response.content else {}
 
 
@@ -313,6 +317,52 @@ def job_phase(job: Mapping[str, Any]) -> str:
     if status.get("active"):
         return "running"
     return "submitted"
+
+
+async def diagnostic_pod_log(namespace: str, request_id: str) -> dict[str, Any]:
+    label_selector = quote(f"aiops.komsco/request-id={request_id}", safe="")
+    pods = await kubernetes_request(
+        "GET",
+        f"/api/v1/namespaces/{namespace}/pods?labelSelector={label_selector}",
+    )
+    items = pods.get("items") if isinstance(pods.get("items"), list) else []
+    if not items:
+        return {"podFound": False}
+    pod = items[0]
+    pod_name = str(pod.get("metadata", {}).get("name") or "")
+    phase = str(pod.get("status", {}).get("phase") or "")
+    result: dict[str, Any] = {
+        "podFound": True,
+        "podName": pod_name,
+        "podPhase": phase,
+    }
+    if not pod_name or phase not in {"Succeeded", "Failed"}:
+        return result
+    log_payload = await kubernetes_request(
+        "GET",
+        f"/api/v1/namespaces/{namespace}/pods/{quote(pod_name, safe='')}/log?container=collector&tailLines=300",
+        expect_json=False,
+    )
+    raw_log = str(log_payload.get("raw") or "")
+    result["logPreview"] = raw_log[:20000]
+    try:
+        evidence = json.loads(raw_log)
+    except json.JSONDecodeError:
+        return result
+    sections = evidence.get("spec", {}).get("sections", []) if isinstance(evidence, Mapping) else []
+    result["evidenceSummary"] = {
+        "kind": evidence.get("kind") if isinstance(evidence, Mapping) else "",
+        "requestId": evidence.get("spec", {}).get("requestId") if isinstance(evidence, Mapping) else "",
+        "collector": evidence.get("spec", {}).get("collector", {}).get("name")
+        if isinstance(evidence, Mapping)
+        else "",
+        "sections": [
+            section.get("name")
+            for section in sections
+            if isinstance(section, Mapping) and section.get("name")
+        ],
+    }
+    return result
 
 
 @app.get("/healthz")
@@ -379,6 +429,7 @@ async def get_diagnostic_job(
             "phase": job_phase(job),
             "status": job.get("status", {}),
         }
+    record["collectorPod"] = await diagnostic_pod_log(namespace, request_id)
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "HostDiagnosticSubmission",

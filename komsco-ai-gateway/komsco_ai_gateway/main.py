@@ -21,7 +21,9 @@ from .aiops_core import (
     AiopsCoreError,
     action_from_plan,
     build_mutation_request,
+    deployment_scale_path,
     get_host_diagnostic_collector,
+    parameters_from_plan,
     target_path,
     target_from_plan,
 )
@@ -106,6 +108,14 @@ HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN = os.getenv(
     "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN",
     "",
 )
+RECORD_STORE_ENABLED = parse_bool(os.getenv("KOMSCO_AI_RECORD_STORE_ENABLED"), default=False)
+RECORD_STORE_CONFIGMAP = os.getenv("KOMSCO_AI_RECORD_STORE_CONFIGMAP", "komsco-ai-gateway-ledger")
+RECORD_STORE_TOKEN_FILE = os.getenv(
+    "KOMSCO_AI_RECORD_STORE_TOKEN_FILE",
+    "/var/run/secrets/kubernetes.io/serviceaccount/token",
+)
+RECORD_STORE_NAMESPACE = os.getenv("KOMSCO_AI_RECORD_STORE_NAMESPACE", "")
+SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
 ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
@@ -243,6 +253,9 @@ METRICS: dict[str, int] = {
     "aiops_break_glass_requests_total": 0,
     "aiops_product_access_reviews_total": 0,
     "aiops_rate_limited_total": 0,
+    "aiops_record_store_loads_total": 0,
+    "aiops_record_store_writes_total": 0,
+    "aiops_record_store_failures_total": 0,
 }
 EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
 WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
@@ -574,6 +587,147 @@ def bounded_put(store: dict[str, dict[str, Any]], key: str, value: dict[str, Any
         store.pop(oldest_key, None)
 
 
+def current_namespace() -> str:
+    if RECORD_STORE_NAMESPACE:
+        return RECORD_STORE_NAMESPACE
+    try:
+        return open(SERVICEACCOUNT_NAMESPACE_FILE, encoding="utf-8").read().strip() or "default"
+    except OSError:
+        return "default"
+
+
+def record_store_auth_header() -> str:
+    try:
+        token = open(RECORD_STORE_TOKEN_FILE, encoding="utf-8").read().strip()
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="record store token is unavailable") from exc
+    return f"Bearer {token}"
+
+
+RECORD_STORES: dict[str, tuple[dict[str, dict[str, Any]], int, str]] = {
+    "diagnosticRequests": (DIAGNOSTIC_REQUESTS, DIAGNOSTIC_MAX_RECORDS, "diagnosticRequests.json"),
+    "actionProposals": (ACTION_PROPOSALS, ACTION_MAX_RECORDS, "actionProposals.json"),
+    "sealedActionPlans": (SEALED_ACTION_PLANS, ACTION_MAX_RECORDS, "sealedActionPlans.json"),
+    "approvalDecisions": (APPROVAL_DECISIONS, ACTION_MAX_RECORDS, "approvalDecisions.json"),
+    "executionRecords": (EXECUTION_RECORDS, ACTION_MAX_RECORDS, "executionRecords.json"),
+    "runbookPlans": (RUNBOOK_PLANS, RUNBOOK_MAX_RECORDS, "runbookPlans.json"),
+    "preapprovedPatchRequests": (
+        PREAPPROVED_PATCH_REQUESTS,
+        RUNBOOK_MAX_RECORDS,
+        "preapprovedPatchRequests.json",
+    ),
+    "breakGlassRequests": (BREAK_GLASS_REQUESTS, BREAK_GLASS_MAX_RECORDS, "breakGlassRequests.json"),
+}
+
+
+def record_store_path(namespace: str) -> str:
+    return f"/api/v1/namespaces/{namespace}/configmaps/{RECORD_STORE_CONFIGMAP}"
+
+
+async def record_store_request(
+    method: str,
+    path: str,
+    *,
+    body: Mapping[str, Any] | None = None,
+) -> httpx.Response:
+    if not OPENSHIFT_API_URL:
+        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
+    headers = {
+        "Accept": "application/json",
+        "Authorization": record_store_auth_header(),
+    }
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        return await client.request(method, f"{OPENSHIFT_API_URL}{path}", headers=headers, json=body)
+
+
+async def load_record_store() -> None:
+    if not RECORD_STORE_ENABLED:
+        return
+    namespace = current_namespace()
+    try:
+        response = await record_store_request("GET", record_store_path(namespace))
+        if response.status_code == 404:
+            increment_metric("aiops_record_store_loads_total")
+            return
+        if response.status_code >= 400:
+            increment_metric("aiops_record_store_failures_total")
+            return
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, Mapping) else {}
+        if not isinstance(data, Mapping):
+            return
+        for _store_name, (store, limit, key) in RECORD_STORES.items():
+            raw = data.get(key)
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            loaded = json.loads(raw)
+            if not isinstance(loaded, Mapping):
+                continue
+            store.clear()
+            for record_key, record in list(loaded.items())[-limit:]:
+                if isinstance(record_key, str) and isinstance(record, Mapping):
+                    store[record_key] = dict(record)
+        increment_metric("aiops_record_store_loads_total")
+    except Exception:
+        increment_metric("aiops_record_store_failures_total")
+
+
+async def persist_record_store(store_name: str) -> None:
+    if not RECORD_STORE_ENABLED:
+        return
+    definition = RECORD_STORES.get(store_name)
+    if not definition:
+        return
+    store, _limit, key = definition
+    namespace = current_namespace()
+    data_value = json.dumps(redact_sensitive(store), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    patch_body = {"data": {key: data_value}}
+    try:
+        response = await record_store_request("PATCH", record_store_path(namespace), body=patch_body)
+        if response.status_code == 404:
+            create_body = {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {
+                    "name": RECORD_STORE_CONFIGMAP,
+                    "namespace": namespace,
+                    "labels": {"app": "komsco-ai-gateway", "aiops.komsco/store": "ledger"},
+                },
+                "data": {key: data_value},
+            }
+            response = await record_store_request(
+                "POST",
+                f"/api/v1/namespaces/{namespace}/configmaps",
+                body=create_body,
+            )
+        if response.status_code >= 400:
+            increment_metric("aiops_record_store_failures_total")
+            return
+        increment_metric("aiops_record_store_writes_total")
+    except Exception:
+        increment_metric("aiops_record_store_failures_total")
+
+
+async def bounded_put_record(
+    store_name: str,
+    key: str,
+    value: dict[str, Any],
+) -> None:
+    store, limit, _data_key = RECORD_STORES[store_name]
+    bounded_put(store, key, value, limit)
+    await persist_record_store(store_name)
+
+
+@app.on_event("startup")
+async def startup_load_record_store() -> None:
+    await load_record_store()
+
+
 def enforce_rate_limit(user_auth_header: str) -> None:
     if RATE_LIMIT_PER_MINUTE <= 0:
         return
@@ -776,6 +930,40 @@ async def submit_diagnostic_request_to_controller(record: dict[str, Any]) -> dic
             "controllerSubmission": redact_sensitive(controller_result),
         }
     )
+    return record
+
+
+async def refresh_diagnostic_request_from_controller(record: dict[str, Any]) -> dict[str, Any]:
+    status = record["spec"]["status"]
+    if not DIAGNOSTICS_ENABLED or not HOST_DIAGNOSTICS_CONTROLLER_URL:
+        return record
+    if status.get("submittedToController") is not True:
+        return record
+    request_id = str(record["metadata"]["name"])
+    headers: dict[str, str] = {}
+    if HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN:
+        headers["Authorization"] = f"Bearer {HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
+            response = await client.get(
+                f"{HOST_DIAGNOSTICS_CONTROLLER_URL}/v1/controller/diagnostics/requests/{request_id}",
+                headers=headers,
+            )
+    except httpx.HTTPError:
+        return record
+    if response.status_code >= 400:
+        return record
+    try:
+        controller_result = response.json()
+    except ValueError:
+        return record
+    controller_spec = (
+        controller_result.get("spec") if isinstance(controller_result, Mapping) else {}
+    )
+    phase = controller_spec.get("phase") if isinstance(controller_spec, Mapping) else None
+    if isinstance(phase, str) and phase:
+        status["phase"] = f"collector_{phase}"
+    status["controllerSubmission"] = redact_sensitive(controller_result)
     return record
 
 
@@ -1117,6 +1305,7 @@ def build_approval_decision_record(
     plan_record: Mapping[str, Any],
     request: "ApprovalDecisionCreate",
     approver: Mapping[str, Any],
+    action_access_review: Mapping[str, Any],
 ) -> dict[str, Any]:
     plan = plan_record["spec"]["sealedActionPlan"]
     plan_digest = plan["digest"]["planDigest"]
@@ -1184,8 +1373,9 @@ def build_approval_decision_record(
                     "resource": authorization.get("resource", ""),
                     "subresource": authorization.get("subresource", ""),
                     "verb": authorization.get("verb", ""),
-                    "ssarDecision": "not_revalidated_foundation",
+                    "ssarDecision": "allowed" if action_access_review.get("allowed") is True else "denied",
                     "evaluatedAt": approved_at,
+                    "review": redact_sensitive(dict(action_access_review)),
                 },
                 "action": {
                     "toolName": action.get("toolName"),
@@ -1234,6 +1424,20 @@ def validate_execution_evidence_freshness(plan: Mapping[str, Any]) -> None:
                     "create a new plan and approval"
                 ),
             )
+
+
+def validate_approval_is_active(approval_decision: Mapping[str, Any]) -> None:
+    expires_at = parse_rfc3339(approval_decision.get("expiresAt"))
+    if expires_at and expires_at < datetime.now(UTC):
+        raise HTTPException(status_code=409, detail="Approval decision is expired")
+
+
+def approval_already_executed(approval_id: str) -> bool:
+    return any(
+        record.get("spec", {}).get("approvalId") == approval_id
+        for record in EXECUTION_RECORDS.values()
+        if isinstance(record.get("spec"), Mapping)
+    )
 
 
 def build_execution_grant_reference(
@@ -3613,6 +3817,90 @@ def build_product_access_review_request() -> dict[str, Any]:
     }
 
 
+def build_action_access_review_request(plan: Mapping[str, Any]) -> dict[str, Any]:
+    action = plan.get("action") if isinstance(plan.get("action"), Mapping) else {}
+    target = plan.get("target") if isinstance(plan.get("target"), Mapping) else {}
+    authorization = action.get("authorization") if isinstance(action.get("authorization"), Mapping) else {}
+    resource_attributes: dict[str, Any] = {
+        "group": authorization.get("apiGroup") or "",
+        "resource": authorization.get("resource") or "",
+        "subresource": authorization.get("subresource") or "",
+        "verb": authorization.get("verb") or "",
+        "namespace": target.get("namespace") or "",
+        "name": target.get("name") or "",
+    }
+    if not resource_attributes["group"]:
+        resource_attributes.pop("group", None)
+    if not resource_attributes["subresource"]:
+        resource_attributes.pop("subresource", None)
+    return {
+        "apiVersion": "authorization.k8s.io/v1",
+        "kind": "SelfSubjectAccessReview",
+        "spec": {"resourceAttributes": resource_attributes},
+    }
+
+
+async def fetch_action_access_review(user_auth_header: str, plan: Mapping[str, Any]) -> dict[str, Any]:
+    review_request = build_action_access_review_request(plan)
+    if not OPENSHIFT_API_URL:
+        return {
+            "allowed": not MUTATIONS_ENABLED,
+            "enabled": True,
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+            "skipped": True,
+            "reason": "OPENSHIFT_API_URL is not configured",
+        }
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(10.0, connect=5.0),
+    ) as client:
+        response = await client.post(
+            f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+            headers={
+                "Accept": "application/json",
+                "Authorization": user_auth_header,
+                "Content-Type": "application/json",
+            },
+            json=review_request,
+        )
+
+    if response.status_code >= 400:
+        return {
+            "allowed": False,
+            "enabled": True,
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+            "reason": f"SelfSubjectAccessReview failed with HTTP {response.status_code}",
+            "evaluationError": response.text[:500],
+        }
+
+    payload = response.json()
+    status_payload = payload.get("status", {}) if isinstance(payload, Mapping) else {}
+    status_map = status_payload if isinstance(status_payload, Mapping) else {}
+    return {
+        "allowed": bool(status_map.get("allowed")),
+        "denied": bool(status_map.get("denied")),
+        "enabled": True,
+        "evaluationError": status_map.get("evaluationError") or "",
+        "reason": status_map.get("reason") or "",
+        "resourceAttributes": review_request["spec"]["resourceAttributes"],
+        "skipped": False,
+    }
+
+
+def enforce_action_access_review(review: Mapping[str, Any]) -> None:
+    if review.get("allowed") is True:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "reason": "action_authorization_denied",
+            "message": "Approver is not authorized for the exact Kubernetes action.",
+            "review": redact_sensitive(dict(review)),
+        },
+    )
+
+
 async def fetch_product_access_review(user_auth_header: str) -> dict[str, Any]:
     if not PRODUCT_ACCESS_REVIEW_ENABLED:
         return {
@@ -3904,6 +4192,83 @@ async def submit_ocp_request(
     )
 
 
+async def verify_typed_action_postcondition(
+    client: httpx.AsyncClient,
+    authorization: str,
+    sealed_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    action = action_from_plan(sealed_plan)
+    target = target_from_plan(sealed_plan)
+    parameters = parameters_from_plan(sealed_plan)
+    tool_name = str(action.get("toolName") or "")
+    target_resource = await fetch_ocp_json(client, target_path(target), authorization)
+
+    if tool_name == "evict_one_unhealthy_controller_owned_pod":
+        if target_resource is None:
+            return {"status": "verified", "reason": "target_pod_removed"}
+        observed_uid = str(target_resource.get("metadata", {}).get("uid") or "")
+        if observed_uid != str(target.get("uid") or ""):
+            return {"status": "verified", "reason": "target_pod_replaced"}
+        return {"status": "verification_failed", "reason": "target_pod_still_present"}
+
+    if target_resource is None:
+        return {"status": "verification_failed", "reason": "target_resource_unavailable"}
+
+    if tool_name == "rollout_restart_deployment":
+        annotations = (
+            target_resource.get("spec", {})
+            .get("template", {})
+            .get("metadata", {})
+            .get("annotations", {})
+        )
+        restarted_at = str(parameters.get("restartedAt") or "")
+        if isinstance(annotations, Mapping) and annotations.get("kubectl.kubernetes.io/restartedAt") == restarted_at:
+            return {"status": "verified", "reason": "restart_annotation_observed"}
+        return {"status": "verification_failed", "reason": "restart_annotation_not_observed"}
+
+    if tool_name == "set_replicas_within_bounds":
+        scale = await fetch_ocp_json(client, deployment_scale_path(target), authorization)
+        replicas = parameters.get("replicas")
+        observed = scale.get("spec", {}).get("replicas") if isinstance(scale, Mapping) else None
+        if observed == replicas:
+            return {"status": "verified", "reason": "scale_spec_matches", "observedReplicas": observed}
+        return {
+            "status": "verification_failed",
+            "reason": "scale_spec_mismatch",
+            "observedReplicas": observed,
+        }
+
+    if tool_name == "rollback_deployment_to_revision":
+        annotations = (
+            target_resource.get("spec", {})
+            .get("template", {})
+            .get("metadata", {})
+            .get("annotations", {})
+        )
+        if isinstance(annotations, Mapping) and annotations.get("aiops.komsco/rollback-revision"):
+            return {
+                "status": "verified",
+                "reason": "rollback_template_annotation_observed",
+                "rollbackRevision": annotations.get("aiops.komsco/rollback-revision"),
+            }
+        return {"status": "verification_failed", "reason": "rollback_annotation_not_observed"}
+
+    if tool_name == "set_hpa_bounds":
+        spec = target_resource.get("spec", {}) if isinstance(target_resource.get("spec"), Mapping) else {}
+        if spec.get("minReplicas") == parameters.get("minReplicas") and spec.get("maxReplicas") == parameters.get("maxReplicas"):
+            return {"status": "verified", "reason": "hpa_bounds_match"}
+        return {
+            "status": "verification_failed",
+            "reason": "hpa_bounds_mismatch",
+            "observed": {
+                "minReplicas": spec.get("minReplicas"),
+                "maxReplicas": spec.get("maxReplicas"),
+            },
+        }
+
+    return {"status": "inconclusive", "reason": "no_postcondition_for_tool"}
+
+
 async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
@@ -3983,6 +4348,7 @@ async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str,
                 },
             }
 
+        postcondition = await verify_typed_action_postcondition(client, executor_auth, sealed_plan)
         increment_metric("aiops_execution_mutation_succeeded_total")
         return {
             "mutationOutcome": {
@@ -3990,10 +4356,7 @@ async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str,
                 "reason": "typed_action_executed",
                 "httpStatus": mutation_response.status_code,
             },
-            "remediationOutcome": {
-                "status": "verification_pending",
-                "reason": "hard postcondition watch is not yet externalized from the integrated executor",
-            },
+            "remediationOutcome": postcondition,
             "executorTrace": {
                 "dryRunPath": dry_run_path,
                 "mutationPath": mutate_path,
@@ -4193,7 +4556,7 @@ async def create_diagnostic_request(
     record = build_diagnostic_request_record(req, subject)
     record = await submit_diagnostic_request_to_controller(record)
     request_id = str(record["metadata"]["name"])
-    bounded_put(DIAGNOSTIC_REQUESTS, request_id, record, DIAGNOSTIC_MAX_RECORDS)
+    await bounded_put_record("diagnosticRequests", request_id, record)
     increment_metric("aiops_diagnostic_requests_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -4213,12 +4576,94 @@ async def get_diagnostic_request(
     record = DIAGNOSTIC_REQUESTS.get(request_id)
     if not record or not can_subject_read_record(record, subject):
         raise HTTPException(status_code=404, detail="Diagnostic request not found")
+    record = await refresh_diagnostic_request_from_controller(record)
+    await bounded_put_record("diagnosticRequests", request_id, record)
 
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "DiagnosticRequest",
         "metadata": record["metadata"],
         "spec": record["spec"],
+    }
+
+
+def latest_readable_records(
+    store: Mapping[str, dict[str, Any]],
+    subject: Mapping[str, Any],
+    *,
+    product_access_allowed: bool = False,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    records = [
+        record
+        for record in store.values()
+        if product_access_allowed or can_subject_read_record(record, subject)
+    ]
+    records.sort(
+        key=lambda record: str(record.get("metadata", {}).get("createdAt") or ""),
+        reverse=True,
+    )
+    return [
+        {
+            "metadata": record.get("metadata", {}),
+            "kind": record.get("kind"),
+            "spec": record.get("spec", {}),
+        }
+        for record in records[:limit]
+    ]
+
+
+@app.get("/v1/aiops/status")
+async def get_aiops_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    product_access_review = await fetch_product_access_review(user_auth_header)
+    product_access_allowed = bool(product_access_review.get("allowed"))
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "AIOpsRuntimeStatus",
+        "metadata": {
+            "name": "runtime-status",
+            "generatedAt": now_rfc3339(),
+        },
+        "spec": {
+            "capabilities": {
+                "mutationsEnabled": MUTATIONS_ENABLED,
+                "diagnosticsEnabled": DIAGNOSTICS_ENABLED,
+                "diagnosticsControllerConfigured": bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
+                "actionExecutorConfigured": bool(ACTION_EXECUTOR_URL),
+                "recordStoreEnabled": RECORD_STORE_ENABLED,
+                "recordStoreConfigMap": RECORD_STORE_CONFIGMAP if RECORD_STORE_ENABLED else "",
+            },
+            "productAccessReview": redact_sensitive(product_access_review),
+            "records": {
+                "diagnosticRequests": latest_readable_records(
+                    DIAGNOSTIC_REQUESTS,
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
+                "actionProposals": latest_readable_records(
+                    ACTION_PROPOSALS,
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
+                "sealedActionPlans": latest_readable_records(
+                    SEALED_ACTION_PLANS,
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
+                "approvalDecisions": latest_readable_records(
+                    APPROVAL_DECISIONS,
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
+                "executionRecords": latest_readable_records(
+                    EXECUTION_RECORDS,
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
+            },
+        },
     }
 
 
@@ -4249,7 +4694,7 @@ async def create_action_proposal(
     subject = await fetch_self_subject_review(user_auth_header)
     record = build_action_proposal_record(req, subject)
     proposal_id = str(record["metadata"]["name"])
-    bounded_put(ACTION_PROPOSALS, proposal_id, record, ACTION_MAX_RECORDS)
+    await bounded_put_record("actionProposals", proposal_id, record)
     increment_metric("aiops_action_proposals_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -4289,7 +4734,7 @@ async def create_action_plan(
         raise HTTPException(status_code=404, detail="Action proposal not found")
     record = build_sealed_action_plan_record(proposal)
     plan_id = str(record["metadata"]["name"])
-    bounded_put(SEALED_ACTION_PLANS, plan_id, record, ACTION_MAX_RECORDS)
+    await bounded_put_record("sealedActionPlans", plan_id, record)
     increment_metric("aiops_action_plans_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -4337,9 +4782,14 @@ async def create_approval_decision(
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
     if not can_subject_read_record(plan, subject) and product_access_review.get("allowed") is not True:
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    record = build_approval_decision_record(plan, req, subject)
+    action_access_review = await fetch_action_access_review(
+        user_auth_header,
+        plan["spec"]["sealedActionPlan"],
+    )
+    enforce_action_access_review(action_access_review)
+    record = build_approval_decision_record(plan, req, subject, action_access_review)
     approval_id = str(record["metadata"]["name"])
-    bounded_put(APPROVAL_DECISIONS, approval_id, record, ACTION_MAX_RECORDS)
+    await bounded_put_record("approvalDecisions", approval_id, record)
     increment_metric("aiops_approval_decisions_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -4370,6 +4820,11 @@ async def execute_action(
         raise HTTPException(status_code=409, detail="Execution request is stale for this sealed plan")
     if approval_decision["status"] != "approved":
         raise HTTPException(status_code=409, detail="Approval decision is not approved")
+    validate_approval_is_active(approval_decision)
+    if approval_already_executed(req.approvalId):
+        raise HTTPException(status_code=409, detail="Approval decision has already been used for execution")
+    execution_access_review = await fetch_action_access_review(user_auth_header, sealed_plan)
+    enforce_action_access_review(execution_access_review)
     validate_execution_evidence_freshness(sealed_plan)
 
     grant_reference = build_execution_grant_reference(approval, plan, subject)
@@ -4401,10 +4856,14 @@ async def execute_action(
             "mutationOutcome": executor_result["mutationOutcome"],
             "remediationOutcome": executor_result["remediationOutcome"],
             "executorTrace": redact_sensitive(executor_result.get("executorTrace") or {}),
+            "executionAuthorization": redact_sensitive(execution_access_review),
         },
         "subject": redact_sensitive(dict(subject)),
     }
-    bounded_put(EXECUTION_RECORDS, execution_id, record, ACTION_MAX_RECORDS)
+    await bounded_put_record("executionRecords", execution_id, record)
+    approval_decision["status"] = "executed"
+    approval_decision["executedAt"] = record["metadata"]["createdAt"]
+    await bounded_put_record("approvalDecisions", req.approvalId, approval)
     increment_metric("aiops_execution_requests_total")
     if not MUTATIONS_ENABLED:
         raise HTTPException(status_code=403, detail=record["spec"])
@@ -4441,7 +4900,7 @@ async def create_runbook_plan(
     subject = await fetch_self_subject_review(user_auth_header)
     record = build_runbook_plan_record(req, subject)
     plan_id = str(record["metadata"]["name"])
-    bounded_put(RUNBOOK_PLANS, plan_id, record, RUNBOOK_MAX_RECORDS)
+    await bounded_put_record("runbookPlans", plan_id, record)
     increment_metric("aiops_runbook_plans_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -4478,7 +4937,7 @@ async def create_preapproved_patch_request(
     subject = await fetch_self_subject_review(user_auth_header)
     record = build_preapproved_patch_record(req, subject)
     request_id = str(record["metadata"]["name"])
-    bounded_put(PREAPPROVED_PATCH_REQUESTS, request_id, record, RUNBOOK_MAX_RECORDS)
+    await bounded_put_record("preapprovedPatchRequests", request_id, record)
     increment_metric("aiops_preapproved_patch_requests_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -4530,7 +4989,7 @@ async def create_break_glass_request(
     subject = await fetch_self_subject_review(user_auth_header)
     record = build_break_glass_request_record(req, subject)
     request_id = str(record["metadata"]["name"])
-    bounded_put(BREAK_GLASS_REQUESTS, request_id, record, BREAK_GLASS_MAX_RECORDS)
+    await bounded_put_record("breakGlassRequests", request_id, record)
     increment_metric("aiops_break_glass_requests_total")
     log_break_glass_audit_record(
         build_trace_record(

@@ -93,6 +93,23 @@ patches:
         path: /subjects/0/namespace
         value: komsco-ai
   - target:
+      kind: Role
+      name: komsco-ai-gateway-ledger
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+  - target:
+      kind: RoleBinding
+      name: komsco-ai-gateway-ledger
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: komsco-ai
+      - op: replace
+        path: /subjects/0/namespace
+        value: komsco-ai
+  - target:
       kind: ServiceAccount
       name: komsco-ai-host-diagnostics-controller
     patch: |-

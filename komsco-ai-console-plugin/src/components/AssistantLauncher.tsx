@@ -17,8 +17,10 @@ import {
   UserCircleIcon,
 } from '@patternfly/react-icons';
 import {
+  type AiopsRuntimeStatus,
   type ClusterSummary,
   type ImageAttachment,
+  fetchAiopsStatus,
   fetchClusterSummary,
   streamChat,
 } from '../services/aiGateway';
@@ -40,6 +42,12 @@ const QUICK_PROMPTS = [
     icon: <TerminalIcon />,
     label: '조치 절차',
     prompt: '현재 화면 기준으로 안전한 확인 절차를 단계별로 제안해줘.',
+  },
+  {
+    icon: <ShieldAltIcon />,
+    label: '승인 실행',
+    prompt:
+      '현재 화면의 대상에 대해 가능한 AIOps 조치 후보, 승인 필요 여부, 실행 전 검증 조건을 정리해줘.',
   },
 ];
 
@@ -1183,6 +1191,81 @@ const renderStatusTag = (
   </span>
 );
 
+type AiopsRecordView = NonNullable<AiopsRuntimeStatus['spec']['records']['diagnosticRequests']>[number];
+
+const getRecordSpecMap = (record: AiopsRecordView): Record<string, unknown> =>
+  record.spec && typeof record.spec === 'object' ? record.spec : {};
+
+const getRecordPhase = (record: AiopsRecordView): string => {
+  const spec = getRecordSpecMap(record);
+  const status = spec.status;
+  if (status && typeof status === 'object' && 'phase' in status) {
+    return String((status as Record<string, unknown>).phase ?? 'unknown');
+  }
+  const decision = spec.approvalDecision;
+  if (decision && typeof decision === 'object' && 'status' in decision) {
+    return String((decision as Record<string, unknown>).status ?? 'unknown');
+  }
+  const mutationOutcome = spec.mutationOutcome;
+  if (mutationOutcome && typeof mutationOutcome === 'object' && 'status' in mutationOutcome) {
+    return String((mutationOutcome as Record<string, unknown>).status ?? 'unknown');
+  }
+  return 'recorded';
+};
+
+const getRecordTargetLabel = (record: AiopsRecordView): string => {
+  const spec = getRecordSpecMap(record);
+  const directTarget = spec.target;
+  const candidate = spec.candidate;
+  const sealedActionPlan = spec.sealedActionPlan;
+  const target =
+    directTarget && typeof directTarget === 'object'
+      ? directTarget
+      : candidate && typeof candidate === 'object'
+        ? (candidate as Record<string, unknown>).targetNode
+        : sealedActionPlan && typeof sealedActionPlan === 'object'
+          ? (sealedActionPlan as Record<string, unknown>).target
+          : undefined;
+
+  if (!target || typeof target !== 'object') {
+    return record.metadata?.name ?? 'unknown';
+  }
+
+  const map = target as Record<string, unknown>;
+  const namespace = map.namespace ? `${String(map.namespace)}/` : '';
+  return `${namespace}${String(map.name ?? record.metadata?.name ?? 'unknown')}`;
+};
+
+const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neutral' => {
+  if (/verified|succeeded|completed|executed|approved|submitted/.test(phase)) {
+    return 'ok';
+  }
+  if (/failed|denied|expired|disabled|mismatch|stale/.test(phase)) {
+    return 'danger';
+  }
+  if (/waiting|pending|proposed|sealed|review/.test(phase)) {
+    return 'review';
+  }
+  return 'neutral';
+};
+
+const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
+  if (records.length === 0) {
+    return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
+  }
+
+  return records.slice(0, 4).map((record) => {
+    const phase = getRecordPhase(record);
+    return (
+      <div className="komsco-ai__rail-command" key={record.metadata?.name ?? phase}>
+        <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
+        <p>{getRecordTargetLabel(record)}</p>
+        {renderStatusTag(phase, getPhaseTone(phase))}
+      </div>
+    );
+  });
+};
+
 const renderContextStrip = (summary: ClusterSummary | null, loading: boolean) => (
   <div className="komsco-ai__context-strip">
     <span className="komsco-ai__context-pill">
@@ -1204,7 +1287,13 @@ const renderContextStrip = (summary: ClusterSummary | null, loading: boolean) =>
   </div>
 );
 
-const renderInsightRail = (summary: ClusterSummary | null, loading: boolean, error: string) => (
+const renderInsightRail = (
+  summary: ClusterSummary | null,
+  loading: boolean,
+  error: string,
+  aiopsStatus: AiopsRuntimeStatus | null,
+  aiopsStatusError: string,
+) => (
   <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
     <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
     <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
@@ -1332,6 +1421,52 @@ const renderInsightRail = (summary: ClusterSummary | null, loading: boolean, err
         <div className="komsco-ai__rail-empty">주요 Operator 이슈가 없습니다.</div>
       )}
     </div>
+
+    <div className="komsco-ai__rail-section">
+      <div className="komsco-ai__rail-section-head">
+        <strong>AIOps 실행 상태</strong>
+        <span>{aiopsStatus ? '연결됨' : aiopsStatusError ? '확인 필요' : '수집 중'}</span>
+      </div>
+      <div className="komsco-ai__scope-list">
+        {renderStatusTag(
+          aiopsStatus?.spec.capabilities.diagnosticsEnabled ? 'Diagnostics on' : 'Diagnostics off',
+          aiopsStatus?.spec.capabilities.diagnosticsEnabled ? 'ok' : 'warn',
+        )}
+        {renderStatusTag(
+          aiopsStatus?.spec.capabilities.mutationsEnabled ? 'Mutations on' : 'Mutations off',
+          aiopsStatus?.spec.capabilities.mutationsEnabled ? 'review' : 'neutral',
+        )}
+        {renderStatusTag(
+          aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'Ledger on' : 'Ledger off',
+          aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'ok' : 'warn',
+        )}
+      </div>
+      {aiopsStatusError && (
+        <div className="komsco-ai__rail-error">AIOps 상태를 가져오지 못했습니다.</div>
+      )}
+    </div>
+
+    <div className="komsco-ai__rail-section">
+      <div className="komsco-ai__rail-section-head">
+        <strong>최근 진단</strong>
+        <span>{aiopsStatus?.spec.records.diagnosticRequests.length ?? 0}건</span>
+      </div>
+      {renderRecordRows(aiopsStatus?.spec.records.diagnosticRequests ?? [], '최근 진단 요청이 없습니다.')}
+    </div>
+
+    <div className="komsco-ai__rail-section">
+      <div className="komsco-ai__rail-section-head">
+        <strong>승인·실행</strong>
+        <span>{aiopsStatus?.spec.records.executionRecords.length ?? 0}건</span>
+      </div>
+      {renderRecordRows(
+        [
+          ...(aiopsStatus?.spec.records.approvalDecisions ?? []),
+          ...(aiopsStatus?.spec.records.executionRecords ?? []),
+        ],
+        '최근 승인 또는 실행 기록이 없습니다.',
+      )}
+    </div>
   </aside>
 );
 
@@ -1344,6 +1479,8 @@ const AssistantLauncher: React.FC = () => {
   const [clusterSummary, setClusterSummary] = React.useState<ClusterSummary | null>(null);
   const [clusterSummaryError, setClusterSummaryError] = React.useState('');
   const [clusterSummaryLoading, setClusterSummaryLoading] = React.useState(false);
+  const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
+  const [aiopsStatusError, setAiopsStatusError] = React.useState('');
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -1394,27 +1531,37 @@ const AssistantLauncher: React.FC = () => {
 
     const loadSummary = async () => {
       setClusterSummaryLoading(true);
-      try {
-        const summary = await fetchClusterSummary();
-        if (disposed) {
-          return;
-        }
-
-        setClusterSummary(summary);
-        setClusterSummaryError('');
-      } catch (error) {
-        if (disposed) {
-          return;
-        }
-
-        setClusterSummaryError(
-          error instanceof Error ? error.message : 'Cluster summary request failed.',
-        );
-      } finally {
-        if (!disposed) {
-          setClusterSummaryLoading(false);
-        }
+      const [summaryResult, statusResult] = await Promise.allSettled([
+        fetchClusterSummary(),
+        fetchAiopsStatus(),
+      ]);
+      if (disposed) {
+        return;
       }
+
+      if (summaryResult.status === 'fulfilled') {
+        setClusterSummary(summaryResult.value);
+        setClusterSummaryError('');
+      } else {
+        setClusterSummaryError(
+          summaryResult.reason instanceof Error
+            ? summaryResult.reason.message
+            : 'Cluster summary request failed.',
+        );
+      }
+
+      if (statusResult.status === 'fulfilled') {
+        setAiopsStatus(statusResult.value);
+        setAiopsStatusError('');
+      } else {
+        setAiopsStatusError(
+          statusResult.reason instanceof Error
+            ? statusResult.reason.message
+            : 'AIOps status request failed.',
+        );
+      }
+
+      setClusterSummaryLoading(false);
     };
 
     void loadSummary();
@@ -2150,12 +2297,18 @@ const AssistantLauncher: React.FC = () => {
                   </Button>
                 </div>
                 <div className="komsco-ai__composer-foot">
-                  <span className="komsco-ai__read-only">읽기 전용 · 실행은 승인 필요</span>
+                  <span className="komsco-ai__read-only">증거 기반 · 실행은 승인 필요</span>
                   <span>Enter 전송 · Shift+Enter 줄바꿈</span>
                 </div>
               </div>
             </div>
-            {renderInsightRail(clusterSummary, clusterSummaryLoading, clusterSummaryError)}
+            {renderInsightRail(
+              clusterSummary,
+              clusterSummaryLoading,
+              clusterSummaryError,
+              aiopsStatus,
+              aiopsStatusError,
+            )}
           </div>
         </Card>
       )}
