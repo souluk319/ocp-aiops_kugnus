@@ -11,6 +11,10 @@ from komsco_ai_gateway.main import (
     ACTION_REGISTRY_ENTRIES,
     APPROVAL_DECISIONS,
     EXECUTION_RECORDS,
+    PREAPPROVED_PATCH_REQUESTS,
+    RUNBOOK_PLANS,
+    RUNBOOK_REGISTRY_DIGEST,
+    RUNBOOK_REGISTRY_ENTRIES,
     SEALED_ACTION_PLANS,
     ActionProposalCreate,
     ActionTarget,
@@ -35,6 +39,8 @@ from komsco_ai_gateway.main import (
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
+    build_preapproved_patch_record,
+    build_runbook_plan_record,
     build_sealed_action_plan_record,
     candidate_action_request_digest,
     can_subject_read_record,
@@ -44,6 +50,8 @@ from komsco_ai_gateway.main import (
     DiagnosticRequestCreate,
     DiagnosticTargetNode,
     DiagnosticTimeRange,
+    PatchPreapprovedFieldCreate,
+    RunbookPlanCreate,
     diagnostic_request_digest,
     parse_bool,
     parse_ols_verify,
@@ -1319,5 +1327,126 @@ def test_medium_risk_action_requires_separation_of_duties() -> None:
         assert plan_response.status_code == 200
         assert approval_response.status_code == 409
         assert "separation of duties" in approval_response.json()["detail"]
+
+    asyncio.run(run())
+
+
+def test_runbook_registry_allows_only_runbook_defined_action_steps() -> None:
+    assert RUNBOOK_REGISTRY_DIGEST.startswith("sha256:")
+    assert set(RUNBOOK_REGISTRY_ENTRIES) == {
+        "deployment_rollout_restart_v1",
+        "deployment_bounded_scale_v1",
+        "controller_owned_unhealthy_pod_eviction_v1",
+    }
+    for runbook in RUNBOOK_REGISTRY_ENTRIES.values():
+        for step in runbook["allowedSteps"]:
+            assert step["toolName"] in ACTION_REGISTRY_ENTRIES
+    assert "delete_pod" not in str(RUNBOOK_REGISTRY_ENTRIES)
+    assert "run_command" not in str(RUNBOOK_REGISTRY_ENTRIES)
+
+
+def test_runbook_plan_uses_runtime_target_and_denies_platform_namespace_without_policy() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    request = RunbookPlanCreate(
+        runbookId="deployment_rollout_restart_v1",
+        target=ActionTarget(
+            apiVersion="apps/v1",
+            kind="Deployment",
+            namespace="openshift-example",
+            name="operator-managed-app",
+            uid="deployment-uid-a",
+        ),
+        parameters={"restartedAt": "2026-06-21T00:00:00Z"},
+    )
+
+    record = build_runbook_plan_record(request, subject)
+
+    assert record["metadata"]["name"].startswith("runbook-plan-")
+    assert record["spec"]["target"]["namespace"] == "openshift-example"
+    assert record["spec"]["policyResult"]["decision"] == "denied"
+    assert "allowPlatformNamespace=true" in record["spec"]["policyResult"]["failures"][0]
+    assert record["spec"]["stepPlans"][0]["candidateActionRequest"]["target"]["name"] == "operator-managed-app"
+
+
+def test_preapproved_patch_schema_rejects_undocumented_or_out_of_bounds_fields() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    valid_request = PatchPreapprovedFieldCreate(
+        fieldSchemaId="deployment_progress_deadline_seconds_v1",
+        target=ActionTarget(
+            apiVersion="apps/v1",
+            kind="Deployment",
+            namespace="team-a",
+            name="web-a",
+            uid="deployment-uid-a",
+        ),
+        value=120,
+    )
+    record = build_preapproved_patch_record(valid_request, subject)
+
+    assert record["metadata"]["name"].startswith("prepatch-")
+    assert record["spec"]["patch"] == {
+        "op": "replace",
+        "path": "/spec/progressDeadlineSeconds",
+        "value": 120,
+    }
+    assert record["spec"]["status"]["mutationSubmitted"] is False
+
+    with pytest.raises(HTTPException):
+        build_preapproved_patch_record(
+            valid_request.model_copy(update={"fieldSchemaId": "deployment_unreviewed_field_v1"}),
+            subject,
+        )
+    with pytest.raises(HTTPException):
+        build_preapproved_patch_record(valid_request.model_copy(update={"value": 999999}), subject)
+
+
+def test_runbook_and_preapproved_patch_apis_expose_foundation_records() -> None:
+    RUNBOOK_PLANS.clear()
+    PREAPPROVED_PATCH_REQUESTS.clear()
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            registry_response = await client.get("/v1/runbooks/registry", headers=headers)
+            plan_response = await client.post(
+                "/v1/runbooks/plans",
+                headers=headers,
+                json={
+                    "runbookId": "deployment_rollout_restart_v1",
+                    "target": {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "namespace": "team-a",
+                        "name": "web-a",
+                        "uid": "deployment-uid-a",
+                    },
+                    "parameters": {"restartedAt": "2026-06-21T00:00:00Z"},
+                },
+            )
+            patch_response = await client.post(
+                "/v1/runbooks/patch-preapproved-field",
+                headers=headers,
+                json={
+                    "fieldSchemaId": "deployment_revision_history_limit_v1",
+                    "target": {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "namespace": "team-a",
+                        "name": "web-a",
+                        "uid": "deployment-uid-a",
+                    },
+                    "value": 5,
+                },
+            )
+
+        assert registry_response.status_code == 200
+        assert registry_response.json()["spec"]["digest"] == RUNBOOK_REGISTRY_DIGEST
+        assert plan_response.status_code == 200
+        assert plan_response.json()["spec"]["status"]["phase"] == "waiting_for_approval"
+        assert patch_response.status_code == 200
+        assert patch_response.json()["spec"]["status"]["mutationSubmitted"] is False
+        assert len(RUNBOOK_PLANS) == 1
+        assert len(PREAPPROVED_PATCH_REQUESTS) == 1
 
     asyncio.run(run())

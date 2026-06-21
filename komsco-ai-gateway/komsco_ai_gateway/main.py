@@ -99,6 +99,7 @@ APPROVAL_ACCESS_REVIEW_REQUIRED = parse_bool(
     os.getenv("KOMSCO_AI_APPROVAL_ACCESS_REVIEW_REQUIRED"),
     default=False,
 )
+RUNBOOK_MAX_RECORDS = int(os.getenv("KOMSCO_AI_RUNBOOK_MAX_RECORDS", "1000"))
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -207,6 +208,8 @@ METRICS: dict[str, int] = {
     "aiops_approval_decisions_total": 0,
     "aiops_execution_requests_total": 0,
     "aiops_evidence_freshness_failures_total": 0,
+    "aiops_runbook_plans_total": 0,
+    "aiops_preapproved_patch_requests_total": 0,
     "aiops_product_access_reviews_total": 0,
     "aiops_rate_limited_total": 0,
 }
@@ -217,6 +220,8 @@ ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
 SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
 APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
 EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
+RUNBOOK_PLANS: dict[str, dict[str, Any]] = {}
+PREAPPROVED_PATCH_REQUESTS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 ACTION_REGISTRY_VERSION = "v1"
 ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
@@ -275,6 +280,105 @@ ACTION_REGISTRY_BUNDLE = {
     "entries": ACTION_REGISTRY_ENTRIES,
 }
 ACTION_REGISTRY_DIGEST = canonical_digest(ACTION_REGISTRY_BUNDLE)
+RUNBOOK_REGISTRY_VERSION = "v1"
+RUNBOOK_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
+    "deployment_rollout_restart_v1": {
+        "runbookId": "deployment_rollout_restart_v1",
+        "runbookVersion": "v1",
+        "incidentClass": "deployment_rollout_recovery",
+        "targetKind": "Deployment",
+        "allowedSteps": [
+            {
+                "stepId": "restart_deployment",
+                "toolName": "rollout_restart_deployment",
+                "toolVersion": "v1",
+                "requiredParameters": ["restartedAt"],
+            }
+        ],
+        "policyChecks": {
+            "namespaceRequired": True,
+            "targetUidRequired": True,
+            "platformNamespaceRequiresExplicitPolicy": True,
+            "ownerReviewRequired": True,
+        },
+    },
+    "deployment_bounded_scale_v1": {
+        "runbookId": "deployment_bounded_scale_v1",
+        "runbookVersion": "v1",
+        "incidentClass": "deployment_capacity_adjustment",
+        "targetKind": "Deployment",
+        "allowedSteps": [
+            {
+                "stepId": "set_replicas",
+                "toolName": "set_replicas_within_bounds",
+                "toolVersion": "v1",
+                "requiredParameters": ["replicas", "minReplicas", "maxReplicas"],
+            }
+        ],
+        "policyChecks": {
+            "namespaceRequired": True,
+            "targetUidRequired": True,
+            "platformNamespaceRequiresExplicitPolicy": True,
+            "hpaReviewRequired": True,
+            "ownerReviewRequired": True,
+        },
+    },
+    "controller_owned_unhealthy_pod_eviction_v1": {
+        "runbookId": "controller_owned_unhealthy_pod_eviction_v1",
+        "runbookVersion": "v1",
+        "incidentClass": "single_unhealthy_controller_owned_pod",
+        "targetKind": "Pod",
+        "allowedSteps": [
+            {
+                "stepId": "evict_unhealthy_pod",
+                "toolName": "evict_one_unhealthy_controller_owned_pod",
+                "toolVersion": "v1",
+                "requiredParameters": ["reason"],
+            }
+        ],
+        "policyChecks": {
+            "namespaceRequired": True,
+            "targetUidRequired": True,
+            "controllerOwnerRequired": True,
+            "pdbReviewRequired": True,
+            "replacementCapacityReviewRequired": True,
+        },
+    },
+}
+RUNBOOK_REGISTRY_BUNDLE = {
+    "schemaVersion": "v1",
+    "version": RUNBOOK_REGISTRY_VERSION,
+    "entries": RUNBOOK_REGISTRY_ENTRIES,
+}
+RUNBOOK_REGISTRY_DIGEST = canonical_digest(RUNBOOK_REGISTRY_BUNDLE)
+PREAPPROVED_PATCH_FIELD_SCHEMAS: dict[str, dict[str, Any]] = {
+    "deployment_progress_deadline_seconds_v1": {
+        "fieldSchemaId": "deployment_progress_deadline_seconds_v1",
+        "targetKind": "Deployment",
+        "apiVersion": "apps/v1",
+        "jsonPointer": "/spec/progressDeadlineSeconds",
+        "valueType": "integer",
+        "minimum": 30,
+        "maximum": 3600,
+        "risk": "medium",
+    },
+    "deployment_revision_history_limit_v1": {
+        "fieldSchemaId": "deployment_revision_history_limit_v1",
+        "targetKind": "Deployment",
+        "apiVersion": "apps/v1",
+        "jsonPointer": "/spec/revisionHistoryLimit",
+        "valueType": "integer",
+        "minimum": 1,
+        "maximum": 20,
+        "risk": "low",
+    },
+}
+PREAPPROVED_PATCH_FIELD_BUNDLE = {
+    "schemaVersion": "v1",
+    "version": RUNBOOK_REGISTRY_VERSION,
+    "schemas": PREAPPROVED_PATCH_FIELD_SCHEMAS,
+}
+PREAPPROVED_PATCH_FIELD_DIGEST = canonical_digest(PREAPPROVED_PATCH_FIELD_BUNDLE)
 DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "schemaVersion",
     "clusterId",
@@ -910,6 +1014,206 @@ def build_execution_grant_reference(
     }
 
 
+def get_runbook_entry(runbook_id: str) -> dict[str, Any]:
+    entry = RUNBOOK_REGISTRY_ENTRIES.get(runbook_id)
+    if not entry:
+        raise HTTPException(status_code=400, detail="Runbook is not in the configured registry")
+    return entry
+
+
+def platform_namespace_requires_explicit_policy(namespace: str) -> bool:
+    return namespace.startswith(("kube-", "openshift-"))
+
+
+def evaluate_runbook_policy(
+    runbook: Mapping[str, Any],
+    target: "ActionTarget",
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    checks = runbook.get("policyChecks") if isinstance(runbook.get("policyChecks"), Mapping) else {}
+    failures: list[str] = []
+    warnings: list[str] = []
+    if checks.get("namespaceRequired") and not target.namespace:
+        failures.append("namespace is required")
+    if checks.get("targetUidRequired") and not target.uid:
+        failures.append("target uid is required")
+    if target.kind != runbook.get("targetKind"):
+        failures.append(f"target kind must be {runbook.get('targetKind')}")
+    if checks.get("platformNamespaceRequiresExplicitPolicy") and platform_namespace_requires_explicit_policy(
+        target.namespace
+    ):
+        if policy.get("allowPlatformNamespace") is not True:
+            failures.append("platform namespace requires explicit policy allowPlatformNamespace=true")
+    if checks.get("ownerReviewRequired"):
+        warnings.append("owner, GitOps, Operator, and external controller review required before execution")
+    if checks.get("hpaReviewRequired"):
+        warnings.append("HPA ownership review required before bounded scale execution")
+    if checks.get("controllerOwnerRequired"):
+        warnings.append("controller owner reference must be verified before eviction execution")
+    if checks.get("pdbReviewRequired"):
+        warnings.append("PDB allowance must be verified before eviction execution")
+    return {
+        "decision": "denied" if failures else "requires_approval",
+        "failures": failures,
+        "warnings": warnings,
+    }
+
+
+def build_runbook_plan_record(
+    request: "RunbookPlanCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    runbook = get_runbook_entry(request.runbookId)
+    policy = default_policy_binding(request.policy)
+    policy_result = evaluate_runbook_policy(runbook, request.target, request.policy)
+    step_plans: list[dict[str, Any]] = []
+    for step in runbook["allowedSteps"]:
+        action_request = ActionProposalCreate(
+            incidentId=request.incidentId,
+            runId=request.runId,
+            toolName=step["toolName"],
+            toolVersion=step["toolVersion"],
+            target=request.target,
+            parameters=request.parameters,
+            evidenceRefs=request.evidenceRefs,
+            runbookRefs=[
+                {
+                    "id": runbook["runbookId"],
+                    "version": runbook["runbookVersion"],
+                    "contentDigest": RUNBOOK_REGISTRY_DIGEST,
+                }
+            ],
+            policy=policy,
+        )
+        candidate = build_candidate_action_request(action_request, subject)
+        step_plans.append(
+            {
+                "stepId": step["stepId"],
+                "toolName": step["toolName"],
+                "toolVersion": step["toolVersion"],
+                "candidateActionRequest": candidate,
+                "candidateRequestDigest": candidate_action_request_digest(candidate),
+            }
+        )
+
+    plan_digest = canonical_digest(
+        {
+            "runbook": {
+                "runbookId": runbook["runbookId"],
+                "runbookVersion": runbook["runbookVersion"],
+                "registryDigest": RUNBOOK_REGISTRY_DIGEST,
+            },
+            "stepPlans": step_plans,
+            "target": request.target.model_dump(),
+            "policy": policy,
+        }
+    )
+    plan_id = f"runbook-plan-{plan_digest.removeprefix('sha256:')[:16]}"
+    created_at = now_rfc3339()
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RunbookPlanRecord",
+        "metadata": {"name": plan_id, "createdAt": created_at},
+        "spec": {
+            "runbook": {
+                "runbookId": runbook["runbookId"],
+                "runbookVersion": runbook["runbookVersion"],
+                "incidentClass": runbook["incidentClass"],
+                "registryDigest": RUNBOOK_REGISTRY_DIGEST,
+            },
+            "target": request.target.model_dump(),
+            "stepPlans": step_plans,
+            "policy": policy,
+            "policyResult": policy_result,
+            "evidenceRefs": redact_sensitive(request.evidenceRefs),
+            "incidentId": request.incidentId,
+            "runId": request.runId,
+            "digest": {
+                "runbookPlanDigest": plan_digest,
+                "canonicalization": "stable-json-sort-keys",
+            },
+            "status": {"phase": "denied" if policy_result["failures"] else "waiting_for_approval"},
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+
+
+def get_preapproved_patch_schema(field_schema_id: str) -> dict[str, Any]:
+    schema = PREAPPROVED_PATCH_FIELD_SCHEMAS.get(field_schema_id)
+    if not schema:
+        raise HTTPException(status_code=400, detail="Field schema is not preapproved")
+    return schema
+
+
+def validate_preapproved_patch_value(schema: Mapping[str, Any], target: "ActionTarget", value: Any) -> None:
+    if target.kind != schema.get("targetKind"):
+        raise HTTPException(status_code=400, detail=f"Patch target kind must be {schema.get('targetKind')}")
+    if target.apiVersion != schema.get("apiVersion"):
+        raise HTTPException(status_code=400, detail=f"Patch target apiVersion must be {schema.get('apiVersion')}")
+    if schema.get("valueType") == "integer":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise HTTPException(status_code=400, detail="Preapproved patch value must be an integer")
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        if isinstance(minimum, int) and value < minimum:
+            raise HTTPException(status_code=400, detail="Preapproved patch value is below the documented minimum")
+        if isinstance(maximum, int) and value > maximum:
+            raise HTTPException(status_code=400, detail="Preapproved patch value exceeds the documented maximum")
+
+
+def build_preapproved_patch_record(
+    request: "PatchPreapprovedFieldCreate",
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    schema = get_preapproved_patch_schema(request.fieldSchemaId)
+    validate_preapproved_patch_value(schema, request.target, request.value)
+    policy = default_policy_binding(request.policy)
+    request_projection = {
+        "schemaVersion": "v1",
+        "clusterId": CLUSTER_ID,
+        "requester": redact_sensitive(dict(subject)),
+        "target": request.target.model_dump(),
+        "fieldSchema": schema,
+        "value": redact_sensitive(request.value),
+        "policy": policy,
+        "evidenceRefs": redact_sensitive(request.evidenceRefs),
+    }
+    request_digest = canonical_digest(request_projection)
+    request_id = f"prepatch-{request_digest.removeprefix('sha256:')[:16]}"
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "PatchPreapprovedFieldRequestRecord",
+        "metadata": {"name": request_id, "createdAt": now_rfc3339()},
+        "spec": {
+            "fieldSchema": schema,
+            "target": request.target.model_dump(),
+            "value": redact_sensitive(request.value),
+            "patch": {
+                "op": "replace",
+                "path": schema["jsonPointer"],
+                "value": redact_sensitive(request.value),
+            },
+            "policy": policy,
+            "evidenceRefs": redact_sensitive(request.evidenceRefs),
+            "incidentId": request.incidentId,
+            "runId": request.runId,
+            "digest": {
+                "patchRequestDigest": request_digest,
+                "schemaBundleDigest": PREAPPROVED_PATCH_FIELD_DIGEST,
+                "canonicalization": "stable-json-sort-keys",
+            },
+            "status": {
+                "phase": "waiting_for_approval",
+                "mutationSubmitted": False,
+                "reason": "patch_preapproved_field is a documented request only until Action Executor integration.",
+            },
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+
+
 class ImageAttachment(BaseModel):
     id: str = Field(min_length=1, max_length=120)
     name: str = Field(min_length=1, max_length=180)
@@ -999,6 +1303,26 @@ class ActionExecutionCreate(StrictBaseModel):
     approvalId: str = Field(min_length=1, max_length=120)
     planId: str = Field(min_length=1, max_length=120)
     expectedPlanDigest: str = Field(min_length=1, max_length=128)
+
+
+class RunbookPlanCreate(StrictBaseModel):
+    runbookId: str = Field(min_length=1, max_length=160)
+    incidentId: str | None = Field(default=None, max_length=120)
+    runId: str | None = Field(default=None, max_length=120)
+    target: ActionTarget
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class PatchPreapprovedFieldCreate(StrictBaseModel):
+    fieldSchemaId: str = Field(min_length=1, max_length=160)
+    incidentId: str | None = Field(default=None, max_length=120)
+    runId: str | None = Field(default=None, max_length=120)
+    target: ActionTarget
+    value: Any
+    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 def decode_path_segment(segment: str | None) -> str | None:
@@ -3454,6 +3778,96 @@ async def execute_action(
     raise HTTPException(status_code=501, detail=record["spec"])
 
 
+@app.get("/v1/runbooks/registry")
+async def get_runbook_registry(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    verify_bearer_header(authorization)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RunbookRegistry",
+        "metadata": {"name": "restricted-runbook-registry", "version": RUNBOOK_REGISTRY_VERSION},
+        "spec": {
+            "digest": RUNBOOK_REGISTRY_DIGEST,
+            "entries": list(RUNBOOK_REGISTRY_ENTRIES.values()),
+            "preapprovedPatchFieldDigest": PREAPPROVED_PATCH_FIELD_DIGEST,
+            "preapprovedPatchFieldSchemas": list(PREAPPROVED_PATCH_FIELD_SCHEMAS.values()),
+        },
+    }
+
+
+@app.post("/v1/runbooks/plans")
+async def create_runbook_plan(
+    req: RunbookPlanCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = build_runbook_plan_record(req, subject)
+    plan_id = str(record["metadata"]["name"])
+    bounded_put(RUNBOOK_PLANS, plan_id, record, RUNBOOK_MAX_RECORDS)
+    increment_metric("aiops_runbook_plans_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RunbookPlan",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.get("/v1/runbooks/plans/{plan_id}")
+async def get_runbook_plan(
+    plan_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = RUNBOOK_PLANS.get(plan_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Runbook plan not found")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RunbookPlan",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.post("/v1/runbooks/patch-preapproved-field")
+async def create_preapproved_patch_request(
+    req: PatchPreapprovedFieldCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = build_preapproved_patch_record(req, subject)
+    request_id = str(record["metadata"]["name"])
+    bounded_put(PREAPPROVED_PATCH_REQUESTS, request_id, record, RUNBOOK_MAX_RECORDS)
+    increment_metric("aiops_preapproved_patch_requests_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "PatchPreapprovedFieldRequest",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.get("/v1/runbooks/patch-preapproved-field/{request_id}")
+async def get_preapproved_patch_request(
+    request_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = PREAPPROVED_PATCH_REQUESTS.get(request_id)
+    if not record or not can_subject_read_record(record, subject):
+        raise HTTPException(status_code=404, detail="Preapproved patch request not found")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "PatchPreapprovedFieldRequest",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
 @app.get("/metrics", response_class=PlainTextResponse)
 async def metrics() -> str:
     lines = []
@@ -3474,6 +3888,10 @@ async def metrics() -> str:
     lines.append(f"aiops_approval_decision_records {len(APPROVAL_DECISIONS)}")
     lines.append("# TYPE aiops_execution_records gauge")
     lines.append(f"aiops_execution_records {len(EXECUTION_RECORDS)}")
+    lines.append("# TYPE aiops_runbook_plan_records gauge")
+    lines.append(f"aiops_runbook_plan_records {len(RUNBOOK_PLANS)}")
+    lines.append("# TYPE aiops_preapproved_patch_request_records gauge")
+    lines.append(f"aiops_preapproved_patch_request_records {len(PREAPPROVED_PATCH_REQUESTS)}")
     return "\n".join(lines) + "\n"
 
 
