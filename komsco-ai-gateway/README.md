@@ -65,3 +65,27 @@ For cluster integration, set:
 export OLS_BASE_URL=https://lightspeed-app-server.openshift-lightspeed.svc:8443
 export OLS_CA_FILE=/var/run/configmaps/service-ca/service-ca.crt
 ```
+
+## Runtime APIs
+
+The gateway exposes the current implementation foundation as JSON APIs:
+
+- `GET /v1/evidence` and `GET /v1/evidence/{evidence_id}` return redacted
+  evidence references and details with read-time subject checks.
+- `GET /v1/workflows/{run_id}` returns observable workflow state.
+- `POST /v1/diagnostics/requests` creates a host diagnostic request candidate,
+  digest, and grant reference. It does not create DiagnosticRequest CRDs unless
+  controller submission is enabled in a later integration.
+- `GET /v1/actions/registry` returns the typed action allow-list.
+- `POST /v1/actions/proposals`, `/v1/actions/plans`,
+  `/v1/actions/approvals`, and `/v1/actions/execute` model the
+  approval-gated action lifecycle. Execution records are created, but Kubernetes
+  mutation remains blocked while `KOMSCO_AI_ENABLE_MUTATIONS=false`.
+- `GET /metrics` exposes core counters and in-memory record gauges.
+
+Run the gateway checks with:
+
+```bash
+ruff check . ../scripts/evaluate-gateway-responses.py
+pytest
+```

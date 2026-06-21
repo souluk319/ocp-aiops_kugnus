@@ -95,6 +95,10 @@ DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
 ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
+APPROVAL_ACCESS_REVIEW_REQUIRED = parse_bool(
+    os.getenv("KOMSCO_AI_APPROVAL_ACCESS_REVIEW_REQUIRED"),
+    default=False,
+)
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -202,6 +206,7 @@ METRICS: dict[str, int] = {
     "aiops_action_plans_total": 0,
     "aiops_approval_decisions_total": 0,
     "aiops_execution_requests_total": 0,
+    "aiops_evidence_freshness_failures_total": 0,
     "aiops_product_access_reviews_total": 0,
     "aiops_rate_limited_total": 0,
 }
@@ -626,6 +631,44 @@ def build_sealed_action_plan_record(
         "action": action.get("toolName"),
         "target": target,
     }
+    plan_validation_claims = {
+        "schemaVersion": "v1",
+        "issuer": "aiops-approval-api",
+        "audience": "aiops-action-executor",
+        "grantId": f"validation-{uuid.uuid4()}",
+        "issuedAt": created_at,
+        "notBefore": created_at,
+        "expiresAt": expires_at_rfc3339(timedelta(seconds=30)),
+        "maxUses": 1,
+        "clusterId": CLUSTER_ID,
+        "candidateRequestDigest": spec.get("candidateRequestDigest"),
+        "normalizedParametersDigest": normalized_parameters_digest(candidate),
+        "actionRegistryDigest": registry_digest,
+        "requesterSubjectDigest": subject_digest(requester),
+        "policyDecisionDigest": policy.get("policyDecisionDigest"),
+        "policyBindingDigest": policy_binding_digest(policy),
+        "action": {
+            "toolName": action.get("toolName"),
+            "toolVersion": action.get("toolVersion"),
+        },
+        "target": target,
+        "allowedOperation": "server_side_dry_run_only",
+    }
+    plan_validation_grant_ref = {
+        "grantId": plan_validation_claims["grantId"],
+        "grantDigest": canonical_digest(plan_validation_claims),
+        "bearerGrantStored": False,
+        "claimsDigest": canonical_digest(
+            {
+                "candidateRequestDigest": plan_validation_claims["candidateRequestDigest"],
+                "normalizedParametersDigest": plan_validation_claims["normalizedParametersDigest"],
+                "actionRegistryDigest": plan_validation_claims["actionRegistryDigest"],
+                "requesterSubjectDigest": plan_validation_claims["requesterSubjectDigest"],
+                "policyDecisionDigest": plan_validation_claims["policyDecisionDigest"],
+                "policyBindingDigest": plan_validation_claims["policyBindingDigest"],
+            }
+        ),
+    }
     plan = {
         "schemaVersion": "v1",
         "clusterId": CLUSTER_ID,
@@ -647,6 +690,7 @@ def build_sealed_action_plan_record(
                 "risk"
             ],
             "policy": default_policy_binding(policy),
+            "planValidationGrantRef": plan_validation_grant_ref,
             "dryRun": {
                 "requestDigest": canonical_digest(dry_run_projection),
                 "normalizedDiffDigest": canonical_digest(dry_run_projection),
@@ -728,6 +772,30 @@ def build_approval_decision_record(
     action = plan["action"]
     target = plan["target"]
     authorization = action.get("authorization") if isinstance(action.get("authorization"), Mapping) else {}
+    attestation_claims = {
+        "schemaVersion": "v1",
+        "issuer": "aiops-tool-broker",
+        "audience": "aiops-approval-api",
+        "attestationId": f"authz-{uuid.uuid4()}",
+        "issuedAt": approved_at,
+        "notBefore": approved_at,
+        "expiresAt": expires_at_rfc3339(timedelta(seconds=30)),
+        "clusterId": CLUSTER_ID,
+        "approver": redact_sensitive(dict(approver)),
+        "planDigest": plan_digest,
+        "action": {
+            "toolName": action.get("toolName"),
+            "toolVersion": action.get("toolVersion"),
+            "actionRegistry": action.get("actionRegistry"),
+        },
+        "target": target,
+        "kubernetesAuthorization": {
+            "apiGroup": authorization.get("apiGroup", ""),
+            "resource": authorization.get("resource", ""),
+            "subresource": authorization.get("subresource", ""),
+            "verb": authorization.get("verb", ""),
+        },
+    }
     return {
         "schemaVersion": "v1",
         "apiVersion": "aiops.komsco/v1",
@@ -743,6 +811,13 @@ def build_approval_decision_record(
                 "expiresAt": expires_at,
                 "approvalScope": request.approvalScope,
                 "target": target,
+                "authorizationAttestationRef": {
+                    "attestationId": attestation_claims["attestationId"],
+                    "attestationDigest": canonical_digest(attestation_claims),
+                    "bearerAttestationStored": False,
+                    "issuer": attestation_claims["issuer"],
+                    "audience": attestation_claims["audience"],
+                },
                 "kubernetesAuthorization": {
                     "apiGroup": authorization.get("apiGroup", ""),
                     "resource": authorization.get("resource", ""),
@@ -760,6 +835,44 @@ def build_approval_decision_record(
         },
         "subject": redact_sensitive(dict(approver)),
     }
+
+
+def parse_rfc3339(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def validate_execution_evidence_freshness(plan: Mapping[str, Any]) -> None:
+    presentation = plan.get("approvalPresentation")
+    if not isinstance(presentation, Mapping):
+        return
+    evidence_refs = presentation.get("evidenceRefs")
+    if not isinstance(evidence_refs, list):
+        return
+    now = datetime.now(UTC)
+    for evidence_ref in evidence_refs:
+        if not isinstance(evidence_ref, Mapping):
+            continue
+        required_until = parse_rfc3339(evidence_ref.get("requiredFreshUntil"))
+        if required_until and required_until < now:
+            increment_metric("aiops_evidence_freshness_failures_total")
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Sealed action plan evidence is no longer fresh; "
+                    "create a new plan and approval"
+                ),
+            )
 
 
 def build_execution_grant_reference(
@@ -1633,16 +1746,6 @@ def normalize_pod_restart_language(text: str) -> str:
     for source, replacement in POD_RESTART_LANGUAGE_REPLACEMENTS:
         normalized = normalized.replace(source, replacement)
     return normalized
-
-
-def parse_rfc3339(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value:
-        return None
-
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 def state_summary(container_status: Mapping[str, Any]) -> str:
@@ -3268,8 +3371,18 @@ async def create_approval_decision(
 ) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
+    product_access_review = await fetch_product_access_review(user_auth_header)
+    if APPROVAL_ACCESS_REVIEW_REQUIRED:
+        enforce_product_access_review(
+            {
+                **product_access_review,
+                "required": True,
+            }
+        )
     plan = SEALED_ACTION_PLANS.get(req.planId)
-    if not plan or not can_subject_read_record(plan, subject):
+    if not plan:
+        raise HTTPException(status_code=404, detail="Sealed action plan not found")
+    if not can_subject_read_record(plan, subject) and product_access_review.get("allowed") is not True:
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
     record = build_approval_decision_record(plan, req, subject)
     approval_id = str(record["metadata"]["name"])
@@ -3304,6 +3417,7 @@ async def execute_action(
         raise HTTPException(status_code=409, detail="Execution request is stale for this sealed plan")
     if approval_decision["status"] != "approved":
         raise HTTPException(status_code=409, detail="Approval decision is not approved")
+    validate_execution_evidence_freshness(sealed_plan)
 
     grant_reference = build_execution_grant_reference(approval, plan, subject)
     execution_id = f"execution-{uuid.uuid4()}"

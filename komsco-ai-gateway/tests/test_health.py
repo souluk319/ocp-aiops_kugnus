@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -50,6 +51,7 @@ from komsco_ai_gateway.main import (
     product_access_review_status,
     sealed_action_plan_digest,
     summarize_product_access_review,
+    validate_execution_evidence_freshness,
     should_collect_cronjob_activity_evidence,
     should_collect_pod_status_evidence,
     should_filter_gateway_api_references,
@@ -1174,6 +1176,27 @@ def test_sealed_action_plan_digest_excludes_mutable_status_and_digest_fields() -
 
     assert sealed_action_plan_digest(plan) == plan_digest
     assert sealed_action_plan_digest(mutable_copy) == plan_digest
+    grant_ref = plan["safety"]["planValidationGrantRef"]
+    assert grant_ref["grantId"].startswith("validation-")
+    assert grant_ref["grantDigest"].startswith("sha256:")
+    assert grant_ref["bearerGrantStored"] is False
+
+
+def test_execution_evidence_freshness_rejects_expired_evidence_refs() -> None:
+    expired = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+    plan = {
+        "approvalPresentation": {
+            "evidenceRefs": [
+                {
+                    "evidenceId": "ev-expired",
+                    "requiredFreshUntil": expired,
+                }
+            ]
+        }
+    }
+
+    with pytest.raises(HTTPException):
+        validate_execution_evidence_freshness(plan)
 
 
 def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> None:
@@ -1240,11 +1263,61 @@ def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> N
         assert plan_response.status_code == 200
         assert stale_approval_response.status_code == 409
         assert approval_response.status_code == 200
+        approval_decision = approval_response.json()["spec"]["approvalDecision"]
+        assert approval_decision["authorizationAttestationRef"]["bearerAttestationStored"] is False
+        assert approval_decision["authorizationAttestationRef"]["attestationDigest"].startswith("sha256:")
         assert execution_response.status_code == 403
         assert execution_response.json()["detail"]["mutationOutcome"]["status"] == "mutation_disabled"
         assert len(EXECUTION_RECORDS) == 1
         execution_record = next(iter(EXECUTION_RECORDS.values()))
         assert execution_record["spec"]["executionGrantRef"]["bearerGrantStored"] is False
         assert "claims" not in execution_record["spec"]["executionGrantRef"]
+
+    asyncio.run(run())
+
+
+def test_medium_risk_action_requires_separation_of_duties() -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            proposal_response = await client.post(
+                "/v1/actions/proposals",
+                headers=headers,
+                json={
+                    "toolName": "set_replicas_within_bounds",
+                    "target": {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "namespace": "team-a",
+                        "name": "web-a",
+                        "uid": "deployment-uid-a",
+                    },
+                    "parameters": {"replicas": 2, "minReplicas": 1, "maxReplicas": 3},
+                },
+            )
+            proposal_id = proposal_response.json()["metadata"]["name"]
+            plan_response = await client.post(
+                "/v1/actions/plans",
+                headers=headers,
+                json={"proposalId": proposal_id},
+            )
+            plan_payload = plan_response.json()
+            approval_response = await client.post(
+                "/v1/actions/approvals",
+                headers=headers,
+                json={
+                    "planId": plan_payload["metadata"]["name"],
+                    "expectedPlanDigest": plan_payload["spec"]["sealedActionPlan"]["digest"]["planDigest"],
+                },
+            )
+
+        assert proposal_response.status_code == 200
+        assert plan_response.status_code == 200
+        assert approval_response.status_code == 409
+        assert "separation of duties" in approval_response.json()["detail"]
 
     asyncio.run(run())

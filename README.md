@@ -54,7 +54,7 @@ OLS owns live read-only OpenShift observation through its MCP tools. The gateway
 owns validation, redaction, streaming normalization, attachments, and future
 internal integrations. See [docs/ols-gateway-tool-boundary.md](docs/ols-gateway-tool-boundary.md).
 
-The current implementation is the approved Phase 0-1 envelope from
+The current implementation follows the approved security envelope from
 [docs/aiops-agent-architecture-proposal.md](docs/aiops-agent-architecture-proposal.md):
 
 - Gateway keeps the console `UserToken` at the boundary and forwards it only to
@@ -63,9 +63,13 @@ The current implementation is the approved Phase 0-1 envelope from
   `policy_check`, `audit_record`, and `evidence_ref` stream events.
 - Request text, page context, audit payloads, and evidence references are
   redacted before they are used as model or UI-facing metadata.
-- Direct mutation requests are downgraded to action proposals. Actual
-  remediation execution remains disabled until the Approval API and Action
-  Executor are implemented.
+- Evidence and workflow state are available through read-time authorized
+  gateway APIs.
+- Host diagnostics and approval-gated action lifecycle foundation APIs are
+  present, including request/plan digests, grant references, approval decisions,
+  and execution records.
+- Direct mutation requests are downgraded to action proposals. Actual Kubernetes
+  remediation remains disabled by default with `KOMSCO_AI_ENABLE_MUTATIONS=false`.
 
 Manual gateway echo mode:
 
