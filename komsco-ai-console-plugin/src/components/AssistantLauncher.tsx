@@ -111,6 +111,7 @@ const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
 const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'unrestricted';
+const ASSISTANT_TYPEWRITER_INTERVAL_MS = 16;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
@@ -254,6 +255,24 @@ const formatDuration = (milliseconds: number): string => {
   }
 
   return `${seconds}초`;
+};
+
+const getTypewriterChunkSize = (pendingText: string): number => {
+  const length = Array.from(pendingText).length;
+
+  if (length > 1200) {
+    return 80;
+  }
+  if (length > 600) {
+    return 48;
+  }
+  if (length > 240) {
+    return 24;
+  }
+  if (length > 80) {
+    return 10;
+  }
+  return 3;
 };
 
 const formatFileSize = (size: number): string => {
@@ -1828,6 +1847,8 @@ const AssistantLauncher: React.FC = () => {
   const [, setProgressTick] = React.useState(0);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const assistantTextQueueRef = React.useRef('');
+  const assistantTypewriterTimerRef = React.useRef<number | undefined>();
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
   const unrestrictedAvailable = canUseUnrestrictedCommands(aiopsStatus);
 
@@ -2033,6 +2054,87 @@ const AssistantLauncher: React.FC = () => {
     });
   }, []);
 
+  const clearAssistantTypewriterTimer = React.useCallback(() => {
+    if (assistantTypewriterTimerRef.current === undefined) {
+      return;
+    }
+
+    window.clearTimeout(assistantTypewriterTimerRef.current);
+    assistantTypewriterTimerRef.current = undefined;
+  }, []);
+
+  const flushAssistantTextQueueNow = React.useCallback(() => {
+    clearAssistantTypewriterTimer();
+
+    const queuedText = assistantTextQueueRef.current;
+    if (!queuedText) {
+      return;
+    }
+
+    assistantTextQueueRef.current = '';
+    appendAssistantText(queuedText);
+  }, [appendAssistantText, clearAssistantTypewriterTimer]);
+
+  const flushAssistantTextQueue = React.useCallback(() => {
+    assistantTypewriterTimerRef.current = undefined;
+
+    const queuedText = assistantTextQueueRef.current;
+    if (!queuedText) {
+      return;
+    }
+
+    const queuedChars = Array.from(queuedText);
+    const chunkSize = getTypewriterChunkSize(queuedText);
+    const visibleChunk = queuedChars.slice(0, chunkSize).join('');
+
+    assistantTextQueueRef.current = queuedChars.slice(chunkSize).join('');
+    appendAssistantText(visibleChunk);
+
+    if (assistantTextQueueRef.current) {
+      assistantTypewriterTimerRef.current = window.setTimeout(
+        flushAssistantTextQueue,
+        ASSISTANT_TYPEWRITER_INTERVAL_MS,
+      );
+    }
+  }, [appendAssistantText]);
+
+  const scheduleAssistantTextFlush = React.useCallback(() => {
+    if (assistantTypewriterTimerRef.current !== undefined) {
+      return;
+    }
+
+    assistantTypewriterTimerRef.current = window.setTimeout(
+      flushAssistantTextQueue,
+      ASSISTANT_TYPEWRITER_INTERVAL_MS,
+    );
+  }, [flushAssistantTextQueue]);
+
+  const enqueueAssistantText = React.useCallback(
+    (content: string) => {
+      assistantTextQueueRef.current += content;
+      scheduleAssistantTextFlush();
+    },
+    [scheduleAssistantTextFlush],
+  );
+
+  const waitForAssistantTextQueue = React.useCallback(async () => {
+    while (
+      assistantTextQueueRef.current ||
+      assistantTypewriterTimerRef.current !== undefined
+    ) {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, ASSISTANT_TYPEWRITER_INTERVAL_MS);
+      });
+    }
+  }, []);
+
+  React.useEffect(
+    () => () => {
+      clearAssistantTypewriterTimer();
+    },
+    [clearAssistantTypewriterTimer],
+  );
+
   const copyMessage = React.useCallback((message: Message, index: number) => {
     const text = message.content.trim();
     if (!text || !navigator.clipboard) {
@@ -2211,6 +2313,7 @@ const AssistantLauncher: React.FC = () => {
       setPendingAttachments([]);
       setAttachmentError('');
       setLoading(true);
+      flushAssistantTextQueueNow();
       const recentMessages = buildRecentContextMessages(messages);
       setMessages((prev) => [
         ...prev,
@@ -2441,7 +2544,7 @@ const AssistantLauncher: React.FC = () => {
               finishResponseWaitStep('본문 스트리밍 시작');
               startAnswerStreamStep();
             }
-            appendAssistantText(event.content);
+            enqueueAssistantText(event.content);
           }
 
           if (event.type === 'tool_call') {
@@ -2468,6 +2571,7 @@ const AssistantLauncher: React.FC = () => {
           if (event.type === 'error') {
             finishResponseWaitStep('오류 응답 수신');
             markRunningProgressFailed(event.message || 'AI response failed.');
+            flushAssistantTextQueueNow();
             setMessages((prev) => [
               ...prev,
               {
@@ -2482,8 +2586,10 @@ const AssistantLauncher: React.FC = () => {
           }
         }
         finishResponseWaitStep('스트림 종료');
+        await waitForAssistantTextQueue();
         finishAnswerStreamStep();
       } catch (error) {
+        flushAssistantTextQueueNow();
         markRunningProgressFailed(error instanceof Error ? error.message : 'AI response failed.');
         setMessages((prev) => [
           ...prev,
@@ -2497,8 +2603,9 @@ const AssistantLauncher: React.FC = () => {
       }
     },
     [
-      appendAssistantText,
+      enqueueAssistantText,
       executionMode,
+      flushAssistantTextQueueNow,
       input,
       loading,
       markRunningProgressFailed,
@@ -2506,6 +2613,7 @@ const AssistantLauncher: React.FC = () => {
       messages,
       pendingAttachments,
       upsertProgressStep,
+      waitForAssistantTextQueue,
     ],
   );
 
