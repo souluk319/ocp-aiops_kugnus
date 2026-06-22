@@ -19,6 +19,7 @@ import {
 import {
   type AiopsRecord,
   type AiopsRuntimeStatus,
+  type ChatContextMessage,
   type ClusterSummary,
   type ImageAttachment,
   approveActionPlan,
@@ -107,6 +108,7 @@ const ACCEPTED_IMAGE_MIME_TYPES = new Set(['image/gif', 'image/jpeg', 'image/png
 const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
+const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
@@ -135,7 +137,10 @@ const TOOL_LABELS: Record<string, string> = {
   nodes_log: '노드 로그 조회',
   nodes_stats_summary: '노드 상세 사용량 조회',
   nodes_top: '노드 사용량 조회',
+  natural_action_execute: '자연어 조치 실행',
+  natural_action_followup: '후속 조치 실행',
   natural_action_plan: '자연어 조치 계획 생성',
+  natural_action_unresolved: '조치 대상 확인',
   pods_get: 'Pod 상세 조회',
   pods_list: 'Pod 목록 조회',
   pods_list_in_namespace: 'Namespace Pod 조회',
@@ -436,6 +441,15 @@ const findLastAssistantIndex = (messages: Message[]): number => {
 
   return -1;
 };
+
+const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =>
+  messages
+    .filter((message) => message.content.trim())
+    .slice(-MAX_RECENT_CONTEXT_MESSAGES)
+    .map((message) => ({
+      role: message.role,
+      content: message.content.slice(0, 4000),
+    }));
 
 const getElapsedMs = (step: ProgressStep): number => {
   if (step.status === 'running') {
@@ -1799,6 +1813,7 @@ const AssistantLauncher: React.FC = () => {
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>('read-only');
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
+  const [conversationId, setConversationId] = React.useState<string | undefined>();
   const [loading, setLoading] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
@@ -2185,6 +2200,7 @@ const AssistantLauncher: React.FC = () => {
       setPendingAttachments([]);
       setAttachmentError('');
       setLoading(true);
+      const recentMessages = buildRecentContextMessages(messages);
       setMessages((prev) => [
         ...prev,
         { role: 'user', attachments, content: question },
@@ -2399,8 +2415,10 @@ const AssistantLauncher: React.FC = () => {
 
         for await (const event of streamChat({
           attachments,
+          conversationId,
           message: question,
           pageContext,
+          recentMessages,
           runId,
         })) {
           if (event.type === 'run_status') {
@@ -2447,6 +2465,10 @@ const AssistantLauncher: React.FC = () => {
               },
             ]);
           }
+
+          if (event.type === 'end' && event.conversationId) {
+            setConversationId(event.conversationId);
+          }
         }
         finishResponseWaitStep('스트림 종료');
         finishAnswerStreamStep();
@@ -2469,6 +2491,8 @@ const AssistantLauncher: React.FC = () => {
       input,
       loading,
       markRunningProgressFailed,
+      conversationId,
+      messages,
       pendingAttachments,
       upsertProgressStep,
     ],

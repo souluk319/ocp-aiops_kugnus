@@ -6,6 +6,7 @@ type ChatRequest = {
   pageContext?: Record<string, unknown>;
   conversationId?: string;
   runId?: string;
+  recentMessages?: ChatContextMessage[];
 };
 
 export type ImageAttachment = {
@@ -14,6 +15,11 @@ export type ImageAttachment = {
   mimeType: string;
   name: string;
   size: number;
+};
+
+export type ChatContextMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
 };
 
 export type ClusterSummary = {

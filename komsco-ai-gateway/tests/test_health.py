@@ -72,6 +72,7 @@ from komsco_ai_gateway.main import (
     page_context_aiops_execution_mode,
     parse_bool,
     parse_natural_action_intent,
+    recent_natural_action_request,
     parse_ols_verify,
     parse_unrestricted_chat_command,
     normalize_console_page_context,
@@ -180,6 +181,27 @@ def test_followup_execution_request_accepts_korean_variants() -> None:
     assert is_followup_execution_request("실행해")
     assert is_followup_execution_request("적용")
     assert not is_followup_execution_request("진행 상황 분석해줘")
+
+
+def test_recent_natural_action_request_uses_previous_user_message() -> None:
+    request = ChatRequest(
+        message="진행해",
+        pageContext={"namespace": "team-a", "aiopsExecutionMode": "unrestricted"},
+        recentMessages=[
+            {"role": "user", "content": "team-a 네임스페이스의 web-api 파드 4개로 올려줘"},
+            {"role": "assistant", "content": "조치 계획을 생성했습니다. 승인하시겠습니까?"},
+        ],
+    )
+
+    contextual_request = recent_natural_action_request(request)
+
+    assert contextual_request
+    assert contextual_request.message == "team-a 네임스페이스의 web-api 파드 4개로 올려줘"
+    intent = parse_natural_action_intent(contextual_request)
+    assert intent
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "web-api"
+    assert intent["parameters"]["replicas"] == 4
 
 
 def test_unrestricted_command_endpoint_requires_feature_flag(monkeypatch) -> None:
@@ -1083,6 +1105,114 @@ def test_chat_stream_unrestricted_followup_without_plan_stays_in_gateway(monkeyp
         assert followup_results
         assert followup_results[0]["status"] == "skipped"
         assert "실행할 Gateway AIOps Action Plan이 없습니다" in response.text
+        assert "lightspeed_stream" not in response.text
+
+    asyncio.run(run())
+
+
+def test_chat_stream_unrestricted_followup_uses_recent_user_action_context(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_create_natural_action_plan(req, *_args, **_kwargs):
+        assert req.message == "team-a 네임스페이스의 web-api 파드 4개로 올려줘"
+        return {
+            "intent": {
+                "toolName": "set_replicas_within_bounds",
+                "targetName": "web-api",
+                "namespace": "team-a",
+                "parameters": {"replicas": 4},
+            },
+            "parameters": {"replicas": 4},
+            "planDigest": "sha256:test-plan",
+            "planId": "plan-contextual",
+            "proposalId": "proposal-contextual",
+            "risk": "medium",
+            "status": "planned",
+            "target": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "namespace": "team-a",
+                "name": "web-api",
+                "uid": "uid-web-api",
+            },
+        }
+
+    async def fake_execute_natural_action_plan_result(plan_result, *_args, **_kwargs):
+        return {
+            "approvalId": "approval-contextual",
+            "executionId": "execution-contextual",
+            "mutationOutcome": {"status": "mutation_succeeded", "reason": "typed_action_executed"},
+            "plan": dict(plan_result),
+            "remediationOutcome": {
+                "status": "verified",
+                "reason": "scale_spec_matches",
+                "observedReplicas": 4,
+            },
+            "status": "executed",
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for contextual followup execution")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
+    monkeypatch.setattr(
+        gateway_main,
+        "execute_natural_action_plan_result",
+        fake_execute_natural_action_plan_result,
+    )
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "진행해",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                    "recentMessages": [
+                        {
+                            "role": "user",
+                            "content": "team-a 네임스페이스의 web-api 파드 4개로 올려줘",
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "조치 계획을 생성했습니다. 승인하시겠습니까?",
+                        },
+                    ],
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        followup_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_followup"
+        ]
+        assert followup_results
+        assert followup_results[0]["status"] == "success"
+        assert "team-a/web-api" in response.text
+        assert "scale_spec_matches" in response.text
         assert "lightspeed_stream" not in response.text
 
     asyncio.run(run())

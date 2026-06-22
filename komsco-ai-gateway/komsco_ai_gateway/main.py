@@ -1845,11 +1845,17 @@ class ImageAttachment(BaseModel):
     data: str = Field(min_length=1)
 
 
+class ChatContextMessage(BaseModel):
+    role: str = Field(min_length=1, max_length=20)
+    content: str = Field(default="", max_length=4000)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(default="", max_length=4000)
     pageContext: dict[str, Any] | None = None
     conversationId: str | None = None
     runId: str | None = None
+    recentMessages: list[ChatContextMessage] = Field(default_factory=list, max_length=8)
     attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
 
 
@@ -2057,6 +2063,25 @@ def natural_target_name(req: ChatRequest, match: re.Match[str] | None) -> str:
 
 def is_followup_execution_request(message: str) -> bool:
     return bool(FOLLOWUP_EXECUTION_RE.search(message))
+
+
+def recent_natural_action_request(req: ChatRequest) -> ChatRequest | None:
+    for message in reversed(req.recentMessages):
+        role = message.role.strip().lower()
+        content = message.content.strip()
+        if role != "user" or not content or is_followup_execution_request(content):
+            continue
+
+        candidate = ChatRequest(
+            message=content,
+            pageContext=req.pageContext,
+            conversationId=req.conversationId,
+            runId=req.runId,
+        )
+        if parse_natural_action_intent(candidate):
+            return candidate
+
+    return None
 
 
 def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
@@ -6783,6 +6808,100 @@ async def chat_stream(
             ):
                 pending_plan_result = latest_pending_action_plan_result(subject)
                 if not pending_plan_result:
+                    contextual_request = recent_natural_action_request(req)
+                    if contextual_request:
+                        contextual_plan_result = await create_natural_action_plan(
+                            contextual_request,
+                            authorization,
+                            subject,
+                            incident_id=incident_id,
+                            run_id=run_id,
+                        )
+                        if contextual_plan_result:
+                            if contextual_plan_result.get("status") == "planned":
+                                yield sse(
+                                    {
+                                        "type": "tool_call",
+                                        "id": f"{request_id}-natural-action-followup",
+                                        "name": "natural_action_followup",
+                                        "summary": "최근 대화의 AIOps 조치 요청 후속 실행",
+                                    }
+                                )
+                                followup_execution_result = await execute_natural_action_plan_result(
+                                    contextual_plan_result,
+                                    authorization,
+                                    subject,
+                                )
+                                yield sse(
+                                    {
+                                        "type": "tool_result",
+                                        "detail": json.dumps(
+                                            redact_sensitive(followup_execution_result),
+                                            ensure_ascii=False,
+                                            indent=2,
+                                        ),
+                                        "id": f"{request_id}-natural-action-followup",
+                                        "name": "natural_action_followup",
+                                        "result": followup_execution_result,
+                                        "status": (
+                                            "success"
+                                            if followup_execution_result.get("status") == "executed"
+                                            else "failed"
+                                        ),
+                                        "summary": "최근 대화의 AIOps 조치 후속 실행 완료",
+                                    }
+                                )
+                                yield sse(
+                                    {
+                                        "type": "text",
+                                        "content": natural_action_execution_response(
+                                            followup_execution_result
+                                        ),
+                                    }
+                                )
+                                yield sse(
+                                    {
+                                        "type": "run_status",
+                                        "runId": run_id,
+                                        "stage": "completed",
+                                        "message": "Gateway 최근 맥락 조치 실행 완료",
+                                    }
+                                )
+                                yield sse("[DONE]")
+                                return
+
+                            yield sse(
+                                {
+                                    "type": "tool_result",
+                                    "detail": json.dumps(
+                                        redact_sensitive(contextual_plan_result),
+                                        ensure_ascii=False,
+                                        indent=2,
+                                    ),
+                                    "id": f"{request_id}-natural-action-followup",
+                                    "name": "natural_action_followup",
+                                    "result": contextual_plan_result,
+                                    "status": "failed",
+                                    "summary": "최근 대화의 AIOps 조치 대상 확인 실패",
+                                }
+                            )
+                            yield sse(
+                                {
+                                    "type": "text",
+                                    "content": natural_action_plan_response(contextual_plan_result),
+                                }
+                            )
+                            yield sse(
+                                {
+                                    "type": "run_status",
+                                    "runId": run_id,
+                                    "stage": "completed",
+                                    "message": "Gateway 최근 맥락 조치 대상 확인 실패",
+                                }
+                            )
+                            yield sse("[DONE]")
+                            return
+
                     yield sse(
                         {
                             "type": "tool_result",
