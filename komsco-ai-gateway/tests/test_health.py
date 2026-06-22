@@ -361,6 +361,9 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "상세 조회를 실제로 호출하지 않은 리소스" in query
     assert "alert 이름이나 summary만으로 원인을 단정하지 마세요" in query
     assert "status.containerStatuses와 events" in query
+    assert "정확한 Pod 이름 또는 Pod 목록 evidence에 있는 Pod" in query
+    assert "Gateway 선조회 Pod 요약만으로 원인/조치 계획을 끝내지 말고" in query
+    assert "Pod 상세의 owner가 ReplicaSet이면 해당 ReplicaSet 상세" in query
     assert "Pod 상태/재시작 분석 프로토콜" in query
     assert "CronJob/Activity 분석 프로토콜" in query
     assert "설정상 의도된 <N>분 주기" in query
@@ -377,6 +380,8 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "Pod 조치/복구 계획 프로토콜" in query
     assert "`Pod -> ReplicaSet -> Deployment`" in query
     assert "placeholder를 남기지 마세요" in query
+    assert "selector/label 기반 검증 명령도 placeholder로 남기지 마세요" in query
+    assert "Pod spec의 command/args를 조회하지 못했다면" in query
     assert "ReplicaSet 직접 수정은 권장하지 마세요" in query
     assert "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨" in query
     assert "단순 `oc delete pod` 또는 `oc rollout restart`" in query

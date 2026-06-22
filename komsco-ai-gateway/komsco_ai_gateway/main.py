@@ -3273,6 +3273,8 @@ AIOps 리소스 원인분석 라우팅:
 - alert 조회는 사용자가 "경고", "alert", "알람"을 명시했거나, 리소스 상태 조회 후 관련 경고를 보강할 때 사용하세요. "활성 alert에 없음"은 HPA, Pod, PVC, Job 장애가 없다는 뜻이 아닙니다.
 - HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 근거로 설명하세요.
 - Pod/Deployment/워크로드 이름이 주어졌지만 정확한 Pod 이름이 아니면 namespace의 Pod 목록을 먼저 조회하고, `metadata.name`, `labels.app`, ownerReferences가 질문 대상과 맞는 Pod를 선택해 상세 조회하세요.
+- 사용자가 정확한 Pod 이름 또는 Pod 목록 evidence에 있는 Pod를 지목했다면, Gateway 선조회 Pod 요약만으로 원인/조치 계획을 끝내지 말고 `apiVersion: v1`, `kind: Pod`, `namespace`, `name` 상세를 조회하세요. command/args/env/image/ownerReferences/labels/events 근거가 필요한 질문에서는 상세 조회 결과가 없다는 점을 명시하고 일반론으로 단정하지 마세요.
+- Pod 상세의 owner가 ReplicaSet이면 해당 ReplicaSet 상세를 조회해 상위 Deployment 이름을 확인하세요. Deployment 이름을 확인하지 못한 경우에는 추정한 Deployment 이름으로 조치 명령을 만들지 말고 owner chain 조회가 필요하다고 쓰세요.
 - 사용자가 Pod 재시작, rollout restart, delete pod, scale 같은 변경 요청을 했지만 대상 namespace 또는 리소스 이름이 없으면 임의로 Gateway API나 다른 동음이의어 리소스로 해석하지 마세요. "대상 미지정"으로 표시하고 `namespace`, `Pod 또는 관리 객체 이름`, 장애 증상만 요청하세요.
 - `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 근거로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
 - PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 근거로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
@@ -3305,8 +3307,10 @@ Pod 상태/재시작 분석 프로토콜:
 Pod 조치/복구 계획 프로토콜:
 - Pod가 controller-owned이면 `metadata.ownerReferences`를 따라 관리 객체를 먼저 식별하세요. `Pod -> ReplicaSet -> Deployment` 관계가 확인되면 최종 관리 객체는 Deployment로 표현하고, 조치 명령에는 확인된 정확한 `deployment/<name>`을 사용하세요.
 - 정확한 관리 객체 이름이 증거에 있는데 `<deployment-name>`, `<pod-name>` 같은 placeholder를 남기지 마세요. 이름이 없을 때만 조회 명령을 먼저 제시하세요.
+- selector/label 기반 검증 명령도 placeholder로 남기지 마세요. Pod/Deployment 상세의 `metadata.labels` 또는 Deployment selector가 확인되면 `-l app=<value>`처럼 실제 값을 쓰고, label/selector가 확인되지 않았다면 `oc get pod -n <namespace> --show-labels`로 먼저 확인하라고 쓰세요.
 - Deployment가 관리하는 Pod의 복구 계획에서 ReplicaSet 직접 수정은 권장하지 마세요. ReplicaSet은 현재 template의 산출물로 보고, 수정/롤백/rollout restart 대상은 상위 Deployment로 잡으세요.
 - `spec.containers[*].command` 또는 `args`가 즉시 종료 명령, `exit`, 실패하는 헬스 체크용 명령, 명시적 예외 발생처럼 컨테이너 종료를 직접 유발하는 증거라면 원인을 "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨"으로 우선 설명하세요. OOMKilled, probe 실패, 노드 문제 같은 일반 원인은 해당 field나 event 근거가 있을 때만 후보로 제시하세요.
+- Pod spec의 command/args를 조회하지 못했다면 "실행 명령 오류가 확인됨"이라고 쓰지 말고 "확인 필요"로 표현하세요. 반대로 command/args가 확인되면 설정값/외부 서비스/DB 같은 일반 후보보다 그 값을 먼저 근거로 제시하세요.
 - `CrashLoopBackOff`에서 단순 `oc delete pod` 또는 `oc rollout restart`는 template/image/config 문제가 그대로면 해결책이 아니라고 분리하세요. 영구 조치는 Deployment template의 command/image/env/config 수정 또는 정상 revision으로 rollback입니다.
 - 사용자가 "조치 계획"을 요청하면 `원인 확인`, `수정 또는 rollback`, `rollout 검증`, `재발 방지 확인` 순서로 쓰고, 검증에는 `oc rollout status deployment/<name> -n <namespace>`와 selector 기반 `oc get pod` 확인을 포함하세요.
 - 리소스 label/annotation/name에 test, e2e, scenario, sandbox, demo, sample 같은 비운영 신호가 있고 사용자의 문맥도 테스트/검증이면 "서비스 복구"와 별도로 "테스트 리소스 정리" 선택지를 제시하세요. 이때도 확인된 namespace와 관리 객체 이름을 사용하고, 특정 테스트 이름을 임의로 만들지 마세요.
