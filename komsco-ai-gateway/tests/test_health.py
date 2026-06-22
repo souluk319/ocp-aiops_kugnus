@@ -242,6 +242,7 @@ def test_classify_request_policy_allows_restart_count_analysis() -> None:
 
 def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> None:
     assert should_collect_pod_status_evidence("현재 클러스터의 Pod 상태와 재시작이 많은 Pod를 분석해줘")
+    assert should_collect_pod_status_evidence("파드리스트 조회해줘")
     assert should_collect_pod_status_evidence("ClusterOperator authentication 상태를 확인해줘")
     assert not should_collect_pod_status_evidence("openshift-monitoring pod 재시작해줘")
 
@@ -624,6 +625,40 @@ def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_ta
     assert "<app-label>" not in fallback
 
 
+def test_pod_list_request_fallback_returns_list_instead_of_single_pod_analysis() -> None:
+    gateway_evidence = "\n".join(
+        [
+            "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`.",
+            "Top container restart counts:",
+            "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Last Finished | Owner |",
+            "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- | :--- |",
+            "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | Running (CrashLoopBackOff) / waiting:CrashLoopBackOff | 2026-06-22T00:54:32Z | 0/1 | 158 | Error/1 | 2026-06-22T13:58:35Z | ReplicaSet/sample-crashy-6fd7d7cfd7 |",
+            "Current Pod list evidence:",
+            "Namespace filter: `team-a`",
+            "Rows shown: 2 / 2",
+            "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |",
+            "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+            "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | Running (CrashLoopBackOff) / waiting:CrashLoopBackOff | 2026-06-22T00:54:32Z | 0/1 | 158 | Error/1 | ReplicaSet/sample-crashy-6fd7d7cfd7 |",
+            "| team-a | `healthy-api-7ccbbd8c86-fs28q` | `app` | Running / running since 2026-06-22T00:54:32Z | 2026-06-22T00:54:32Z | 1/1 | 0 | - | ReplicaSet/healthy-api-7ccbbd8c86 |",
+        ]
+    )
+
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="파드리스트 조회해줘", pageContext={"namespace": "team-a"}),
+        classify_request_policy("파드리스트 조회해줘"),
+        [],
+        gateway_evidence,
+    )
+
+    assert "### Pod 목록" in fallback
+    assert "`sample-crashy-6fd7d7cfd7-r4nd0`" in fallback
+    assert "`healthy-api-7ccbbd8c86-fs28q`" in fallback
+    assert "oc get pods -n team-a" in fallback
+    assert "### 조치 계획" not in fallback
+    assert "대상 Pod를 우선 분석" not in fallback
+    assert "- 대상:" not in fallback
+
+
 def test_parse_natural_action_intent_scales_named_deployment() -> None:
     intent = parse_natural_action_intent(
         ChatRequest(message="komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드 3개로 올려줘")
@@ -911,6 +946,69 @@ def test_build_pod_status_evidence_sorts_container_restart_counts() -> None:
     assert "`manager`" in evidence
     assert evidence.index("`lightspeed-to-dataverse-exporter`") < evidence.index("`manager`")
     assert "Error/137" in evidence
+
+
+def test_build_pod_status_evidence_includes_requested_namespace_pod_list() -> None:
+    evidence = build_pod_status_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "api-a-111", "namespace": "team-a"},
+                    "status": {
+                        "phase": "Running",
+                        "startTime": "2026-06-22T00:00:00Z",
+                        "containerStatuses": [
+                            {
+                                "name": "app",
+                                "ready": True,
+                                "restartCount": 0,
+                                "state": {"running": {"startedAt": "2026-06-22T00:00:10Z"}},
+                            }
+                        ],
+                    },
+                },
+                {
+                    "metadata": {"name": "worker-a-222", "namespace": "team-a"},
+                    "status": {
+                        "phase": "Pending",
+                        "startTime": "2026-06-22T00:01:00Z",
+                        "containerStatuses": [
+                            {
+                                "name": "worker",
+                                "ready": False,
+                                "restartCount": 2,
+                                "state": {"waiting": {"reason": "ImagePullBackOff"}},
+                                "lastState": {"terminated": {"reason": "Error", "exitCode": 1}},
+                            }
+                        ],
+                    },
+                },
+                {
+                    "metadata": {"name": "api-b-333", "namespace": "team-b"},
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [
+                            {
+                                "name": "app",
+                                "ready": True,
+                                "restartCount": 0,
+                                "state": {"running": {"startedAt": "2026-06-22T00:02:00Z"}},
+                            }
+                        ],
+                    },
+                },
+            ]
+        },
+        include_pod_list=True,
+        list_namespace="team-a",
+    )
+
+    assert "Current Pod list evidence:" in evidence
+    assert "Namespace filter: `team-a`" in evidence
+    assert "Rows shown: 2 / 2" in evidence
+    assert "`api-a-111`" in evidence
+    assert "`worker-a-222`" in evidence
+    assert "`api-b-333`" not in evidence.split("Current Pod list evidence:", 1)[1]
 
 
 def test_build_pod_status_evidence_marks_failed_pod_start_time() -> None:

@@ -178,6 +178,10 @@ POD_STATUS_ANALYSIS_RE = re.compile(
     r"(deployment|deployments|디플로이먼트).*(상태|현황|확인|조회|rollout|restart|재시작|교체|replacement)|"
     r"(상태|현황|확인|조회|rollout|restart|재시작|교체|replacement).*(deployment|deployments|디플로이먼트))"
 )
+POD_LIST_REQUEST_RE = re.compile(
+    r"(?i)((pod|pods|파드).*(list|리스트|목록|전체|조회)|"
+    r"(list|리스트|목록|전체|조회).*(pod|pods|파드))"
+)
 CLUSTER_OPERATOR_ANALYSIS_RE = re.compile(
     r"(?i)(clusteroperator|cluster\s*operator|클러스터\s*오퍼레이터|operator\s+status|오퍼레이터\s*상태)"
 )
@@ -1964,6 +1968,17 @@ def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     return "read-only"
 
 
+def is_pod_list_request(message: str) -> bool:
+    return bool(POD_LIST_REQUEST_RE.search(message))
+
+
+def pod_list_namespace(req: ChatRequest) -> str:
+    match = NAMESPACE_MENTION_RE.search(req.message.lower())
+    if match:
+        return match.group("namespace")
+    return page_context_namespace(req)
+
+
 def namespace_from_natural_action(req: ChatRequest) -> str:
     match = NAMESPACE_MENTION_RE.search(req.message.lower())
     if match:
@@ -3078,6 +3093,9 @@ def pod_owner_chain_summary(
 def build_pod_status_evidence(
     pods_payload: Mapping[str, Any],
     replicasets_payload: Mapping[str, Any] | None = None,
+    *,
+    include_pod_list: bool = False,
+    list_namespace: str = "",
 ) -> str:
     items = pods_payload.get("items")
     if not isinstance(items, list):
@@ -3148,6 +3166,14 @@ def build_pod_status_evidence(
         key=lambda item: (item["restartCount"], item["lastFinishedSort"]),
         reverse=True,
     )[:10]
+    list_rows = sorted(
+        [
+            row
+            for row in rows
+            if not list_namespace or str(row.get("namespace") or "") == list_namespace
+        ],
+        key=lambda item: (str(item["namespace"]), str(item["pod"]), str(item["container"])),
+    )
 
     lines = [
         "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`.",
@@ -3189,6 +3215,29 @@ def build_pod_status_evidence(
         lines.append(
             "| - | - | - | 현재 non-healthy/waiting container가 evidence 상위권에 없음 | - | - | 0 | - | - |"
         )
+
+    if include_pod_list:
+        shown_list_rows = list_rows[:200]
+        namespace_label = list_namespace or "all-accessible-namespaces"
+        lines.extend(
+            [
+                "",
+                "Current Pod list evidence:",
+                f"Namespace filter: `{namespace_label}`",
+                f"Rows shown: {len(shown_list_rows)} / {len(list_rows)}",
+                "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |",
+                "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+            ]
+        )
+        if shown_list_rows:
+            for row in shown_list_rows:
+                lines.append(
+                    "| {namespace} | `{pod}` | `{container}` | {phase} / {state} | {podStartTime} | {ready} | {restartCount} | {lastState} | {owner} |".format(
+                        **row
+                    )
+                )
+        else:
+            lines.append("| - | - | - | 조회된 Pod 없음 | - | - | 0 | - | - |")
 
     lines.extend(
         [
@@ -4201,7 +4250,12 @@ async def fetch_ocp_json(
     return None
 
 
-async def collect_pod_status_evidence(user_auth_header: str) -> str:
+async def collect_pod_status_evidence(
+    user_auth_header: str,
+    *,
+    include_pod_list: bool = False,
+    list_namespace: str = "",
+) -> str:
     if not OPENSHIFT_API_URL:
         return "Pod status evidence unavailable: OPENSHIFT_API_URL is not configured."
 
@@ -4232,7 +4286,12 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
             "This may be a permission or API availability issue."
         )
 
-    evidence = build_pod_status_evidence(pods_payload, replicasets_payload)
+    evidence = build_pod_status_evidence(
+        pods_payload,
+        replicasets_payload,
+        include_pod_list=include_pod_list,
+        list_namespace=list_namespace,
+    )
     if deployments_payload:
         evidence = append_gateway_evidence(
             evidence,
@@ -4680,6 +4739,9 @@ def parse_gateway_pod_evidence_rows(gateway_evidence: str | None) -> list[dict[s
         if line.startswith("Currently non-healthy or waiting container evidence:"):
             section = "status"
             continue
+        if line.startswith("Current Pod list evidence:"):
+            section = "pod_list"
+            continue
         if line.startswith("Spec evidence for currently non-healthy or waiting containers:"):
             section = "spec"
             continue
@@ -4719,6 +4781,21 @@ def parse_gateway_pod_evidence_rows(gateway_evidence: str | None) -> list[dict[s
             )
             continue
 
+        if section == "pod_list" and len(cells) >= 9:
+            namespace, pod, container = cells[0], cells[1], cells[2]
+            key = (namespace, pod, container)
+            rows.setdefault(key, {"namespace": namespace, "pod": pod, "container": container}).update(
+                {
+                    "currentState": cells[3],
+                    "podStart": cells[4],
+                    "ready": cells[5],
+                    "restarts": cells[6],
+                    "lastState": cells[7],
+                    "owner": cells[8],
+                }
+            )
+            continue
+
         if section == "spec" and len(cells) >= 8:
             namespace, pod, container = cells[0], cells[1], cells[2]
             key = (namespace, pod, container)
@@ -4733,6 +4810,49 @@ def parse_gateway_pod_evidence_rows(gateway_evidence: str | None) -> list[dict[s
             )
 
     return list(rows.values())
+
+
+def parse_gateway_current_pod_list_rows(gateway_evidence: str | None) -> tuple[list[dict[str, str]], str, str]:
+    if not gateway_evidence:
+        return [], "", ""
+
+    section = ""
+    namespace_filter = ""
+    rows_shown = ""
+    rows: list[dict[str, str]] = []
+    for line in gateway_evidence.splitlines():
+        if line.startswith("Current Pod list evidence:"):
+            section = "pod_list"
+            continue
+        if section == "pod_list" and line.startswith("Namespace filter:"):
+            namespace_filter = line.split(":", 1)[1].strip().strip("`")
+            continue
+        if section == "pod_list" and line.startswith("Rows shown:"):
+            rows_shown = line.split(":", 1)[1].strip()
+            continue
+        if section == "pod_list" and line.startswith("Spec evidence for currently non-healthy or waiting containers:"):
+            section = ""
+            continue
+
+        cells = parse_markdown_table_cells(line)
+        if section != "pod_list" or len(cells) < 9:
+            continue
+
+        rows.append(
+            {
+                "namespace": cells[0],
+                "pod": cells[1],
+                "container": cells[2],
+                "currentState": cells[3],
+                "podStart": cells[4],
+                "ready": cells[5],
+                "restarts": cells[6],
+                "lastState": cells[7],
+                "owner": cells[8],
+            }
+        )
+
+    return rows, namespace_filter, rows_shown
 
 
 def kubernetes_name_terms(message: str) -> list[str]:
@@ -4816,6 +4936,92 @@ def command_suggests_immediate_exit(command: str, args: str) -> bool:
     return any(marker in text for marker in ["systemexit", "raise ", "exit ", "exit(", "false", "sys.exit"])
 
 
+def ready_summary_is_full(ready: str) -> bool:
+    match = re.fullmatch(r"\s*(\d+)\s*/\s*(\d+)\s*", ready)
+    return bool(match and match.group(1) == match.group(2))
+
+
+def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> str | None:
+    if not is_pod_list_request(req.message):
+        return None
+
+    rows, namespace_filter, rows_shown = parse_gateway_current_pod_list_rows(gateway_evidence)
+    evidence_scope = "Current Pod list evidence"
+    if not rows:
+        rows = parse_gateway_pod_evidence_rows(gateway_evidence)
+        evidence_scope = "Pod status evidence 상위 항목"
+
+    namespace = pod_list_namespace(req) or namespace_filter or "all-accessible-namespaces"
+    if namespace and namespace != "all-accessible-namespaces":
+        rows = [row for row in rows if row.get("namespace") == namespace]
+
+    if not rows:
+        return "\n".join(
+            [
+                "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
+                "",
+                "### Pod 목록",
+                f"- Namespace: `{namespace}`",
+                "- 조회된 Pod가 없습니다.",
+                "",
+                "### 확인 명령",
+                "```bash",
+                f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A",
+                "```",
+            ]
+        )
+
+    total_rows = len(rows)
+    not_ready_rows = [row for row in rows if not ready_summary_is_full(str(row.get("ready") or ""))]
+    problem_rows = [
+        row
+        for row in rows
+        if re.search(
+            r"(?i)(crashloopbackoff|imagepullbackoff|errimagepull|error|failed|pending|waiting:)",
+            " ".join(str(row.get(key, "")) for key in ("currentState", "lastState")),
+        )
+    ]
+
+    lines = [
+        "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
+        "",
+        "### 요약",
+        f"- Namespace: `{namespace}`",
+        f"- Evidence 범위: `{evidence_scope}`",
+        f"- 표시 Pod/Container row: `{total_rows}`" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
+        f"- Ready 아님: `{len(not_ready_rows)}`",
+        f"- Warning/Error 계열 상태: `{len(problem_rows)}`",
+        "",
+        "### Pod 목록",
+        "| Namespace | Pod | Container | Current State | Ready | Restarts | Last State/Exit | Owner |",
+        "| :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+    ]
+    for row in rows:
+        lines.append(
+            "| {namespace} | `{pod}` | `{container}` | {currentState} | {ready} | {restarts} | {lastState} | {owner} |".format(
+                namespace=row.get("namespace") or "-",
+                pod=row.get("pod") or "-",
+                container=row.get("container") or "-",
+                currentState=row.get("currentState") or "-",
+                ready=row.get("ready") or "-",
+                restarts=row.get("restarts") or "0",
+                lastState=row.get("lastState") or "-",
+                owner=row.get("owner") or "-",
+            )
+        )
+
+    lines.extend(
+        [
+            "",
+            "### 확인 명령",
+            "```bash",
+            f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A",
+            "```",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) -> str | None:
     rows = parse_gateway_pod_evidence_rows(gateway_evidence)
     row = choose_gateway_pod_row(rows, req.message)
@@ -4896,6 +5102,10 @@ def build_empty_answer_fallback(
 ) -> str:
     if policy.get("decision") == "action_proposal_only":
         return build_action_proposal_fallback(req, policy)
+
+    pod_list_fallback = build_pod_list_fallback(req, gateway_evidence)
+    if pod_list_fallback:
+        return pod_list_fallback
 
     pod_fallback = build_pod_evidence_fallback(req, gateway_evidence)
     if pod_fallback:
@@ -6253,7 +6463,12 @@ async def chat_stream(
                     }
                 )
                 try:
-                    pod_evidence = await collect_pod_status_evidence(authorization)
+                    pod_list_requested = is_pod_list_request(req.message)
+                    pod_evidence = await collect_pod_status_evidence(
+                        authorization,
+                        include_pod_list=pod_list_requested,
+                        list_namespace=pod_list_namespace(req) if pod_list_requested else "",
+                    )
                     evidence_status = (
                         "skipped"
                         if pod_evidence.startswith("Pod status evidence unavailable:")
