@@ -1771,6 +1771,11 @@ def test_chat_stream_pod_count_question_directly_investigates_cluster(monkeypatc
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)
+        event_names = [
+            event.get("name")
+            for event in events
+            if isinstance(event, dict) and event.get("type") in {"tool_call", "tool_result"}
+        ]
         pod_count_results = [
             event
             for event in events
@@ -1778,6 +1783,14 @@ def test_chat_stream_pod_count_question_directly_investigates_cluster(monkeypatc
             and event.get("type") == "tool_result"
             and event.get("name") == "pod_count_investigation"
         ]
+        for expected_name in [
+            "pod_count_scope_resolve",
+            "pod_count_deployment_lookup",
+            "pod_count_pod_lookup",
+            "pod_count_selector_match",
+            "pod_count_investigation",
+        ]:
+            assert expected_name in event_names
         assert pod_count_results
         assert pod_count_results[0]["status"] == "success"
         assert pod_count_results[0]["result"]["rows"][0]["totalPods"] == 3
