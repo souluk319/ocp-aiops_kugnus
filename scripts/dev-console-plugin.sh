@@ -12,9 +12,13 @@ GATEWAY_PORT="${GATEWAY_PORT:-18080}"
 GATEWAY_ENDPOINT="${GATEWAY_ENDPOINT:-http://localhost:${GATEWAY_PORT}}"
 INSTALL_DEPS="${INSTALL_DEPS:-false}"
 PLUGIN_LOG="${PLUGIN_LOG:-${ROOT_DIR}/.dev-console-plugin-webpack.log}"
+CONSOLE_LOG="${CONSOLE_LOG:-${ROOT_DIR}/.dev-console-plugin-console.log}"
+CONSOLE_TOKEN_CHECK_INTERVAL="${CONSOLE_TOKEN_CHECK_INTERVAL:-60}"
+CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://127.0.0.1:${CONSOLE_PORT}/api/kubernetes/version}"
 
 PLUGIN_PID=""
 CONSOLE_PID=""
+TOKEN_FINGERPRINT=""
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -44,18 +48,97 @@ wait_for_port() {
   return 1
 }
 
+wait_for_port_closed() {
+  local host="$1"
+  local port="$2"
+  local attempts="${3:-80}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if ! port_open "$host" "$port"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+
+  return 1
+}
+
 kill_tree() {
   local pid="$1"
   if [ -z "$pid" ] || ! kill -0 "$pid" >/dev/null 2>&1; then
     return
   fi
 
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -TERM -P "$pid" >/dev/null 2>&1 || true
+  local descendants=()
+  if command -v pgrep >/dev/null 2>&1; then
+    mapfile -t descendants < <(descendant_pids "$pid")
   fi
 
+  if [ "${#descendants[@]}" -gt 0 ]; then
+    kill -TERM "${descendants[@]}" >/dev/null 2>&1 || true
+  fi
   kill "$pid" >/dev/null 2>&1 || true
   wait "$pid" >/dev/null 2>&1 || true
+}
+
+descendant_pids() {
+  local parent="$1"
+  local child
+
+  while IFS= read -r child; do
+    descendant_pids "$child"
+    echo "$child"
+  done < <(pgrep -P "$parent" 2>/dev/null || true)
+}
+
+current_token_fingerprint() {
+  if ! oc whoami >/dev/null 2>&1; then
+    return 1
+  fi
+
+  oc whoami --show-token 2>/dev/null | sha256sum | awk '{print $1}'
+}
+
+console_health_status() {
+  curl -ksS -o /dev/null -w "%{http_code}" --max-time 10 "$CONSOLE_HEALTH_URL" 2>/dev/null || true
+}
+
+start_console() {
+  TOKEN_FINGERPRINT="$(current_token_fingerprint || true)"
+  if [ -z "$TOKEN_FINGERPRINT" ]; then
+    echo "oc login이 필요합니다. VPN/hosts 설정 후 oc login을 먼저 수행하세요." >&2
+    return 1
+  fi
+
+  if port_open "127.0.0.1" "$CONSOLE_PORT"; then
+    echo "Console port ${CONSOLE_PORT} is already in use. Stop the old local console bridge first." >&2
+    return 1
+  fi
+
+  printf '[%s] Starting local console bridge with current oc token\n' "$(date -Is)" >>"$CONSOLE_LOG"
+  yarn start-console >>"$CONSOLE_LOG" 2>&1 &
+  CONSOLE_PID="$!"
+
+  if ! wait_for_port "127.0.0.1" "$CONSOLE_PORT"; then
+    echo "Console bridge failed. Log: $CONSOLE_LOG" >&2
+    cat "$CONSOLE_LOG" >&2
+    return 1
+  fi
+
+  echo "Console bridge log: $CONSOLE_LOG"
+}
+
+restart_console() {
+  local reason="$1"
+
+  echo "Restarting local console bridge: ${reason}"
+  kill_tree "$CONSOLE_PID"
+  CONSOLE_PID=""
+  if ! wait_for_port_closed "127.0.0.1" "$CONSOLE_PORT"; then
+    echo "Console port ${CONSOLE_PORT} is still open after restart request." >&2
+    return 1
+  fi
+  start_console
 }
 
 cleanup() {
@@ -66,6 +149,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 require_cmd oc
+require_cmd curl
 require_cmd yarn
 
 if ! oc whoami >/dev/null 2>&1; then
@@ -108,6 +192,31 @@ export BRIDGE_PLUGIN_PROXY
 echo "Gateway proxy endpoint: ${GATEWAY_ENDPOINT}"
 echo "Console URL: http://localhost:${CONSOLE_PORT}"
 
-yarn start-console &
-CONSOLE_PID="$!"
-wait "$CONSOLE_PID"
+start_console
+
+while true; do
+  sleep "$CONSOLE_TOKEN_CHECK_INTERVAL"
+
+  if [ -n "$CONSOLE_PID" ] && ! kill -0 "$CONSOLE_PID" >/dev/null 2>&1; then
+    wait "$CONSOLE_PID" >/dev/null 2>&1 || true
+    restart_console "console process exited"
+    continue
+  fi
+
+  next_fingerprint="$(current_token_fingerprint || true)"
+  if [ -z "$next_fingerprint" ]; then
+    echo "oc login is not valid. Refresh oc login; the bridge will restart after a valid token is available." >&2
+    continue
+  fi
+
+  if [ "$next_fingerprint" != "$TOKEN_FINGERPRINT" ]; then
+    restart_console "oc token changed"
+    continue
+  fi
+
+  health_status="$(console_health_status)"
+  if [ "$health_status" = "401" ] || [ "$health_status" = "403" ]; then
+    restart_console "Kubernetes API returned HTTP ${health_status}"
+    continue
+  fi
+done
