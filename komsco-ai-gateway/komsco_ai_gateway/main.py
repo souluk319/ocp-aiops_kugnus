@@ -3302,6 +3302,16 @@ Pod 상태/재시작 분석 프로토콜:
 - `ImagePullBackOff` 또는 `ErrImagePull`은 `status.containerStatuses[*].state.waiting.message`와 Events를 최우선 근거로 삼고, catalog/marketplace 성격의 Pod라면 관련 `CatalogSource` 상태와 image registry 접근성도 확인 항목에 포함하세요.
 - 최종 답변 표에는 가능한 경우 `Namespace`, `Pod`, `Container`, `현재 상태`, `Ready`, `Restart Count`, `Last State/Exit`, `마지막 종료 시각`, `근거`를 포함하세요.
 
+Pod 조치/복구 계획 프로토콜:
+- Pod가 controller-owned이면 `metadata.ownerReferences`를 따라 관리 객체를 먼저 식별하세요. `Pod -> ReplicaSet -> Deployment` 관계가 확인되면 최종 관리 객체는 Deployment로 표현하고, 조치 명령에는 확인된 정확한 `deployment/<name>`을 사용하세요.
+- 정확한 관리 객체 이름이 증거에 있는데 `<deployment-name>`, `<pod-name>` 같은 placeholder를 남기지 마세요. 이름이 없을 때만 조회 명령을 먼저 제시하세요.
+- Deployment가 관리하는 Pod의 복구 계획에서 ReplicaSet 직접 수정은 권장하지 마세요. ReplicaSet은 현재 template의 산출물로 보고, 수정/롤백/rollout restart 대상은 상위 Deployment로 잡으세요.
+- `spec.containers[*].command` 또는 `args`가 즉시 종료 명령, `exit`, 실패하는 헬스 체크용 명령, 명시적 예외 발생처럼 컨테이너 종료를 직접 유발하는 증거라면 원인을 "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨"으로 우선 설명하세요. OOMKilled, probe 실패, 노드 문제 같은 일반 원인은 해당 field나 event 근거가 있을 때만 후보로 제시하세요.
+- `CrashLoopBackOff`에서 단순 `oc delete pod` 또는 `oc rollout restart`는 template/image/config 문제가 그대로면 해결책이 아니라고 분리하세요. 영구 조치는 Deployment template의 command/image/env/config 수정 또는 정상 revision으로 rollback입니다.
+- 사용자가 "조치 계획"을 요청하면 `원인 확인`, `수정 또는 rollback`, `rollout 검증`, `재발 방지 확인` 순서로 쓰고, 검증에는 `oc rollout status deployment/<name> -n <namespace>`와 selector 기반 `oc get pod` 확인을 포함하세요.
+- 리소스 label/annotation/name에 test, e2e, scenario, sandbox, demo, sample 같은 비운영 신호가 있고 사용자의 문맥도 테스트/검증이면 "서비스 복구"와 별도로 "테스트 리소스 정리" 선택지를 제시하세요. 이때도 확인된 namespace와 관리 객체 이름을 사용하고, 특정 테스트 이름을 임의로 만들지 마세요.
+- 로그가 이미 없거나 `--previous` 조회가 실패해도 Pod spec의 command/args, current state, lastState, events가 원인을 충분히 설명하면 그 근거를 우선 사용하세요. 로그 확인은 보조 검증으로만 표시하세요.
+
 OpenShift 경고 분석 프로토콜:
 - 사용자가 "최근 경고", "alert", "우선 확인 항목"을 묻는 경우 먼저 active alert 목록을 조회하세요.
 - 주요 alert별 상세 조사는 아래 순서를 따르세요. 해당 상세 조회가 실패하면 실패 사실과 이유를 답변에 포함하고, 확인하지 못한 원인은 추정으로만 표현하세요.

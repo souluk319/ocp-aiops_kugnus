@@ -374,6 +374,14 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "과거 실패 Pod 이력, 현재 Operator 상태는 정상" in query
     assert "CatalogSource" in query
     assert "--previous" in query
+    assert "Pod 조치/복구 계획 프로토콜" in query
+    assert "`Pod -> ReplicaSet -> Deployment`" in query
+    assert "placeholder를 남기지 마세요" in query
+    assert "ReplicaSet 직접 수정은 권장하지 마세요" in query
+    assert "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨" in query
+    assert "단순 `oc delete pod` 또는 `oc rollout restart`" in query
+    assert "서비스 복구" in query
+    assert "테스트 리소스 정리" in query
     assert "Extension APIs" in query
     assert "Admission plugins" in query
     assert "oc logs를 우선 명령으로 제시하지 말고" in query
