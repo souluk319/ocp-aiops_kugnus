@@ -21,6 +21,8 @@ load_env_files() {
   load_env_file "${ROOT_DIR}/.env"
   load_env_file "${ROOT_DIR}/.env.local"
   OPENSHIFT_API_SERVER="${OPENSHIFT_API_SERVER:-${OPENSHIFT_SERVER:-}}"
+  OPENSHIFT_USERNAME="${OPENSHIFT_USERNAME:-${OPENSHIFT_USER:-}}"
+  OPENSHIFT_PASSWORD="${OPENSHIFT_PASSWORD:-${OPENSHIFT_PASS:-}}"
 }
 
 load_env_files
@@ -148,15 +150,26 @@ oc_login_from_env() {
   oc whoami >/dev/null
 }
 
-run_relogin_command() {
-  local reason="$1"
+has_relogin_credentials() {
+  [ -n "${OPENSHIFT_API_SERVER:-}" ] && [ -n "${OPENSHIFT_USERNAME:-}" ] && [ -n "${OPENSHIFT_PASSWORD:-}" ]
+}
 
-  if [ -z "${OPENSHIFT_RELOGIN_COMMAND:-}" ]; then
+oc_login_from_credentials() {
+  if ! has_relogin_credentials; then
     return 1
   fi
 
-  echo "Refreshing oc login: ${reason}"
-  bash -lc "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null
+  local login_args=(
+    login
+    "--server=${OPENSHIFT_API_SERVER}"
+    "--username=${OPENSHIFT_USERNAME}"
+    "--password=${OPENSHIFT_PASSWORD}"
+  )
+  if is_truthy "$OPENSHIFT_INSECURE_SKIP_TLS_VERIFY"; then
+    login_args+=(--insecure-skip-tls-verify=true)
+  fi
+
+  oc "${login_args[@]}" >/dev/null
 
   if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
     oc project "$OPENSHIFT_NAMESPACE" >/dev/null
@@ -165,16 +178,35 @@ run_relogin_command() {
   oc whoami >/dev/null
 }
 
+run_relogin_command() {
+  local reason="$1"
+
+  echo "Refreshing oc login: ${reason}"
+
+  if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ]; then
+    bash -lc "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null
+
+    if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
+      oc project "$OPENSHIFT_NAMESPACE" >/dev/null
+    fi
+
+    oc whoami >/dev/null
+    return $?
+  fi
+
+  oc_login_from_credentials
+}
+
 ensure_oc_login() {
   load_env_files
 
-  if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ]; then
+  if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ] || has_relogin_credentials; then
     if oc whoami >/dev/null 2>&1; then
       return 0
     fi
 
     if ! run_relogin_command "current oc login is invalid"; then
-      echo "OPENSHIFT_RELOGIN_COMMAND did not produce a valid oc login." >&2
+      echo "OPENSHIFT_RELOGIN_COMMAND or OPENSHIFT_USERNAME/PASSWORD did not produce a valid oc login." >&2
       return 1
     fi
     return 0

@@ -26,9 +26,10 @@ OpenShift Console bridge on `http://localhost:9000`. It expects the gateway from
 The bridge uses the current `oc` token at startup. If the token expires, the
 root dev script validates the API session and restarts the bridge only after a
 valid token is available. For unattended local refresh, set
-`OPENSHIFT_RELOGIN_COMMAND` in `.env.local` to a command that performs `oc login`
-and returns a valid `oc whoami`; a static `OPENSHIFT_TOKEN` alone cannot be
-renewed after expiration.
+`OPENSHIFT_USERNAME`/`OPENSHIFT_PASSWORD` in `.env.local`, or set
+`OPENSHIFT_RELOGIN_COMMAND` to a command that performs `oc login` and returns a
+valid `oc whoami`. A static `OPENSHIFT_TOKEN` alone cannot be renewed after
+expiration.
 
 The chat composer supports PNG, JPEG, WebP, and GIF attachments through file
 selection, paste, or drag-and-drop. Attached images are shown as previews in the

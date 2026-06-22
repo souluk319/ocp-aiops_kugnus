@@ -55,10 +55,12 @@ The local console bridge captures the current `oc` bearer token when it starts.
 If that token expires, `task fe:dev` validates the token with the API server and
 stops/restarts the bridge instead of keeping a broken `401 Unauthorized` console
 session alive. A static `.env.local` `OPENSHIFT_TOKEN` is not refreshable by
-itself; replace it when it expires, or configure a local-only
-`OPENSHIFT_RELOGIN_COMMAND` that can run `oc login` and produce a fresh valid
-session. When that command is configured, the dev loop runs it after token/health
-failures, verifies `oc whoami`, and restarts the bridge with the new token.
+itself; replace it when it expires, or configure local-only
+`OPENSHIFT_USERNAME`/`OPENSHIFT_PASSWORD` credentials. For custom SSO flows,
+configure `OPENSHIFT_RELOGIN_COMMAND` to run `oc login` and produce a fresh valid
+session. When either relogin source is configured, the dev loop uses it after
+token/health failures, verifies `oc whoami`, and restarts the bridge with the
+new token.
 
 The assistant supports image attachments in the local chat UI. The gateway
 validates image type and size, optionally runs a gateway-side vision
