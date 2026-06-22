@@ -143,6 +143,8 @@ oc_login_from_env() {
   if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
     oc project "$OPENSHIFT_NAMESPACE" >/dev/null
   fi
+
+  oc whoami >/dev/null
 }
 
 ensure_oc_login() {
@@ -160,9 +162,13 @@ ensure_oc_login() {
     current_fingerprint="$(token_fingerprint "$current_token" 2>/dev/null || true)"
     env_fingerprint="$(token_fingerprint "$OPENSHIFT_TOKEN" 2>/dev/null || true)"
     if [ -z "$current_fingerprint" ] || [ "$current_fingerprint" != "$env_fingerprint" ]; then
-      oc_login_from_env
+      if ! oc_login_from_env; then
+        echo "OPENSHIFT_TOKEN in .env/.env.local is not accepted by the API server. Refresh it or remove it and run oc login manually." >&2
+        return 1
+      fi
     fi
-    return 0
+    oc whoami >/dev/null
+    return $?
   fi
 
   oc whoami >/dev/null 2>&1
@@ -173,6 +179,7 @@ current_token_fingerprint() {
     return 1
   fi
 
+  oc whoami >/dev/null
   oc whoami --show-token 2>/dev/null | sha256sum | awk '{print $1}'
 }
 

@@ -11,6 +11,11 @@ PLUGIN_NAME=${npm_package_consolePlugin_name:-komsco-ai-console-plugin}
 
 echo "Starting local OpenShift console..."
 
+if ! oc whoami >/dev/null; then
+    echo "OpenShift login is not valid. Refresh oc login before starting the local console." >&2
+    exit 1
+fi
+
 BRIDGE_USER_AUTH="disabled"
 BRIDGE_K8S_MODE="off-cluster"
 BRIDGE_K8S_AUTH="bearer-token"
