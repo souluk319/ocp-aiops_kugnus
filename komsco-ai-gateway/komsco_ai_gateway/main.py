@@ -4243,6 +4243,239 @@ def build_action_proposal_fallback(req: ChatRequest, policy: Mapping[str, Any]) 
     )
 
 
+def parse_markdown_table_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return []
+    cells = [cell.strip().replace("\\|", "|") for cell in stripped.strip("|").split("|")]
+    if not cells or all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
+        return []
+    if cells[0].lower() == "namespace":
+        return []
+    return [cell.strip("`") for cell in cells]
+
+
+def parse_gateway_pod_evidence_rows(gateway_evidence: str | None) -> list[dict[str, str]]:
+    if not gateway_evidence:
+        return []
+
+    section = ""
+    rows: dict[tuple[str, str, str], dict[str, str]] = {}
+    for line in gateway_evidence.splitlines():
+        if line.startswith("Top container restart counts:"):
+            section = "status_with_finished"
+            continue
+        if line.startswith("Currently non-healthy or waiting container evidence:"):
+            section = "status"
+            continue
+        if line.startswith("Spec evidence for currently non-healthy or waiting containers:"):
+            section = "spec"
+            continue
+
+        cells = parse_markdown_table_cells(line)
+        if not cells:
+            continue
+
+        if section == "status_with_finished" and len(cells) >= 10:
+            namespace, pod, container = cells[0], cells[1], cells[2]
+            key = (namespace, pod, container)
+            rows.setdefault(key, {"namespace": namespace, "pod": pod, "container": container}).update(
+                {
+                    "currentState": cells[3],
+                    "podStart": cells[4],
+                    "ready": cells[5],
+                    "restarts": cells[6],
+                    "lastState": cells[7],
+                    "lastFinished": cells[8],
+                    "owner": cells[9],
+                }
+            )
+            continue
+
+        if section == "status" and len(cells) >= 9:
+            namespace, pod, container = cells[0], cells[1], cells[2]
+            key = (namespace, pod, container)
+            rows.setdefault(key, {"namespace": namespace, "pod": pod, "container": container}).update(
+                {
+                    "currentState": cells[3],
+                    "podStart": cells[4],
+                    "ready": cells[5],
+                    "restarts": cells[6],
+                    "lastState": cells[7],
+                    "owner": cells[8],
+                }
+            )
+            continue
+
+        if section == "spec" and len(cells) >= 8:
+            namespace, pod, container = cells[0], cells[1], cells[2]
+            key = (namespace, pod, container)
+            rows.setdefault(key, {"namespace": namespace, "pod": pod, "container": container}).update(
+                {
+                    "image": cells[3],
+                    "command": cells[4],
+                    "args": cells[5],
+                    "labels": cells[6],
+                    "ownerChain": cells[7],
+                }
+            )
+
+    return list(rows.values())
+
+
+def kubernetes_name_terms(message: str) -> list[str]:
+    ignored = {
+        "namespace",
+        "deployment",
+        "statefulset",
+        "daemonset",
+        "crashloopbackoff",
+        "openshift",
+    }
+    terms: list[str] = []
+    for match in re.finditer(r"\b[a-z0-9](?:[-a-z0-9]{2,61}[a-z0-9])?\b", message.lower()):
+        term = match.group(0)
+        if len(term) < 4 or term in ignored:
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms
+
+
+def score_gateway_pod_row(row: Mapping[str, str], message: str) -> int:
+    message_lower = message.lower()
+    haystack = " ".join(str(row.get(key, "")).lower() for key in row)
+    score = 0
+    if row.get("namespace", "").lower() in message_lower:
+        score += 3
+    if row.get("pod", "").lower() in message_lower:
+        score += 30
+    if row.get("container", "").lower() in message_lower:
+        score += 5
+    for term in kubernetes_name_terms(message):
+        if term and term in haystack:
+            score += 10
+    if "crash" in message_lower and "crashloopbackoff" in haystack:
+        score += 5
+    if "waiting:" in row.get("currentState", "").lower() or "crashloopbackoff" in haystack:
+        score += 2
+    return score
+
+
+def choose_gateway_pod_row(rows: list[dict[str, str]], message: str) -> dict[str, str] | None:
+    if not rows:
+        return None
+    scored = sorted(
+        ((score_gateway_pod_row(row, message), index, row) for index, row in enumerate(rows)),
+        key=lambda item: (item[0], -item[1]),
+        reverse=True,
+    )
+    if scored[0][0] > 0:
+        return scored[0][2]
+    for row in rows:
+        if "crashloopbackoff" in " ".join(row.values()).lower() or "waiting:" in row.get("currentState", "").lower():
+            return row
+    return rows[0]
+
+
+def deployment_from_owner_chain(owner_chain: str) -> str | None:
+    match = re.search(r"Deployment/([A-Za-z0-9._-]+)", owner_chain)
+    return match.group(1) if match else None
+
+
+def app_label_from_labels(labels: str) -> str | None:
+    match = re.search(r"(?:^|,\s*)app=([^,\s]+)", labels)
+    return match.group(1) if match else None
+
+
+def looks_non_production_context(row: Mapping[str, str]) -> bool:
+    text = " ".join(
+        [
+            row.get("pod", ""),
+            row.get("labels", ""),
+            row.get("ownerChain", ""),
+        ]
+    ).lower()
+    return bool(re.search(r"\b(test|e2e|scenario|sandbox|demo|sample)\b", text))
+
+
+def command_suggests_immediate_exit(command: str, args: str) -> bool:
+    text = f"{command} {args}".lower()
+    return any(marker in text for marker in ["systemexit", "raise ", "exit ", "exit(", "false", "sys.exit"])
+
+
+def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) -> str | None:
+    rows = parse_gateway_pod_evidence_rows(gateway_evidence)
+    row = choose_gateway_pod_row(rows, req.message)
+    if not row:
+        return None
+
+    namespace = row.get("namespace") or "unknown"
+    pod = row.get("pod") or "unknown"
+    container = row.get("container") or "unknown"
+    state = row.get("currentState") or "-"
+    ready = row.get("ready") or "-"
+    restarts = row.get("restarts") or "-"
+    last_state = row.get("lastState") or "-"
+    last_finished = row.get("lastFinished") or "-"
+    image = row.get("image") or "-"
+    command = row.get("command") or "-"
+    args = row.get("args") or "-"
+    labels = row.get("labels") or "-"
+    owner_chain = row.get("ownerChain") or row.get("owner") or "-"
+    deployment = deployment_from_owner_chain(owner_chain)
+    app_label = app_label_from_labels(labels)
+
+    cause = "컨테이너가 `CrashLoopBackOff`/waiting 상태이며 마지막 종료 상태와 restart count가 확인됩니다."
+    if command != "-" and command_suggests_immediate_exit(command, args):
+        cause = "컨테이너 실행 명령/args가 프로세스의 즉시 종료를 유발하는 형태로 확인됩니다."
+
+    lines = [
+        "Live 조회는 완료됐지만 모델의 최종 요약 텍스트가 비어 있어 Gateway가 수집 증거로 요약했습니다.",
+        "",
+        "### 분석 요약",
+        f"- 대상: `{namespace}` / Pod `{pod}` / Container `{container}`",
+        f"- 현재 상태: {state}, Ready `{ready}`, restart count `{restarts}`",
+        f"- 마지막 종료: `{last_state}`" + (f", `{last_finished}`" if last_finished != "-" else ""),
+        f"- 원인 근거: {cause}",
+        f"- 이미지: `{image}`",
+        f"- Command: `{command}`",
+        f"- Args: `{args}`",
+        f"- 관리 객체: `{owner_chain}`",
+    ]
+
+    lines.extend(["", "### 조치 계획"])
+    if deployment:
+        lines.append(
+            f"- 단순 Pod 삭제나 rollout restart만으로는 같은 template이 다시 실행되어 재발할 수 있습니다. "
+            f"`deployment/{deployment}`의 command/args/image/env/config 또는 정상 revision을 수정 대상으로 잡으세요."
+        )
+    else:
+        lines.append(
+            "- 상위 Deployment가 Gateway evidence에서 확정되지 않았습니다. Pod owner chain을 먼저 확인한 뒤 관리 객체를 대상으로 수정하세요."
+        )
+    if looks_non_production_context(row) and deployment:
+        lines.append(f"- 테스트/시나리오 리소스라면 정리 선택지: `oc delete deployment {deployment} -n {namespace}`")
+
+    lines.extend(["", "### 검증 명령"])
+    if deployment:
+        lines.append("```bash")
+        lines.append(f"oc rollout status deployment/{deployment} -n {namespace}")
+        if app_label:
+            lines.append(f"oc get pod -n {namespace} -l app={app_label}")
+        else:
+            lines.append(f"oc get pod -n {namespace} --show-labels")
+        lines.append(f"oc logs {pod} -n {namespace} -c {container} --previous --tail=120")
+        lines.append("```")
+    else:
+        lines.append("```bash")
+        lines.append(f"oc get pod {pod} -n {namespace} -o yaml")
+        lines.append(f"oc get rs -n {namespace} --show-labels")
+        lines.append("```")
+
+    return "\n".join(lines)
+
+
 def build_empty_answer_fallback(
     req: ChatRequest,
     policy: Mapping[str, Any],
@@ -4251,6 +4484,10 @@ def build_empty_answer_fallback(
 ) -> str:
     if policy.get("decision") == "action_proposal_only":
         return build_action_proposal_fallback(req, policy)
+
+    pod_fallback = build_pod_evidence_fallback(req, gateway_evidence)
+    if pod_fallback:
+        return pod_fallback
 
     lines = [
         "Live 조회는 완료됐지만 모델의 최종 요약 텍스트가 비어 있어 Gateway가 안전한 요약을 생성했습니다.",

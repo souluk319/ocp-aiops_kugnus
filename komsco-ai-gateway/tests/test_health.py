@@ -508,6 +508,44 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "ClusterOperator" in fallback
 
 
+def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_table() -> None:
+    policy = classify_request_policy(
+        "team-a 네임스페이스의 sample-crashy 파드가 왜 장애인지 분석하고 조치 계획을 제안해줘"
+    )
+    gateway_evidence = "\n".join(
+        [
+            "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`.",
+            "x" * 2500,
+            "Currently non-healthy or waiting container evidence:",
+            "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |",
+            "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+            "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | Running (CrashLoopBackOff) / waiting:CrashLoopBackOff | 2026-06-22T00:54:32Z | 0/1 | 9 | Error/1 | ReplicaSet/sample-crashy-6fd7d7cfd7 |",
+            "Spec evidence for currently non-healthy or waiting containers:",
+            "Use command/args/image/labels below as concrete evidence for root-cause and remediation planning.",
+            "| Namespace | Pod | Container | Image | Command | Args | Pod Labels | Owner Chain |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+            "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | registry.example.com/team-a/sample-crashy:v2 | [\"python\", \"-c\", \"raise SystemExit('boom')\"] | - | app=sample-crashy, aiops.komsco/scenario=sample, pod-template-hash=6fd7d7cfd7 | ReplicaSet/sample-crashy-6fd7d7cfd7 -> Deployment/sample-crashy |",
+        ]
+    )
+
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="team-a 네임스페이스의 sample-crashy 파드가 왜 장애인지 분석하고 조치 계획을 제안해줘"),
+        policy,
+        [],
+        gateway_evidence,
+    )
+
+    assert "... truncated ..." not in fallback
+    assert "Gateway 사전 수집 증거" not in fallback
+    assert "sample-crashy-6fd7d7cfd7-r4nd0" in fallback
+    assert "raise SystemExit('boom')" in fallback
+    assert "즉시 종료" in fallback
+    assert "`deployment/sample-crashy`" in fallback
+    assert "oc rollout status deployment/sample-crashy -n team-a" in fallback
+    assert "oc get pod -n team-a -l app=sample-crashy" in fallback
+    assert "<app-label>" not in fallback
+
+
 def test_cronjob_activity_evidence_trigger_for_15_minute_activity() -> None:
     assert should_collect_cronjob_activity_evidence("여기 15분 단위로 이러는데 맞아?")
     assert should_collect_cronjob_activity_evidence("notebook-cleaner CronJob 이 정상인지 확인해줘")
