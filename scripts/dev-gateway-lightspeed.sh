@@ -15,7 +15,8 @@ OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
 PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
 PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
-ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-false}"
+ACTION_EXECUTOR="${ACTION_EXECUTOR:-off}"
+ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-}"
 ACTION_EXECUTOR_NAMESPACE="${ACTION_EXECUTOR_NAMESPACE:-komsco-ai-dev}"
 ACTION_EXECUTOR_SERVICE="${ACTION_EXECUTOR_SERVICE:-komsco-ai-action-executor}"
 ACTION_EXECUTOR_SERVICE_PORT="${ACTION_EXECUTOR_SERVICE_PORT:-8080}"
@@ -24,6 +25,7 @@ ACTION_EXECUTOR_PF_LOG="${ACTION_EXECUTOR_PF_LOG:-${ROOT_DIR}/.dev-action-execut
 
 PF_SUPERVISOR_PID=""
 ACTION_EXECUTOR_PF_PID=""
+ACTION_EXECUTOR_ENABLED="false"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -51,6 +53,21 @@ wait_for_port() {
   done
 
   return 1
+}
+
+normalize_bool_option() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|y|on|enable|enabled)
+      printf 'true'
+      ;;
+    ""|0|false|no|n|off|disable|disabled)
+      printf 'false'
+      ;;
+    *)
+      echo "Invalid boolean option: $1. Use on/off or true/false." >&2
+      exit 1
+      ;;
+  esac
 }
 
 log_port_forward() {
@@ -140,6 +157,11 @@ trap cleanup EXIT INT TERM
 require_cmd oc
 require_cmd python3
 
+ACTION_EXECUTOR_ENABLED="$(normalize_bool_option "$ACTION_EXECUTOR")"
+if [ -n "$ACTION_EXECUTOR_PORT_FORWARD" ]; then
+  ACTION_EXECUTOR_ENABLED="$(normalize_bool_option "$ACTION_EXECUTOR_PORT_FORWARD")"
+fi
+
 if ! oc whoami >/dev/null 2>&1; then
   echo "oc login이 필요합니다. VPN/hosts 설정 후 oc login을 먼저 수행하세요." >&2
   exit 1
@@ -160,7 +182,7 @@ fi
 echo "Lightspeed endpoint supervised: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
 echo "Port-forward log: $PF_LOG"
 
-if [ "$ACTION_EXECUTOR_PORT_FORWARD" = "true" ]; then
+if [ "$ACTION_EXECUTOR_ENABLED" = "true" ]; then
   oc -n "$ACTION_EXECUTOR_NAMESPACE" get "svc/${ACTION_EXECUTOR_SERVICE}" >/dev/null
   : > "$ACTION_EXECUTOR_PF_LOG"
   if port_open "$GATEWAY_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
@@ -201,9 +223,14 @@ export OLS_CA_FILE="${OLS_CA_FILE:-false}"
 export OPENSHIFT_API_URL="${OPENSHIFT_API_URL:-$(oc whoami --show-server)}"
 export OPENSHIFT_API_CA_FILE="${OPENSHIFT_API_CA_FILE:-false}"
 export KOMSCO_AI_SECURITY_PHASE="${KOMSCO_AI_SECURITY_PHASE:-phase5-action-execution}"
-export KOMSCO_AI_ENABLE_MUTATIONS="${KOMSCO_AI_ENABLE_MUTATIONS:-false}"
+if [ "$ACTION_EXECUTOR_ENABLED" = "true" ]; then
+  export KOMSCO_AI_ENABLE_MUTATIONS="${KOMSCO_AI_ENABLE_MUTATIONS:-true}"
+else
+  export KOMSCO_AI_ENABLE_MUTATIONS="${KOMSCO_AI_ENABLE_MUTATIONS:-false}"
+fi
 
 echo "Gateway URL: http://${GATEWAY_HOST}:${GATEWAY_PORT}"
+echo "ACTION_EXECUTOR: ${ACTION_EXECUTOR_ENABLED}"
 echo "OLS_BASE_URL: ${OLS_BASE_URL}"
 echo "OLS_CA_FILE: ${OLS_CA_FILE}"
 echo "OPENSHIFT_API_URL: ${OPENSHIFT_API_URL}"
