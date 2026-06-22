@@ -6,7 +6,7 @@
 
 자연어 멀티턴 요청이 OpenShift AIOps 동작으로 이어지는지 검증했다. 특히 다음 조건을 확인했다.
 
-- 직전 턴 맥락과 `진행해` 후속 명령을 결합해 실행한다.
+- 3턴, 4턴, 5턴 대화 맥락과 `진행해` 후속 명령을 결합해 실행한다.
 - 장애 Pod 처리, Deployment scale/restart, rollback, HPA bounds, host diagnostics 흐름을 typed action 또는 안전한 증거 수집 경로로 분리한다.
 - 실행 가능한 요청은 Gateway ActionProposal/SealedActionPlan/Approval/Action Executor 경로를 사용한다.
 - 대상이 불명확한 변경 요청은 OLS 일반 분석으로 넘기지 않고 Gateway에서 중단한다.
@@ -23,7 +23,7 @@
 - 한국어 mutation 분류 보강
   - `퇴거`, `교체`, `재생성` 계열 요청을 action proposal 경로로 분류
 - 멀티턴 회귀 테스트 보강
-  - 최근 사용자 요청 + `진행해` 후속 실행
+  - 3턴/4턴/5턴 사용자 대화 + `진행해` 후속 실행
   - 실행 가능한 action과 안전 중단/읽기 전용 증거 수집 10개 시나리오 매트릭스
 
 ## 샘플 상황 10개
@@ -31,7 +31,7 @@
 | ID | 상황 | 요청 예 | 기대 동작 | 검증 근거 |
 | :--- | :--- | :--- | :--- | :--- |
 | S01 | 명시적 Deployment scale | `team-a 네임스페이스의 web-api 파드 4개로 올려줘` | `set_replicas_within_bounds` intent 생성 | `test_agentic_action_scenario_matrix_parses_typed_actions` |
-| S02 | 멀티턴 후속 scale | 직전 요청 후 `진행해` | 최근 user 요청 복원 후 scale action 실행 | unit test + live `/tmp/aiops-s01-contextual-scale.sse` |
+| S02 | 멀티턴 후속 scale | 3턴/4턴/5턴 대화 후 `진행해` | 최근 user action 요청을 역추적해 실행 | `test_chat_stream_unrestricted_followup_uses_3_4_5_turn_contexts` + live `/tmp/aiops-s01-contextual-scale.sse` |
 | S03 | Deployment 화면 기준 restart | Deployment 상세 화면에서 `재시작해줘` | pageContext의 Deployment를 `rollout_restart_deployment`로 실행 | unit test + live `/tmp/aiops-s02-rollout-restart.sse` |
 | S04 | bad rollout rollback | `deployment/web-api revision 2로 롤백해줘` | `rollback_deployment_to_revision` intent 생성 | `test_parse_natural_action_intent_accepts_agentic_action_variants` |
 | S05 | 장애 Pod 교체 | `pod/web-api-abc 교체해줘` | controller-owned unhealthy Pod eviction action 생성 | unit test + live `/tmp/aiops-s03-pod-eviction.sse` |
@@ -66,6 +66,24 @@
 - Mutation: `mutation_succeeded`
 - Verification: `verified / scale_spec_matches`
 - observedReplicas: `3`
+
+### L01-B. 3/4/5턴 후속 실행 회귀 테스트
+
+검증한 대화 형태:
+
+- 3 user-turn: 조치 요청 -> 위험도 확인 -> `진행해`
+- 4 user-turn: 조치 요청 -> revision 확인 -> 영향도 확인 -> `진행해`
+- 5 user-turn: 조치 요청 -> 대상 확인 -> 파라미터 확인 -> 운영 영향 확인 -> `진행해`
+
+결과:
+
+- Gateway `/v1/chat/stream` 경로에서 모두 `natural_action_followup` 반환
+- OLS `lightspeed_stream` 호출 없음
+- 가장 최근의 실행 가능한 user action 요청만 복원
+- action 종류별 복원 확인:
+  - 3턴: `set_replicas_within_bounds`
+  - 4턴: `rollback_deployment_to_revision`
+  - 5턴: `set_hpa_bounds`
 
 ### L02. Deployment rollout restart 실행
 
@@ -119,6 +137,18 @@ python3 -m pytest -q komsco-ai-gateway/tests/test_health.py -k "agentic_action_s
 12 passed, 104 deselected
 ```
 
+3/4/5턴 후속 실행 테스트:
+
+```bash
+python3 -m pytest -q komsco-ai-gateway/tests/test_health.py -k "3_4_5_turn_contexts or followup_uses_recent_user_action_context"
+```
+
+결과:
+
+```text
+4 passed, 115 deselected
+```
+
 전체 회귀 테스트:
 
 ```bash
@@ -128,7 +158,7 @@ python3 -m pytest -q komsco-ai-gateway/tests/test_health.py
 결과:
 
 ```text
-116 passed, 2 warnings
+119 passed, 2 warnings
 ```
 
 프론트 빌드:
@@ -147,7 +177,7 @@ webpack 5.105.4 compiled successfully
 
 완료로 판정한 범위:
 
-- 멀티턴 `진행해`가 직전 사용자 변경 요청을 복원해 실행한다.
+- 멀티턴 `진행해`가 3턴/4턴/5턴 대화 속 이전 사용자 변경 요청을 복원해 실행한다.
 - Deployment scale/restart는 라이브 클러스터에서 Action Executor까지 실행됐다.
 - 장애 Pod eviction은 라이브 클러스터에서 Action Executor까지 실행됐다.
 - rollback/HPA bounds는 자연어 intent 및 target kind별 ActionPlan 생성 경로가 자동 테스트로 검증됐다.

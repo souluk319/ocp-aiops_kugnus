@@ -1444,6 +1444,163 @@ def test_chat_stream_unrestricted_followup_uses_recent_user_action_context(monke
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(
+    ("scenario_id", "recent_messages", "expected_action_message"),
+    [
+        (
+            "3-user-turn",
+            [
+                {
+                    "role": "user",
+                    "content": "team-a 네임스페이스의 web-api 파드 4개로 올려줘",
+                },
+                {
+                    "role": "assistant",
+                    "content": "조치 계획을 생성했습니다. 승인하시겠습니까?",
+                },
+                {"role": "user", "content": "위험도도 같이 봐줘"},
+                {"role": "assistant", "content": "중간 위험도이며 승인 후 실행 가능합니다."},
+            ],
+            "team-a 네임스페이스의 web-api 파드 4개로 올려줘",
+        ),
+        (
+            "4-user-turn",
+            [
+                {
+                    "role": "user",
+                    "content": "team-a 네임스페이스의 deployment/web-api revision 2로 롤백해줘",
+                },
+                {
+                    "role": "assistant",
+                    "content": "rollback_deployment_to_revision 계획을 만들 수 있습니다.",
+                },
+                {"role": "user", "content": "리비전 2 대상이 맞는지 다시 설명해줘"},
+                {"role": "assistant", "content": "대상은 team-a/web-api revision 2입니다."},
+                {"role": "user", "content": "서비스 영향은?"},
+                {"role": "assistant", "content": "rollout 과정에서 일시적인 replacement가 발생할 수 있습니다."},
+            ],
+            "team-a 네임스페이스의 deployment/web-api revision 2로 롤백해줘",
+        ),
+        (
+            "5-user-turn",
+            [
+                {
+                    "role": "user",
+                    "content": "team-a 네임스페이스의 hpa/web-hpa 최소 2 최대 8로 변경해줘",
+                },
+                {
+                    "role": "assistant",
+                    "content": "set_hpa_bounds 계획을 만들 수 있습니다.",
+                },
+                {"role": "user", "content": "대상 HPA 이름 다시 말해줘"},
+                {"role": "assistant", "content": "대상은 team-a/web-hpa입니다."},
+                {"role": "user", "content": "최소 최대 값도 다시 확인해줘"},
+                {"role": "assistant", "content": "minReplicas 2, maxReplicas 8입니다."},
+                {"role": "user", "content": "운영 영향은?"},
+                {"role": "assistant", "content": "autoscaling bounds 변경으로 scale range가 달라집니다."},
+            ],
+            "team-a 네임스페이스의 hpa/web-hpa 최소 2 최대 8로 변경해줘",
+        ),
+    ],
+)
+def test_chat_stream_unrestricted_followup_uses_3_4_5_turn_contexts(
+    monkeypatch,
+    scenario_id: str,
+    recent_messages: list[dict[str, str]],
+    expected_action_message: str,
+) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+    created_from_messages: list[str] = []
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_create_natural_action_plan(req, *_args, **_kwargs):
+        created_from_messages.append(req.message)
+        intent = parse_natural_action_intent(req)
+        assert intent, scenario_id
+        return {
+            "intent": dict(intent),
+            "parameters": dict(intent["parameters"]),
+            "planDigest": f"sha256:{scenario_id}",
+            "planId": f"plan-{scenario_id}",
+            "proposalId": f"proposal-{scenario_id}",
+            "risk": "medium",
+            "status": "planned",
+            "target": {
+                "apiVersion": intent.get("apiVersion"),
+                "kind": intent.get("kind"),
+                "namespace": intent.get("namespace"),
+                "name": intent.get("targetName"),
+                "uid": f"uid-{scenario_id}",
+            },
+        }
+
+    async def fake_execute_natural_action_plan_result(plan_result, *_args, **_kwargs):
+        return {
+            "approvalId": f"approval-{scenario_id}",
+            "executionId": f"execution-{scenario_id}",
+            "mutationOutcome": {"status": "mutation_succeeded", "reason": "typed_action_executed"},
+            "plan": dict(plan_result),
+            "remediationOutcome": {"status": "verified", "reason": "scenario_verified"},
+            "status": "executed",
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError(f"OLS must not be called for {scenario_id} contextual followup execution")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
+    monkeypatch.setattr(
+        gateway_main,
+        "execute_natural_action_plan_result",
+        fake_execute_natural_action_plan_result,
+    )
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "진행해",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                    "recentMessages": recent_messages,
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        followup_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_followup"
+        ]
+        assert followup_results, scenario_id
+        assert followup_results[0]["status"] == "success"
+        assert "scenario_verified" in response.text
+        assert "lightspeed_stream" not in response.text
+        assert created_from_messages == [expected_action_message]
+
+    asyncio.run(run())
+
+
 def test_chat_stream_unparsed_mutation_request_does_not_fall_through_to_ols(monkeypatch) -> None:
     async def fake_subject_review(_user_auth_header: str) -> dict:
         return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
