@@ -62,7 +62,7 @@ type Message = {
   progressSteps?: ProgressStep[];
 };
 
-type AiopsExecutionMode = 'read-only' | 'execute';
+type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';
 
 type ProgressStatus = 'running' | 'completed' | 'failed';
 
@@ -1204,9 +1204,46 @@ const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolean =>
       status.spec.capabilities.actionExecutorConfigured,
   );
 
+const canUseUnrestrictedCommands = (status: AiopsRuntimeStatus | null): boolean =>
+  Boolean(status?.spec.capabilities.unrestrictedCommandsEnabled);
+
+const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
+  mode === 'execute' || mode === 'unrestricted';
+
+const getExecutionModeLabel = (mode: AiopsExecutionMode): string => {
+  if (mode === 'unrestricted') {
+    return 'UI 실험 무제한';
+  }
+  if (mode === 'execute') {
+    return 'UI 실행 가능';
+  }
+  return 'UI 읽기 전용';
+};
+
+const getExecutionModeTone = (mode: AiopsExecutionMode): 'ok' | 'review' | 'danger' => {
+  if (mode === 'unrestricted') {
+    return 'danger';
+  }
+  if (mode === 'execute') {
+    return 'review';
+  }
+  return 'ok';
+};
+
+const getComposerModeLabel = (mode: AiopsExecutionMode): string => {
+  if (mode === 'unrestricted') {
+    return '실험 무제한 · /exec 직접 실행';
+  }
+  if (mode === 'execute') {
+    return '실행 가능 · 승인 후 변경 수행';
+  }
+  return '읽기 전용 · 조치 계획/실행 차단';
+};
+
 const renderExecutionModeToggle = (
   executionMode: AiopsExecutionMode,
   actionExecutionAvailable: boolean,
+  unrestrictedAvailable: boolean,
   onExecutionModeChange: (mode: AiopsExecutionMode) => void,
 ) => (
   <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
@@ -1237,6 +1274,23 @@ const renderExecutionModeToggle = (
     >
       <TerminalIcon />
       실행 가능
+    </button>
+    <button
+      aria-pressed={executionMode === 'unrestricted'}
+      className={`komsco-ai__mode-toggle-button${
+        executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
+      }`}
+      disabled={!unrestrictedAvailable}
+      onClick={() => onExecutionModeChange('unrestricted')}
+      title={
+        unrestrictedAvailable
+          ? '/exec 명령을 Gateway 로컬 권한으로 직접 실행합니다.'
+          : 'Gateway 실험용 무제한 명령 실행이 꺼져 있습니다.'
+      }
+      type="button"
+    >
+      <ExclamationTriangleIcon />
+      실험 무제한
     </button>
   </div>
 );
@@ -1362,8 +1416,8 @@ const getAiopsRecordAction = (
   const records = aiopsStatus?.spec.records;
   const modeDisabledReason = !canUseActionExecution(aiopsStatus)
     ? 'Gateway 실행 기능 미구성'
-    : executionMode !== 'execute'
-      ? '실행 가능 모드 선택 필요'
+    : !executionModeAllowsActions(executionMode)
+      ? '실행 가능 또는 실험 무제한 모드 선택 필요'
       : '';
   const withModeGate = (action: AiopsRecordAction): AiopsRecordAction =>
     modeDisabledReason
@@ -1489,6 +1543,7 @@ const renderContextStrip = (
   loading: boolean,
   executionMode: AiopsExecutionMode,
   actionExecutionAvailable: boolean,
+  unrestrictedAvailable: boolean,
   onExecutionModeChange: (mode: AiopsExecutionMode) => void,
 ) => (
   <div className="komsco-ai__context-strip">
@@ -1504,7 +1559,12 @@ const renderContextStrip = (
       <ExclamationTriangleIcon />
       {summary ? getOperatorIssueLabel(summary) : '클러스터 상태'}
     </span>
-    {renderExecutionModeToggle(executionMode, actionExecutionAvailable, onExecutionModeChange)}
+    {renderExecutionModeToggle(
+      executionMode,
+      actionExecutionAvailable,
+      unrestrictedAvailable,
+      onExecutionModeChange,
+    )}
   </div>
 );
 
@@ -1663,8 +1723,14 @@ const renderInsightRail = (
           aiopsStatus?.spec.capabilities.mutationsEnabled ? 'review' : 'neutral',
         )}
         {renderStatusTag(
-          executionMode === 'execute' ? 'UI 실행 가능' : 'UI 읽기 전용',
-          executionMode === 'execute' ? 'review' : 'ok',
+          getExecutionModeLabel(executionMode),
+          getExecutionModeTone(executionMode),
+        )}
+        {renderStatusTag(
+          aiopsStatus?.spec.capabilities.unrestrictedCommandsEnabled
+            ? 'Unrestricted on'
+            : 'Unrestricted off',
+          aiopsStatus?.spec.capabilities.unrestrictedCommandsEnabled ? 'danger' : 'neutral',
         )}
         {renderStatusTag(
           aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'Ledger on' : 'Ledger off',
@@ -1740,12 +1806,16 @@ const AssistantLauncher: React.FC = () => {
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
+  const unrestrictedAvailable = canUseUnrestrictedCommands(aiopsStatus);
 
   React.useEffect(() => {
     if (!actionExecutionAvailable && executionMode === 'execute') {
       setExecutionMode('read-only');
     }
-  }, [actionExecutionAvailable, executionMode]);
+    if (!unrestrictedAvailable && executionMode === 'unrestricted') {
+      setExecutionMode('read-only');
+    }
+  }, [actionExecutionAvailable, executionMode, unrestrictedAvailable]);
 
   const handleExecutionModeChange = React.useCallback(
     (mode: AiopsExecutionMode) => {
@@ -1753,11 +1823,15 @@ const AssistantLauncher: React.FC = () => {
         setAiopsActionError('Gateway Action Executor가 연결되어야 실행 가능 모드를 선택할 수 있습니다.');
         return;
       }
+      if (mode === 'unrestricted' && !unrestrictedAvailable) {
+        setAiopsActionError('Gateway 실험용 무제한 명령 실행이 켜져야 선택할 수 있습니다.');
+        return;
+      }
 
       setAiopsActionError('');
       setExecutionMode(mode);
     },
-    [actionExecutionAvailable],
+    [actionExecutionAvailable, unrestrictedAvailable],
   );
 
   React.useEffect(() => {
@@ -1863,8 +1937,8 @@ const AssistantLauncher: React.FC = () => {
       if (action.disabledReason) {
         return;
       }
-      if (executionMode !== 'execute') {
-        setAiopsActionError('실행 가능 모드를 선택해야 승인·실행할 수 있습니다.');
+      if (!executionModeAllowsActions(executionMode)) {
+        setAiopsActionError('실행 가능 또는 실험 무제한 모드를 선택해야 승인·실행할 수 있습니다.');
         return;
       }
 
@@ -2456,6 +2530,7 @@ const AssistantLauncher: React.FC = () => {
             clusterSummaryLoading,
             executionMode,
             actionExecutionAvailable,
+            unrestrictedAvailable,
             handleExecutionModeChange,
           )}
 
@@ -2649,9 +2724,7 @@ const AssistantLauncher: React.FC = () => {
                 </div>
                 <div className="komsco-ai__composer-foot">
                   <span className="komsco-ai__read-only">
-                    {executionMode === 'execute'
-                      ? '실행 가능 · 승인 후 변경 수행'
-                      : '읽기 전용 · 조치 계획/실행 차단'}
+                    {getComposerModeLabel(executionMode)}
                   </span>
                   <span>Enter 전송 · Shift+Enter 줄바꿈</span>
                 </div>

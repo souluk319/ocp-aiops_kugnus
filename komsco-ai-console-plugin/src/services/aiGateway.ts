@@ -87,6 +87,7 @@ export type AiopsRuntimeStatus = {
       mutationsEnabled: boolean;
       recordStoreConfigMap?: string;
       recordStoreEnabled: boolean;
+      unrestrictedCommandsEnabled?: boolean;
     };
     records: {
       actionProposals: AiopsRecord[];

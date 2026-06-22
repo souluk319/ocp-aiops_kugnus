@@ -29,9 +29,13 @@ Task:
 task be:dev
 ```
 
-`task be:dev` asks which mode to run: `읽기 전용` for analysis/planning only,
-or `실행 가능` to submit approved typed actions through the cluster Action
-Executor.
+`task be:dev` asks which mode to run:
+
+- `읽기 전용`: analysis/planning only.
+- `실행 가능`: submit approved typed actions through the cluster Action
+  Executor.
+- `실험 무제한`: local lab mode that also enables explicit `/exec <command>`
+  requests to run with the Gateway process privileges.
 
 In another terminal:
 
@@ -42,10 +46,12 @@ task fe:dev
 `task be:dev` port-forwards
 `openshift-lightspeed/lightspeed-app-server:8443` to `127.0.0.1:18443` and
 runs the FastAPI gateway on `http://127.0.0.1:18080` with `OLS_BASE_URL` pointing
-at that local Lightspeed endpoint. In `실행 가능` mode, the same task also
-port-forwards the cluster `komsco-ai-action-executor:8080` service to the local
-gateway, sets `KOMSCO_AI_ENABLE_MUTATIONS=true`, and is intended for controlled
-demos of the approval/execution path.
+at that local Lightspeed endpoint. In `실행 가능` and `실험 무제한` modes, the
+same task also port-forwards the cluster `komsco-ai-action-executor:8080`
+service to the local gateway and sets `KOMSCO_AI_ENABLE_MUTATIONS=true`.
+`실험 무제한` additionally sets `KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS=true`
+and is intended only for disposable local labs where direct host command
+execution is acceptable.
 
 `task fe:dev` starts the plugin webpack dev server on `http://127.0.0.1:9001`
 and then starts the local OpenShift Console bridge on `http://localhost:9000`.

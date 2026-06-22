@@ -72,6 +72,7 @@ from komsco_ai_gateway.main import (
     parse_bool,
     parse_natural_action_intent,
     parse_ols_verify,
+    parse_unrestricted_chat_command,
     normalize_console_page_context,
     normalize_controller_phase,
     product_access_review_status,
@@ -128,6 +129,147 @@ def test_parse_ols_verify() -> None:
     assert parse_ols_verify("/var/run/configmaps/service-ca/service-ca.crt") == (
         "/var/run/configmaps/service-ca/service-ca.crt"
     )
+
+
+def parse_sse_events(body: str) -> list[dict | str]:
+    events: list[dict | str] = []
+    for frame in body.split("\n\n"):
+        data_lines = [
+            line[len("data:") :].strip()
+            for line in frame.splitlines()
+            if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        raw = "\n".join(data_lines)
+        events.append("[DONE]" if raw == "[DONE]" else json.loads(raw))
+    return events
+
+
+def test_page_context_aiops_execution_mode_accepts_unrestricted_aliases() -> None:
+    assert (
+        page_context_aiops_execution_mode(
+            ChatRequest(
+                message="명령 실행",
+                pageContext={"aiopsExecutionMode": "unrestricted"},
+            )
+        )
+        == "unrestricted"
+    )
+    assert (
+        page_context_aiops_execution_mode(
+            ChatRequest(
+                message="명령 실행",
+                pageContext={"aiopsExecutionMode": "실험"},
+            )
+        )
+        == "unrestricted"
+    )
+
+
+def test_parse_unrestricted_chat_command_requires_explicit_prefix() -> None:
+    assert parse_unrestricted_chat_command("/exec printf ok") == "printf ok"
+    assert parse_unrestricted_chat_command("실행: ```bash\nprintf ok\n```") == "printf ok"
+    assert parse_unrestricted_chat_command("파드 목록 조회해줘") == ""
+
+
+def test_unrestricted_command_endpoint_requires_feature_flag(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}
+
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", False)
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/dev/commands/execute",
+                headers={"Authorization": "Bearer test-token"},
+                json={"command": "printf should-not-run"},
+            )
+
+        assert response.status_code == 403
+
+    asyncio.run(run())
+
+
+def test_unrestricted_command_endpoint_executes_when_enabled(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}
+
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", "/root/project/ocp-aiops")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/dev/commands/execute",
+                headers={"Authorization": "Bearer test-token"},
+                json={"command": "printf aiops-unrestricted-ok", "timeoutSeconds": 5},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "UnrestrictedCommandExecution"
+        assert payload["spec"]["exitCode"] == 0
+        assert payload["spec"]["stdout"] == "aiops-unrestricted-ok"
+        assert payload["spec"]["timedOut"] is False
+
+    asyncio.run(run())
+
+
+def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", "/root/project/ocp-aiops")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "/exec printf chat-unrestricted-ok",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        command_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "unrestricted_command"
+        ]
+        text_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        ]
+        assert command_results
+        assert command_results[0]["status"] == "success"
+        assert "chat-unrestricted-ok" in command_results[0]["detail"]
+        assert any("chat-unrestricted-ok" in event.get("content", "") for event in text_events)
+
+    asyncio.run(run())
 
 
 def test_normalize_console_page_context_extracts_namespaced_resource() -> None:

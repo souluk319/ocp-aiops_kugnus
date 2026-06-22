@@ -138,6 +138,17 @@ RUNBOOK_MAX_RECORDS = int(os.getenv("KOMSCO_AI_RUNBOOK_MAX_RECORDS", "1000"))
 BREAK_GLASS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_BREAK_GLASS_ENABLED"), default=False)
 BREAK_GLASS_MAX_RECORDS = int(os.getenv("KOMSCO_AI_BREAK_GLASS_MAX_RECORDS", "1000"))
 BREAK_GLASS_IMAGE_DIGEST = os.getenv("KOMSCO_AI_BREAK_GLASS_IMAGE_DIGEST", "")
+UNRESTRICTED_COMMANDS_ENABLED = parse_bool(
+    os.getenv("KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS"),
+    default=False,
+)
+UNRESTRICTED_COMMAND_CWD = os.getenv("KOMSCO_AI_UNRESTRICTED_COMMAND_CWD", os.getcwd())
+UNRESTRICTED_COMMAND_TIMEOUT_SECONDS = int(
+    os.getenv("KOMSCO_AI_UNRESTRICTED_COMMAND_TIMEOUT_SECONDS", "60")
+)
+UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES = int(
+    os.getenv("KOMSCO_AI_UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES", "20000")
+)
 TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
     ("Tool call:", "tool_call"),
     ("Tool result:", "tool_result"),
@@ -1910,6 +1921,12 @@ class ActionExecutionCreate(StrictBaseModel):
     expectedPlanDigest: str = Field(min_length=1, max_length=128)
 
 
+class UnrestrictedCommandExecuteCreate(StrictBaseModel):
+    command: str = Field(min_length=1, max_length=8000)
+    cwd: str | None = Field(default=None, max_length=1000)
+    timeoutSeconds: int | None = Field(default=None, ge=1, le=3600)
+
+
 class RunbookPlanCreate(StrictBaseModel):
     runbookId: str = Field(min_length=1, max_length=160)
     incidentId: str | None = Field(default=None, max_length=120)
@@ -1963,9 +1980,31 @@ def page_context_resource_name(req: ChatRequest) -> str:
 def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
     mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
+    if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
+        return "unrestricted"
     if mode in {"execute", "execution", "execution-enabled", "enabled"}:
         return "execute"
     return "read-only"
+
+
+def execution_mode_allows_actions(req: ChatRequest) -> bool:
+    return page_context_aiops_execution_mode(req) in {"execute", "unrestricted"}
+
+
+UNRESTRICTED_COMMAND_PREFIX_RE = re.compile(
+    r"(?is)^\s*(?:/exec|exec:|run:|command:|명령\s*실행:|실행:)\s+(?P<command>.+?)\s*$"
+)
+
+
+def parse_unrestricted_chat_command(message: str) -> str:
+    match = UNRESTRICTED_COMMAND_PREFIX_RE.match(message)
+    if not match:
+        return ""
+    command = match.group("command").strip()
+    if command.startswith("```") and command.endswith("```"):
+        command = re.sub(r"^```[A-Za-z0-9_-]*\s*", "", command)
+        command = re.sub(r"\s*```$", "", command).strip()
+    return command
 
 
 def is_pod_list_request(message: str) -> bool:
@@ -5144,6 +5183,138 @@ def build_empty_answer_fallback(
     return "\n".join(lines)
 
 
+def truncate_unrestricted_output(value: bytes) -> tuple[str, bool]:
+    truncated = len(value) > UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES
+    if truncated:
+        value = value[:UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES]
+    text = value.decode("utf-8", errors="replace")
+    return redact_sensitive(text), truncated
+
+
+def unrestricted_command_timeout(requested_timeout: int | None) -> int:
+    default_timeout = max(1, min(UNRESTRICTED_COMMAND_TIMEOUT_SECONDS, 3600))
+    if requested_timeout is None:
+        return default_timeout
+    return max(1, min(int(requested_timeout), 3600))
+
+
+def unrestricted_command_cwd(requested_cwd: str | None = None) -> str:
+    cwd = requested_cwd or UNRESTRICTED_COMMAND_CWD or os.getcwd()
+    return os.path.abspath(os.path.expanduser(cwd))
+
+
+async def execute_unrestricted_command_request(
+    req: UnrestrictedCommandExecuteCreate,
+    subject: Mapping[str, Any],
+    *,
+    request_id: str | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    if not UNRESTRICTED_COMMANDS_ENABLED:
+        raise HTTPException(status_code=403, detail="Experimental unrestricted command execution is disabled")
+
+    command = req.command.strip()
+    if not command:
+        raise HTTPException(status_code=400, detail="Command is empty")
+
+    cwd = unrestricted_command_cwd(req.cwd)
+    if not os.path.isdir(cwd):
+        raise HTTPException(status_code=400, detail=f"Command cwd does not exist: {cwd}")
+    timeout_seconds = unrestricted_command_timeout(req.timeoutSeconds)
+    started_at = time.monotonic()
+    proc = await asyncio.create_subprocess_shell(
+        command,
+        cwd=cwd,
+        executable="/bin/bash",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    timed_out = False
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        timed_out = True
+        proc.kill()
+        stdout_bytes, stderr_bytes = await proc.communicate()
+
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    stdout_text, stdout_truncated = truncate_unrestricted_output(stdout_bytes)
+    stderr_text, stderr_truncated = truncate_unrestricted_output(stderr_bytes)
+    exit_code = proc.returncode if proc.returncode is not None else -1
+    result = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "UnrestrictedCommandExecution",
+        "metadata": {
+            "name": f"unrestricted-command-{uuid.uuid4().hex[:16]}",
+            "createdAt": now_rfc3339(),
+        },
+        "spec": {
+            "command": redact_sensitive(command),
+            "cwd": cwd,
+            "durationMs": duration_ms,
+            "exitCode": exit_code,
+            "requestId": request_id or "",
+            "runId": run_id or "",
+            "stderr": stderr_text,
+            "stderrTruncated": stderr_truncated,
+            "stdout": stdout_text,
+            "stdoutTruncated": stdout_truncated,
+            "subject": redact_sensitive(dict(subject)),
+            "timedOut": timed_out,
+            "timeoutSeconds": timeout_seconds,
+            "warning": "Experimental dev-only unrestricted command execution ran with Gateway local process privileges.",
+        },
+    }
+    log_audit_record(
+        build_trace_record(
+            action="unrestricted_command_executed",
+            incident_id="dev-unrestricted",
+            policy={
+                "schemaVersion": "v1",
+                "phase": "experimental-unrestricted-command",
+                "decision": "executed",
+                "mutationAllowed": True,
+                "risk": "unrestricted",
+                "reason": "User selected experimental unrestricted mode.",
+            },
+            request_id=request_id or f"req-{uuid.uuid4()}",
+            run_id=run_id or f"run-{uuid.uuid4()}",
+            subject=subject,
+            target={
+                "command": redact_sensitive(command),
+                "cwd": cwd,
+                "durationMs": duration_ms,
+                "exitCode": exit_code,
+                "timedOut": timed_out,
+            },
+        )
+    )
+    return result
+
+
+def unrestricted_command_response(result: Mapping[str, Any]) -> str:
+    spec = result.get("spec") if isinstance(result.get("spec"), Mapping) else {}
+    stdout_text = str(spec.get("stdout") or "")
+    stderr_text = str(spec.get("stderr") or "")
+    lines = [
+        "실험용 무제한 명령 실행 결과입니다.",
+        "",
+        f"- Command: `{spec.get('command') or ''}`",
+        f"- CWD: `{spec.get('cwd') or ''}`",
+        f"- Exit code: `{spec.get('exitCode')}`",
+        f"- Duration: `{spec.get('durationMs')}ms`",
+        f"- Timed out: `{spec.get('timedOut')}`",
+        "",
+        "### stdout",
+        "```text",
+        stdout_text or "(empty)",
+        "```",
+    ]
+    if stderr_text:
+        lines.extend(["", "### stderr", "```text", stderr_text, "```"])
+    return "\n".join(lines)
+
+
 def append_query(path: str, query: Mapping[str, str]) -> str:
     separator = "&" if "?" in path else "?"
     encoded = "&".join(f"{key}={value}" for key, value in query.items())
@@ -5665,6 +5836,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 "diagnosticsEnabled": DIAGNOSTICS_ENABLED,
                 "diagnosticsControllerConfigured": bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
                 "actionExecutorConfigured": bool(ACTION_EXECUTOR_URL),
+                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
                 "recordStoreEnabled": RECORD_STORE_ENABLED,
                 "recordStoreConfigMap": RECORD_STORE_CONFIGMAP if RECORD_STORE_ENABLED else "",
             },
@@ -5912,6 +6084,16 @@ async def execute_action(
         "metadata": record["metadata"],
         "spec": record["spec"],
     }
+
+
+@app.post("/v1/dev/commands/execute")
+async def execute_unrestricted_command(
+    req: UnrestrictedCommandExecuteCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    return await execute_unrestricted_command_request(req, subject)
 
 
 @app.get("/v1/runbooks/registry")
@@ -6162,7 +6344,8 @@ async def chat_stream(
                     "detail": (
                         "UserToken은 Gateway 내부와 OLS forwarding에만 사용합니다.\n"
                         "Agent/Model prompt, audit payload, evidence event에는 redacted metadata만 전달합니다.\n"
-                        "Mutation은 Approval API와 Action Executor 경로에서만 실행합니다."
+                        "Mutation은 Approval API와 Action Executor 경로에서만 실행합니다.\n"
+                        "실험용 무제한 명령은 KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS=true이고 UI가 unrestricted 모드일 때 `/exec` 접두어로만 실행합니다."
                     ),
                     "id": f"{request_id}-security-boundary",
                     "name": "security_boundary",
@@ -6288,9 +6471,49 @@ async def chat_stream(
                 }
             )
 
+            unrestricted_command = parse_unrestricted_chat_command(req.message)
+            if page_context_aiops_execution_mode(req) == "unrestricted" and unrestricted_command:
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-unrestricted-command",
+                        "name": "unrestricted_command",
+                        "summary": "실험용 무제한 명령 실행",
+                    }
+                )
+                command_result = await execute_unrestricted_command_request(
+                    UnrestrictedCommandExecuteCreate(command=unrestricted_command),
+                    subject,
+                    request_id=request_id,
+                    run_id=run_id,
+                )
+                spec = command_result["spec"]
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(redact_sensitive(spec), ensure_ascii=False, indent=2),
+                        "id": f"{request_id}-unrestricted-command",
+                        "name": "unrestricted_command",
+                        "result": command_result,
+                        "status": "failed" if spec.get("exitCode") else "success",
+                        "summary": f"명령 종료 코드 {spec.get('exitCode')}",
+                    }
+                )
+                yield sse({"type": "text", "content": unrestricted_command_response(command_result)})
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway 실험용 명령 실행 완료",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
             if policy.get("decision") == "action_proposal_only":
                 natural_action_intent = parse_natural_action_intent(req)
-                if natural_action_intent and page_context_aiops_execution_mode(req) != "execute":
+                if natural_action_intent and not execution_mode_allows_actions(req):
                     yield sse(
                         {
                             "type": "tool_result",
