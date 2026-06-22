@@ -944,6 +944,8 @@ def test_page_context_aiops_execution_mode_accepts_execute() -> None:
     ("message", "expected_namespace", "expected_target", "expected_replicas"),
     [
         ("team-a 네임스페이스의 web-api 파드 5개로 올려줘", "team-a", "web-api", 5),
+        ("6:cis 파드 3개로 올려줘", "6", "cis", 3),
+        ("komsco-ai-dev/worker 2 replicas로 설정", "komsco-ai-dev", "worker", 2),
         ("batch-worker를 1개로 줄여줘", "prod-a", "batch-worker", 1),
         ("deployment/payment-api 7개로 scale", "payments", "payment-api", 7),
         ("`edge-gateway` pods 4 replicas로 설정", "edge", "edge-gateway", 4),
@@ -1026,6 +1028,55 @@ def test_parse_natural_action_intent_accepts_restart_variants(
     assert intent["toolName"] == "rollout_restart_deployment"
     assert intent["namespace"] == expected_namespace
     assert intent["targetName"] == expected_target
+
+
+def test_chat_stream_unrestricted_followup_without_plan_stays_in_gateway(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "승인",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        followup_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_followup"
+        ]
+        assert followup_results
+        assert followup_results[0]["status"] == "skipped"
+        assert "실행할 Gateway AIOps Action Plan이 없습니다" in response.text
+        assert "lightspeed_stream" not in response.text
+
+    asyncio.run(run())
 
 
 def test_cronjob_activity_evidence_trigger_for_15_minute_activity() -> None:

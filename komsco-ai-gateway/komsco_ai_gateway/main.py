@@ -209,6 +209,7 @@ SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credentia
 K8S_NAME_RE = r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?"
 NAMESPACE_MENTION_RE = re.compile(rf"\b(?P<namespace>{K8S_NAME_RE})\s*네임스페이스")
 DEPLOYMENT_RESOURCE_RE = re.compile(rf"\b(?:deployment|deploy|디플로이먼트)/(?P<name>{K8S_NAME_RE})\b", re.IGNORECASE)
+NAMESPACED_RESOURCE_SHORTHAND_RE = re.compile(rf"\b(?P<namespace>{K8S_NAME_RE})[:/](?P<name>{K8S_NAME_RE})\b")
 BACKTICK_RESOURCE_RE = re.compile(r"`(?P<name>[A-Za-z0-9._-]+)`")
 SCALE_INTENT_RE = re.compile(
     rf"(?P<name>{K8S_NAME_RE})\s*(?:파드|pod|pods|deployment|deploy)?\s*(?:를|을|은|는)?\s*"
@@ -227,6 +228,7 @@ RESTART_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 RESTART_REQUEST_RE = re.compile(r"(?:재시작|리스타트|restart|rollout\s+restart)", re.IGNORECASE)
+FOLLOWUP_EXECUTION_RE = re.compile(r"^\s*(?:승인|실행|진행|수행|적용|yes|ok|확인)\s*[.!?。]*\s*$", re.IGNORECASE)
 POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("재시작 빈도", "누적 재시작 횟수"),
     ("높은 빈도", "높은 누적 재시작 횟수"),
@@ -2024,6 +2026,9 @@ def namespace_from_natural_action(req: ChatRequest) -> str:
     match = NAMESPACE_MENTION_RE.search(req.message.lower())
     if match:
         return match.group("namespace")
+    shorthand_match = NAMESPACED_RESOURCE_SHORTHAND_RE.search(req.message.lower())
+    if shorthand_match and shorthand_match.group("namespace") not in {"deployment", "deploy", "디플로이먼트"}:
+        return shorthand_match.group("namespace")
     return page_context_namespace(req)
 
 
@@ -2039,9 +2044,16 @@ def natural_target_name(req: ChatRequest, match: re.Match[str] | None) -> str:
     backtick_name = first_backtick_name(req.message)
     if backtick_name:
         return backtick_name
+    shorthand_match = NAMESPACED_RESOURCE_SHORTHAND_RE.search(req.message.lower())
+    if shorthand_match:
+        return shorthand_match.group("name")
     if match and "name" in match.groupdict():
         return match.group("name")
     return page_context_resource_name(req)
+
+
+def is_followup_execution_request(message: str) -> bool:
+    return bool(FOLLOWUP_EXECUTION_RE.search(message))
 
 
 def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
@@ -2187,6 +2199,74 @@ def natural_action_plan_response(result: Mapping[str, Any]) -> str:
             "",
             "### 다음 단계",
             f"- {next_step}",
+        ]
+    )
+
+
+def action_plan_result_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    sealed_plan = record.get("spec", {}).get("sealedActionPlan")
+    if not isinstance(sealed_plan, Mapping):
+        return {"status": "not_found"}
+    action = sealed_plan.get("action") if isinstance(sealed_plan.get("action"), Mapping) else {}
+    target = sealed_plan.get("target") if isinstance(sealed_plan.get("target"), Mapping) else {}
+    parameters = action.get("normalizedParameters")
+    parameters = parameters if isinstance(parameters, Mapping) else {}
+    digest = sealed_plan.get("digest") if isinstance(sealed_plan.get("digest"), Mapping) else {}
+    return {
+        "intent": {
+            "toolName": action.get("toolName"),
+            "targetName": target.get("name"),
+            "namespace": target.get("namespace"),
+            "parameters": dict(parameters),
+            "summary": f"{action.get('toolName')} {target.get('namespace')}/{target.get('name')}",
+        },
+        "parameters": dict(parameters),
+        "planDigest": digest.get("planDigest"),
+        "planId": metadata.get("name"),
+        "proposalId": "",
+        "risk": sealed_plan.get("safety", {}).get("risk") if isinstance(sealed_plan.get("safety"), Mapping) else "",
+        "status": "planned",
+        "target": dict(target),
+    }
+
+
+def plan_has_execution(plan_id: str) -> bool:
+    return any(
+        record.get("spec", {}).get("planId") == plan_id
+        for record in EXECUTION_RECORDS.values()
+        if isinstance(record.get("spec"), Mapping)
+    )
+
+
+def latest_pending_action_plan_result(subject: Mapping[str, Any]) -> dict[str, Any] | None:
+    candidates = sorted(
+        SEALED_ACTION_PLANS.values(),
+        key=lambda record: str(record.get("metadata", {}).get("createdAt") or ""),
+        reverse=True,
+    )
+    for record in candidates:
+        plan_id = str(record.get("metadata", {}).get("name") or "")
+        if not plan_id or plan_has_execution(plan_id):
+            continue
+        if not can_subject_read_record(record, subject):
+            continue
+        result = action_plan_result_from_record(record)
+        if result.get("status") == "planned":
+            return result
+    return None
+
+
+def no_pending_action_plan_response() -> str:
+    return "\n".join(
+        [
+            "실행할 Gateway AIOps Action Plan이 없습니다.",
+            "",
+            "`승인`/`실행` 같은 후속 명령은 Gateway가 생성한 미실행 Action Plan이 있을 때만 처리합니다.",
+            "대상과 namespace를 포함해서 다시 요청하세요.",
+            "",
+            "예: `komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드 3개로 올려줘`",
+            "예: `6:cis 파드 3개로 올려줘`",
         ]
     )
 
@@ -6655,6 +6735,88 @@ async def chat_stream(
                         "runId": run_id,
                         "stage": "completed",
                         "message": "Gateway 실험용 명령 실행 완료",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
+            if (
+                page_context_aiops_execution_mode(req) == "unrestricted"
+                and is_followup_execution_request(req.message)
+            ):
+                pending_plan_result = latest_pending_action_plan_result(subject)
+                if not pending_plan_result:
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": json.dumps(
+                                {"status": "not_found", "reason": "no_pending_action_plan"},
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            "id": f"{request_id}-natural-action-followup",
+                            "name": "natural_action_followup",
+                            "result": {"status": "not_found", "reason": "no_pending_action_plan"},
+                            "status": "skipped",
+                            "summary": "실행할 Gateway Action Plan 없음",
+                        }
+                    )
+                    yield sse({"type": "text", "content": no_pending_action_plan_response()})
+                    yield sse(
+                        {
+                            "type": "run_status",
+                            "runId": run_id,
+                            "stage": "completed",
+                            "message": "Gateway 후속 실행 대상 없음",
+                        }
+                    )
+                    yield sse("[DONE]")
+                    return
+
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-natural-action-followup",
+                        "name": "natural_action_followup",
+                        "summary": "최근 AIOps Action Plan 후속 실행",
+                    }
+                )
+                followup_execution_result = await execute_natural_action_plan_result(
+                    pending_plan_result,
+                    authorization,
+                    subject,
+                )
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(
+                            redact_sensitive(followup_execution_result),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        "id": f"{request_id}-natural-action-followup",
+                        "name": "natural_action_followup",
+                        "result": followup_execution_result,
+                        "status": (
+                            "success"
+                            if followup_execution_result.get("status") == "executed"
+                            else "failed"
+                        ),
+                        "summary": "최근 AIOps Action Plan 후속 실행 완료",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": natural_action_execution_response(followup_execution_result),
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway 후속 조치 실행 완료",
                     }
                 )
                 yield sse("[DONE]")
