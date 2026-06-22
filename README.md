@@ -29,6 +29,13 @@ Task:
 task be:dev
 ```
 
+For a local execution demo that can submit approved typed actions through the
+cluster Action Executor, run:
+
+```bash
+task be:dev:exec
+```
+
 In another terminal:
 
 ```bash
@@ -38,7 +45,11 @@ task fe:dev
 `task be:dev` port-forwards
 `openshift-lightspeed/lightspeed-app-server:8443` to `127.0.0.1:18443` and
 runs the FastAPI gateway on `http://127.0.0.1:18080` with `OLS_BASE_URL` pointing
-at that local Lightspeed endpoint.
+at that local Lightspeed endpoint. It keeps `KOMSCO_AI_ENABLE_MUTATIONS=false`.
+`task be:dev:exec` also port-forwards the cluster
+`komsco-ai-action-executor:8080` service to the local gateway, sets
+`KOMSCO_AI_ENABLE_MUTATIONS=true`, and is intended for controlled demos of the
+approval/execution path.
 
 `task fe:dev` starts the plugin webpack dev server on `http://127.0.0.1:9001`
 and then starts the local OpenShift Console bridge on `http://localhost:9000`.
@@ -68,11 +79,12 @@ The current implementation follows the approved security envelope from
 - Host diagnostics and approval-gated action lifecycle foundation APIs are
   present, including request/plan digests, grant references, approval decisions,
   and execution records.
+- Natural-language mutation requests such as "A 파드 3개로 올려줘" are parsed into
+  typed action proposals and sealed plans before approval/execution.
 - A typed AIOps core action engine is present for unhealthy controller-owned Pod
   eviction, Deployment rollout restart, bounded Deployment scale, Deployment
-  rollback to a ReplicaSet revision, and HPA min/max bound changes. The default
-  Gateway deployment still keeps `KOMSCO_AI_ENABLE_MUTATIONS=false`; when enabled,
-  execution goes through dry-run, UID/precondition validation, and the
+  rollback to a ReplicaSet revision, and HPA min/max bound changes. When
+  enabled, execution goes through dry-run, UID/precondition validation, and the
   `komsco-ai-action-executor` ServiceAccount.
 - Host OS diagnostics are requested through a collector registry. Arbitrary host
   commands are not accepted; node OS/runtime triage requests must use registered

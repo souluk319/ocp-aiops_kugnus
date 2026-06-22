@@ -15,8 +15,15 @@ OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
 PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
 PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
+ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-false}"
+ACTION_EXECUTOR_NAMESPACE="${ACTION_EXECUTOR_NAMESPACE:-komsco-ai-dev}"
+ACTION_EXECUTOR_SERVICE="${ACTION_EXECUTOR_SERVICE:-komsco-ai-action-executor}"
+ACTION_EXECUTOR_SERVICE_PORT="${ACTION_EXECUTOR_SERVICE_PORT:-8080}"
+ACTION_EXECUTOR_LOCAL_PORT="${ACTION_EXECUTOR_LOCAL_PORT:-18083}"
+ACTION_EXECUTOR_PF_LOG="${ACTION_EXECUTOR_PF_LOG:-${ROOT_DIR}/.dev-action-executor-port-forward.log}"
 
 PF_SUPERVISOR_PID=""
+ACTION_EXECUTOR_PF_PID=""
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -122,6 +129,10 @@ cleanup() {
     kill "$PF_SUPERVISOR_PID" >/dev/null 2>&1 || true
     wait "$PF_SUPERVISOR_PID" >/dev/null 2>&1 || true
   fi
+  if [ -n "$ACTION_EXECUTOR_PF_PID" ] && kill -0 "$ACTION_EXECUTOR_PF_PID" >/dev/null 2>&1; then
+    kill "$ACTION_EXECUTOR_PF_PID" >/dev/null 2>&1 || true
+    wait "$ACTION_EXECUTOR_PF_PID" >/dev/null 2>&1 || true
+  fi
 }
 
 trap cleanup EXIT INT TERM
@@ -149,6 +160,29 @@ fi
 echo "Lightspeed endpoint supervised: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
 echo "Port-forward log: $PF_LOG"
 
+if [ "$ACTION_EXECUTOR_PORT_FORWARD" = "true" ]; then
+  oc -n "$ACTION_EXECUTOR_NAMESPACE" get "svc/${ACTION_EXECUTOR_SERVICE}" >/dev/null
+  : > "$ACTION_EXECUTOR_PF_LOG"
+  if port_open "$GATEWAY_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
+    echo "Action Executor local port already open: ${GATEWAY_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}"
+  else
+    oc -n "$ACTION_EXECUTOR_NAMESPACE" port-forward \
+      --address "$GATEWAY_HOST" \
+      "svc/${ACTION_EXECUTOR_SERVICE}" \
+      "${ACTION_EXECUTOR_LOCAL_PORT}:${ACTION_EXECUTOR_SERVICE_PORT}" \
+      >>"$ACTION_EXECUTOR_PF_LOG" 2>&1 &
+    ACTION_EXECUTOR_PF_PID="$!"
+    if ! wait_for_port "$GATEWAY_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
+      echo "Action Executor port-forward failed. Log: $ACTION_EXECUTOR_PF_LOG" >&2
+      cat "$ACTION_EXECUTOR_PF_LOG" >&2
+      exit 1
+    fi
+  fi
+  export KOMSCO_AI_ACTION_EXECUTOR_URL="${KOMSCO_AI_ACTION_EXECUTOR_URL:-http://${GATEWAY_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}}"
+  echo "Action Executor endpoint: ${KOMSCO_AI_ACTION_EXECUTOR_URL}"
+  echo "Action Executor port-forward log: $ACTION_EXECUTOR_PF_LOG"
+fi
+
 cd "$GATEWAY_DIR"
 
 if [ ! -d .venv ]; then
@@ -166,7 +200,7 @@ export OLS_BASE_URL="${OLS_BASE_URL:-https://${GATEWAY_HOST}:${OLS_LOCAL_PORT}}"
 export OLS_CA_FILE="${OLS_CA_FILE:-false}"
 export OPENSHIFT_API_URL="${OPENSHIFT_API_URL:-$(oc whoami --show-server)}"
 export OPENSHIFT_API_CA_FILE="${OPENSHIFT_API_CA_FILE:-false}"
-export KOMSCO_AI_SECURITY_PHASE="${KOMSCO_AI_SECURITY_PHASE:-phase0-1}"
+export KOMSCO_AI_SECURITY_PHASE="${KOMSCO_AI_SECURITY_PHASE:-phase5-action-execution}"
 export KOMSCO_AI_ENABLE_MUTATIONS="${KOMSCO_AI_ENABLE_MUTATIONS:-false}"
 
 echo "Gateway URL: http://${GATEWAY_HOST}:${GATEWAY_PORT}"
@@ -176,6 +210,7 @@ echo "OPENSHIFT_API_URL: ${OPENSHIFT_API_URL}"
 echo "OPENSHIFT_API_CA_FILE: ${OPENSHIFT_API_CA_FILE}"
 echo "KOMSCO_AI_SECURITY_PHASE: ${KOMSCO_AI_SECURITY_PHASE}"
 echo "KOMSCO_AI_ENABLE_MUTATIONS: ${KOMSCO_AI_ENABLE_MUTATIONS}"
+echo "KOMSCO_AI_ACTION_EXECUTOR_URL: ${KOMSCO_AI_ACTION_EXECUTOR_URL:-}"
 
 uvicorn komsco_ai_gateway.main:app \
   --reload \

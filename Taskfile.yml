@@ -11,6 +11,11 @@ tasks:
     cmds:
       - ./scripts/dev-gateway-lightspeed.sh
 
+  be:dev:exec:
+    desc: Run local FastAPI gateway with the cluster Action Executor enabled
+    cmds:
+      - KOMSCO_AI_ENABLE_MUTATIONS=true ACTION_EXECUTOR_PORT_FORWARD=true KOMSCO_AI_SECURITY_PHASE=phase5-action-execution ./scripts/dev-gateway-lightspeed.sh
+
   fe:dev:
     desc: Run local console plugin dev server connected to the local gateway
     cmds:
