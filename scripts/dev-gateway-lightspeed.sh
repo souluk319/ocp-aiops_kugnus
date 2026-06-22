@@ -121,7 +121,7 @@ select_gateway_mode() {
   fi
 
   if [ ! -t 0 ]; then
-    printf 'read-only'
+    printf 'unrestricted'
     return
   fi
 
@@ -129,10 +129,10 @@ select_gateway_mode() {
   echo "  1) 읽기 전용  - 분석/조회/계획 안내만 수행" >&2
   echo "  2) 실행 가능  - 승인된 Action Executor 실행 허용" >&2
   echo "  3) 실험용 무제한 - /exec 명령을 Gateway 로컬 권한으로 직접 실행" >&2
-  printf "선택 [1/2/3, 기본 1]: " >&2
+  printf "선택 [1/2/3, 기본 3]: " >&2
   read -r mode_choice
 
-  case "${mode_choice:-1}" in
+  case "${mode_choice:-3}" in
     1|read|readonly|read-only|읽기|읽기전용)
       printf 'read-only'
       ;;

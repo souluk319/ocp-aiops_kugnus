@@ -29,7 +29,8 @@ Task:
 task be:dev
 ```
 
-`task be:dev` asks which mode to run:
+`task be:dev` asks which mode to run and defaults to `실험 무제한` for the
+internal development network:
 
 - `읽기 전용`: analysis/planning only.
 - `실행 가능`: submit approved typed actions through the cluster Action

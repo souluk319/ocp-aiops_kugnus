@@ -110,6 +110,7 @@ const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
+const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'unrestricted';
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
@@ -1815,7 +1816,9 @@ const AssistantLauncher: React.FC = () => {
   const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
   const [aiopsActionError, setAiopsActionError] = React.useState('');
   const [aiopsActionNotice, setAiopsActionNotice] = React.useState('');
-  const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>('read-only');
+  const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
+    DEFAULT_AIOPS_EXECUTION_MODE,
+  );
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [conversationId, setConversationId] = React.useState<string | undefined>();
@@ -1829,13 +1832,16 @@ const AssistantLauncher: React.FC = () => {
   const unrestrictedAvailable = canUseUnrestrictedCommands(aiopsStatus);
 
   React.useEffect(() => {
+    if (!aiopsStatus) {
+      return;
+    }
     if (!actionExecutionAvailable && executionMode === 'execute') {
       setExecutionMode('read-only');
     }
     if (!unrestrictedAvailable && executionMode === 'unrestricted') {
       setExecutionMode('read-only');
     }
-  }, [actionExecutionAvailable, executionMode, unrestrictedAvailable]);
+  }, [actionExecutionAvailable, aiopsStatus, executionMode, unrestrictedAvailable]);
 
   const handleExecutionModeChange = React.useCallback(
     (mode: AiopsExecutionMode) => {

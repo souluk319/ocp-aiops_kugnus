@@ -2031,7 +2031,7 @@ def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deploymen
 
 def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
-    mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
+    mode = str(context.get("aiopsExecutionMode") or "unrestricted").strip().lower()
     if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
         return "unrestricted"
     if mode in {"execute", "execution", "execution-enabled", "enabled"}:

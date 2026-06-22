@@ -1055,8 +1055,8 @@ def test_parse_natural_action_intent_scales_named_deployment() -> None:
     assert intent["parameters"]["replicas"] == 3
 
 
-def test_page_context_aiops_execution_mode_defaults_read_only() -> None:
-    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "read-only"
+def test_page_context_aiops_execution_mode_defaults_unrestricted() -> None:
+    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "unrestricted"
 
 
 def test_page_context_aiops_execution_mode_accepts_execute() -> None:
