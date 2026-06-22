@@ -168,11 +168,14 @@ EXPLICIT_OPENSHIFT_DOC_REFERENCE_RE = re.compile(
 )
 POD_STATUS_ANALYSIS_RE = re.compile(
     r"(?i)((pod|pods|파드).*(상태|현황|이력|횟수|많은|높은|분석|확인|조회|"
-    r"crashloop|imagepull|backoff|failed|error|pending|restart\s+(count|history|status|analysis|summary)|"
+    r"crashloop|imagepull|backoff|failed|error|pending|교체|replacement|rollout|"
+    r"restart\s+(count|history|status|analysis|summary)|"
     r"(many|high|top)\s+restarts)|"
     r"(상태|현황|이력|횟수|많은|높은|분석|확인|조회|crashloop|imagepull|backoff|failed|"
-    r"error|pending|restart\s+count|"
-    r"restart\s+(history|status|analysis|summary)|(many|high|top)\s+restarts).*(pod|pods|파드))"
+    r"error|pending|교체|replacement|rollout|restart\s+count|"
+    r"restart\s+(history|status|analysis|summary)|(many|high|top)\s+restarts).*(pod|pods|파드)|"
+    r"(deployment|deployments|디플로이먼트).*(상태|현황|확인|조회|rollout|restart|재시작|교체|replacement)|"
+    r"(상태|현황|확인|조회|rollout|restart|재시작|교체|replacement).*(deployment|deployments|디플로이먼트))"
 )
 CLUSTER_OPERATOR_ANALYSIS_RE = re.compile(
     r"(?i)(clusteroperator|cluster\s*operator|클러스터\s*오퍼레이터|operator\s+status|오퍼레이터\s*상태)"
@@ -2975,6 +2978,117 @@ def build_pod_status_evidence(
     return "\n".join(lines)
 
 
+def build_deployment_rollout_evidence(
+    deployments_payload: Mapping[str, Any] | None,
+    replicasets_payload: Mapping[str, Any] | None,
+    pods_payload: Mapping[str, Any],
+) -> str:
+    deployments = deployments_payload.get("items") if isinstance(deployments_payload, Mapping) else None
+    if not isinstance(deployments, list):
+        return "Deployment rollout evidence unavailable: deployments API response did not include an items list."
+
+    replicasets = replicasets_payload.get("items") if isinstance(replicasets_payload, Mapping) else []
+    pods = pods_payload.get("items") if isinstance(pods_payload.get("items"), list) else []
+    rs_by_deployment_uid: dict[str, list[Mapping[str, Any]]] = {}
+    if isinstance(replicasets, list):
+        for replicaset in replicasets:
+            if not isinstance(replicaset, Mapping):
+                continue
+            for owner in replicaset.get("metadata", {}).get("ownerReferences", []) or []:
+                if isinstance(owner, Mapping) and owner.get("kind") == "Deployment":
+                    rs_by_deployment_uid.setdefault(str(owner.get("uid") or ""), []).append(replicaset)
+
+    pod_rows_by_selector: dict[tuple[str, str], list[str]] = {}
+    if isinstance(pods, list):
+        for pod in pods:
+            if not isinstance(pod, Mapping):
+                continue
+            metadata = pod.get("metadata", {}) if isinstance(pod.get("metadata"), Mapping) else {}
+            labels = metadata.get("labels") if isinstance(metadata.get("labels"), Mapping) else {}
+            namespace = str(metadata.get("namespace") or "")
+            app = str(labels.get("app") or "")
+            if not namespace or not app:
+                continue
+            hash_value = str(labels.get("pod-template-hash") or "-")
+            name = str(metadata.get("name") or "unknown")
+            start_time = str(pod.get("status", {}).get("startTime") or "-")
+            pod_rows_by_selector.setdefault((namespace, app), []).append(f"{name} hash={hash_value} start={start_time}")
+
+    rows: list[dict[str, Any]] = []
+    for deployment in deployments:
+        if not isinstance(deployment, Mapping):
+            continue
+        metadata = deployment.get("metadata", {}) if isinstance(deployment.get("metadata"), Mapping) else {}
+        spec = deployment.get("spec", {}) if isinstance(deployment.get("spec"), Mapping) else {}
+        status = deployment.get("status", {}) if isinstance(deployment.get("status"), Mapping) else {}
+        namespace = str(metadata.get("namespace") or "unknown")
+        name = str(metadata.get("name") or "unknown")
+        annotations = metadata.get("annotations") if isinstance(metadata.get("annotations"), Mapping) else {}
+        template_metadata = (
+            spec.get("template", {}).get("metadata", {})
+            if isinstance(spec.get("template"), Mapping)
+            else {}
+        )
+        template_annotations = (
+            template_metadata.get("annotations")
+            if isinstance(template_metadata.get("annotations"), Mapping)
+            else {}
+        )
+        labels = template_metadata.get("labels") if isinstance(template_metadata.get("labels"), Mapping) else {}
+        app_label = str(labels.get("app") or "")
+        deployment_uid = str(metadata.get("uid") or "")
+        owned_rs = sorted(
+            rs_by_deployment_uid.get(deployment_uid, []),
+            key=lambda item: str(item.get("metadata", {}).get("creationTimestamp") or ""),
+        )
+        rs_summary = []
+        for replicaset in owned_rs[-4:]:
+            rs_meta = replicaset.get("metadata", {}) if isinstance(replicaset.get("metadata"), Mapping) else {}
+            rs_status = replicaset.get("status", {}) if isinstance(replicaset.get("status"), Mapping) else {}
+            rs_spec = replicaset.get("spec", {}) if isinstance(replicaset.get("spec"), Mapping) else {}
+            rs_annotations = rs_meta.get("annotations") if isinstance(rs_meta.get("annotations"), Mapping) else {}
+            rs_summary.append(
+                "{name}(rev={rev},desired={desired},ready={ready})".format(
+                    name=str(rs_meta.get("name") or "unknown"),
+                    rev=str(rs_annotations.get("deployment.kubernetes.io/revision") or "-"),
+                    desired=str(rs_spec.get("replicas", 0)),
+                    ready=str(rs_status.get("readyReplicas", 0)),
+                )
+            )
+        pod_summary = pod_rows_by_selector.get((namespace, app_label), [])
+        rows.append(
+            {
+                "namespace": namespace,
+                "name": name,
+                "revision": markdown_table_cell(annotations.get("deployment.kubernetes.io/revision") or "-"),
+                "restartedAt": markdown_table_cell(
+                    template_annotations.get("kubectl.kubernetes.io/restartedAt") or "-"
+                ),
+                "observedGeneration": markdown_table_cell(status.get("observedGeneration") or "-"),
+                "ready": f"{status.get('readyReplicas', 0)}/{spec.get('replicas', 0)}",
+                "updated": markdown_table_cell(status.get("updatedReplicas", 0)),
+                "replicaSets": markdown_table_cell("; ".join(rs_summary) or "-"),
+                "pods": markdown_table_cell("; ".join(sorted(pod_summary)) or "-"),
+            }
+        )
+
+    lines = [
+        "Deployment rollout/replacement evidence from Kubernetes APIs.",
+        "Ready replicas only prove current availability. Do not say Pods were replaced unless restart annotation, Deployment revision/ReplicaSet transition, ExecutionRecord, or before/after Pod identity comparison proves it.",
+        "| Namespace | Deployment | Revision | RestartedAt | ObservedGeneration | Ready | Updated | Recent ReplicaSets | Current Pods |",
+        "| :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- | :--- |",
+    ]
+    for row in sorted(rows, key=lambda item: (str(item["namespace"]), str(item["name"])))[:40]:
+        lines.append(
+            "| {namespace} | `{name}` | {revision} | {restartedAt} | {observedGeneration} | {ready} | {updated} | {replicaSets} | {pods} |".format(
+                **row
+            )
+        )
+    if not rows:
+        lines.append("| - | - | - | - | - | - | - | - | - |")
+    return "\n".join(lines)
+
+
 def cluster_operator_condition(
     operator: Mapping[str, Any],
     condition_type: str,
@@ -3440,6 +3554,13 @@ Pod 조치/복구 계획 프로토콜:
 - 리소스 label/annotation/name에 test, e2e, scenario, sandbox, demo, sample 같은 비운영 신호가 있고 사용자의 문맥도 테스트/검증이면 "서비스 복구"와 별도로 "테스트 리소스 정리" 선택지를 제시하세요. 이때도 확인된 namespace와 관리 객체 이름을 사용하고, 특정 테스트 이름을 임의로 만들지 마세요.
 - 로그가 이미 없거나 `--previous` 조회가 실패해도 Pod spec의 command/args, current state, lastState, events가 원인을 충분히 설명하면 그 근거를 우선 사용하세요. 로그 확인은 보조 검증으로만 표시하세요.
 
+Deployment rollout/Pod 교체 판정 프로토콜:
+- `replicas=2`, `Ready 2/2`, Pod 2개 존재, Pod Age만으로 "교체 완료", "rollout 완료", "새 Pod가 자리 잡음"이라고 쓰지 마세요. 이는 현재 가용성 증거일 뿐 실행/교체 증거가 아닙니다.
+- rollout restart 실행 여부는 `spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]`, Deployment revision 증가, 새 ReplicaSet 생성 및 old/new ReplicaSet replica 전환, ExecutionRecord의 `mutation_succeeded`, 또는 질문 전에 수집한 Pod 이름과 현재 Pod 이름의 before/after 비교가 있을 때만 확인됐다고 쓰세요.
+- 위 증거가 없고 현재 Pod가 질문 전부터 존재하던 동일 이름/동일 `pod-template-hash`라면 "아직 실행 전 또는 교체 증거 없음"으로 답하세요.
+- 사용자가 "Pod가 교체됐는지" 물으면 현재 Pod 목록뿐 아니라 Deployment rollout evidence의 `RestartedAt`, `Revision`, `Recent ReplicaSets`, `Current Pods`를 근거로 판단하세요.
+- 교체를 보여주기 위한 테스트 시나리오에서는 실행 전 Pod 이름과 실행 후 Pod 이름/hash/revision을 나란히 비교하세요.
+
 OpenShift 경고 분석 프로토콜:
 - 사용자가 "최근 경고", "alert", "우선 확인 항목"을 묻는 경우 먼저 active alert 목록을 조회하세요.
 - 주요 alert별 상세 조사는 아래 순서를 따르세요. 해당 상세 조회가 실패하면 실패 사실과 이유를 답변에 포함하고, 확인하지 못한 원인은 추정으로만 표현하세요.
@@ -3855,6 +3976,11 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
         timeout=httpx.Timeout(20.0, connect=5.0),
     ) as client:
         pods_payload = await fetch_ocp_json(client, "/api/v1/pods", user_auth_header)
+        deployments_payload = await fetch_ocp_json(
+            client,
+            "/apis/apps/v1/deployments",
+            user_auth_header,
+        )
         replicasets_payload = await fetch_ocp_json(
             client,
             "/apis/apps/v1/replicasets",
@@ -3873,6 +3999,11 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
         )
 
     evidence = build_pod_status_evidence(pods_payload, replicasets_payload)
+    if deployments_payload:
+        evidence = append_gateway_evidence(
+            evidence,
+            build_deployment_rollout_evidence(deployments_payload, replicasets_payload, pods_payload),
+        )
     if cluster_operators_payload:
         evidence = append_gateway_evidence(
             evidence,

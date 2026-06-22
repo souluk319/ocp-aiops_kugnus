@@ -44,6 +44,7 @@ from komsco_ai_gateway.main import (
     build_cluster_summary,
     build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
+    build_deployment_rollout_evidence,
     build_diagnostic_request_candidate,
     build_diagnostic_request_record,
     build_empty_answer_fallback,
@@ -385,6 +386,9 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     assert "ReplicaSet 직접 수정은 권장하지 마세요" in query
     assert "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨" in query
     assert "단순 `oc delete pod` 또는 `oc rollout restart`" in query
+    assert "Deployment rollout/Pod 교체 판정 프로토콜" in query
+    assert "`replicas=2`, `Ready 2/2`, Pod 2개 존재" in query
+    assert "아직 실행 전 또는 교체 증거 없음" in query
     assert "서비스 복구" in query
     assert "테스트 리소스 정리" in query
     assert "Extension APIs" in query
@@ -819,6 +823,74 @@ def test_build_pod_status_evidence_includes_unhealthy_spec_and_owner_chain() -> 
     assert "app=sample-crashy" in evidence
     assert "aiops.komsco/scenario=sample" in evidence
     assert "ReplicaSet/sample-crashy-6fd7d7cfd7 -> Deployment/sample-crashy" in evidence
+
+
+def test_build_deployment_rollout_evidence_does_not_treat_ready_as_replaced() -> None:
+    evidence = build_deployment_rollout_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "annotations": {"deployment.kubernetes.io/revision": "1"},
+                        "name": "two-pod-demo",
+                        "namespace": "team-a",
+                        "uid": "deployment-uid-a",
+                    },
+                    "spec": {
+                        "replicas": 2,
+                        "template": {"metadata": {"labels": {"app": "two-pod-demo"}}},
+                    },
+                    "status": {
+                        "observedGeneration": 1,
+                        "readyReplicas": 2,
+                        "updatedReplicas": 2,
+                    },
+                }
+            ]
+        },
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "annotations": {"deployment.kubernetes.io/revision": "1"},
+                        "name": "two-pod-demo-69c85d74cc",
+                        "namespace": "team-a",
+                        "ownerReferences": [
+                            {"kind": "Deployment", "name": "two-pod-demo", "uid": "deployment-uid-a"}
+                        ],
+                    },
+                    "spec": {"replicas": 2},
+                    "status": {"readyReplicas": 2},
+                }
+            ]
+        },
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "labels": {"app": "two-pod-demo", "pod-template-hash": "69c85d74cc"},
+                        "name": "two-pod-demo-69c85d74cc-a",
+                        "namespace": "team-a",
+                    },
+                    "status": {"startTime": "2026-06-22T04:30:47Z"},
+                },
+                {
+                    "metadata": {
+                        "labels": {"app": "two-pod-demo", "pod-template-hash": "69c85d74cc"},
+                        "name": "two-pod-demo-69c85d74cc-b",
+                        "namespace": "team-a",
+                    },
+                    "status": {"startTime": "2026-06-22T04:30:47Z"},
+                },
+            ]
+        },
+    )
+
+    assert "Ready replicas only prove current availability" in evidence
+    assert "`two-pod-demo`" in evidence
+    assert "| team-a | `two-pod-demo` | 1 | - | 1 | 2/2 | 2 |" in evidence
+    assert "two-pod-demo-69c85d74cc(rev=1,desired=2,ready=2)" in evidence
+    assert "two-pod-demo-69c85d74cc-a hash=69c85d74cc" in evidence
 
 
 def test_build_cluster_operator_status_evidence_summarizes_operator_health() -> None:
