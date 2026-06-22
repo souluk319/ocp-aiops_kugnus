@@ -69,6 +69,7 @@ from komsco_ai_gateway.main import (
     RunbookPlanCreate,
     diagnostic_request_digest,
     parse_bool,
+    parse_natural_action_intent,
     parse_ols_verify,
     normalize_console_page_context,
     normalize_controller_phase,
@@ -200,6 +201,14 @@ def test_redact_sensitive_removes_tokens_and_secret_values() -> None:
 
 def test_classify_request_policy_blocks_direct_mutation_intent() -> None:
     policy = classify_request_policy("openshift-monitoring pod 재시작해줘")
+
+    assert policy["decision"] == "action_proposal_only"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "approval_required"
+
+
+def test_classify_request_policy_routes_natural_scale_to_action_proposal() -> None:
+    policy = classify_request_policy("web-api 파드 3개로 올려줘")
 
     assert policy["decision"] == "action_proposal_only"
     assert policy["mutationAllowed"] is False
@@ -443,9 +452,9 @@ def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() 
         subject=safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["a"]}),
     )
 
-    assert "Gateway Phase 0-1 Security Envelope" in query
+    assert "Gateway Phase 5 Action Execution Envelope" in query
     assert "action_proposal_only" in query
-    assert "mutation을 실행하지 않습니다" in query
+    assert "승인 없이 즉시 mutation을 실행했다고 말하지 마세요" in query
     assert "user@example.com" in query
     assert "my-secret-token-value" not in query
     assert "[REDACTED]" in query
@@ -465,7 +474,8 @@ def test_action_proposal_fallback_is_non_empty_and_requests_target() -> None:
     policy = classify_request_policy("Pod 하나 재시작해줘")
     fallback = build_action_proposal_fallback(ChatRequest(message="Pod 하나 재시작해줘"), policy)
 
-    assert "직접 실행할 수 없습니다" in fallback
+    assert "Phase 5 Action Execution" in fallback
+    assert "Approval API와 Action Executor" in fallback
     assert "namespace" in fallback
     assert "Pod 또는 관리 객체" in fallback
 
@@ -548,6 +558,106 @@ def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_ta
     assert "oc rollout status deployment/sample-crashy -n team-a" in fallback
     assert "oc get pod -n team-a -l app=sample-crashy" in fallback
     assert "<app-label>" not in fallback
+
+
+def test_parse_natural_action_intent_scales_named_deployment() -> None:
+    intent = parse_natural_action_intent(
+        ChatRequest(message="komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드 3개로 올려줘")
+    )
+
+    assert intent
+    assert intent["toolName"] == "set_replicas_within_bounds"
+    assert intent["namespace"] == "komsco-ai-dev"
+    assert intent["targetName"] == "aiops-two-pod-exec"
+    assert intent["parameters"]["replicas"] == 3
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_namespace", "expected_target", "expected_replicas"),
+    [
+        ("team-a 네임스페이스의 web-api 파드 5개로 올려줘", "team-a", "web-api", 5),
+        ("batch-worker를 1개로 줄여줘", "prod-a", "batch-worker", 1),
+        ("deployment/payment-api 7개로 scale", "payments", "payment-api", 7),
+        ("`edge-gateway` pods 4 replicas로 설정", "edge", "edge-gateway", 4),
+    ],
+)
+def test_parse_natural_action_intent_accepts_scale_variants(
+    message: str,
+    expected_namespace: str,
+    expected_target: str,
+    expected_replicas: int,
+) -> None:
+    intent = parse_natural_action_intent(
+        ChatRequest(
+            message=message,
+            pageContext={"namespace": expected_namespace},
+        )
+    )
+
+    assert intent
+    assert intent["toolName"] == "set_replicas_within_bounds"
+    assert intent["namespace"] == expected_namespace
+    assert intent["targetName"] == expected_target
+    assert intent["parameters"]["replicas"] == expected_replicas
+
+
+def test_parse_natural_action_intent_uses_deployment_page_context_for_scale() -> None:
+    intent = parse_natural_action_intent(
+        ChatRequest(
+            message="3개로 올려줘",
+            pageContext={
+                "pathname": "/k8s/ns/team-b/deployments/report-api",
+            },
+        )
+    )
+
+    assert intent
+    assert intent["toolName"] == "set_replicas_within_bounds"
+    assert intent["namespace"] == "team-b"
+    assert intent["targetName"] == "report-api"
+    assert intent["parameters"]["replicas"] == 3
+
+
+def test_parse_natural_action_intent_uses_deployment_page_context_for_restart() -> None:
+    intent = parse_natural_action_intent(
+        ChatRequest(
+            message="재시작해줘",
+            pageContext={
+                "pathname": "/k8s/ns/team-a/deployments/web-api",
+            },
+        )
+    )
+
+    assert intent
+    assert intent["toolName"] == "rollout_restart_deployment"
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "web-api"
+
+
+@pytest.mark.parametrize(
+    ("message", "expected_namespace", "expected_target"),
+    [
+        ("team-c 네임스페이스의 api-gateway 재시작해줘", "team-c", "api-gateway"),
+        ("deployment/worker-a rollout restart", "workers", "worker-a"),
+        ("`checkout-api` 리스타트", "shop", "checkout-api"),
+    ],
+)
+def test_parse_natural_action_intent_accepts_restart_variants(
+    message: str,
+    expected_namespace: str,
+    expected_target: str,
+) -> None:
+    intent = parse_natural_action_intent(
+        ChatRequest(
+            message=message,
+            pageContext={"namespace": expected_namespace},
+        )
+    )
+
+    assert intent
+    assert intent["toolName"] == "rollout_restart_deployment"
+    assert intent["namespace"] == expected_namespace
+    assert intent["targetName"] == expected_target
 
 
 def test_cronjob_activity_evidence_trigger_for_15_minute_activity() -> None:

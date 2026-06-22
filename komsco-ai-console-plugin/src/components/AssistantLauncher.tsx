@@ -133,6 +133,7 @@ const TOOL_LABELS: Record<string, string> = {
   nodes_log: '노드 로그 조회',
   nodes_stats_summary: '노드 상세 사용량 조회',
   nodes_top: '노드 사용량 조회',
+  natural_action_plan: '자연어 조치 계획 생성',
   pods_get: 'Pod 상세 조회',
   pods_list: 'Pod 목록 조회',
   pods_list_in_namespace: 'Namespace Pod 조회',

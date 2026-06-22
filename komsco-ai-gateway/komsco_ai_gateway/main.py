@@ -24,6 +24,7 @@ from .aiops_core import (
     deployment_scale_path,
     get_host_diagnostic_collector,
     parameters_from_plan,
+    path_segment,
     target_path,
     target_from_plan,
 )
@@ -190,6 +191,27 @@ CRONJOB_POLICY_ENV_RE = re.compile(
     r"expire|expiration|cleanup|retention|prune|archive|max[_-]?age|timeout|gc)"
 )
 SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credential|key)")
+K8S_NAME_RE = r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?"
+NAMESPACE_MENTION_RE = re.compile(rf"\b(?P<namespace>{K8S_NAME_RE})\s*네임스페이스")
+DEPLOYMENT_RESOURCE_RE = re.compile(rf"\b(?:deployment|deploy|디플로이먼트)/(?P<name>{K8S_NAME_RE})\b", re.IGNORECASE)
+BACKTICK_RESOURCE_RE = re.compile(r"`(?P<name>[A-Za-z0-9._-]+)`")
+SCALE_INTENT_RE = re.compile(
+    rf"(?P<name>{K8S_NAME_RE})\s*(?:파드|pod|pods|deployment|deploy)?\s*(?:를|을|은|는)?\s*"
+    r"(?P<replicas>[0-9]{1,3})\s*(?:개|대|replica|replicas|pods?)?\s*(?:로|으로)?\s*"
+    r"(?:올려|늘려|줄여|맞춰|변경|설정|스케일|scale)",
+    re.IGNORECASE,
+)
+SCALE_REPLICAS_RE = re.compile(
+    r"(?P<replicas>[0-9]{1,3})\s*(?:개|대|replica|replicas|pods?)?\s*(?:로|으로)?\s*"
+    r"(?:올려|늘려|줄여|맞춰|변경|설정|스케일|scale)",
+    re.IGNORECASE,
+)
+RESTART_INTENT_RE = re.compile(
+    rf"(?P<name>{K8S_NAME_RE})\s*(?:deployment|deploy|디플로이먼트|파드|pod|pods)?\s*(?:를|을|은|는)?\s*"
+    r"(?:재시작|리스타트|restart|rollout\s+restart)",
+    re.IGNORECASE,
+)
+RESTART_REQUEST_RE = re.compile(r"(?:재시작|리스타트|restart|rollout\s+restart)", re.IGNORECASE)
 POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("재시작 빈도", "누적 재시작 횟수"),
     ("높은 빈도", "높은 누적 재시작 횟수"),
@@ -1916,6 +1938,192 @@ class BreakGlassRequestCreate(StrictBaseModel):
     justification: str = Field(min_length=12, max_length=1000)
     evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     policy: dict[str, Any] = Field(default_factory=dict)
+
+
+def page_context_namespace(req: ChatRequest) -> str:
+    context = normalize_console_page_context(req.pageContext)
+    namespace = context.get("namespace")
+    return str(namespace) if namespace else ""
+
+
+def page_context_resource_name(req: ChatRequest) -> str:
+    context = normalize_console_page_context(req.pageContext)
+    kind = str(context.get("resourceKind") or "")
+    name = context.get("resourceName")
+    if kind == "Deployment" and name:
+        return str(name)
+    return ""
+
+
+def namespace_from_natural_action(req: ChatRequest) -> str:
+    match = NAMESPACE_MENTION_RE.search(req.message.lower())
+    if match:
+        return match.group("namespace")
+    return page_context_namespace(req)
+
+
+def first_backtick_name(message: str) -> str:
+    match = BACKTICK_RESOURCE_RE.search(message)
+    return match.group("name") if match else ""
+
+
+def natural_target_name(req: ChatRequest, match: re.Match[str] | None) -> str:
+    resource_match = DEPLOYMENT_RESOURCE_RE.search(req.message)
+    if resource_match:
+        return resource_match.group("name")
+    backtick_name = first_backtick_name(req.message)
+    if backtick_name:
+        return backtick_name
+    if match and "name" in match.groupdict():
+        return match.group("name")
+    return page_context_resource_name(req)
+
+
+def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
+    namespace = namespace_from_natural_action(req)
+
+    scale_match = SCALE_INTENT_RE.search(req.message)
+    replicas_match = scale_match or SCALE_REPLICAS_RE.search(req.message)
+    if replicas_match:
+        target_name = natural_target_name(req, scale_match)
+        replicas = int(replicas_match.group("replicas"))
+        if not namespace or not target_name:
+            return None
+        return {
+            "toolName": "set_replicas_within_bounds",
+            "targetName": target_name,
+            "namespace": namespace,
+            "parameters": {
+                "hpaReviewed": False,
+                "maxReplicas": max(20, replicas),
+                "minReplicas": 0,
+                "replicas": replicas,
+            },
+            "summary": f"Deployment `{namespace}/{target_name}` replicas를 `{replicas}`로 변경",
+        }
+
+    restart_match = RESTART_INTENT_RE.search(req.message)
+    if restart_match or RESTART_REQUEST_RE.search(req.message):
+        target_name = natural_target_name(req, restart_match)
+        if not namespace or not target_name:
+            return None
+        return {
+            "toolName": "rollout_restart_deployment",
+            "targetName": target_name,
+            "namespace": namespace,
+            "parameters": {"restartedAt": now_rfc3339()},
+            "summary": f"Deployment `{namespace}/{target_name}` rollout restart",
+        }
+
+    return None
+
+
+async def create_natural_action_plan(
+    req: ChatRequest,
+    authorization: str,
+    subject: Mapping[str, Any],
+    *,
+    incident_id: str,
+    run_id: str,
+) -> dict[str, Any] | None:
+    intent = parse_natural_action_intent(req)
+    if not intent or not OPENSHIFT_API_URL:
+        return None
+
+    namespace = str(intent["namespace"])
+    target_name = str(intent["targetName"])
+    target_path_value = f"/apis/apps/v1/namespaces/{path_segment(namespace)}/deployments/{path_segment(target_name)}"
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        deployment = await fetch_ocp_json(client, target_path_value, authorization)
+
+    if not deployment:
+        return {
+            "intent": intent,
+            "status": "not_found",
+            "summary": f"Deployment `{namespace}/{target_name}`를 찾지 못했습니다.",
+        }
+
+    metadata = deployment.get("metadata", {}) if isinstance(deployment.get("metadata"), Mapping) else {}
+    target = ActionTarget(
+        apiVersion="apps/v1",
+        kind="Deployment",
+        namespace=namespace,
+        name=target_name,
+        uid=str(metadata.get("uid") or ""),
+    )
+    proposal_request = ActionProposalCreate(
+        incidentId=incident_id,
+        runId=run_id,
+        toolName=str(intent["toolName"]),
+        target=target,
+        parameters=dict(intent["parameters"]),
+        policy={"source": "natural-language-chat"},
+    )
+    proposal_record = build_action_proposal_record(proposal_request, subject)
+    proposal_id = str(proposal_record["metadata"]["name"])
+    await bounded_put_record("actionProposals", proposal_id, proposal_record)
+    increment_metric("aiops_action_proposals_total")
+
+    plan_record = build_sealed_action_plan_record(proposal_record)
+    plan_id = str(plan_record["metadata"]["name"])
+    await bounded_put_record("sealedActionPlans", plan_id, plan_record)
+    increment_metric("aiops_action_plans_total")
+
+    plan = plan_record["spec"]["sealedActionPlan"]
+    return {
+        "intent": intent,
+        "parameters": intent["parameters"],
+        "planDigest": plan["digest"]["planDigest"],
+        "planId": plan_id,
+        "proposalId": proposal_id,
+        "risk": plan["safety"]["risk"],
+        "status": "planned",
+        "target": target.model_dump(),
+    }
+
+
+def natural_action_plan_response(result: Mapping[str, Any]) -> str:
+    if result.get("status") == "not_found":
+        return "\n".join(
+            [
+                "자연어 조치 요청을 해석했지만 대상 Deployment를 찾지 못했습니다.",
+                "",
+                f"- 요청 해석: {result.get('summary')}",
+                "- namespace와 Deployment 이름을 확인한 뒤 다시 요청하세요.",
+            ]
+        )
+
+    target = result.get("target") if isinstance(result.get("target"), Mapping) else {}
+    parameters = result.get("parameters") if isinstance(result.get("parameters"), Mapping) else {}
+    intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
+    risk = str(result.get("risk") or "unknown")
+    next_step = "오른쪽 `AIOps 실행 상태 > 승인·실행`에서 `승인` 후 `실행`을 누르면 실제 변경됩니다."
+    if risk in {"medium", "high"}:
+        next_step = (
+            "이 조치는 medium/high risk로 분류될 수 있어 승인 정책상 별도 승인자가 필요할 수 있습니다. "
+            "오른쪽 `AIOps 실행 상태 > 승인·실행`에서 승인 가능 여부를 확인하세요."
+        )
+
+    return "\n".join(
+        [
+            "자연어 조치 요청을 typed AIOps action으로 변환해 실행 계획까지 생성했습니다.",
+            "",
+            "### 생성된 실행 계획",
+            f"- 대상: `{target.get('namespace')}/{target.get('name')}` ({target.get('kind')})",
+            f"- Action: `{intent.get('toolName')}`",
+            f"- Parameters: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
+            f"- Proposal: `{result.get('proposalId')}`",
+            f"- Plan: `{result.get('planId')}`",
+            f"- Risk: `{risk}`",
+            "",
+            "### 다음 단계",
+            f"- {next_step}",
+        ]
+    )
 
 
 def decode_path_segment(segment: str | None) -> str | None:
@@ -4355,16 +4563,16 @@ def summarize_subject_detail(subject: Mapping[str, Any], *, live_review: bool) -
 def build_action_proposal_fallback(req: ChatRequest, policy: Mapping[str, Any]) -> str:
     return "\n".join(
         [
-            "현재 요청은 변경/재시작/삭제/스케일/패치 계열 작업으로 분류되어 직접 실행할 수 없습니다.",
+            "현재 요청은 변경/재시작/삭제/스케일/패치 계열 작업으로 분류되었습니다.",
             "",
             "### 조치 제안",
             f"- 요청: {redact_sensitive(req.message.strip()) or '미지정'}",
-            "- 현재 단계: Gateway Phase 0-1",
+            "- 현재 단계: Gateway Phase 5 Action Execution",
             f"- 정책 결정: `{policy.get('decision')}`",
-            "- 실행 가능 범위: 읽기 전용 증거 수집, 영향도 설명, 승인 전 조치 계획 작성",
+            "- 실행 가능 범위: 자연어 요청을 typed ActionProposal/SealedActionPlan으로 변환 후 승인된 Action Executor에서 실행",
             "",
             "### 승인 필요 여부",
-            "- 필요함. 실제 mutation 실행은 Approval API와 Action Executor 단계에서만 허용됩니다.",
+            "- 필요함. 실제 mutation 실행은 Approval API와 Action Executor 경로에서만 허용됩니다.",
             "",
             "### 추가로 필요한 대상 정보",
             "- namespace",
@@ -5662,7 +5870,7 @@ async def chat_stream(
                     "type": "tool_call",
                     "id": f"{request_id}-security-boundary",
                     "name": "security_boundary",
-                    "summary": "Phase 0-1 보안 경계 적용",
+                    "summary": "Phase 5 Action Execution 보안 경계 적용",
                 }
             )
             yield sse(
@@ -5671,7 +5879,7 @@ async def chat_stream(
                     "detail": (
                         "UserToken은 Gateway 내부와 OLS forwarding에만 사용합니다.\n"
                         "Agent/Model prompt, audit payload, evidence event에는 redacted metadata만 전달합니다.\n"
-                        "Mutation execution은 Phase 0-1에서 비활성화되어 있습니다."
+                        "Mutation은 Approval API와 Action Executor 경로에서만 실행합니다."
                     ),
                     "id": f"{request_id}-security-boundary",
                     "name": "security_boundary",
@@ -5796,6 +6004,45 @@ async def chat_stream(
                     "summary": "감사 레코드 기록",
                 }
             )
+
+            if policy.get("decision") == "action_proposal_only":
+                natural_action_result = await create_natural_action_plan(
+                    req,
+                    authorization,
+                    subject,
+                    incident_id=incident_id,
+                    run_id=run_id,
+                )
+                if natural_action_result:
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": json.dumps(
+                                redact_sensitive(natural_action_result),
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            "id": f"{request_id}-natural-action-plan",
+                            "name": "natural_action_plan",
+                            "result": natural_action_result,
+                            "status": (
+                                "success"
+                                if natural_action_result.get("status") == "planned"
+                                else "failed"
+                            ),
+                            "summary": "자연어 조치 요청을 Action Plan으로 변환",
+                        }
+                    )
+                    yield sse({"type": "text", "content": natural_action_plan_response(natural_action_result)})
+                    yield sse(
+                        {
+                            "type": "run_status",
+                            "runId": run_id,
+                            "stage": "completed",
+                            "message": "Gateway 자연어 조치 계획 생성 완료",
+                        }
+                    )
+                    return
 
             if req.attachments:
                 yield sse({"type": "tool_call", "name": "attachment_check"})

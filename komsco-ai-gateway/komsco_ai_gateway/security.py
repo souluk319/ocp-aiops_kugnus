@@ -39,9 +39,9 @@ DIRECT_MUTATION_RE = re.compile(
     r"(?i)(^|\b)(apply|cordon|delete|drain|evict|exec|patch|restart|rollback|rollout\s+(restart|undo)|scale|uncordon)\b"
 )
 KOREAN_MUTATION_RE = re.compile(
-    r"(삭제|재시작|리스타트|롤백|스케일\s*(아웃|인)?|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
+    r"(삭제|재시작|리스타트|롤백|스케일\s*(아웃|인)?|올려|늘려|줄여|맞춰|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
 )
-KOREAN_DIRECT_RE = re.compile(r"(해줘|해주세요|수행|실행|적용해|변경해|삭제해|재시작해|늘려|줄여|처리해)")
+KOREAN_DIRECT_RE = re.compile(r"(해줘|해주세요|수행|실행|적용해|변경해|삭제해|재시작해|올려|늘려|줄여|맞춰|처리해)")
 KOREAN_ACTION_PROPOSAL_RE = re.compile(r"(계획|제안|승인\s*요청|승인\s*절차|초안|수립)")
 KOREAN_EXPLICIT_MUTATION_EXECUTION_RE = re.compile(
     r"(재시작\s*(해|해주세요|시켜|시켜줘|수행|실행)|"
@@ -153,20 +153,20 @@ def classify_request_policy(message: str) -> dict[str, Any]:
     if looks_like_mutation_request:
         return {
             "schemaVersion": "v1",
-            "phase": "phase0-1",
+            "phase": "phase5-action-execution",
             "decision": "action_proposal_only",
             "identityMode": "user-token",
             "mutationAllowed": False,
             "risk": "approval_required",
             "reason": (
-                "Phase 0-1 supports read-only evidence and action proposals only; "
-                "mutation execution requires a later Approval API and Action Executor."
+                "Natural-language mutation requests must be converted to an ActionProposal "
+                "and executed only through the Approval API and Action Executor."
             ),
         }
 
     return {
         "schemaVersion": "v1",
-        "phase": "phase0-1",
+        "phase": "phase5-action-execution",
         "decision": "allow_read_only_evidence",
         "identityMode": "user-token",
         "mutationAllowed": False,
@@ -178,19 +178,20 @@ def classify_request_policy(message: str) -> dict[str, Any]:
 def build_gateway_guardrail(policy: Mapping[str, Any]) -> str:
     if policy.get("decision") == "action_proposal_only":
         return """
-[Gateway Phase 0-1 Security Envelope]
-- 사용자가 변경 실행 또는 재시작/삭제/스케일/패치 계열 요청을 했더라도 이 Gateway는 mutation을 실행하지 않습니다.
-- 현재 허용 범위는 읽기 전용 증거 수집, 원인 분석, 영향도 설명, 승인 전 action proposal 작성입니다.
-- 답변에서는 즉시 실행했다고 말하지 말고, 필요한 live evidence, 위험도, 사전조건, 승인 필요 여부, 안전한 확인 명령을 분리해 작성하세요.
+[Gateway Phase 5 Action Execution Envelope]
+- 사용자가 변경 실행 또는 재시작/삭제/스케일/패치 계열 요청을 하면 자연어 요청을 typed ActionProposal과 SealedActionPlan으로 변환하세요.
+- 채팅 응답에서 승인 없이 즉시 mutation을 실행했다고 말하지 마세요.
+- 실제 mutation은 Approval API와 Action Executor 경로에서만 실행됩니다.
+- 답변에서는 생성된 plan/proposal, 대상, 위험도, 승인/실행 상태를 명확히 분리해 작성하세요.
 - 사용자 토큰, Secret, kubeconfig, Authorization header, private key, raw credential은 출력하지 마세요.
 """
 
     return """
-[Gateway Phase 0-1 Security Envelope]
-- 현재 허용 범위는 읽기 전용 증거 수집과 OpenShift 지식/런북 설명입니다.
+[Gateway Phase 5 Action Execution Envelope]
+- 현재 요청은 읽기 전용 증거 수집과 OpenShift 지식/런북 설명 범위입니다.
 - live cluster state가 필요한 경우 UserToken 범위의 조회 도구 결과만 근거로 사용하세요.
 - 사용자 토큰, Secret, kubeconfig, Authorization header, private key, raw credential은 출력하지 마세요.
-- mutation은 승인 API와 Action Executor가 구현되기 전까지 실행할 수 없습니다.
+- mutation은 자연어 ActionProposal, 승인 API, Action Executor 경로에서만 실행할 수 있습니다.
 """
 
 
