@@ -17,9 +17,13 @@ import {
   UserCircleIcon,
 } from '@patternfly/react-icons';
 import {
+  type AiopsRecord,
   type AiopsRuntimeStatus,
   type ClusterSummary,
   type ImageAttachment,
+  approveActionPlan,
+  createActionPlan,
+  executeApprovedAction,
   fetchAiopsStatus,
   fetchClusterSummary,
   streamChat,
@@ -1191,10 +1195,63 @@ const renderStatusTag = (
   </span>
 );
 
-type AiopsRecordView = NonNullable<AiopsRuntimeStatus['spec']['records']['diagnosticRequests']>[number];
+type AiopsRecordView = AiopsRecord;
+type AiopsActionStep = 'create-plan' | 'approve-plan' | 'execute-approval';
+
+type AiopsRecordAction = {
+  disabledReason?: string;
+  label: string;
+  step: AiopsActionStep;
+};
 
 const getRecordSpecMap = (record: AiopsRecordView): Record<string, unknown> =>
   record.spec && typeof record.spec === 'object' ? record.spec : {};
+
+const asObjectMap = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+
+const getRecordName = (record: AiopsRecordView): string => record.metadata?.name ?? '';
+
+const getSealedActionPlan = (record: AiopsRecordView): Record<string, unknown> | undefined =>
+  asObjectMap(getRecordSpecMap(record).sealedActionPlan);
+
+const getPlanDigest = (record: AiopsRecordView): string => {
+  const plan = getSealedActionPlan(record);
+  const digest = asObjectMap(plan?.digest);
+
+  return typeof digest?.planDigest === 'string' ? digest.planDigest : '';
+};
+
+const getApprovalDecision = (record: AiopsRecordView): Record<string, unknown> | undefined =>
+  asObjectMap(getRecordSpecMap(record).approvalDecision);
+
+const getApprovalId = (record: AiopsRecordView): string => {
+  const decision = getApprovalDecision(record);
+
+  return typeof decision?.approvalId === 'string' ? decision.approvalId : getRecordName(record);
+};
+
+const getApprovalPlanDigest = (record: AiopsRecordView): string => {
+  const decision = getApprovalDecision(record);
+
+  return typeof decision?.planDigest === 'string' ? decision.planDigest : '';
+};
+
+const findPlanByDigest = (
+  plans: AiopsRecordView[],
+  planDigest: string,
+): AiopsRecordView | undefined => plans.find((plan) => getPlanDigest(plan) === planDigest);
+
+const hasApprovalForPlan = (approvals: AiopsRecordView[], planDigest: string): boolean =>
+  approvals.some((record) => {
+    const decision = getApprovalDecision(record);
+    const status = String(decision?.status ?? '');
+
+    return decision?.planDigest === planDigest && ['approved', 'executed'].includes(status);
+  });
+
+const hasExecutionForApproval = (executions: AiopsRecordView[], approvalId: string): boolean =>
+  executions.some((record) => getRecordSpecMap(record).approvalId === approvalId);
 
 const getRecordPhase = (record: AiopsRecordView): string => {
   const spec = getRecordSpecMap(record);
@@ -1249,6 +1306,52 @@ const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neu
   return 'neutral';
 };
 
+const getAiopsRecordAction = (
+  record: AiopsRecordView,
+  aiopsStatus: AiopsRuntimeStatus | null,
+): AiopsRecordAction | null => {
+  const spec = getRecordSpecMap(record);
+  const kind = record.kind ?? '';
+  const records = aiopsStatus?.spec.records;
+
+  if (kind === 'ActionProposalRecord' || spec.candidateActionRequest) {
+    return { label: '계획', step: 'create-plan' };
+  }
+
+  if (kind === 'SealedActionPlanRecord' || spec.sealedActionPlan) {
+    const planDigest = getPlanDigest(record);
+    if (!planDigest) {
+      return { disabledReason: 'plan digest 없음', label: '승인', step: 'approve-plan' };
+    }
+    if (hasApprovalForPlan(records?.approvalDecisions ?? [], planDigest)) {
+      return null;
+    }
+
+    return { label: '승인', step: 'approve-plan' };
+  }
+
+  if (kind === 'ApprovalDecisionRecord' || spec.approvalDecision) {
+    const decision = getApprovalDecision(record);
+    const status = String(decision?.status ?? '');
+    const approvalId = getApprovalId(record);
+    const plan = findPlanByDigest(records?.sealedActionPlans ?? [], getApprovalPlanDigest(record));
+
+    if (status !== 'approved') {
+      return null;
+    }
+    if (hasExecutionForApproval(records?.executionRecords ?? [], approvalId)) {
+      return null;
+    }
+    if (!plan) {
+      return { disabledReason: '연결된 plan 없음', label: '실행', step: 'execute-approval' };
+    }
+
+    return { label: '실행', step: 'execute-approval' };
+  }
+
+  return null;
+};
+
 const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
   if (records.length === 0) {
     return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
@@ -1261,6 +1364,56 @@ const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
         <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
         <p>{getRecordTargetLabel(record)}</p>
         {renderStatusTag(phase, getPhaseTone(phase))}
+      </div>
+    );
+  });
+};
+
+const renderActionRecordRows = (
+  records: AiopsRecordView[],
+  emptyLabel: string,
+  aiopsStatus: AiopsRuntimeStatus | null,
+  busyActionId: string,
+  onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
+) => {
+  if (records.length === 0) {
+    return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
+  }
+
+  return records.slice(0, 6).map((record) => {
+    const phase = getRecordPhase(record);
+    const action = getAiopsRecordAction(record, aiopsStatus);
+    const actionId = `${action?.step ?? 'none'}:${getRecordName(record)}`;
+    const busy = actionId === busyActionId;
+
+    return (
+      <div className="komsco-ai__rail-command" key={record.metadata?.name ?? phase}>
+        <div className="komsco-ai__rail-command-head">
+          <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
+          {renderStatusTag(phase, getPhaseTone(phase))}
+        </div>
+        <p>{getRecordTargetLabel(record)}</p>
+        {action && (
+          <div className="komsco-ai__rail-action-row">
+            <Button
+              className="komsco-ai__rail-action-button"
+              isDisabled={busy || Boolean(action.disabledReason)}
+              isLoading={busy}
+              onClick={() => onAction(record, action)}
+              size="sm"
+              title={action.disabledReason}
+              variant="secondary"
+            >
+              <span className="komsco-ai__rail-action-icon">
+                <TerminalIcon />
+              </span>
+              {action.label}
+            </Button>
+            {action.disabledReason && (
+              <span className="komsco-ai__rail-action-note">{action.disabledReason}</span>
+            )}
+          </div>
+        )}
       </div>
     );
   });
@@ -1293,6 +1446,10 @@ const renderInsightRail = (
   error: string,
   aiopsStatus: AiopsRuntimeStatus | null,
   aiopsStatusError: string,
+  aiopsActionBusyId: string,
+  aiopsActionError: string,
+  aiopsActionNotice: string,
+  onAiopsAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
 ) => (
   <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
     <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
@@ -1457,14 +1614,29 @@ const renderInsightRail = (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>승인·실행</strong>
-        <span>{aiopsStatus?.spec.records.executionRecords.length ?? 0}건</span>
+        <span>
+          {aiopsStatus
+            ? aiopsStatus.spec.records.actionProposals.length +
+              aiopsStatus.spec.records.sealedActionPlans.length +
+              aiopsStatus.spec.records.approvalDecisions.length +
+              aiopsStatus.spec.records.executionRecords.length
+            : 0}
+          건
+        </span>
       </div>
-      {renderRecordRows(
+      {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
+      {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
+      {renderActionRecordRows(
         [
+          ...(aiopsStatus?.spec.records.actionProposals ?? []),
+          ...(aiopsStatus?.spec.records.sealedActionPlans ?? []),
           ...(aiopsStatus?.spec.records.approvalDecisions ?? []),
           ...(aiopsStatus?.spec.records.executionRecords ?? []),
         ],
         '최근 승인 또는 실행 기록이 없습니다.',
+        aiopsStatus,
+        aiopsActionBusyId,
+        onAiopsAction,
       )}
     </div>
   </aside>
@@ -1481,6 +1653,9 @@ const AssistantLauncher: React.FC = () => {
   const [clusterSummaryLoading, setClusterSummaryLoading] = React.useState(false);
   const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
   const [aiopsStatusError, setAiopsStatusError] = React.useState('');
+  const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
+  const [aiopsActionError, setAiopsActionError] = React.useState('');
+  const [aiopsActionNotice, setAiopsActionNotice] = React.useState('');
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -1574,6 +1749,73 @@ const AssistantLauncher: React.FC = () => {
       window.clearInterval(timer);
     };
   }, [open]);
+
+  const refreshAiopsRuntimeStatus = React.useCallback(async () => {
+    try {
+      const status = await fetchAiopsStatus();
+
+      setAiopsStatus(status);
+      setAiopsStatusError('');
+    } catch (error) {
+      setAiopsStatusError(
+        error instanceof Error ? error.message : 'AIOps status request failed.',
+      );
+    }
+  }, []);
+
+  const handleAiopsAction = React.useCallback(
+    async (record: AiopsRecordView, action: AiopsRecordAction) => {
+      if (action.disabledReason) {
+        return;
+      }
+
+      const actionId = `${action.step}:${getRecordName(record)}`;
+
+      setAiopsActionBusyId(actionId);
+      setAiopsActionError('');
+      setAiopsActionNotice('');
+
+      try {
+        if (action.step === 'create-plan') {
+          const proposalId = getRecordName(record);
+          if (!proposalId) {
+            throw new Error('Action proposal id is missing.');
+          }
+          await createActionPlan(proposalId);
+          setAiopsActionNotice('Action plan을 생성했습니다.');
+        }
+
+        if (action.step === 'approve-plan') {
+          const planId = getRecordName(record);
+          const planDigest = getPlanDigest(record);
+          if (!planId || !planDigest) {
+            throw new Error('Action plan id 또는 digest가 없습니다.');
+          }
+          await approveActionPlan(planId, planDigest);
+          setAiopsActionNotice('Action plan을 승인했습니다.');
+        }
+
+        if (action.step === 'execute-approval') {
+          const approvalId = getApprovalId(record);
+          const planDigest = getApprovalPlanDigest(record);
+          const plan = findPlanByDigest(aiopsStatus?.spec.records.sealedActionPlans ?? [], planDigest);
+          const planId = plan ? getRecordName(plan) : '';
+          if (!approvalId || !planId || !planDigest) {
+            throw new Error('Approval 또는 연결된 action plan 정보가 없습니다.');
+          }
+          await executeApprovedAction(approvalId, planId, planDigest);
+          setAiopsActionNotice('승인된 조치를 실행했습니다.');
+        }
+
+        await refreshAiopsRuntimeStatus();
+      } catch (error) {
+        setAiopsActionError(error instanceof Error ? error.message : 'AIOps action failed.');
+      } finally {
+        setAiopsActionBusyId('');
+      }
+    },
+    [aiopsStatus, refreshAiopsRuntimeStatus],
+  );
 
   const appendAssistantText = React.useCallback((content: string) => {
     setMessages((prev) => {
@@ -2308,6 +2550,10 @@ const AssistantLauncher: React.FC = () => {
               clusterSummaryError,
               aiopsStatus,
               aiopsStatusError,
+              aiopsActionBusyId,
+              aiopsActionError,
+              aiopsActionNotice,
+              handleAiopsAction,
             )}
           </div>
         </Card>

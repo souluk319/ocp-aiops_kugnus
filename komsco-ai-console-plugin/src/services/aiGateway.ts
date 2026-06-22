@@ -69,7 +69,7 @@ export type ClusterSummary = {
   };
 };
 
-type AiopsRecord = {
+export type AiopsRecord = {
   kind?: string;
   metadata?: {
     createdAt?: string;
@@ -134,6 +134,32 @@ const GATEWAY_CLUSTER_SUMMARY_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/cluster/summary';
 const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/aiops/status';
+const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/actions';
+
+async function postGatewayJson<TResponse>(
+  path: string,
+  payload: Record<string, unknown>,
+): Promise<TResponse> {
+  const response = await consoleFetch(
+    `${GATEWAY_ACTIONS_URL}${path}`,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    },
+    60 * 1000,
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`AIOps action request failed: ${response.status} ${detail.slice(0, 240)}`);
+  }
+
+  return (await response.json()) as TResponse;
+}
 
 export async function fetchClusterSummary(): Promise<ClusterSummary> {
   const response = await consoleFetch(
@@ -171,6 +197,33 @@ export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {
   }
 
   return (await response.json()) as AiopsRuntimeStatus;
+}
+
+export async function createActionPlan(proposalId: string): Promise<AiopsRecord> {
+  return postGatewayJson<AiopsRecord>('/plans', { proposalId });
+}
+
+export async function approveActionPlan(
+  planId: string,
+  expectedPlanDigest: string,
+): Promise<AiopsRecord> {
+  return postGatewayJson<AiopsRecord>('/approvals', {
+    approvalScope: 'single-target',
+    expectedPlanDigest,
+    planId,
+  });
+}
+
+export async function executeApprovedAction(
+  approvalId: string,
+  planId: string,
+  expectedPlanDigest: string,
+): Promise<AiopsRecord> {
+  return postGatewayJson<AiopsRecord>('/execute', {
+    approvalId,
+    expectedPlanDigest,
+    planId,
+  });
 }
 
 export async function* streamChat(payload: ChatRequest): AsyncGenerator<StreamEvent> {
