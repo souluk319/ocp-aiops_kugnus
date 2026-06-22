@@ -521,6 +521,9 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "lightspeed_stream" in fallback
     assert "startTime" in fallback
     assert "ClusterOperator" in fallback
+    assert "Gateway가 수집한 증거 기준" in fallback
+    assert "모델의 최종 요약" not in fallback
+    assert "Live 조회" not in fallback
 
 
 def test_chat_stream_handles_openshift_user_auth_401_without_raw_status(monkeypatch) -> None:
@@ -607,6 +610,9 @@ def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_ta
         gateway_evidence,
     )
 
+    assert "Gateway가 수집한 Kubernetes 증거 기준" in fallback
+    assert "모델의 최종 요약" not in fallback
+    assert "Live 조회" not in fallback
     assert "... truncated ..." not in fallback
     assert "Gateway 사전 수집 증거" not in fallback
     assert "sample-crashy-6fd7d7cfd7-r4nd0" in fallback

@@ -4843,7 +4843,7 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
         cause = "컨테이너 실행 명령/args가 프로세스의 즉시 종료를 유발하는 형태로 확인됩니다."
 
     lines = [
-        "Live 조회는 완료됐지만 모델의 최종 요약 텍스트가 비어 있어 Gateway가 수집 증거로 요약했습니다.",
+        "Gateway가 수집한 Kubernetes 증거 기준으로 대상 Pod를 우선 분석했습니다.",
         "",
         "### 분석 요약",
         f"- 대상: `{namespace}` / Pod `{pod}` / Container `{container}`",
@@ -4902,7 +4902,7 @@ def build_empty_answer_fallback(
         return pod_fallback
 
     lines = [
-        "Live 조회는 완료됐지만 모델의 최종 요약 텍스트가 비어 있어 Gateway가 안전한 요약을 생성했습니다.",
+        "Gateway가 수집한 증거 기준으로 안전한 요약을 생성했습니다.",
         "",
         f"- 질문: {redact_sensitive(req.message.strip()) or '미지정'}",
     ]
