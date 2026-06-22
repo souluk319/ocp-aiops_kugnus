@@ -714,6 +714,75 @@ def test_build_pod_status_evidence_marks_failed_pod_start_time() -> None:
     assert "Failed / terminated:Error/1" in evidence
 
 
+def test_build_pod_status_evidence_includes_unhealthy_spec_and_owner_chain() -> None:
+    evidence = build_pod_status_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "sample-crashy-6fd7d7cfd7-r4nd0",
+                        "namespace": "team-a",
+                        "labels": {
+                            "app": "sample-crashy",
+                            "aiops.komsco/scenario": "sample",
+                            "pod-template-hash": "6fd7d7cfd7",
+                        },
+                        "ownerReferences": [{"kind": "ReplicaSet", "name": "sample-crashy-6fd7d7cfd7"}],
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "app",
+                                "image": "registry.example.com/team-a/sample-crashy:v2",
+                                "command": ["python", "-c", "raise SystemExit('boom')"],
+                                "args": ["--token=my-secret-token-value"],
+                            }
+                        ],
+                    },
+                    "status": {
+                        "phase": "Running",
+                        "containerStatuses": [
+                            {
+                                "name": "app",
+                                "ready": False,
+                                "restartCount": 3,
+                                "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                                "lastState": {
+                                    "terminated": {
+                                        "reason": "Error",
+                                        "exitCode": 1,
+                                        "finishedAt": "2026-06-22T01:00:18Z",
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                }
+            ]
+        },
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "name": "sample-crashy-6fd7d7cfd7",
+                        "namespace": "team-a",
+                        "ownerReferences": [{"kind": "Deployment", "name": "sample-crashy"}],
+                    }
+                }
+            ]
+        },
+    )
+
+    assert "Spec evidence for currently non-healthy or waiting containers" in evidence
+    assert "registry.example.com/team-a/sample-crashy:v2" in evidence
+    assert "[\"python\", \"-c\", \"raise SystemExit('boom')\"]" in evidence
+    assert "--token=[REDACTED]" in evidence
+    assert "my-secret-token-value" not in evidence
+    assert "app=sample-crashy" in evidence
+    assert "aiops.komsco/scenario=sample" in evidence
+    assert "ReplicaSet/sample-crashy-6fd7d7cfd7 -> Deployment/sample-crashy" in evidence
+
+
 def test_build_cluster_operator_status_evidence_summarizes_operator_health() -> None:
     evidence = build_cluster_operator_status_evidence(
         {

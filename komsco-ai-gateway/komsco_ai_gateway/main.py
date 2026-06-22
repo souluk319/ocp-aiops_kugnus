@@ -2747,11 +2747,106 @@ def pod_owner_summary(pod: Mapping[str, Any]) -> str:
     return f"{kind}/{name}"
 
 
-def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
+def markdown_table_cell(value: Any, *, max_length: int = 180) -> str:
+    text = str(redact_sensitive(value)).replace("\n", " ").replace("\r", " ").strip()
+    text = text.replace("|", "\\|")
+    if not text:
+        return "-"
+    if len(text) > max_length:
+        return f"{text[: max_length - 1]}..."
+    return text
+
+
+def json_list_summary(value: Any) -> str:
+    if not isinstance(value, list) or not value:
+        return "-"
+    return json.dumps(redact_sensitive(value), ensure_ascii=False)
+
+
+def pod_label_summary(pod: Mapping[str, Any]) -> str:
+    metadata = pod.get("metadata", {}) if isinstance(pod.get("metadata"), Mapping) else {}
+    labels = metadata.get("labels")
+    if not isinstance(labels, Mapping) or not labels:
+        return "-"
+
+    priority_keys = [
+        "app",
+        "app.kubernetes.io/name",
+        "app.kubernetes.io/component",
+        "aiops.komsco/scenario",
+        "aiops.komsco/scenario-type",
+        "pod-template-hash",
+    ]
+    ordered_keys = [key for key in priority_keys if key in labels]
+    ordered_keys.extend(sorted(str(key) for key in labels if str(key) not in ordered_keys))
+    parts = [f"{key}={labels.get(key)}" for key in ordered_keys[:8]]
+    if len(labels) > len(parts):
+        parts.append(f"+{len(labels) - len(parts)} more")
+    return ", ".join(parts)
+
+
+def container_spec_index(pod: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    spec = pod.get("spec", {}) if isinstance(pod.get("spec"), Mapping) else {}
+    containers = spec.get("containers")
+    if not isinstance(containers, list):
+        return {}
+
+    indexed: dict[str, Mapping[str, Any]] = {}
+    for container in containers:
+        if not isinstance(container, Mapping):
+            continue
+        name = str(container.get("name") or "")
+        if name:
+            indexed[name] = container
+    return indexed
+
+
+def replicaset_owner_index(replicasets_payload: Mapping[str, Any] | None) -> dict[tuple[str, str], str]:
+    if not replicasets_payload:
+        return {}
+    items = replicasets_payload.get("items")
+    if not isinstance(items, list):
+        return {}
+
+    indexed: dict[tuple[str, str], str] = {}
+    for replicaset in items:
+        if not isinstance(replicaset, Mapping):
+            continue
+        metadata = replicaset.get("metadata", {}) if isinstance(replicaset.get("metadata"), Mapping) else {}
+        namespace = str(metadata.get("namespace") or "")
+        name = str(metadata.get("name") or "")
+        owner = pod_owner_summary(replicaset)
+        if namespace and name and owner != "-":
+            indexed[(namespace, name)] = owner
+    return indexed
+
+
+def pod_owner_chain_summary(
+    pod: Mapping[str, Any],
+    replicaset_owners: Mapping[tuple[str, str], str],
+) -> str:
+    metadata = pod.get("metadata", {}) if isinstance(pod.get("metadata"), Mapping) else {}
+    namespace = str(metadata.get("namespace") or "")
+    owner = pod_owner_summary(pod)
+    if owner == "-" or not owner.startswith("ReplicaSet/"):
+        return owner
+
+    replicaset_name = owner.split("/", 1)[1]
+    parent_owner = replicaset_owners.get((namespace, replicaset_name))
+    if not parent_owner:
+        return owner
+    return f"{owner} -> {parent_owner}"
+
+
+def build_pod_status_evidence(
+    pods_payload: Mapping[str, Any],
+    replicasets_payload: Mapping[str, Any] | None = None,
+) -> str:
     items = pods_payload.get("items")
     if not isinstance(items, list):
         return "Pod status evidence unavailable: API response did not include an items list."
 
+    replicaset_owners = replicaset_owner_index(replicasets_payload)
     rows: list[dict[str, Any]] = []
     unhealthy_rows: list[dict[str, Any]] = []
     for pod in items:
@@ -2767,6 +2862,9 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
         ready = pod_ready_summary(pod)
         pod_state = pod_display_state(pod)
         owner = pod_owner_summary(pod)
+        owner_chain = pod_owner_chain_summary(pod, replicaset_owners)
+        label_summary = pod_label_summary(pod)
+        specs_by_name = container_spec_index(pod)
         statuses = status.get("containerStatuses", [])
         regular_statuses = statuses if isinstance(statuses, list) else []
         expected_ready = f"{len(regular_statuses)}/{len(regular_statuses)}"
@@ -2777,10 +2875,12 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
                 continue
 
             last_state, last_finished_at = last_termination_summary(container)
+            container_name = str(container.get("name") or "unknown")
+            container_spec = specs_by_name.get(container_name, {})
             row = {
                 "namespace": namespace,
                 "pod": pod_name,
-                "container": str(container.get("name") or "unknown"),
+                "container": container_name,
                 "phase": pod_state,
                 "podStartTime": pod_start_time,
                 "ready": ready,
@@ -2791,6 +2891,11 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
                 "lastFinishedSort": parse_rfc3339(last_finished_at)
                 or datetime.min.replace(tzinfo=UTC),
                 "owner": owner,
+                "ownerChain": owner_chain,
+                "image": markdown_table_cell(container_spec.get("image") or "-"),
+                "command": markdown_table_cell(json_list_summary(container_spec.get("command"))),
+                "args": markdown_table_cell(json_list_summary(container_spec.get("args"))),
+                "labels": markdown_table_cell(label_summary),
             }
             rows.append(row)
             if is_unhealthy or row["state"].startswith("waiting:"):
@@ -2847,6 +2952,25 @@ def build_pod_status_evidence(pods_payload: Mapping[str, Any]) -> str:
         lines.append(
             "| - | - | - | 현재 non-healthy/waiting container가 evidence 상위권에 없음 | - | - | 0 | - | - |"
         )
+
+    lines.extend(
+        [
+            "",
+            "Spec evidence for currently non-healthy or waiting containers:",
+            "Use command/args/image/labels below as concrete evidence for root-cause and remediation planning; do not replace these values with generic guesses.",
+            "| Namespace | Pod | Container | Image | Command | Args | Pod Labels | Owner Chain |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+    )
+    if top_unhealthy_rows:
+        for row in top_unhealthy_rows:
+            lines.append(
+                "| {namespace} | `{pod}` | `{container}` | {image} | {command} | {args} | {labels} | {ownerChain} |".format(
+                    **row
+                )
+            )
+    else:
+        lines.append("| - | - | - | - | - | - | - | - |")
 
     return "\n".join(lines)
 
@@ -3731,6 +3855,11 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
         timeout=httpx.Timeout(20.0, connect=5.0),
     ) as client:
         pods_payload = await fetch_ocp_json(client, "/api/v1/pods", user_auth_header)
+        replicasets_payload = await fetch_ocp_json(
+            client,
+            "/apis/apps/v1/replicasets",
+            user_auth_header,
+        )
         cluster_operators_payload = await fetch_ocp_json(
             client,
             "/apis/config.openshift.io/v1/clusteroperators",
@@ -3743,7 +3872,7 @@ async def collect_pod_status_evidence(user_auth_header: str) -> str:
             "This may be a permission or API availability issue."
         )
 
-    evidence = build_pod_status_evidence(pods_payload)
+    evidence = build_pod_status_evidence(pods_payload, replicasets_payload)
     if cluster_operators_payload:
         evidence = append_gateway_evidence(
             evidence,
