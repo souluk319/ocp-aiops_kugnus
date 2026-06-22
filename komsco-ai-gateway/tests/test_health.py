@@ -68,6 +68,7 @@ from komsco_ai_gateway.main import (
     PatchPreapprovedFieldCreate,
     RunbookPlanCreate,
     diagnostic_request_digest,
+    is_followup_execution_request,
     page_context_aiops_execution_mode,
     parse_bool,
     parse_natural_action_intent,
@@ -171,6 +172,14 @@ def test_parse_unrestricted_chat_command_requires_explicit_prefix() -> None:
     assert parse_unrestricted_chat_command("/exec printf ok") == "printf ok"
     assert parse_unrestricted_chat_command("실행: ```bash\nprintf ok\n```") == "printf ok"
     assert parse_unrestricted_chat_command("파드 목록 조회해줘") == ""
+
+
+def test_followup_execution_request_accepts_korean_variants() -> None:
+    assert is_followup_execution_request("진행해")
+    assert is_followup_execution_request("승인해")
+    assert is_followup_execution_request("실행해")
+    assert is_followup_execution_request("적용")
+    assert not is_followup_execution_request("진행 상황 분석해줘")
 
 
 def test_unrestricted_command_endpoint_requires_feature_flag(monkeypatch) -> None:
@@ -1057,7 +1066,7 @@ def test_chat_stream_unrestricted_followup_without_plan_stays_in_gateway(monkeyp
                 "/v1/chat/stream",
                 headers={"Authorization": "Bearer test-token"},
                 json={
-                    "message": "승인",
+                    "message": "진행해",
                     "pageContext": {"aiopsExecutionMode": "unrestricted"},
                 },
             )
@@ -1074,6 +1083,54 @@ def test_chat_stream_unrestricted_followup_without_plan_stays_in_gateway(monkeyp
         assert followup_results
         assert followup_results[0]["status"] == "skipped"
         assert "실행할 Gateway AIOps Action Plan이 없습니다" in response.text
+        assert "lightspeed_stream" not in response.text
+
+    asyncio.run(run())
+
+
+def test_chat_stream_unparsed_mutation_request_does_not_fall_through_to_ols(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for unresolved mutation requests")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "파드 하나 재시작해줘",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        unresolved_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_unresolved"
+        ]
+        assert unresolved_results
+        assert unresolved_results[0]["status"] == "skipped"
+        assert "대상 Deployment 이름이 명확하지 않습니다" in response.text
         assert "lightspeed_stream" not in response.text
 
     asyncio.run(run())

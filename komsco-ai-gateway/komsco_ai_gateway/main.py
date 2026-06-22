@@ -228,7 +228,10 @@ RESTART_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 RESTART_REQUEST_RE = re.compile(r"(?:재시작|리스타트|restart|rollout\s+restart)", re.IGNORECASE)
-FOLLOWUP_EXECUTION_RE = re.compile(r"^\s*(?:승인|실행|진행|수행|적용|yes|ok|확인)\s*[.!?。]*\s*$", re.IGNORECASE)
+FOLLOWUP_EXECUTION_RE = re.compile(
+    r"^\s*(?:승인|승인해|실행|실행해|진행|진행해|수행|수행해|적용|적용해|해|해줘|yes|ok|확인)\s*[.!?。]*\s*$",
+    re.IGNORECASE,
+)
 POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     ("재시작 빈도", "누적 재시작 횟수"),
     ("높은 빈도", "높은 누적 재시작 횟수"),
@@ -2269,6 +2272,40 @@ def no_pending_action_plan_response() -> str:
             "예: `6:cis 파드 3개로 올려줘`",
         ]
     )
+
+
+def unresolved_natural_action_response(req: ChatRequest) -> str:
+    context = normalize_console_page_context(req.pageContext)
+    namespace = namespace_from_natural_action(req)
+    resource_name = page_context_resource_name(req)
+    lines = [
+        "변경 요청으로 판단했지만 실행 가능한 Gateway AIOps Action으로 확정하지 못했습니다.",
+        "",
+        "실제 조치를 수행하지 않았습니다.",
+        "",
+        "### 부족한 정보",
+    ]
+    if not namespace:
+        lines.append("- Namespace가 명확하지 않습니다.")
+    if not resource_name and not any(
+        parser.search(req.message)
+        for parser in (DEPLOYMENT_RESOURCE_RE, NAMESPACED_RESOURCE_SHORTHAND_RE, BACKTICK_RESOURCE_RE)
+    ):
+        lines.append("- 대상 Deployment 이름이 명확하지 않습니다.")
+    if len(lines) == 5:
+        lines.append("- 지원되는 조치 형태가 아닙니다. 현재 자연어 즉시 실행은 Deployment replica 변경/rollout restart를 우선 지원합니다.")
+    lines.extend(
+        [
+            "",
+            "### 다시 입력 예시",
+            "- `6:cis 파드 3개로 올려줘`",
+            "- `6 네임스페이스의 cis 파드 3개로 올려줘`",
+            "- `komsco-ai-dev:aiops-two-pod-exec 재시작해줘`",
+        ]
+    )
+    if context:
+        lines.extend(["", f"- 현재 콘솔 경로: `{context.get('pathname') or context.get('href') or '-'}`"])
+    return "\n".join(lines)
 
 
 async def execute_natural_action_plan_result(
@@ -6824,6 +6861,39 @@ async def chat_stream(
 
             if policy.get("decision") == "action_proposal_only":
                 natural_action_intent = parse_natural_action_intent(req)
+                if not natural_action_intent:
+                    unresolved_result = {
+                        "executionMode": page_context_aiops_execution_mode(req),
+                        "message": req.message,
+                        "status": "unresolved",
+                    }
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": json.dumps(
+                                redact_sensitive(unresolved_result),
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            "id": f"{request_id}-natural-action-unresolved",
+                            "name": "natural_action_unresolved",
+                            "result": unresolved_result,
+                            "status": "skipped",
+                            "summary": "변경 요청 대상 해석 실패",
+                        }
+                    )
+                    yield sse({"type": "text", "content": unresolved_natural_action_response(req)})
+                    yield sse(
+                        {
+                            "type": "run_status",
+                            "runId": run_id,
+                            "stage": "completed",
+                            "message": "Gateway 변경 요청 해석 실패",
+                        }
+                    )
+                    yield sse("[DONE]")
+                    return
+
                 if natural_action_intent and not execution_mode_allows_actions(req):
                     yield sse(
                         {
