@@ -5,6 +5,26 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_DIR="${ROOT_DIR}/komsco-ai-console-plugin"
 
+load_env_file() {
+  local file="$1"
+  if [ ! -f "$file" ]; then
+    return
+  fi
+
+  set -a
+  # shellcheck source=/dev/null
+  . "$file"
+  set +a
+}
+
+load_env_files() {
+  load_env_file "${ROOT_DIR}/.env"
+  load_env_file "${ROOT_DIR}/.env.local"
+  OPENSHIFT_API_SERVER="${OPENSHIFT_API_SERVER:-${OPENSHIFT_SERVER:-}}"
+}
+
+load_env_files
+
 PLUGIN_HOST="${PLUGIN_HOST:-127.0.0.1}"
 PLUGIN_PORT="${PLUGIN_PORT:-9001}"
 CONSOLE_PORT="${CONSOLE_PORT:-9000}"
@@ -15,6 +35,7 @@ PLUGIN_LOG="${PLUGIN_LOG:-${ROOT_DIR}/.dev-console-plugin-webpack.log}"
 CONSOLE_LOG="${CONSOLE_LOG:-${ROOT_DIR}/.dev-console-plugin-console.log}"
 CONSOLE_TOKEN_CHECK_INTERVAL="${CONSOLE_TOKEN_CHECK_INTERVAL:-60}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://127.0.0.1:${CONSOLE_PORT}/api/kubernetes/version}"
+OPENSHIFT_INSECURE_SKIP_TLS_VERIFY="${OPENSHIFT_INSECURE_SKIP_TLS_VERIFY:-false}"
 
 PLUGIN_PID=""
 CONSOLE_PID=""
@@ -91,8 +112,64 @@ descendant_pids() {
   done < <(pgrep -P "$parent" 2>/dev/null || true)
 }
 
+is_truthy() {
+  case "${1,,}" in
+    1 | true | yes | y | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+token_fingerprint() {
+  local token="$1"
+  if [ -z "$token" ]; then
+    return 1
+  fi
+
+  printf "%s" "$token" | sha256sum | awk '{print $1}'
+}
+
+oc_login_from_env() {
+  if [ -z "${OPENSHIFT_TOKEN:-}" ] || [ -z "${OPENSHIFT_API_SERVER:-}" ]; then
+    return 1
+  fi
+
+  local login_args=(login "--token=${OPENSHIFT_TOKEN}" "--server=${OPENSHIFT_API_SERVER}")
+  if is_truthy "$OPENSHIFT_INSECURE_SKIP_TLS_VERIFY"; then
+    login_args+=(--insecure-skip-tls-verify=true)
+  fi
+
+  oc "${login_args[@]}" >/dev/null
+
+  if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
+    oc project "$OPENSHIFT_NAMESPACE" >/dev/null
+  fi
+}
+
+ensure_oc_login() {
+  load_env_files
+
+  if [ -n "${OPENSHIFT_TOKEN:-}" ] && [ -n "${OPENSHIFT_API_SERVER:-}" ]; then
+    local current_token=""
+    local current_fingerprint=""
+    local env_fingerprint=""
+
+    if oc whoami >/dev/null 2>&1; then
+      current_token="$(oc whoami --show-token 2>/dev/null || true)"
+    fi
+
+    current_fingerprint="$(token_fingerprint "$current_token" 2>/dev/null || true)"
+    env_fingerprint="$(token_fingerprint "$OPENSHIFT_TOKEN" 2>/dev/null || true)"
+    if [ -z "$current_fingerprint" ] || [ "$current_fingerprint" != "$env_fingerprint" ]; then
+      oc_login_from_env
+    fi
+    return 0
+  fi
+
+  oc whoami >/dev/null 2>&1
+}
+
 current_token_fingerprint() {
-  if ! oc whoami >/dev/null 2>&1; then
+  if ! ensure_oc_login >/dev/null 2>&1; then
     return 1
   fi
 
@@ -150,10 +227,11 @@ trap cleanup EXIT INT TERM
 
 require_cmd oc
 require_cmd curl
+require_cmd sha256sum
 require_cmd yarn
 
-if ! oc whoami >/dev/null 2>&1; then
-  echo "oc login이 필요합니다. VPN/hosts 설정 후 oc login을 먼저 수행하세요." >&2
+if ! ensure_oc_login; then
+  echo "oc login이 필요합니다. .env.local에 OPENSHIFT_API_SERVER/OPENSHIFT_TOKEN을 설정하거나 oc login을 먼저 수행하세요." >&2
   exit 1
 fi
 
