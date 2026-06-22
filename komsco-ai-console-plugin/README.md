@@ -23,6 +23,13 @@ This starts `yarn start` on `http://127.0.0.1:9001`, then starts the local
 OpenShift Console bridge on `http://localhost:9000`. It expects the gateway from
 `task be:dev` to be available at `http://localhost:18080`.
 
+The bridge uses the current `oc` token at startup. If the token expires, the
+root dev script validates the API session and restarts the bridge only after a
+valid token is available. For unattended local refresh, set
+`OPENSHIFT_RELOGIN_COMMAND` in `.env.local` to a command that performs `oc login`
+and returns a valid `oc whoami`; a static `OPENSHIFT_TOKEN` alone cannot be
+renewed after expiration.
+
 The chat composer supports PNG, JPEG, WebP, and GIF attachments through file
 selection, paste, or drag-and-drop. Attached images are shown as previews in the
 conversation and sent to the local gateway with the chat request.

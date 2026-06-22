@@ -36,6 +36,7 @@ CONSOLE_LOG="${CONSOLE_LOG:-${ROOT_DIR}/.dev-console-plugin-console.log}"
 CONSOLE_TOKEN_CHECK_INTERVAL="${CONSOLE_TOKEN_CHECK_INTERVAL:-60}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://127.0.0.1:${CONSOLE_PORT}/api/kubernetes/version}"
 OPENSHIFT_INSECURE_SKIP_TLS_VERIFY="${OPENSHIFT_INSECURE_SKIP_TLS_VERIFY:-false}"
+OPENSHIFT_RELOGIN_COMMAND="${OPENSHIFT_RELOGIN_COMMAND:-}"
 
 PLUGIN_PID=""
 CONSOLE_PID=""
@@ -147,8 +148,37 @@ oc_login_from_env() {
   oc whoami >/dev/null
 }
 
+run_relogin_command() {
+  local reason="$1"
+
+  if [ -z "${OPENSHIFT_RELOGIN_COMMAND:-}" ]; then
+    return 1
+  fi
+
+  echo "Refreshing oc login: ${reason}"
+  bash -lc "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null
+
+  if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
+    oc project "$OPENSHIFT_NAMESPACE" >/dev/null
+  fi
+
+  oc whoami >/dev/null
+}
+
 ensure_oc_login() {
   load_env_files
+
+  if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ]; then
+    if oc whoami >/dev/null 2>&1; then
+      return 0
+    fi
+
+    if ! run_relogin_command "current oc login is invalid"; then
+      echo "OPENSHIFT_RELOGIN_COMMAND did not produce a valid oc login." >&2
+      return 1
+    fi
+    return 0
+  fi
 
   if [ -n "${OPENSHIFT_TOKEN:-}" ] && [ -n "${OPENSHIFT_API_SERVER:-}" ]; then
     local current_token=""
@@ -187,6 +217,14 @@ console_health_status() {
   curl -ksS -o /dev/null -w "%{http_code}" --max-time 10 "$CONSOLE_HEALTH_URL" 2>/dev/null || true
 }
 
+stop_console() {
+  if [ -n "$CONSOLE_PID" ]; then
+    kill_tree "$CONSOLE_PID"
+    CONSOLE_PID=""
+  fi
+  wait_for_port_closed "127.0.0.1" "$CONSOLE_PORT" || true
+}
+
 start_console() {
   TOKEN_FINGERPRINT="$(current_token_fingerprint || true)"
   if [ -z "$TOKEN_FINGERPRINT" ]; then
@@ -216,8 +254,7 @@ restart_console() {
   local reason="$1"
 
   echo "Restarting local console bridge: ${reason}"
-  kill_tree "$CONSOLE_PID"
-  CONSOLE_PID=""
+  stop_console
   if ! wait_for_port_closed "127.0.0.1" "$CONSOLE_PORT"; then
     echo "Console port ${CONSOLE_PORT} is still open after restart request." >&2
     return 1
@@ -284,13 +321,24 @@ while true; do
 
   if [ -n "$CONSOLE_PID" ] && ! kill -0 "$CONSOLE_PID" >/dev/null 2>&1; then
     wait "$CONSOLE_PID" >/dev/null 2>&1 || true
+    CONSOLE_PID=""
     restart_console "console process exited"
     continue
   fi
 
   next_fingerprint="$(current_token_fingerprint || true)"
   if [ -z "$next_fingerprint" ]; then
-    echo "oc login is not valid. Refresh oc login; the bridge will restart after a valid token is available." >&2
+    if run_relogin_command "periodic oc login check failed"; then
+      restart_console "oc login refreshed"
+    else
+      echo "oc login is not valid. Refresh oc login; the bridge will restart after a valid token is available." >&2
+      stop_console
+    fi
+    continue
+  fi
+
+  if [ -z "$CONSOLE_PID" ]; then
+    start_console
     continue
   fi
 
@@ -301,7 +349,12 @@ while true; do
 
   health_status="$(console_health_status)"
   if [ "$health_status" = "401" ] || [ "$health_status" = "403" ]; then
-    restart_console "Kubernetes API returned HTTP ${health_status}"
+    if run_relogin_command "Kubernetes API returned HTTP ${health_status}"; then
+      restart_console "oc login refreshed after Kubernetes API HTTP ${health_status}"
+    else
+      echo "Kubernetes API returned HTTP ${health_status}; no valid auto-refresh credential source is configured." >&2
+      stop_console
+    fi
     continue
   fi
 done

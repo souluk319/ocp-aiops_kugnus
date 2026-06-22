@@ -51,6 +51,15 @@ demos of the approval/execution path.
 and then starts the local OpenShift Console bridge on `http://localhost:9000`.
 The bridge proxy forwards the assistant API path to `http://localhost:18080`.
 
+The local console bridge captures the current `oc` bearer token when it starts.
+If that token expires, `task fe:dev` validates the token with the API server and
+stops/restarts the bridge instead of keeping a broken `401 Unauthorized` console
+session alive. A static `.env.local` `OPENSHIFT_TOKEN` is not refreshable by
+itself; replace it when it expires, or configure a local-only
+`OPENSHIFT_RELOGIN_COMMAND` that can run `oc login` and produce a fresh valid
+session. When that command is configured, the dev loop runs it after token/health
+failures, verifies `oc whoami`, and restarts the bridge with the new token.
+
 The assistant supports image attachments in the local chat UI. The gateway
 validates image type and size, optionally runs a gateway-side vision
 preprocessor, and includes the resulting image summary plus file metadata in
