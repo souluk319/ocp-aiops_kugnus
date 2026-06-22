@@ -69,6 +69,7 @@ from komsco_ai_gateway.main import (
     RunbookPlanCreate,
     diagnostic_request_digest,
     is_followup_execution_request,
+    is_pod_list_request,
     page_context_aiops_execution_mode,
     parse_bool,
     parse_natural_action_intent,
@@ -80,6 +81,7 @@ from komsco_ai_gateway.main import (
     product_access_review_status,
     sealed_action_plan_digest,
     summarize_product_access_review,
+    unresolved_natural_action_response,
     validate_execution_evidence_freshness,
     should_collect_cronjob_activity_evidence,
     should_collect_pod_status_evidence,
@@ -1061,6 +1063,230 @@ def test_parse_natural_action_intent_accepts_restart_variants(
     assert intent["targetName"] == expected_target
 
 
+@pytest.mark.parametrize(
+    ("message", "expected_namespace", "expected_target", "expected_tool", "expected_kind", "expected_parameters"),
+    [
+        (
+            "team-a 네임스페이스의 deployment/web-api revision 2로 롤백해줘",
+            "team-a",
+            "web-api",
+            "rollback_deployment_to_revision",
+            "Deployment",
+            {"revision": 2},
+        ),
+        (
+            "team-a 네임스페이스의 deployment/web-api 롤백해줘",
+            "team-a",
+            "web-api",
+            "rollback_deployment_to_revision",
+            "Deployment",
+            {"revision": None},
+        ),
+        (
+            "team-a 네임스페이스의 pod/web-api-abc 교체해줘",
+            "team-a",
+            "web-api-abc",
+            "evict_one_unhealthy_controller_owned_pod",
+            "Pod",
+            {"reason": "natural_language_unhealthy_pod_eviction"},
+        ),
+        (
+            "team-a 네임스페이스의 hpa/web-hpa 최소 2 최대 8로 변경해줘",
+            "team-a",
+            "web-hpa",
+            "set_hpa_bounds",
+            "HorizontalPodAutoscaler",
+            {"minReplicas": 2, "maxReplicas": 8, "allowMaxIncrease": False},
+        ),
+    ],
+)
+def test_parse_natural_action_intent_accepts_agentic_action_variants(
+    message: str,
+    expected_namespace: str,
+    expected_target: str,
+    expected_tool: str,
+    expected_kind: str,
+    expected_parameters: dict[str, object],
+) -> None:
+    intent = parse_natural_action_intent(ChatRequest(message=message))
+
+    assert intent
+    assert intent["toolName"] == expected_tool
+    assert intent["kind"] == expected_kind
+    assert intent["namespace"] == expected_namespace
+    assert intent["targetName"] == expected_target
+    for key, value in expected_parameters.items():
+        assert intent["parameters"][key] == value
+
+
+def test_create_natural_action_plan_uses_intent_target_kind(monkeypatch) -> None:
+    observed_paths: list[str] = []
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, **_kwargs):
+        observed_paths.append(path)
+        return {
+            "apiVersion": "autoscaling/v2",
+            "kind": "HorizontalPodAutoscaler",
+            "metadata": {
+                "namespace": "team-a",
+                "name": "web-hpa",
+                "uid": "hpa-uid-a",
+            },
+            "spec": {"minReplicas": 1, "maxReplicas": 5},
+        }
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+
+    result = asyncio.run(
+        gateway_main.create_natural_action_plan(
+            ChatRequest(message="team-a 네임스페이스의 hpa/web-hpa 최소 2 최대 5로 변경해줘"),
+            "Bearer token",
+            safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}),
+            incident_id="inc-hpa",
+            run_id="run-hpa",
+        )
+    )
+
+    assert result
+    assert result["status"] == "planned"
+    assert result["target"]["kind"] == "HorizontalPodAutoscaler"
+    assert observed_paths == ["/apis/autoscaling/v2/namespaces/team-a/horizontalpodautoscalers/web-hpa"]
+
+
+@pytest.mark.parametrize(
+    (
+        "scenario_id",
+        "message",
+        "page_context",
+        "recent_messages",
+        "expected_tool",
+        "expected_kind",
+        "expected_namespace",
+        "expected_target",
+    ),
+    [
+        (
+            "S01-explicit-scale",
+            "team-a 네임스페이스의 web-api 파드 4개로 올려줘",
+            {},
+            [],
+            "set_replicas_within_bounds",
+            "Deployment",
+            "team-a",
+            "web-api",
+        ),
+        (
+            "S02-contextual-followup-scale",
+            "진행해",
+            {"aiopsExecutionMode": "unrestricted"},
+            [{"role": "user", "content": "team-a 네임스페이스의 web-api 파드 4개로 올려줘"}],
+            "set_replicas_within_bounds",
+            "Deployment",
+            "team-a",
+            "web-api",
+        ),
+        (
+            "S03-page-context-rollout-restart",
+            "재시작해줘",
+            {"pathname": "/k8s/ns/team-a/deployments/web-api"},
+            [],
+            "rollout_restart_deployment",
+            "Deployment",
+            "team-a",
+            "web-api",
+        ),
+        (
+            "S04-rollback-revision",
+            "team-a 네임스페이스의 deployment/web-api revision 2로 롤백해줘",
+            {},
+            [],
+            "rollback_deployment_to_revision",
+            "Deployment",
+            "team-a",
+            "web-api",
+        ),
+        (
+            "S05-unhealthy-pod-eviction",
+            "team-a 네임스페이스의 pod/web-api-abc 교체해줘",
+            {},
+            [],
+            "evict_one_unhealthy_controller_owned_pod",
+            "Pod",
+            "team-a",
+            "web-api-abc",
+        ),
+        (
+            "S06-hpa-bounds",
+            "team-a 네임스페이스의 hpa/web-hpa 최소 2 최대 8로 변경해줘",
+            {},
+            [],
+            "set_hpa_bounds",
+            "HorizontalPodAutoscaler",
+            "team-a",
+            "web-hpa",
+        ),
+    ],
+)
+def test_agentic_action_scenario_matrix_parses_typed_actions(
+    scenario_id: str,
+    message: str,
+    page_context: dict[str, object],
+    recent_messages: list[dict[str, str]],
+    expected_tool: str,
+    expected_kind: str,
+    expected_namespace: str,
+    expected_target: str,
+) -> None:
+    request = ChatRequest(
+        message=message,
+        pageContext=page_context,
+        recentMessages=recent_messages,
+    )
+    contextual = recent_natural_action_request(request) if is_followup_execution_request(message) else None
+    intent = parse_natural_action_intent(contextual or request)
+
+    assert intent, scenario_id
+    assert intent["toolName"] == expected_tool
+    assert intent["kind"] == expected_kind
+    assert intent["namespace"] == expected_namespace
+    assert intent["targetName"] == expected_target
+
+
+def test_agentic_safety_and_evidence_scenario_matrix_covers_non_mutating_paths() -> None:
+    ambiguous = ChatRequest(
+        message="파드 하나 재시작해줘",
+        pageContext={"aiopsExecutionMode": "unrestricted"},
+    )
+    pod_list_policy = classify_request_policy("team-a 네임스페이스 파드 리스트 조회해줘")
+    crashloop_policy = classify_request_policy("CrashLoopBackOff 파드 원인 분석해줘")
+    diagnostic_request = DiagnosticRequestCreate(
+        collector="node_os_readonly_triage",
+        targetNode=DiagnosticTargetNode(name="worker-a", uid="node-uid-a"),
+        timeRange=DiagnosticTimeRange(since="2026-06-22T00:00:00Z", until="2026-06-22T00:05:00Z"),
+        limits=DiagnosticLimits(),
+        evidencePolicy=DiagnosticEvidencePolicy(
+            classification="restricted",
+            rawStorageAllowed=False,
+            redactionPolicyDigest="sha256:test-redaction-policy",
+        ),
+    )
+    diagnostic_candidate = build_diagnostic_request_candidate(
+        diagnostic_request,
+        safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["ops"]}),
+    )
+
+    assert parse_natural_action_intent(ambiguous) is None
+    assert "대상 리소스 이름이 명확하지 않습니다" in unresolved_natural_action_response(ambiguous)
+    assert is_pod_list_request("team-a 네임스페이스 파드 리스트 조회해줘")
+    assert pod_list_policy["decision"] == "allow_read_only_evidence"
+    assert should_collect_pod_status_evidence("CrashLoopBackOff 파드 원인 분석해줘")
+    assert crashloop_policy["decision"] == "allow_read_only_evidence"
+    assert diagnostic_candidate["collector"] == "node_os_readonly_triage"
+    assert diagnostic_candidate["targetNode"]["name"] == "worker-a"
+    assert diagnostic_request_digest(diagnostic_candidate).startswith("sha256:")
+
+
 def test_chat_stream_unrestricted_followup_without_plan_stays_in_gateway(monkeypatch) -> None:
     ACTION_PROPOSALS.clear()
     SEALED_ACTION_PLANS.clear()
@@ -1260,7 +1486,7 @@ def test_chat_stream_unparsed_mutation_request_does_not_fall_through_to_ols(monk
         ]
         assert unresolved_results
         assert unresolved_results[0]["status"] == "skipped"
-        assert "대상 Deployment 이름이 명확하지 않습니다" in response.text
+        assert "대상 리소스 이름이 명확하지 않습니다" in response.text
         assert "lightspeed_stream" not in response.text
 
     asyncio.run(run())

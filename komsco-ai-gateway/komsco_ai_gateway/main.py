@@ -209,6 +209,11 @@ SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credentia
 K8S_NAME_RE = r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?"
 NAMESPACE_MENTION_RE = re.compile(rf"\b(?P<namespace>{K8S_NAME_RE})\s*네임스페이스")
 DEPLOYMENT_RESOURCE_RE = re.compile(rf"\b(?:deployment|deploy|디플로이먼트)/(?P<name>{K8S_NAME_RE})\b", re.IGNORECASE)
+POD_RESOURCE_RE = re.compile(rf"\b(?:pod|pods|파드)/(?P<name>{K8S_NAME_RE})\b", re.IGNORECASE)
+HPA_RESOURCE_RE = re.compile(
+    rf"\b(?:hpa|horizontalpodautoscaler|horizontalpodautoscalers|오토스케일러)/(?P<name>{K8S_NAME_RE})\b",
+    re.IGNORECASE,
+)
 NAMESPACED_RESOURCE_SHORTHAND_RE = re.compile(rf"\b(?P<namespace>{K8S_NAME_RE})[:/](?P<name>{K8S_NAME_RE})\b")
 BACKTICK_RESOURCE_RE = re.compile(r"`(?P<name>[A-Za-z0-9._-]+)`")
 SCALE_INTENT_RE = re.compile(
@@ -228,6 +233,18 @@ RESTART_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 RESTART_REQUEST_RE = re.compile(r"(?:재시작|리스타트|restart|rollout\s+restart)", re.IGNORECASE)
+POD_EVICTION_REQUEST_RE = re.compile(
+    r"(?:evict|eviction|퇴거|교체|재생성|pod\s+delete|delete\s+pod|파드\s*삭제|삭제)",
+    re.IGNORECASE,
+)
+ROLLBACK_REQUEST_RE = re.compile(r"(?:rollback|roll\s*back|rollout\s+undo|롤백|되돌려|복구)", re.IGNORECASE)
+ROLLBACK_REVISION_RE = re.compile(
+    r"(?:revision|rev|리비전)\s*(?P<revision>[0-9]{1,4})|(?P<korean_revision>[0-9]{1,4})\s*번\s*(?:revision|리비전)?",
+    re.IGNORECASE,
+)
+HPA_REQUEST_RE = re.compile(r"(?:\bhpa\b|horizontalpodautoscaler|오토스케일|autoscal)", re.IGNORECASE)
+HPA_MIN_RE = re.compile(r"(?:min(?:Replicas)?|최소)\s*(?P<value>[0-9]{1,3})", re.IGNORECASE)
+HPA_MAX_RE = re.compile(r"(?:max(?:Replicas)?|최대)\s*(?P<value>[0-9]{1,3})", re.IGNORECASE)
 FOLLOWUP_EXECUTION_RE = re.compile(
     r"^\s*(?:승인|승인해|실행|실행해|진행|진행해|수행|수행해|적용|적용해|해|해줘|yes|ok|확인)\s*[.!?。]*\s*$",
     re.IGNORECASE,
@@ -1981,11 +1998,11 @@ def page_context_namespace(req: ChatRequest) -> str:
     return str(namespace) if namespace else ""
 
 
-def page_context_resource_name(req: ChatRequest) -> str:
+def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deployment") -> str:
     context = normalize_console_page_context(req.pageContext)
     kind = str(context.get("resourceKind") or "")
     name = context.get("resourceName")
-    if kind == "Deployment" and name:
+    if kind == expected_kind and name:
         return str(name)
     return ""
 
@@ -2046,8 +2063,18 @@ def first_backtick_name(message: str) -> str:
     return match.group("name") if match else ""
 
 
-def natural_target_name(req: ChatRequest, match: re.Match[str] | None) -> str:
-    resource_match = DEPLOYMENT_RESOURCE_RE.search(req.message)
+def natural_target_name(
+    req: ChatRequest,
+    match: re.Match[str] | None,
+    *,
+    expected_kind: str = "Deployment",
+) -> str:
+    if expected_kind == "Pod":
+        resource_match = POD_RESOURCE_RE.search(req.message)
+    elif expected_kind == "HorizontalPodAutoscaler":
+        resource_match = HPA_RESOURCE_RE.search(req.message)
+    else:
+        resource_match = DEPLOYMENT_RESOURCE_RE.search(req.message)
     if resource_match:
         return resource_match.group("name")
     backtick_name = first_backtick_name(req.message)
@@ -2058,7 +2085,29 @@ def natural_target_name(req: ChatRequest, match: re.Match[str] | None) -> str:
         return shorthand_match.group("name")
     if match and "name" in match.groupdict():
         return match.group("name")
-    return page_context_resource_name(req)
+    return page_context_resource_name(req, expected_kind)
+
+
+def rollback_revision_from_message(message: str) -> int | None:
+    match = ROLLBACK_REVISION_RE.search(message)
+    if not match:
+        return None
+    revision = match.group("revision") or match.group("korean_revision")
+    if not revision:
+        return None
+    return int(revision)
+
+
+def hpa_bounds_from_message(message: str) -> tuple[int, int] | None:
+    min_match = HPA_MIN_RE.search(message)
+    max_match = HPA_MAX_RE.search(message)
+    if not min_match or not max_match:
+        return None
+    min_replicas = int(min_match.group("value"))
+    max_replicas = int(max_match.group("value"))
+    if min_replicas < 1 or max_replicas < min_replicas:
+        return None
+    return min_replicas, max_replicas
 
 
 def is_followup_execution_request(message: str) -> bool:
@@ -2087,6 +2136,28 @@ def recent_natural_action_request(req: ChatRequest) -> ChatRequest | None:
 def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
     namespace = namespace_from_natural_action(req)
 
+    if HPA_REQUEST_RE.search(req.message):
+        bounds = hpa_bounds_from_message(req.message)
+        target_name = natural_target_name(req, None, expected_kind="HorizontalPodAutoscaler")
+        if bounds and namespace and target_name:
+            min_replicas, max_replicas = bounds
+            return {
+                "apiVersion": "autoscaling/v2",
+                "kind": "HorizontalPodAutoscaler",
+                "toolName": "set_hpa_bounds",
+                "targetName": target_name,
+                "namespace": namespace,
+                "parameters": {
+                    "allowMaxIncrease": False,
+                    "maxReplicas": max_replicas,
+                    "minReplicas": min_replicas,
+                },
+                "summary": (
+                    f"HPA `{namespace}/{target_name}` minReplicas를 `{min_replicas}`, "
+                    f"maxReplicas를 `{max_replicas}`로 변경"
+                ),
+            }
+
     scale_match = SCALE_INTENT_RE.search(req.message)
     replicas_match = scale_match or SCALE_REPLICAS_RE.search(req.message)
     if replicas_match:
@@ -2095,6 +2166,8 @@ def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
         if not namespace or not target_name:
             return None
         return {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
             "toolName": "set_replicas_within_bounds",
             "targetName": target_name,
             "namespace": namespace,
@@ -2107,12 +2180,50 @@ def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
             "summary": f"Deployment `{namespace}/{target_name}` replicas를 `{replicas}`로 변경",
         }
 
+    if POD_EVICTION_REQUEST_RE.search(req.message) and (
+        POD_RESOURCE_RE.search(req.message)
+        or page_context_resource_name(req, "Pod")
+        or re.search(r"(?:pod|pods|파드)", req.message, re.IGNORECASE)
+    ):
+        target_name = natural_target_name(req, None, expected_kind="Pod")
+        if not namespace or not target_name:
+            return None
+        return {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "toolName": "evict_one_unhealthy_controller_owned_pod",
+            "targetName": target_name,
+            "namespace": namespace,
+            "parameters": {"reason": "natural_language_unhealthy_pod_eviction"},
+            "summary": f"Unhealthy controller-owned Pod `{namespace}/{target_name}` eviction",
+        }
+
+    if ROLLBACK_REQUEST_RE.search(req.message):
+        target_name = natural_target_name(req, None)
+        if not namespace or not target_name:
+            return None
+        revision = rollback_revision_from_message(req.message)
+        return {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "toolName": "rollback_deployment_to_revision",
+            "targetName": target_name,
+            "namespace": namespace,
+            "parameters": {"revision": revision},
+            "summary": (
+                f"Deployment `{namespace}/{target_name}` rollback"
+                + (f" to revision `{revision}`" if revision else " to previous revision")
+            ),
+        }
+
     restart_match = RESTART_INTENT_RE.search(req.message)
     if restart_match or RESTART_REQUEST_RE.search(req.message):
         target_name = natural_target_name(req, restart_match)
         if not namespace or not target_name:
             return None
         return {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
             "toolName": "rollout_restart_deployment",
             "targetName": target_name,
             "namespace": namespace,
@@ -2137,25 +2248,33 @@ async def create_natural_action_plan(
 
     namespace = str(intent["namespace"])
     target_name = str(intent["targetName"])
-    target_path_value = f"/apis/apps/v1/namespaces/{path_segment(namespace)}/deployments/{path_segment(target_name)}"
+    api_version = str(intent.get("apiVersion") or "apps/v1")
+    kind = str(intent.get("kind") or "Deployment")
+    lookup_target = {
+        "apiVersion": api_version,
+        "kind": kind,
+        "namespace": namespace,
+        "name": target_name,
+    }
+    target_path_value = target_path(lookup_target)
 
     async with httpx.AsyncClient(
         verify=OPENSHIFT_API_CA_FILE,
         timeout=httpx.Timeout(20.0, connect=5.0),
     ) as client:
-        deployment = await fetch_ocp_json(client, target_path_value, authorization)
+        live_target = await fetch_ocp_json(client, target_path_value, authorization)
 
-    if not deployment:
+    if not live_target:
         return {
             "intent": intent,
             "status": "not_found",
-            "summary": f"Deployment `{namespace}/{target_name}`를 찾지 못했습니다.",
+            "summary": f"{kind} `{namespace}/{target_name}`를 찾지 못했습니다.",
         }
 
-    metadata = deployment.get("metadata", {}) if isinstance(deployment.get("metadata"), Mapping) else {}
+    metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
     target = ActionTarget(
-        apiVersion="apps/v1",
-        kind="Deployment",
+        apiVersion=api_version,
+        kind=kind,
         namespace=namespace,
         name=target_name,
         uid=str(metadata.get("uid") or ""),
@@ -2193,12 +2312,14 @@ async def create_natural_action_plan(
 
 def natural_action_plan_response(result: Mapping[str, Any]) -> str:
     if result.get("status") == "not_found":
+        intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
+        kind = str(intent.get("kind") or "resource")
         return "\n".join(
             [
-                "자연어 조치 요청을 해석했지만 대상 Deployment를 찾지 못했습니다.",
+                f"자연어 조치 요청을 해석했지만 대상 {kind} 리소스를 찾지 못했습니다.",
                 "",
                 f"- 요청 해석: {result.get('summary')}",
-                "- namespace와 Deployment 이름을 확인한 뒤 다시 요청하세요.",
+                "- namespace와 대상 이름을 확인한 뒤 다시 요청하세요.",
             ]
         )
 
@@ -2312,13 +2433,31 @@ def unresolved_natural_action_response(req: ChatRequest) -> str:
     ]
     if not namespace:
         lines.append("- Namespace가 명확하지 않습니다.")
+    if not resource_name:
+        resource_name = next(
+            (
+                page_context_resource_name(req, kind)
+                for kind in ("Pod", "HorizontalPodAutoscaler")
+                if page_context_resource_name(req, kind)
+            ),
+            "",
+        )
     if not resource_name and not any(
         parser.search(req.message)
-        for parser in (DEPLOYMENT_RESOURCE_RE, NAMESPACED_RESOURCE_SHORTHAND_RE, BACKTICK_RESOURCE_RE)
+        for parser in (
+            DEPLOYMENT_RESOURCE_RE,
+            POD_RESOURCE_RE,
+            HPA_RESOURCE_RE,
+            NAMESPACED_RESOURCE_SHORTHAND_RE,
+            BACKTICK_RESOURCE_RE,
+        )
     ):
-        lines.append("- 대상 Deployment 이름이 명확하지 않습니다.")
+        lines.append("- 대상 리소스 이름이 명확하지 않습니다.")
     if len(lines) == 5:
-        lines.append("- 지원되는 조치 형태가 아닙니다. 현재 자연어 즉시 실행은 Deployment replica 변경/rollout restart를 우선 지원합니다.")
+        lines.append(
+            "- 지원되는 조치 형태가 아닙니다. 현재 자연어 즉시 실행은 Deployment scale/restart/rollback, "
+            "controller-owned unhealthy Pod eviction, HPA bounds 변경을 우선 지원합니다."
+        )
     lines.extend(
         [
             "",
@@ -2326,6 +2465,8 @@ def unresolved_natural_action_response(req: ChatRequest) -> str:
             "- `6:cis 파드 3개로 올려줘`",
             "- `6 네임스페이스의 cis 파드 3개로 올려줘`",
             "- `komsco-ai-dev:aiops-two-pod-exec 재시작해줘`",
+            "- `komsco-ai-dev 네임스페이스의 pod/worker-abc 교체해줘`",
+            "- `komsco-ai-dev 네임스페이스의 hpa/web-hpa 최소 2 최대 8로 변경해줘`",
         ]
     )
     if context:

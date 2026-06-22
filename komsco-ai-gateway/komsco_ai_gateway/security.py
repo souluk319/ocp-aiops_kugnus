@@ -39,13 +39,16 @@ DIRECT_MUTATION_RE = re.compile(
     r"(?i)(^|\b)(apply|cordon|delete|drain|evict|exec|patch|restart|rollback|rollout\s+(restart|undo)|scale|uncordon)\b"
 )
 KOREAN_MUTATION_RE = re.compile(
-    r"(삭제|재시작|리스타트|롤백|스케일\s*(아웃|인)?|올려|늘려|줄여|맞춰|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
+    r"(삭제|퇴거|교체|재생성|재시작|리스타트|롤백|스케일\s*(아웃|인)?|올려|늘려|줄여|맞춰|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
 )
 KOREAN_DIRECT_RE = re.compile(r"(해줘|해주세요|수행|실행|적용해|변경해|삭제해|재시작해|올려|늘려|줄여|맞춰|처리해)")
 KOREAN_ACTION_PROPOSAL_RE = re.compile(r"(계획|제안|승인\s*요청|승인\s*절차|초안|수립)")
 KOREAN_EXPLICIT_MUTATION_EXECUTION_RE = re.compile(
     r"(재시작\s*(해|해주세요|시켜|시켜줘|수행|실행)|"
     r"삭제\s*(해|해주세요|수행|실행)|"
+    r"퇴거\s*(해|해주세요|수행|실행)|"
+    r"교체\s*(해|해주세요|수행|실행)|"
+    r"재생성\s*(해|해주세요|수행|실행)|"
     r"스케일\s*(아웃|인)?\s*(해|해주세요|수행|실행|늘려|줄여)|"
     r"롤백\s*(해|해주세요|수행|실행)|"
     r"패치\s*(해|해주세요|수행|실행)|"
