@@ -52,6 +52,7 @@ from komsco_ai_gateway.main import (
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
+    build_pod_count_investigation,
     build_break_glass_request_record,
     build_preapproved_patch_record,
     build_runbook_plan_record,
@@ -69,10 +70,12 @@ from komsco_ai_gateway.main import (
     RunbookPlanCreate,
     diagnostic_request_digest,
     is_followup_execution_request,
+    is_pod_count_query,
     is_pod_list_request,
     page_context_aiops_execution_mode,
     parse_bool,
     parse_natural_action_intent,
+    parse_pod_count_query,
     recent_natural_action_request,
     parse_ols_verify,
     parse_unrestricted_chat_command,
@@ -526,9 +529,31 @@ def test_classify_request_policy_allows_restart_count_analysis() -> None:
     assert policy["risk"] == "low"
 
 
+def test_classify_request_policy_allows_pod_count_question() -> None:
+    policy = classify_request_policy("aiops-two-pod-exec 파드 몇개 띄었어?")
+
+    assert policy["decision"] == "allow_read_only_evidence"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "low"
+
+
+def test_parse_pod_count_query_extracts_target_without_hardcoded_name() -> None:
+    query = parse_pod_count_query(
+        ChatRequest(message="team-a 네임스페이스의 web-api 파드 몇개 떠있어?")
+    )
+
+    assert query == {"namespace": "team-a", "targetName": "web-api"}
+    assert is_pod_count_query("backend-api pod count 알려줘")
+    assert parse_pod_count_query(ChatRequest(message="pod count 알려줘")) == {
+        "namespace": "",
+        "targetName": "",
+    }
+
+
 def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> None:
     assert should_collect_pod_status_evidence("현재 클러스터의 Pod 상태와 재시작이 많은 Pod를 분석해줘")
     assert should_collect_pod_status_evidence("파드리스트 조회해줘")
+    assert should_collect_pod_status_evidence("aiops-two-pod-exec 파드 몇개 띄었어?")
     assert should_collect_pod_status_evidence("ClusterOperator authentication 상태를 확인해줘")
     assert not should_collect_pod_status_evidence("openshift-monitoring pod 재시작해줘")
 
@@ -538,6 +563,79 @@ def test_classify_request_policy_allows_read_only_investigation() -> None:
 
     assert policy["decision"] == "allow_read_only_evidence"
     assert policy["mutationAllowed"] is False
+
+
+def test_build_pod_count_investigation_uses_deployment_selector() -> None:
+    result = build_pod_count_investigation(
+        {"namespace": "team-a", "targetName": "web-api"},
+        {
+            "items": [
+                {
+                    "metadata": {"name": "web-api", "namespace": "team-a"},
+                    "spec": {
+                        "replicas": 3,
+                        "selector": {"matchLabels": {"app": "web-api"}},
+                    },
+                    "status": {"readyReplicas": 3, "availableReplicas": 3},
+                }
+            ]
+        },
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "labels": {"app": "web-api"},
+                        "name": "web-api-7d9c4f4d5f-a",
+                        "namespace": "team-a",
+                    },
+                    "status": {
+                        "containerStatuses": [{"ready": True, "restartCount": 0}],
+                        "phase": "Running",
+                    },
+                },
+                {
+                    "metadata": {
+                        "labels": {"app": "web-api"},
+                        "name": "web-api-7d9c4f4d5f-b",
+                        "namespace": "team-a",
+                    },
+                    "status": {
+                        "containerStatuses": [{"ready": True, "restartCount": 0}],
+                        "phase": "Running",
+                    },
+                },
+                {
+                    "metadata": {
+                        "labels": {"app": "web-api"},
+                        "name": "web-api-7d9c4f4d5f-c",
+                        "namespace": "team-a",
+                    },
+                    "status": {
+                        "containerStatuses": [{"ready": True, "restartCount": 1}],
+                        "phase": "Running",
+                    },
+                },
+                {
+                    "metadata": {
+                        "labels": {"app": "other"},
+                        "name": "other-7d9c4f4d5f-a",
+                        "namespace": "team-a",
+                    },
+                    "status": {
+                        "containerStatuses": [{"ready": True, "restartCount": 0}],
+                        "phase": "Running",
+                    },
+                },
+            ]
+        },
+    )
+
+    assert result["status"] == "found"
+    assert result["matchStrategy"] == "deployment_selector"
+    assert result["rows"][0]["desiredReplicas"] == 3
+    assert result["rows"][0]["totalPods"] == 3
+    assert result["rows"][0]["runningPods"] == 3
+    assert result["rows"][0]["readyPods"] == 3
 
 
 def test_validate_image_attachments_accepts_supported_base64_image() -> None:
@@ -1597,6 +1695,95 @@ def test_chat_stream_unrestricted_followup_uses_3_4_5_turn_contexts(
         assert "scenario_verified" in response.text
         assert "lightspeed_stream" not in response.text
         assert created_from_messages == [expected_action_message]
+
+    asyncio.run(run())
+
+
+def test_chat_stream_pod_count_question_directly_investigates_cluster(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, **_kwargs):
+        if path == "/apis/apps/v1/deployments":
+            return {
+                "items": [
+                    {
+                        "metadata": {"name": "aiops-two-pod-exec", "namespace": "komsco-ai-dev"},
+                        "spec": {
+                            "replicas": 3,
+                            "selector": {"matchLabels": {"app": "aiops-two-pod-exec"}},
+                        },
+                        "status": {
+                            "availableReplicas": 3,
+                            "readyReplicas": 3,
+                            "updatedReplicas": 3,
+                        },
+                    }
+                ]
+            }
+        if path == "/api/v1/pods":
+            return {
+                "items": [
+                    {
+                        "metadata": {
+                            "labels": {"app": "aiops-two-pod-exec"},
+                            "name": f"aiops-two-pod-exec-69c85d74cc-{suffix}",
+                            "namespace": "komsco-ai-dev",
+                        },
+                        "status": {
+                            "containerStatuses": [{"ready": True, "restartCount": 0}],
+                            "phase": "Running",
+                        },
+                    }
+                    for suffix in ["aaa", "bbb", "ccc"]
+                ]
+            }
+        raise AssertionError(f"unexpected OpenShift path: {path}")
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for direct pod count questions")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "aiops-two-pod-exec 파드 몇개 띄었어?",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        pod_count_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "pod_count_investigation"
+        ]
+        assert pod_count_results
+        assert pod_count_results[0]["status"] == "success"
+        assert pod_count_results[0]["result"]["rows"][0]["totalPods"] == 3
+        assert "`komsco-ai-dev/aiops-two-pod-exec` 기준 현재 Pod는 총 3개" in response.text
+        assert "natural_action_unresolved" not in response.text
+        assert "lightspeed_stream" not in response.text
 
     asyncio.run(run())
 

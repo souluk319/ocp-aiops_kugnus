@@ -36,7 +36,9 @@ KEY_VALUE_SECRET_RE = re.compile(
 )
 KUBECONFIG_TOKEN_RE = re.compile(r"(?im)^(\s*token:\s*)[A-Za-z0-9._~+/=-]+$")
 DIRECT_MUTATION_RE = re.compile(
-    r"(?i)(^|\b)(apply|cordon|delete|drain|evict|exec|patch|restart|rollback|rollout\s+(restart|undo)|scale|uncordon)\b"
+    r"(?i)(?<![A-Za-z0-9._-])"
+    r"(apply|cordon|delete|drain|evict|exec|patch|restart|rollback|rollout\s+(restart|undo)|scale|uncordon)"
+    r"(?![A-Za-z0-9._-])"
 )
 KOREAN_MUTATION_RE = re.compile(
     r"(삭제|퇴거|교체|재생성|재시작|리스타트|롤백|스케일\s*(아웃|인)?|올려|늘려|줄여|맞춰|배포|패치|적용|변경|수정|중지|시작|격리|드레인|언코든|코든)"
@@ -62,6 +64,10 @@ READ_ONLY_OPERATIONAL_ANALYSIS_RE = re.compile(
     r"(?i)(분석|확인|조회|알려|정리|상태|현황|이력|횟수|많은|높은|원인|왜|최근|"
     r"restart\s+(count|history|status|analysis|summary)|"
     r"(many|high|top)\s+restarts|status)"
+)
+POD_COUNT_READ_ONLY_RE = re.compile(
+    r"(?i)((pod|pods|파드).*(몇\s*개|몇개|개수|count|떠\s*있|떠있|띄|running|ready)|"
+    r"(몇\s*개|몇개|개수|count|떠\s*있|떠있|띄|running|ready).*(pod|pods|파드))"
 )
 
 
@@ -132,7 +138,10 @@ def safe_subject(user_info: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def classify_request_policy(message: str) -> dict[str, Any]:
     normalized_message = message.strip()
-    has_read_only_analysis_intent = bool(READ_ONLY_OPERATIONAL_ANALYSIS_RE.search(normalized_message))
+    has_read_only_analysis_intent = bool(
+        READ_ONLY_OPERATIONAL_ANALYSIS_RE.search(normalized_message)
+        or POD_COUNT_READ_ONLY_RE.search(normalized_message)
+    )
     has_direct_english_mutation = bool(DIRECT_MUTATION_RE.search(normalized_message)) and not (
         has_read_only_analysis_intent and "restart" in normalized_message.lower()
     )
