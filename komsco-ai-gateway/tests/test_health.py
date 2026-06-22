@@ -79,11 +79,13 @@ from komsco_ai_gateway.main import (
     recent_natural_action_request,
     parse_ols_verify,
     parse_unrestricted_chat_command,
+    policy_check_summary,
     normalize_console_page_context,
     normalize_controller_phase,
     product_access_review_status,
     sealed_action_plan_digest,
     summarize_product_access_review,
+    summarize_policy_detail,
     unresolved_natural_action_response,
     validate_execution_evidence_freshness,
     should_collect_cronjob_activity_evidence,
@@ -563,6 +565,18 @@ def test_classify_request_policy_allows_read_only_investigation() -> None:
 
     assert policy["decision"] == "allow_read_only_evidence"
     assert policy["mutationAllowed"] is False
+
+
+def test_policy_check_progress_copy_uses_operator_language() -> None:
+    read_only_policy = classify_request_policy("최근 에러로그 20건 가져와봐")
+    action_policy = classify_request_policy("web-api 파드 3개로 올려줘")
+
+    assert policy_check_summary(read_only_policy) == "조회/증거 수집 허용"
+    assert "Read-only evidence allowed" not in policy_check_summary(read_only_policy)
+    assert "정책 결정: 조회/증거 수집 허용" in summarize_policy_detail(read_only_policy)
+    assert "내부 결정값: allow_read_only_evidence" in summarize_policy_detail(read_only_policy)
+    assert policy_check_summary(action_policy) == "조치 요청은 Action Plan 경로로 처리"
+    assert "Action proposal only" not in policy_check_summary(action_policy)
 
 
 def test_build_pod_count_investigation_uses_deployment_selector() -> None:

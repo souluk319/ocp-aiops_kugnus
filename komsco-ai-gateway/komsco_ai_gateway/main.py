@@ -5619,14 +5619,40 @@ async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
 
 
 def summarize_policy_detail(policy: Mapping[str, Any]) -> str:
+    decision = str(policy.get("decision") or "")
+    if decision == "action_proposal_only":
+        decision_label = "조치 요청은 Action Plan 경로로 처리"
+        decision_explanation = "변경 가능성이 있는 요청이므로 직접 변경하지 않고 조치 계획/승인/실행 경로로 넘깁니다."
+    elif decision == "allow_read_only_evidence":
+        decision_label = "조회/증거 수집 허용"
+        decision_explanation = "클러스터 상태 조회와 근거 수집은 허용하며 리소스 변경은 수행하지 않습니다."
+    else:
+        decision_label = "정책 결정 확인 필요"
+        decision_explanation = str(policy.get("reason") or "-")
+
+    risk_label = {
+        "low": "낮음",
+        "approval_required": "승인 필요",
+        "unrestricted": "실험 무제한",
+    }.get(str(policy.get("risk") or ""), str(policy.get("risk") or "-"))
+    mutation_allowed = "예" if policy.get("mutationAllowed") else "아니오"
     return "\n".join(
         [
-            f"decision: {policy.get('decision')}",
-            f"risk: {policy.get('risk')}",
-            f"mutationAllowed: {policy.get('mutationAllowed')}",
-            f"reason: {policy.get('reason')}",
+            f"정책 결정: {decision_label}",
+            f"내부 결정값: {decision or '-'}",
+            f"위험도: {risk_label}",
+            f"변경 실행 허용: {mutation_allowed}",
+            f"설명: {decision_explanation}",
         ]
     )
+
+
+def policy_check_summary(policy: Mapping[str, Any]) -> str:
+    if policy.get("decision") == "action_proposal_only":
+        return "조치 요청은 Action Plan 경로로 처리"
+    if policy.get("decision") == "allow_read_only_evidence":
+        return "조회/증거 수집 허용"
+    return "정책 결정 확인 필요"
 
 
 def summarize_subject_detail(subject: Mapping[str, Any], *, live_review: bool) -> str:
@@ -7336,7 +7362,7 @@ async def chat_stream(
                     "type": "tool_call",
                     "id": f"{request_id}-policy-check",
                     "name": "policy_check",
-                    "summary": "읽기 전용 정책 확인",
+                    "summary": "요청 정책 분류",
                 }
             )
             yield sse(
@@ -7347,11 +7373,7 @@ async def chat_stream(
                     "name": "policy_check",
                     "result": policy,
                     "status": "success",
-                    "summary": (
-                        "Action proposal only"
-                        if policy.get("decision") == "action_proposal_only"
-                        else "Read-only evidence allowed"
-                    ),
+                    "summary": policy_check_summary(policy),
                 }
             )
             accepted_audit_record = build_trace_record(
