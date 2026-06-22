@@ -1371,6 +1371,8 @@ def build_approval_decision_record(
     request: "ApprovalDecisionCreate",
     approver: Mapping[str, Any],
     action_access_review: Mapping[str, Any],
+    *,
+    allow_self_approval: bool = False,
 ) -> dict[str, Any]:
     plan = plan_record["spec"]["sealedActionPlan"]
     plan_digest = plan["digest"]["planDigest"]
@@ -1378,7 +1380,7 @@ def build_approval_decision_record(
         raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
     risk = plan["safety"]["risk"]
     requester = plan["metadata"]["requester"]
-    if risk in {"medium", "high"} and same_observed_subject(requester, approver):
+    if risk in {"medium", "high"} and same_observed_subject(requester, approver) and not allow_self_approval:
         raise HTTPException(status_code=409, detail="separation of duties requires requester and approver to differ")
 
     approval_id = f"approval-{uuid.uuid4()}"
@@ -2185,6 +2187,152 @@ def natural_action_plan_response(result: Mapping[str, Any]) -> str:
             "",
             "### 다음 단계",
             f"- {next_step}",
+        ]
+    )
+
+
+async def execute_natural_action_plan_result(
+    plan_result: Mapping[str, Any],
+    authorization: str,
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    if plan_result.get("status") != "planned":
+        return {
+            "plan": dict(plan_result),
+            "status": "not_executed",
+            "reason": "natural action plan was not created",
+        }
+
+    plan_id = str(plan_result.get("planId") or "")
+    plan_record = SEALED_ACTION_PLANS.get(plan_id)
+    if not plan_record:
+        return {
+            "plan": dict(plan_result),
+            "status": "not_executed",
+            "reason": "sealed action plan was not found",
+        }
+
+    sealed_plan = plan_record["spec"]["sealedActionPlan"]
+    plan_digest = sealed_plan["digest"]["planDigest"]
+    action_access_review = await fetch_action_access_review(authorization, sealed_plan)
+    enforce_action_access_review(action_access_review)
+    approval_request = ApprovalDecisionCreate(
+        approvalScope="lab-auto-unrestricted",
+        expectedPlanDigest=plan_digest,
+        planId=plan_id,
+    )
+    approval_record = build_approval_decision_record(
+        plan_record,
+        approval_request,
+        subject,
+        action_access_review,
+        allow_self_approval=True,
+    )
+    approval_id = str(approval_record["metadata"]["name"])
+    await bounded_put_record("approvalDecisions", approval_id, approval_record)
+    increment_metric("aiops_approval_decisions_total")
+
+    approval_decision = approval_record["spec"]["approvalDecision"]
+    validate_approval_is_active(approval_decision)
+    validate_execution_evidence_freshness(sealed_plan)
+    grant_reference = build_execution_grant_reference(approval_record, plan_record, subject)
+    execution_id = f"execution-{uuid.uuid4()}"
+    if MUTATIONS_ENABLED:
+        executor_result = await execute_action_with_executor(sealed_plan, grant_reference)
+    else:
+        executor_result = {
+            "mutationOutcome": {
+                "status": "mutation_disabled",
+                "reason": "KOMSCO_AI_ENABLE_MUTATIONS is false.",
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+            "executorTrace": {"mutationSubmitted": False},
+        }
+
+    execution_record = {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ExecutionRecord",
+        "metadata": {"name": execution_id, "createdAt": now_rfc3339()},
+        "spec": {
+            "executionId": execution_id,
+            "approvalId": approval_id,
+            "planId": plan_id,
+            "planDigest": plan_digest,
+            "executionGrantRef": {
+                key: value for key, value in grant_reference.items() if key != "claims"
+            },
+            "mutationOutcome": executor_result["mutationOutcome"],
+            "remediationOutcome": executor_result["remediationOutcome"],
+            "executorTrace": redact_sensitive(executor_result.get("executorTrace") or {}),
+            "executionAuthorization": redact_sensitive(action_access_review),
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+    await bounded_put_record("executionRecords", execution_id, execution_record)
+    approval_decision["status"] = "executed"
+    approval_decision["executedAt"] = execution_record["metadata"]["createdAt"]
+    await bounded_put_record("approvalDecisions", approval_id, approval_record)
+    increment_metric("aiops_execution_requests_total")
+
+    mutation_status = str(executor_result.get("mutationOutcome", {}).get("status") or "")
+    if mutation_status == "mutation_succeeded":
+        status = "executed"
+    elif mutation_status == "mutation_disabled":
+        status = "execution_disabled"
+    else:
+        status = "execution_failed"
+
+    return {
+        "approvalId": approval_id,
+        "approval": approval_record,
+        "executionId": execution_id,
+        "execution": execution_record,
+        "mutationOutcome": executor_result.get("mutationOutcome"),
+        "plan": dict(plan_result),
+        "remediationOutcome": executor_result.get("remediationOutcome"),
+        "status": status,
+    }
+
+
+def natural_action_execution_response(result: Mapping[str, Any]) -> str:
+    plan_result = result.get("plan") if isinstance(result.get("plan"), Mapping) else {}
+    target = plan_result.get("target") if isinstance(plan_result.get("target"), Mapping) else {}
+    intent = plan_result.get("intent") if isinstance(plan_result.get("intent"), Mapping) else {}
+    parameters = plan_result.get("parameters") if isinstance(plan_result.get("parameters"), Mapping) else {}
+    mutation = result.get("mutationOutcome") if isinstance(result.get("mutationOutcome"), Mapping) else {}
+    remediation = result.get("remediationOutcome") if isinstance(result.get("remediationOutcome"), Mapping) else {}
+    status = str(result.get("status") or "unknown")
+
+    if status == "not_executed":
+        return "\n".join(
+            [
+                "자연어 조치 요청을 해석했지만 실행하지 못했습니다.",
+                "",
+                f"- Reason: `{result.get('reason') or 'unknown'}`",
+                "- namespace와 대상 이름을 확인한 뒤 다시 요청하세요.",
+            ]
+        )
+
+    heading = "자연어 조치 요청을 해석해 실행까지 완료했습니다."
+    if status == "execution_disabled":
+        heading = "자연어 조치 요청을 해석했지만 mutation 실행은 비활성화되어 있습니다."
+    elif status == "execution_failed":
+        heading = "자연어 조치 요청을 해석해 실행했지만 Kubernetes 변경이 실패했습니다."
+
+    return "\n".join(
+        [
+            heading,
+            "",
+            "### 실행 요약",
+            f"- 대상: `{target.get('namespace')}/{target.get('name')}` ({target.get('kind')})",
+            f"- Action: `{intent.get('toolName')}`",
+            f"- Parameters: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
+            f"- Plan: `{plan_result.get('planId')}`",
+            f"- Approval: `{result.get('approvalId')}`",
+            f"- Execution: `{result.get('executionId')}`",
+            f"- Mutation: `{mutation.get('status')}` / `{mutation.get('reason')}`",
+            f"- Verification: `{remediation.get('status')}` / `{remediation.get('reason')}`",
         ]
     )
 
@@ -6345,7 +6493,8 @@ async def chat_stream(
                         "UserToken은 Gateway 내부와 OLS forwarding에만 사용합니다.\n"
                         "Agent/Model prompt, audit payload, evidence event에는 redacted metadata만 전달합니다.\n"
                         "Mutation은 Approval API와 Action Executor 경로에서만 실행합니다.\n"
-                        "실험용 무제한 명령은 KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS=true이고 UI가 unrestricted 모드일 때 `/exec` 접두어로만 실행합니다."
+                        "실험용 무제한 모드는 KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS=true이고 UI가 unrestricted 모드일 때만 동작합니다.\n"
+                        "이 모드에서는 `/exec` 셸 명령과 지원되는 자연어 AIOps 조치를 즉시 실행할 수 있습니다."
                     ),
                     "id": f"{request_id}-security-boundary",
                     "name": "security_boundary",
@@ -6577,6 +6726,59 @@ async def chat_stream(
                             "summary": "자연어 조치 요청을 Action Plan으로 변환",
                         }
                     )
+                    if (
+                        page_context_aiops_execution_mode(req) == "unrestricted"
+                        and natural_action_result.get("status") == "planned"
+                    ):
+                        yield sse(
+                            {
+                                "type": "tool_call",
+                                "id": f"{request_id}-natural-action-execute",
+                                "name": "natural_action_execute",
+                                "summary": "실험용 자연어 AIOps 조치 즉시 실행",
+                            }
+                        )
+                        natural_execution_result = await execute_natural_action_plan_result(
+                            natural_action_result,
+                            authorization,
+                            subject,
+                        )
+                        yield sse(
+                            {
+                                "type": "tool_result",
+                                "detail": json.dumps(
+                                    redact_sensitive(natural_execution_result),
+                                    ensure_ascii=False,
+                                    indent=2,
+                                ),
+                                "id": f"{request_id}-natural-action-execute",
+                                "name": "natural_action_execute",
+                                "result": natural_execution_result,
+                                "status": (
+                                    "success"
+                                    if natural_execution_result.get("status") == "executed"
+                                    else "failed"
+                                ),
+                                "summary": "자연어 AIOps 조치 실행 완료",
+                            }
+                        )
+                        yield sse(
+                            {
+                                "type": "text",
+                                "content": natural_action_execution_response(natural_execution_result),
+                            }
+                        )
+                        yield sse(
+                            {
+                                "type": "run_status",
+                                "runId": run_id,
+                                "stage": "completed",
+                                "message": "Gateway 자연어 조치 실행 완료",
+                            }
+                        )
+                        yield sse("[DONE]")
+                        return
+
                     yield sse({"type": "text", "content": natural_action_plan_response(natural_action_result)})
                     yield sse(
                         {

@@ -272,6 +272,117 @@ def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch) -> None:
     asyncio.run(run())
 
 
+def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_action_access_review(_user_auth_header: str, plan: dict) -> dict:
+        target = plan["target"]
+        return {
+            "allowed": True,
+            "enabled": True,
+            "resourceAttributes": {
+                "group": "apps",
+                "name": target["name"],
+                "namespace": target["namespace"],
+                "resource": "deployments",
+                "subresource": "scale",
+                "verb": "update",
+            },
+        }
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, *_, **__) -> dict:
+        assert "/apis/apps/v1/namespaces/team-a/deployments/web-api" in path
+        return {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "web-api",
+                "namespace": "team-a",
+                "uid": "deployment-uid-a",
+            },
+        }
+
+    async def fake_execute_action_with_executor(sealed_plan: dict, _grant_reference: dict) -> dict:
+        assert sealed_plan["action"]["toolName"] == "set_replicas_within_bounds"
+        assert sealed_plan["action"]["normalizedParameters"]["replicas"] == 3
+        return {
+            "mutationOutcome": {
+                "status": "mutation_succeeded",
+                "reason": "typed_action_executed",
+                "httpStatus": 200,
+            },
+            "remediationOutcome": {
+                "status": "verified",
+                "reason": "scale_spec_matches",
+                "observedReplicas": 3,
+            },
+            "executorTrace": {
+                "mutationSubmitted": True,
+                "toolName": "set_replicas_within_bounds",
+            },
+        }
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "MUTATIONS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_action_access_review", fake_action_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+    monkeypatch.setattr(gateway_main, "execute_action_with_executor", fake_execute_action_with_executor)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "team-a 네임스페이스의 web-api 파드 3개로 올려줘",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        execute_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_execute"
+        ]
+        text_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        ]
+        assert execute_results
+        assert execute_results[0]["status"] == "success"
+        assert execute_results[0]["result"]["status"] == "executed"
+        assert execute_results[0]["result"]["mutationOutcome"]["status"] == "mutation_succeeded"
+        assert len(ACTION_PROPOSALS) == 1
+        assert len(SEALED_ACTION_PLANS) == 1
+        assert len(APPROVAL_DECISIONS) == 1
+        assert len(EXECUTION_RECORDS) == 1
+        assert any("실행까지 완료" in event.get("content", "") for event in text_events)
+
+    asyncio.run(run())
+
+
 def test_normalize_console_page_context_extracts_namespaced_resource() -> None:
     context = normalize_console_page_context(
         {

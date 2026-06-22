@@ -1232,7 +1232,7 @@ const getExecutionModeTone = (mode: AiopsExecutionMode): 'ok' | 'review' | 'dang
 
 const getComposerModeLabel = (mode: AiopsExecutionMode): string => {
   if (mode === 'unrestricted') {
-    return '실험 무제한 · /exec 직접 실행';
+    return '실험 무제한 · 자연어 즉시 실행';
   }
   if (mode === 'execute') {
     return '실행 가능 · 승인 후 변경 수행';
@@ -1284,8 +1284,8 @@ const renderExecutionModeToggle = (
       onClick={() => onExecutionModeChange('unrestricted')}
       title={
         unrestrictedAvailable
-          ? '/exec 명령을 Gateway 로컬 권한으로 직접 실행합니다.'
-          : 'Gateway 실험용 무제한 명령 실행이 꺼져 있습니다.'
+          ? '지원되는 자연어 AIOps 조치와 /exec 명령을 즉시 실행합니다.'
+          : 'Gateway 실험용 자연어/명령 실행이 꺼져 있습니다.'
       }
       type="button"
     >
@@ -1824,7 +1824,7 @@ const AssistantLauncher: React.FC = () => {
         return;
       }
       if (mode === 'unrestricted' && !unrestrictedAvailable) {
-        setAiopsActionError('Gateway 실험용 무제한 명령 실행이 켜져야 선택할 수 있습니다.');
+        setAiopsActionError('Gateway 실험용 자연어/명령 실행이 켜져야 선택할 수 있습니다.');
         return;
       }
 
