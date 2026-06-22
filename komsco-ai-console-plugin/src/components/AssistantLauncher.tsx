@@ -241,7 +241,7 @@ const formatDuration = (milliseconds: number): string => {
   const safeMilliseconds = Math.max(0, milliseconds);
 
   if (safeMilliseconds < 1000) {
-    return `${Math.max(0.1, safeMilliseconds / 1000).toFixed(1)}초`;
+    return `${Math.max(1, Math.round(safeMilliseconds))}ms`;
   }
 
   const totalSeconds = Math.round(safeMilliseconds / 1000);
