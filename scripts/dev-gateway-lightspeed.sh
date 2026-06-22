@@ -15,7 +15,7 @@ OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
 PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
 PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
-ACTION_EXECUTOR="${ACTION_EXECUTOR:-off}"
+ACTION_EXECUTOR="${ACTION_EXECUTOR:-}"
 ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-}"
 ACTION_EXECUTOR_NAMESPACE="${ACTION_EXECUTOR_NAMESPACE:-komsco-ai-dev}"
 ACTION_EXECUTOR_SERVICE="${ACTION_EXECUTOR_SERVICE:-komsco-ai-action-executor}"
@@ -65,6 +65,42 @@ normalize_bool_option() {
       ;;
     *)
       echo "Invalid boolean option: $1. Use on/off or true/false." >&2
+      exit 1
+      ;;
+  esac
+}
+
+select_action_executor_mode() {
+  if [ -n "$ACTION_EXECUTOR_PORT_FORWARD" ]; then
+    normalize_bool_option "$ACTION_EXECUTOR_PORT_FORWARD"
+    return
+  fi
+
+  if [ -n "$ACTION_EXECUTOR" ]; then
+    normalize_bool_option "$ACTION_EXECUTOR"
+    return
+  fi
+
+  if [ ! -t 0 ]; then
+    printf 'false'
+    return
+  fi
+
+  echo "AIOps Gateway mode 선택:" >&2
+  echo "  1) 읽기 전용  - 분석/조회/계획 안내만 수행" >&2
+  echo "  2) 실행 가능  - 승인된 Action Executor 실행 허용" >&2
+  printf "선택 [1/2, 기본 1]: " >&2
+  read -r mode_choice
+
+  case "${mode_choice:-1}" in
+    1|read|readonly|read-only|읽기|읽기전용)
+      printf 'false'
+      ;;
+    2|exec|execute|execution|실행|실행가능)
+      printf 'true'
+      ;;
+    *)
+      echo "Invalid mode: ${mode_choice}. Use 1/read-only or 2/execute." >&2
       exit 1
       ;;
   esac
@@ -157,10 +193,7 @@ trap cleanup EXIT INT TERM
 require_cmd oc
 require_cmd python3
 
-ACTION_EXECUTOR_ENABLED="$(normalize_bool_option "$ACTION_EXECUTOR")"
-if [ -n "$ACTION_EXECUTOR_PORT_FORWARD" ]; then
-  ACTION_EXECUTOR_ENABLED="$(normalize_bool_option "$ACTION_EXECUTOR_PORT_FORWARD")"
-fi
+ACTION_EXECUTOR_ENABLED="$(select_action_executor_mode)"
 
 if ! oc whoami >/dev/null 2>&1; then
   echo "oc login이 필요합니다. VPN/hosts 설정 후 oc login을 먼저 수행하세요." >&2

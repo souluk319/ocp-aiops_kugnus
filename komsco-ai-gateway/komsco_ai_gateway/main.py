@@ -249,6 +249,7 @@ K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT = {
     "statefulsets": "StatefulSet",
 }
 PAGE_CONTEXT_ALLOWED_KEYS = {
+    "aiopsExecutionMode",
     "clusterScope",
     "href",
     "namespace",
@@ -1955,6 +1956,14 @@ def page_context_resource_name(req: ChatRequest) -> str:
     return ""
 
 
+def page_context_aiops_execution_mode(req: ChatRequest) -> str:
+    context = normalize_console_page_context(req.pageContext)
+    mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
+    if mode in {"execute", "execution", "execution-enabled", "enabled"}:
+        return "execute"
+    return "read-only"
+
+
 def namespace_from_natural_action(req: ChatRequest) -> str:
     match = NAMESPACE_MENTION_RE.search(req.message.lower())
     if match:
@@ -2122,6 +2131,23 @@ def natural_action_plan_response(result: Mapping[str, Any]) -> str:
             "",
             "### 다음 단계",
             f"- {next_step}",
+        ]
+    )
+
+
+def natural_action_read_only_response(intent: Mapping[str, Any]) -> str:
+    return "\n".join(
+        [
+            "현재 AIOps 모드가 `읽기 전용`이라 조치 계획을 생성하지 않았습니다.",
+            "",
+            "### 요청 해석",
+            f"- 대상: `{intent.get('namespace')}/{intent.get('targetName')}`",
+            f"- Action: `{intent.get('toolName')}`",
+            f"- Parameters: `{json.dumps(redact_sensitive(intent.get('parameters') or {}), ensure_ascii=False)}`",
+            "",
+            "### 다음 단계",
+            "- 우상단 모드를 `실행 가능`으로 바꾼 뒤 같은 요청을 다시 보내면 Action Plan을 생성합니다.",
+            "- 실제 변경은 이후 `승인`과 `실행` 단계를 거쳐서만 수행됩니다.",
         ]
     )
 
@@ -6006,6 +6032,44 @@ async def chat_stream(
             )
 
             if policy.get("decision") == "action_proposal_only":
+                natural_action_intent = parse_natural_action_intent(req)
+                if natural_action_intent and page_context_aiops_execution_mode(req) != "execute":
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": json.dumps(
+                                redact_sensitive(
+                                    {
+                                        "executionMode": "read-only",
+                                        "intent": natural_action_intent,
+                                        "status": "skipped",
+                                    }
+                                ),
+                                ensure_ascii=False,
+                                indent=2,
+                            ),
+                            "id": f"{request_id}-natural-action-read-only",
+                            "name": "natural_action_plan",
+                            "result": {
+                                "executionMode": "read-only",
+                                "intent": natural_action_intent,
+                                "status": "skipped",
+                            },
+                            "status": "skipped",
+                            "summary": "읽기 전용 모드로 조치 계획 생성 생략",
+                        }
+                    )
+                    yield sse({"type": "text", "content": natural_action_read_only_response(natural_action_intent)})
+                    yield sse(
+                        {
+                            "type": "run_status",
+                            "runId": run_id,
+                            "stage": "completed",
+                            "message": "Gateway 읽기 전용 모드 안내 완료",
+                        }
+                    )
+                    return
+
                 natural_action_result = await create_natural_action_plan(
                     req,
                     authorization,

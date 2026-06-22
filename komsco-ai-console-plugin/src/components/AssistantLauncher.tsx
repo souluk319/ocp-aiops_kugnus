@@ -62,6 +62,8 @@ type Message = {
   progressSteps?: ProgressStep[];
 };
 
+type AiopsExecutionMode = 'read-only' | 'execute';
+
 type ProgressStatus = 'running' | 'completed' | 'failed';
 
 type ProgressStep = {
@@ -1196,6 +1198,49 @@ const renderStatusTag = (
   </span>
 );
 
+const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolean =>
+  Boolean(
+    status?.spec.capabilities.mutationsEnabled &&
+      status.spec.capabilities.actionExecutorConfigured,
+  );
+
+const renderExecutionModeToggle = (
+  executionMode: AiopsExecutionMode,
+  actionExecutionAvailable: boolean,
+  onExecutionModeChange: (mode: AiopsExecutionMode) => void,
+) => (
+  <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
+    <button
+      aria-pressed={executionMode === 'read-only'}
+      className={`komsco-ai__mode-toggle-button${
+        executionMode === 'read-only' ? ' komsco-ai__mode-toggle-button--active' : ''
+      }`}
+      onClick={() => onExecutionModeChange('read-only')}
+      type="button"
+    >
+      <ShieldAltIcon />
+      읽기 전용
+    </button>
+    <button
+      aria-pressed={executionMode === 'execute'}
+      className={`komsco-ai__mode-toggle-button${
+        executionMode === 'execute' ? ' komsco-ai__mode-toggle-button--active-execute' : ''
+      }`}
+      disabled={!actionExecutionAvailable}
+      onClick={() => onExecutionModeChange('execute')}
+      title={
+        actionExecutionAvailable
+          ? '승인 후 실제 조치를 실행할 수 있습니다.'
+          : 'Gateway Action Executor가 연결되어야 선택할 수 있습니다.'
+      }
+      type="button"
+    >
+      <TerminalIcon />
+      실행 가능
+    </button>
+  </div>
+);
+
 type AiopsRecordView = AiopsRecord;
 type AiopsActionStep = 'create-plan' | 'approve-plan' | 'execute-approval';
 
@@ -1310,25 +1355,39 @@ const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neu
 const getAiopsRecordAction = (
   record: AiopsRecordView,
   aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
 ): AiopsRecordAction | null => {
   const spec = getRecordSpecMap(record);
   const kind = record.kind ?? '';
   const records = aiopsStatus?.spec.records;
+  const modeDisabledReason = !canUseActionExecution(aiopsStatus)
+    ? 'Gateway 실행 기능 미구성'
+    : executionMode !== 'execute'
+      ? '실행 가능 모드 선택 필요'
+      : '';
+  const withModeGate = (action: AiopsRecordAction): AiopsRecordAction =>
+    modeDisabledReason
+      ? { ...action, disabledReason: action.disabledReason ?? modeDisabledReason }
+      : action;
 
   if (kind === 'ActionProposalRecord' || spec.candidateActionRequest) {
-    return { label: '계획', step: 'create-plan' };
+    return withModeGate({ label: '계획', step: 'create-plan' });
   }
 
   if (kind === 'SealedActionPlanRecord' || spec.sealedActionPlan) {
     const planDigest = getPlanDigest(record);
     if (!planDigest) {
-      return { disabledReason: 'plan digest 없음', label: '승인', step: 'approve-plan' };
+      return withModeGate({
+        disabledReason: 'plan digest 없음',
+        label: '승인',
+        step: 'approve-plan',
+      });
     }
     if (hasApprovalForPlan(records?.approvalDecisions ?? [], planDigest)) {
       return null;
     }
 
-    return { label: '승인', step: 'approve-plan' };
+    return withModeGate({ label: '승인', step: 'approve-plan' });
   }
 
   if (kind === 'ApprovalDecisionRecord' || spec.approvalDecision) {
@@ -1344,10 +1403,14 @@ const getAiopsRecordAction = (
       return null;
     }
     if (!plan) {
-      return { disabledReason: '연결된 plan 없음', label: '실행', step: 'execute-approval' };
+      return withModeGate({
+        disabledReason: '연결된 plan 없음',
+        label: '실행',
+        step: 'execute-approval',
+      });
     }
 
-    return { label: '실행', step: 'execute-approval' };
+    return withModeGate({ label: '실행', step: 'execute-approval' });
   }
 
   return null;
@@ -1374,6 +1437,7 @@ const renderActionRecordRows = (
   records: AiopsRecordView[],
   emptyLabel: string,
   aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
   busyActionId: string,
   onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
 ) => {
@@ -1383,7 +1447,7 @@ const renderActionRecordRows = (
 
   return records.slice(0, 6).map((record) => {
     const phase = getRecordPhase(record);
-    const action = getAiopsRecordAction(record, aiopsStatus);
+    const action = getAiopsRecordAction(record, aiopsStatus, executionMode);
     const actionId = `${action?.step ?? 'none'}:${getRecordName(record)}`;
     const busy = actionId === busyActionId;
 
@@ -1420,7 +1484,13 @@ const renderActionRecordRows = (
   });
 };
 
-const renderContextStrip = (summary: ClusterSummary | null, loading: boolean) => (
+const renderContextStrip = (
+  summary: ClusterSummary | null,
+  loading: boolean,
+  executionMode: AiopsExecutionMode,
+  actionExecutionAvailable: boolean,
+  onExecutionModeChange: (mode: AiopsExecutionMode) => void,
+) => (
   <div className="komsco-ai__context-strip">
     <span className="komsco-ai__context-pill">
       <ServerIcon />
@@ -1434,10 +1504,7 @@ const renderContextStrip = (summary: ClusterSummary | null, loading: boolean) =>
       <ExclamationTriangleIcon />
       {summary ? getOperatorIssueLabel(summary) : '클러스터 상태'}
     </span>
-    <span className="komsco-ai__context-pill komsco-ai__context-pill--safe">
-      <ShieldAltIcon />
-      읽기 전용
-    </span>
+    {renderExecutionModeToggle(executionMode, actionExecutionAvailable, onExecutionModeChange)}
   </div>
 );
 
@@ -1447,6 +1514,7 @@ const renderInsightRail = (
   error: string,
   aiopsStatus: AiopsRuntimeStatus | null,
   aiopsStatusError: string,
+  executionMode: AiopsExecutionMode,
   aiopsActionBusyId: string,
   aiopsActionError: string,
   aiopsActionNotice: string,
@@ -1595,6 +1663,10 @@ const renderInsightRail = (
           aiopsStatus?.spec.capabilities.mutationsEnabled ? 'review' : 'neutral',
         )}
         {renderStatusTag(
+          executionMode === 'execute' ? 'UI 실행 가능' : 'UI 읽기 전용',
+          executionMode === 'execute' ? 'review' : 'ok',
+        )}
+        {renderStatusTag(
           aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'Ledger on' : 'Ledger off',
           aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'ok' : 'warn',
         )}
@@ -1636,6 +1708,7 @@ const renderInsightRail = (
         ],
         '최근 승인 또는 실행 기록이 없습니다.',
         aiopsStatus,
+        executionMode,
         aiopsActionBusyId,
         onAiopsAction,
       )}
@@ -1657,6 +1730,7 @@ const AssistantLauncher: React.FC = () => {
   const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
   const [aiopsActionError, setAiopsActionError] = React.useState('');
   const [aiopsActionNotice, setAiopsActionNotice] = React.useState('');
+  const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>('read-only');
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -1665,6 +1739,26 @@ const AssistantLauncher: React.FC = () => {
   const [, setProgressTick] = React.useState(0);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
+
+  React.useEffect(() => {
+    if (!actionExecutionAvailable && executionMode === 'execute') {
+      setExecutionMode('read-only');
+    }
+  }, [actionExecutionAvailable, executionMode]);
+
+  const handleExecutionModeChange = React.useCallback(
+    (mode: AiopsExecutionMode) => {
+      if (mode === 'execute' && !actionExecutionAvailable) {
+        setAiopsActionError('Gateway Action Executor가 연결되어야 실행 가능 모드를 선택할 수 있습니다.');
+        return;
+      }
+
+      setAiopsActionError('');
+      setExecutionMode(mode);
+    },
+    [actionExecutionAvailable],
+  );
 
   React.useEffect(() => {
     bodyEndRef.current?.scrollIntoView({ block: 'end' });
@@ -1769,6 +1863,10 @@ const AssistantLauncher: React.FC = () => {
       if (action.disabledReason) {
         return;
       }
+      if (executionMode !== 'execute') {
+        setAiopsActionError('실행 가능 모드를 선택해야 승인·실행할 수 있습니다.');
+        return;
+      }
 
       const actionId = `${action.step}:${getRecordName(record)}`;
 
@@ -1815,7 +1913,7 @@ const AssistantLauncher: React.FC = () => {
         setAiopsActionBusyId('');
       }
     },
-    [aiopsStatus, refreshAiopsRuntimeStatus],
+    [aiopsStatus, executionMode, refreshAiopsRuntimeStatus],
   );
 
   const appendAssistantText = React.useCallback((content: string) => {
@@ -2021,7 +2119,10 @@ const AssistantLauncher: React.FC = () => {
 
       try {
         const runId = createRunId();
-        const pageContext = buildConsolePageContext();
+        const pageContext = {
+          ...buildConsolePageContext(),
+          aiopsExecutionMode: executionMode,
+        };
         const activeStepIdsByName = new Map<string, string>();
         const activeStepStartedAt = new Map<string, number>();
         const gatewayPrepDetails: string[] = [];
@@ -2290,6 +2391,7 @@ const AssistantLauncher: React.FC = () => {
     },
     [
       appendAssistantText,
+      executionMode,
       input,
       loading,
       markRunningProgressFailed,
@@ -2349,7 +2451,13 @@ const AssistantLauncher: React.FC = () => {
             </div>
           </div>
 
-          {renderContextStrip(clusterSummary, clusterSummaryLoading)}
+          {renderContextStrip(
+            clusterSummary,
+            clusterSummaryLoading,
+            executionMode,
+            actionExecutionAvailable,
+            handleExecutionModeChange,
+          )}
 
           <div className="komsco-ai__workspace">
             <div className="komsco-ai__chat-column">
@@ -2540,7 +2648,11 @@ const AssistantLauncher: React.FC = () => {
                   </Button>
                 </div>
                 <div className="komsco-ai__composer-foot">
-                  <span className="komsco-ai__read-only">증거 기반 · 실행은 승인 필요</span>
+                  <span className="komsco-ai__read-only">
+                    {executionMode === 'execute'
+                      ? '실행 가능 · 승인 후 변경 수행'
+                      : '읽기 전용 · 조치 계획/실행 차단'}
+                  </span>
                   <span>Enter 전송 · Shift+Enter 줄바꿈</span>
                 </div>
               </div>
@@ -2551,6 +2663,7 @@ const AssistantLauncher: React.FC = () => {
               clusterSummaryError,
               aiopsStatus,
               aiopsStatusError,
+              executionMode,
               aiopsActionBusyId,
               aiopsActionError,
               aiopsActionNotice,

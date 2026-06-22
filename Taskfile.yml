@@ -7,7 +7,7 @@ tasks:
       - task --list
 
   be:dev:
-    desc: Run local FastAPI gateway; set ACTION_EXECUTOR=on to enable approved action execution
+    desc: Run local FastAPI gateway and choose read-only or executable mode
     cmds:
       - ./scripts/dev-gateway-lightspeed.sh
 

@@ -29,13 +29,9 @@ Task:
 task be:dev
 ```
 
-By default, `task be:dev` runs in safe planning mode with Action Executor off.
-For a local execution demo that can submit approved typed actions through the
-cluster Action Executor, turn it on with an option:
-
-```bash
-ACTION_EXECUTOR=on task be:dev
-```
+`task be:dev` asks which mode to run: `읽기 전용` for analysis/planning only,
+or `실행 가능` to submit approved typed actions through the cluster Action
+Executor.
 
 In another terminal:
 
@@ -46,11 +42,10 @@ task fe:dev
 `task be:dev` port-forwards
 `openshift-lightspeed/lightspeed-app-server:8443` to `127.0.0.1:18443` and
 runs the FastAPI gateway on `http://127.0.0.1:18080` with `OLS_BASE_URL` pointing
-at that local Lightspeed endpoint. It keeps `KOMSCO_AI_ENABLE_MUTATIONS=false`.
-With `ACTION_EXECUTOR=on`, the same task also port-forwards the cluster
-`komsco-ai-action-executor:8080` service to the local gateway, sets
-`KOMSCO_AI_ENABLE_MUTATIONS=true`, and is intended for controlled demos of the
-approval/execution path.
+at that local Lightspeed endpoint. In `실행 가능` mode, the same task also
+port-forwards the cluster `komsco-ai-action-executor:8080` service to the local
+gateway, sets `KOMSCO_AI_ENABLE_MUTATIONS=true`, and is intended for controlled
+demos of the approval/execution path.
 
 `task fe:dev` starts the plugin webpack dev server on `http://127.0.0.1:9001`
 and then starts the local OpenShift Console bridge on `http://localhost:9000`.
