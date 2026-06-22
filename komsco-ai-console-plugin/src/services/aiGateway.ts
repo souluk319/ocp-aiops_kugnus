@@ -135,6 +135,25 @@ const GATEWAY_CLUSTER_SUMMARY_URL =
 const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/aiops/status';
 const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/actions';
+const GATEWAY_AUTH_ERROR_MESSAGE =
+  'OpenShift 콘솔 사용자 인증이 만료되었거나 Gateway로 사용자 토큰이 전달되지 않았습니다. 콘솔을 새로고침하거나 다시 로그인한 뒤 다시 시도하세요.';
+
+async function gatewayErrorMessage(
+  response: Response,
+  prefix: string,
+  includeBody = false,
+): Promise<string> {
+  if (response.status === 401) {
+    return GATEWAY_AUTH_ERROR_MESSAGE;
+  }
+
+  if (!includeBody) {
+    return `${prefix}: ${response.status}`;
+  }
+
+  const detail = await response.text();
+  return `${prefix}: ${response.status} ${detail.slice(0, 240)}`;
+}
 
 async function postGatewayJson<TResponse>(
   path: string,
@@ -154,8 +173,7 @@ async function postGatewayJson<TResponse>(
   );
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`AIOps action request failed: ${response.status} ${detail.slice(0, 240)}`);
+    throw new Error(await gatewayErrorMessage(response, 'AIOps action request failed', true));
   }
 
   return (await response.json()) as TResponse;
@@ -174,7 +192,7 @@ export async function fetchClusterSummary(): Promise<ClusterSummary> {
   );
 
   if (!response.ok) {
-    throw new Error(`Cluster summary request failed: ${response.status}`);
+    throw new Error(await gatewayErrorMessage(response, 'Cluster summary request failed'));
   }
 
   return (await response.json()) as ClusterSummary;
@@ -193,7 +211,7 @@ export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {
   );
 
   if (!response.ok) {
-    throw new Error(`AIOps status request failed: ${response.status}`);
+    throw new Error(await gatewayErrorMessage(response, 'AIOps status request failed'));
   }
 
   return (await response.json()) as AiopsRuntimeStatus;
@@ -241,7 +259,7 @@ export async function* streamChat(payload: ChatRequest): AsyncGenerator<StreamEv
   );
 
   if (!response.ok) {
-    throw new Error(`AI Gateway request failed: ${response.status}`);
+    throw new Error(await gatewayErrorMessage(response, 'AI Gateway request failed'));
   }
 
   if (!response.body) {

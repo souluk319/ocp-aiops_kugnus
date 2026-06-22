@@ -4528,6 +4528,48 @@ def enforce_product_access_review(review: Mapping[str, Any]) -> None:
         raise HTTPException(status_code=403, detail=f"KOMSCO AI product access denied: {reason}")
 
 
+OPENSHIFT_USER_AUTH_FAILURE_MESSAGE = (
+    "OpenShift 사용자 인증이 만료되었거나 Gateway로 전달된 사용자 토큰이 유효하지 않습니다. "
+    "OpenShift 콘솔을 새로고침하거나 다시 로그인한 뒤 요청을 재시도하세요."
+)
+
+
+def build_openshift_user_auth_failure_detail(status_code: int, body: str) -> dict[str, Any]:
+    upstream_reason = ""
+    try:
+        payload = json.loads(body)
+        if isinstance(payload, Mapping):
+            upstream_reason = str(payload.get("reason") or payload.get("message") or "")
+    except json.JSONDecodeError:
+        upstream_reason = body[:120]
+    return {
+        "code": "openshift_user_auth_failed",
+        "message": OPENSHIFT_USER_AUTH_FAILURE_MESSAGE,
+        "remediation": "OpenShift 콘솔 세션을 갱신한 뒤 AIOps 요청을 다시 실행하세요.",
+        "upstreamStatus": status_code,
+        "upstreamReason": redact_sensitive(upstream_reason),
+    }
+
+
+def http_exception_message(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, Mapping):
+        message = detail.get("message")
+        if message:
+            return str(message)
+        return json.dumps(redact_sensitive(detail), ensure_ascii=False)
+    return str(detail) or exc.__class__.__name__
+
+
+def is_openshift_user_auth_failure(exc: HTTPException) -> bool:
+    detail = exc.detail
+    return (
+        exc.status_code == 401
+        and isinstance(detail, Mapping)
+        and detail.get("code") == "openshift_user_auth_failed"
+    )
+
+
 async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         return safe_subject(None)
@@ -4551,6 +4593,11 @@ async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
 
     if response.status_code >= 400:
         body = response.text[:500]
+        if response.status_code == 401:
+            raise HTTPException(
+                status_code=401,
+                detail=build_openshift_user_auth_failure_detail(response.status_code, body),
+            )
         raise HTTPException(
             status_code=response.status_code,
             detail=f"OpenShift subject review failed: {body}",
@@ -6361,6 +6408,7 @@ async def chat_stream(
             )
             yield sse("[DONE]")
         except HTTPException as exc:
+            error_message = http_exception_message(exc)
             log_audit_record(
                 build_trace_record(
                     action="chat_request_failed",
@@ -6369,7 +6417,7 @@ async def chat_stream(
                     request_id=request_id,
                     run_id=run_id,
                     subject=subject,
-                    target={"error": str(exc.detail) or exc.__class__.__name__},
+                    target={"error": error_message, "statusCode": exc.status_code},
                 )
             )
             increment_metric("aiops_chat_failed_total")
@@ -6381,17 +6429,42 @@ async def chat_stream(
                 stage="failed",
                 status="failed",
                 subject=subject,
-                target={"error": str(exc.detail) or exc.__class__.__name__},
+                target={"error": error_message, "statusCode": exc.status_code},
             )
+
+            if is_openshift_user_auth_failure(exc):
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": error_message,
+                        "id": f"{request_id}-subject-review",
+                        "name": "subject_review",
+                        "result": redact_sensitive(exc.detail),
+                        "status": "error",
+                        "summary": "OpenShift 사용자 인증 갱신 필요",
+                    }
+                )
+                yield sse({"type": "text", "content": error_message})
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "failed",
+                        "message": "OpenShift 사용자 인증 갱신 필요",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
             yield sse(
                 {
                     "type": "run_status",
                     "runId": run_id,
                     "stage": "failed",
-                    "message": str(exc.detail) or exc.__class__.__name__,
+                    "message": error_message,
                 }
             )
-            yield sse({"type": "error", "message": str(exc.detail) or exc.__class__.__name__})
+            yield sse({"type": "error", "message": error_message})
             yield sse("[DONE]")
         except Exception as exc:
             log_audit_record(
