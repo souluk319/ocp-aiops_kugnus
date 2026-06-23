@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cywell AI - Catalog Practice Guide</title>
+    <style>
+      :root {
+        --pf-blue: #0066cc;
+        --pf-blue-dark: #004080;
+        --pf-green: #3e8635;
+        --pf-orange: #f0ab00;
+        --pf-red: #c9190b;
+        --pf-bg: #f5f5f5;
+        --pf-surface: #ffffff;
+        --pf-border: #d2d2d2;
+        --pf-text: #151515;
+        --pf-muted: #6a6e73;
+        --pf-code-bg: #f0f0f0;
+        --pf-shadow: 0 1px 2px rgba(3, 3, 3, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--pf-bg);
+        color: var(--pf-text);
+        font-family:
+          "Red Hat Text",
+          "Noto Sans KR",
+          "Segoe UI",
+          Arial,
+          sans-serif;
+        line-height: 1.58;
+      }
+
+      a {
+        color: var(--pf-blue);
+      }
+
+      .topbar {
+        background: #151515;
+        color: #fff;
+        padding: 14px 24px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        background: #fff;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--pf-blue-dark);
+        font-weight: 800;
+      }
+
+      .topbar h1 {
+        font-size: 18px;
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .topbar span {
+        color: #c7c7c7;
+        font-size: 13px;
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 20px 56px;
+      }
+
+      .hero {
+        background: var(--pf-surface);
+        border: 1px solid var(--pf-border);
+        box-shadow: var(--pf-shadow);
+        border-radius: 6px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+
+      .hero h2 {
+        margin: 0 0 10px;
+        font-size: 28px;
+        line-height: 1.22;
+      }
+
+      .hero p {
+        margin: 0;
+        color: var(--pf-muted);
+        max-width: 860px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+      }
+
+      .card {
+        background: var(--pf-surface);
+        border: 1px solid var(--pf-border);
+        box-shadow: var(--pf-shadow);
+        border-radius: 6px;
+        padding: 18px;
+      }
+
+      .span-4 {
+        grid-column: span 4;
+      }
+
+      .span-6 {
+        grid-column: span 6;
+      }
+
+      .span-8 {
+        grid-column: span 8;
+      }
+
+      .span-12 {
+        grid-column: span 12;
+      }
+
+      h2,
+      h3,
+      h4 {
+        margin-top: 0;
+        line-height: 1.3;
+      }
+
+      h3 {
+        font-size: 19px;
+        margin-bottom: 10px;
+      }
+
+      h4 {
+        font-size: 15px;
+        margin-bottom: 8px;
+      }
+
+      .status-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        border: 1px solid var(--pf-border);
+        background: #fff;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .pill.ok {
+        color: var(--pf-green);
+        border-color: #7cc674;
+        background: #f3faf2;
+      }
+
+      .pill.warn {
+        color: #8a6d00;
+        border-color: #f4c145;
+        background: #fff7db;
+      }
+
+      .pill.stop {
+        color: var(--pf-red);
+        border-color: #f4b1aa;
+        background: #faeae8;
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+      }
+
+      .flow-step {
+        border-left: 4px solid var(--pf-blue);
+        background: #f7fbff;
+        padding: 10px 12px;
+        border-radius: 0 4px 4px 0;
+      }
+
+      .flow-step strong {
+        display: block;
+      }
+
+      code,
+      pre {
+        font-family:
+          "Red Hat Mono",
+          "Cascadia Mono",
+          Consolas,
+          monospace;
+      }
+
+      pre {
+        overflow-x: auto;
+        background: var(--pf-code-bg);
+        border: 1px solid var(--pf-border);
+        border-radius: 4px;
+        padding: 12px;
+        margin: 10px 0;
+        white-space: pre;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--pf-border);
+        padding: 9px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f0f0f0;
+        font-weight: 700;
+      }
+
+      .muted {
+        color: var(--pf-muted);
+      }
+
+      .warning-list li,
+      .check-list li {
+        margin-bottom: 6px;
+      }
+
+      .review-pass {
+        display: grid;
+        grid-template-columns: 86px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--pf-border);
+      }
+
+      .review-pass:last-child {
+        border-bottom: none;
+      }
+
+      .small {
+        font-size: 13px;
+      }
+
+      @media (max-width: 860px) {
+        .span-4,
+        .span-6,
+        .span-8 {
+          grid-column: span 12;
+        }
+
+        .topbar {
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-mark">K</div>
+      <div>
+        <h1>Cywell AI</h1>
+        <span>Ver.0.1.0 catalog publish and repeatable install practice guide</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <h2>Cywell AI 카탈로그 등록은 완료, 런타임 설치는 아직 하지 않은 상태</h2>
+        <p>
+          이 문서는 Kugnus 전용 AIOps 패키지를 OpenShift OperatorHub/Software Catalog에
+          노출한 자동화 과정과, 같은 과정을 수동으로 반복하는 방법을 함께 남긴다.
+          기본 제품 경험은 챗봇이고, 대시보드는 챗봇이 실제 AIOps 판단을 하도록 현재
+          연결 상태와 증적 상태를 보여주는 관제 화면이다.
+        </p>
+        <div class="status-row">
+          <span class="pill ok">CatalogSource READY</span>
+          <span class="pill ok">PackageManifest visible</span>
+          <span class="pill ok">Images built in komsco-ai-kugnus</span>
+          <span class="pill warn">Subscription not installed</span>
+          <span class="pill warn">ConsolePlugin not created yet</span>
+          <span class="pill stop">Do not replace existing Lightspeed</span>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="card span-12">
+          <h3>Scope and safety contract</h3>
+          <table>
+            <tbody>
+              <tr>
+                <th>목표</th>
+                <td>Kugnus 전용 catalog card 노출과 install-ready 패키지 준비</td>
+              </tr>
+              <tr>
+                <th>기본 범위</th>
+                <td><code>CatalogSource</code>, <code>PackageManifest</code>, 이미지 준비까지만 수행</td>
+              </tr>
+              <tr>
+                <th>기본 runtime 정책</th>
+                <td><code>read-only</code>, <code>mutations=false</code>, <code>unrestrictedCommands=false</code></td>
+              </tr>
+              <tr>
+                <th>금지선</th>
+                <td>기존 Lightspeed, 기존 <code>komsco-ai-console-plugin</code>, 회사 공용 runtime 교체 금지</td>
+              </tr>
+              <tr>
+                <th>제품 기준</th>
+                <td>챗봇이 기본 경험이다. 헤더 제품명은 <code>Cywell AI</code>, 고객/훈련 대상 로고는 <code>komsco_logo.svg</code>, 토글/카탈로그 심볼은 <code>K_icon.png</code>로 분리한다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card span-4">
+          <h3>현재 cluster evidence</h3>
+          <table>
+            <tbody>
+              <tr>
+                <th>API server</th>
+                <td><code>https://api.ocp.cywell.server:6443</code></td>
+              </tr>
+              <tr>
+                <th>Namespace</th>
+                <td><code>komsco-ai-kugnus</code></td>
+              </tr>
+              <tr>
+                <th>CatalogSource</th>
+                <td><code>komsco-aiops-catalog-kugnus</code></td>
+              </tr>
+              <tr>
+                <th>PackageManifest</th>
+                <td><code>komsco-aiops-kugnus</code></td>
+              </tr>
+              <tr>
+                <th>CSV version</th>
+                <td><code>komsco-aiops-kugnus-operator.v0.1.2</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card span-8">
+          <h3>제품 관점</h3>
+          <div class="flow">
+            <div class="flow-step">
+              <strong>1. 기본은 챗봇</strong>
+              OpenShift 운영자가 자연어로 묻고, Gateway가 사용자 토큰과 안전 정책을 붙여
+              Lightspeed/RCA 흐름으로 연결한다.
+            </div>
+            <div class="flow-step">
+              <strong>2. 대시보드는 챗봇의 관제탑</strong>
+              Cluster health, Lightspeed 연결, Tool Plan, Evidence, OS Adapter, 감사 기록을
+              보여줘서 챗봇 답변이 어떤 근거 위에 서 있는지 드러낸다.
+            </div>
+            <div class="flow-step">
+              <strong>3. 설치는 OLM으로 반복 가능해야 함</strong>
+              CatalogSource와 PackageManifest가 먼저 보이고, 승인 후 Subscription과
+              AIOpsInstallation이 runtime을 만든다.
+            </div>
+          </div>
+        </article>
+
+        <article class="card span-12">
+          <h3>자동화로 수행한 publish 과정</h3>
+          <p class="muted">
+            현재 회사 환경에서는 Docker Desktop이 외부 registry route DNS를 직접 resolve하지
+            못할 수 있으므로, 선호 경로는 OpenShift 내부 binary build다.
+          </p>
+          <pre><code>cd /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus
+task kugnus:package
+KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift task kugnus:publish
+task kugnus:status</code></pre>
+          <p class="muted small">
+            참고: 기존 <code>komsco-ai-gateway:0.1.2</code> 또는
+            <code>komsco-ai-console-plugin:0.1.2</code> ImageStreamTag가 이미 있으면
+            스크립트는 기본적으로 재빌드하지 않고 재사용한다. 소스 변경분까지 새 이미지로 반영하려면
+            <code>KOMSCO_AIOPS_FORCE_IMAGE_BUILD=true</code>를 함께 지정한다.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>자동화 단계</th>
+                <th>실제 의미</th>
+                <th>생성/변경 대상</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>ensure namespace</code></td>
+                <td>Kugnus 전용 작업장을 만든다.</td>
+                <td><code>Namespace/komsco-ai-kugnus</code></td>
+              </tr>
+              <tr>
+                <td><code>OpenShift binary build</code></td>
+                <td>소스를 cluster builder에 업로드해서 내부 registry에 이미지를 만든다.</td>
+                <td><code>BuildConfig</code>, <code>ImageStreamTag</code></td>
+              </tr>
+              <tr>
+                <td><code>package OLM</code></td>
+                <td>CSV, CRD, CatalogSource, catalog ConfigMap manifest를 생성한다.</td>
+                <td><code>olm/generated</code></td>
+              </tr>
+              <tr>
+                <td><code>apply catalog</code></td>
+                <td>OperatorHub/Software Catalog에 Kugnus 카드가 보이도록 등록한다.</td>
+                <td><code>CatalogSource</code>, <code>PackageManifest</code></td>
+              </tr>
+              <tr>
+                <td><code>wait package</code></td>
+                <td>OLM이 catalog를 읽고 package를 노출할 때까지 기다린다.</td>
+                <td><code>komsco-aiops-kugnus</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card span-12">
+          <h3>검증 evidence</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>항목</th>
+                <th>명령</th>
+                <th>Observed</th>
+                <th>판정</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>CatalogSource</td>
+                <td><code>oc get catalogsource komsco-aiops-catalog-kugnus -n openshift-marketplace</code></td>
+                <td><code>Cywell AI Kugnus Catalog</code>, state <code>READY</code></td>
+                <td><span class="pill ok">pass</span></td>
+              </tr>
+              <tr>
+                <td>PackageManifest</td>
+                <td><code>oc get packagemanifest komsco-aiops-kugnus -n openshift-marketplace</code></td>
+                <td><code>komsco-aiops-kugnus-operator.v0.1.2</code></td>
+                <td><span class="pill ok">pass</span></td>
+              </tr>
+              <tr>
+                <td>Images</td>
+                <td><code>oc get imagestream -n komsco-ai-kugnus</code></td>
+                <td><code>komsco-ai-gateway:0.1.2</code>, <code>komsco-ai-console-plugin:0.1.2</code></td>
+                <td><span class="pill ok">pass</span></td>
+              </tr>
+              <tr>
+                <td>Install resources</td>
+                <td><code>task kugnus:status</code></td>
+                <td><code>Subscription</code>, <code>CSV</code>, <code>AIOpsInstallation</code>, <code>ConsolePlugin</code> empty</td>
+                <td><span class="pill ok">pass</span></td>
+              </tr>
+              <tr>
+                <td>Protected plugins</td>
+                <td><code>oc get consoleplugin komsco-ai-console-plugin lightspeed-console-plugin</code></td>
+                <td>기존 두 plugin 유지, Kugnus plugin not created before install</td>
+                <td><span class="pill ok">pass</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="muted small">
+            Evidence timestamp: 2026-06-24 KST 작업 세션. 이후 cluster 상태가 바뀌면 위 명령으로 다시 확인한다.
+          </p>
+        </article>
+
+        <article class="card span-12">
+          <h3>같은 과정을 수동으로 하면 이렇게 된다</h3>
+          <p>
+            아래는 자동화가 내부에서 한 일을 사람이 순서대로 이해하기 위한 절차다.
+            실습할 때는 자동화 명령을 우선 사용하고, 수동 절차는 문제 원인 파악용으로 본다.
+          </p>
+          <h4>1. 로그인과 context 확인</h4>
+          <pre><code>oc whoami
+oc whoami --show-server
+oc project</code></pre>
+
+          <h4>2. Kugnus namespace 준비</h4>
+          <pre><code>oc get ns komsco-ai-kugnus || oc create ns komsco-ai-kugnus</code></pre>
+
+          <h4>3. ImageStream과 BuildConfig 준비</h4>
+          <p class="muted small">
+            재실습 시 이미 존재하는 리소스 때문에 멈추지 않도록 <code>oc get ... || oc create ...</code>
+            형태로 만든다.
+          </p>
+          <pre><code>oc get imagestream komsco-ai-gateway -n komsco-ai-kugnus \
+  || oc create imagestream komsco-ai-gateway -n komsco-ai-kugnus
+
+oc get imagestream komsco-ai-console-plugin -n komsco-ai-kugnus \
+  || oc create imagestream komsco-ai-console-plugin -n komsco-ai-kugnus
+
+oc get buildconfig komsco-ai-gateway -n komsco-ai-kugnus \
+  || oc new-build --binary --strategy=docker \
+  --name=komsco-ai-gateway \
+  --to=komsco-ai-gateway:0.1.2 \
+  -n komsco-ai-kugnus
+
+oc get buildconfig komsco-ai-console-plugin -n komsco-ai-kugnus \
+  || oc new-build --binary --strategy=docker \
+  --name=komsco-ai-console-plugin \
+  --to=komsco-ai-console-plugin:0.1.2 \
+  -n komsco-ai-kugnus</code></pre>
+
+          <h4>4. 소스 업로드와 이미지 빌드</h4>
+          <p>먼저 자동화와 같은 방식으로 작은 staging directory를 만든다.</p>
+          <pre><code>rm -rf /tmp/komsco-aiops-kugnus-build
+mkdir -p /tmp/komsco-aiops-kugnus-build/komsco-ai-gateway
+mkdir -p /tmp/komsco-aiops-kugnus-build/komsco-ai-console-plugin
+
+tar -C /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus/komsco-ai-gateway \
+  --exclude='./.venv' \
+  --exclude='./__pycache__' \
+  --exclude='./.pytest_cache' \
+  --exclude='./.ruff_cache' \
+  --exclude='*.pyc' \
+  --exclude='*.log' \
+  -cf - . | tar -C /tmp/komsco-aiops-kugnus-build/komsco-ai-gateway -xf -
+
+tar -C /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus/komsco-ai-console-plugin \
+  --exclude='./node_modules' \
+  --exclude='./dist' \
+  --exclude='./integration-tests/screenshots' \
+  --exclude='./integration-tests/videos' \
+  --exclude='./.yarn/install-state.gz' \
+  --exclude='*.log' \
+  -cf - . | tar -C /tmp/komsco-aiops-kugnus-build/komsco-ai-console-plugin -xf -</code></pre>
+
+          <p>그 다음 staging directory를 BuildConfig에 업로드한다.</p>
+          <pre><code>oc start-build komsco-ai-gateway \
+  -n komsco-ai-kugnus \
+  --from-dir=/tmp/komsco-aiops-kugnus-build/komsco-ai-gateway \
+  --follow --wait
+
+oc start-build komsco-ai-console-plugin \
+  -n komsco-ai-kugnus \
+  --from-dir=/tmp/komsco-aiops-kugnus-build/komsco-ai-console-plugin \
+  --follow --wait</code></pre>
+          <p class="muted small">
+            주의: 실제 스크립트는 <code>node_modules</code>, <code>dist</code>,
+            <code>.venv</code> 등을 제외한 staging directory를 만든 뒤 업로드한다. repo 전체를
+            그대로 올리면 매우 느려질 수 있다.
+          </p>
+
+          <h4>5. 이미지 pull 권한 부여</h4>
+          <pre><code>oc policy add-role-to-group system:image-puller system:serviceaccounts:komsco-ai-kugnus -n komsco-ai-kugnus</code></pre>
+
+          <h4>6. OLM package 생성</h4>
+          <pre><code>KOMSCO_AIOPS_PACKAGE_NAME=komsco-aiops-kugnus \
+KOMSCO_AIOPS_OLM_CATALOG_NAME=komsco-aiops-catalog-kugnus \
+KOMSCO_AIOPS_DISPLAY_NAME="Cywell AI" \
+KOMSCO_AIOPS_CATALOG_DISPLAY_NAME="Cywell AI Kugnus Catalog" \
+KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus \
+KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai-kugnus \
+KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=komsco-ai-console-plugin-kugnus \
+KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="Cywell AI" \
+KOMSCO_AIOPS_ICON_FILE=docs/Ver.0.1.0/design-assets/K_icon.png \
+KOMSCO_AIOPS_ICON_MEDIA_TYPE=image/png \
+KOMSCO_AIOPS_MODE=read-only \
+KOMSCO_AIOPS_ENABLE_MUTATIONS=false \
+KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS=false \
+KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2 \
+KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2 \
+KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.2 \
+./scripts/olm-deploy.sh package</code></pre>
+
+          <h4>7. CatalogSource만 적용하고 PackageManifest 대기</h4>
+          <pre><code>oc apply -f olm/generated/catalog
+
+until oc get catalogsource komsco-aiops-catalog-kugnus -n openshift-marketplace; do
+  sleep 3
+done
+
+until oc get packagemanifest komsco-aiops-kugnus -n openshift-marketplace; do
+  sleep 5
+done
+
+oc get catalogsource komsco-aiops-catalog-kugnus -n openshift-marketplace
+oc get catalogsource komsco-aiops-catalog-kugnus -n openshift-marketplace \
+  -o jsonpath='{.status.connectionState.lastObservedState}{"\n"}'
+
+oc get packagemanifest komsco-aiops-kugnus -n openshift-marketplace \
+  -o jsonpath='{.status.channels[0].currentCSV}{"\n"}'</code></pre>
+
+          <h4>8. 선택 설치는 별도 승인 후</h4>
+          <pre><code>KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus task kugnus:install</code></pre>
+          <p class="muted small">
+            이 단계에서야 <code>Subscription</code>, <code>CSV</code>,
+            <code>AIOpsInstallation</code>, <code>ConsolePlugin/komsco-ai-console-plugin-kugnus</code>,
+            gateway/plugin deployment가 생성된다.
+          </p>
+          <h4>9. 승인된 Kugnus 전용 uninstall</h4>
+          <pre><code>KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus task kugnus:uninstall</code></pre>
+          <p class="muted small">
+            uninstall은 Kugnus 전용 리소스만 대상으로 한다. 다만 uninstall/install manifest가
+            <code>Namespace/komsco-ai-kugnus</code>나 runtime 리소스를 삭제할 수 있으므로,
+            실행 전 <code>olm/generated</code>와 스크립트가 지울 리소스를 반드시 확인한다.
+            기존 <code>komsco-ai</code>,
+            <code>komsco-ai-dev</code>, <code>komsco-ai-jk</code>,
+            <code>lightspeed-console-plugin</code>은 삭제 대상이 아니다.
+          </p>
+        </article>
+
+        <article class="card span-12">
+          <h3>로컬 개발 loop</h3>
+          <p>
+            카탈로그 등록 전 UI와 Gateway를 확인할 때는 아래 두 터미널만 유지한다. 첫 번째 터미널은
+            Gateway와 Lightspeed port-forward를 계속 실행하고, 두 번째 터미널은 로컬 OpenShift
+            console bridge와 plugin webpack dev server를 실행한다.
+          </p>
+          <pre><code># Terminal A
+AIOPS_GATEWAY_MODE=read-only task be:dev
+
+# Terminal B, first run only
+INSTALL_DEPS=true task fe:dev
+
+# Terminal B, after dependencies exist
+task fe:dev</code></pre>
+          <ul class="check-list">
+            <li>Pass: Gateway가 <code>http://127.0.0.1:18080</code>에서 뜬다.</li>
+            <li>Pass: 로컬 콘솔이 <code>http://localhost:9000</code>에서 뜬다.</li>
+            <li>Pass: assistant proxy 경로가 <code>komsco-ai-console-plugin-kugnus</code>를 사용한다.</li>
+            <li>주의: WSL에서 console container가 WSL Gateway에 붙어야 하면 Gateway를 <code>0.0.0.0</code>로 열고 WSL IP를 proxy endpoint로 써야 한다. <code>host.docker.internal</code>은 Windows 쪽 다른 서비스로 향할 수 있다.</li>
+            <li>Fail: <code>실험 무제한</code> 또는 unrestricted mode가 회사 OCP 기본값으로 사용된다.</li>
+          </ul>
+        </article>
+
+        <article class="card span-6">
+          <h3>절대 하지 않을 것</h3>
+          <ul class="warning-list">
+            <li><code>task olm:deploy</code>, <code>task olm:release</code>, <code>task olm:install</code>을 기본 경로로 실행하지 않는다.</li>
+            <li><code>task catalog:deploy</code>, <code>task catalog:release</code>, <code>task catalog:runtime:apply</code>를 실행하지 않는다.</li>
+            <li>기존 <code>ConsolePlugin/komsco-ai-console-plugin</code>을 덮어쓰지 않는다.</li>
+            <li>기존 <code>ConsolePlugin/lightspeed-console-plugin</code>을 제거하지 않는다.</li>
+            <li>기존 active console plugin 목록을 임의로 바꾸지 않는다.</li>
+            <li><code>.env</code>, token, kubeconfig, password, private key를 commit하지 않는다.</li>
+          </ul>
+        </article>
+
+        <article class="card span-6">
+          <h3>Pass/Fail 확인</h3>
+          <ul class="check-list">
+            <li>Pass: <code>CatalogSource</code> 상태가 <code>READY</code>다.</li>
+            <li>Pass: <code>PackageManifest/komsco-aiops-kugnus</code>가 보인다.</li>
+            <li>Pass: <code>Subscription</code>이 비어 있다. 기본 publish는 설치가 아니다.</li>
+            <li>Pass: 기존 <code>komsco-ai-console-plugin</code> backend namespace가 <code>komsco-ai</code>다.</li>
+            <li>Pass: active plugin 목록에 기존 값만 있고 Kugnus plugin은 아직 없다.</li>
+            <li>Fail: Kugnus 설치 전인데 <code>ConsolePlugin/komsco-ai-console-plugin-kugnus</code>가 생성돼 있다면 설치 경로가 실행된 것이다.</li>
+          </ul>
+        </article>
+
+        <article class="card span-12">
+          <h3>운영 UI 검토 기준</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>영역</th>
+                <th>해야 할 일</th>
+                <th>이유</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Chatbot</td>
+                <td>전역 assistant launcher와 chat stream을 기본 경험으로 유지한다. 헤더와 상태/모드 메뉴는 한 줄에 통합하고, 별도 context strip row를 두지 않는다.</td>
+                <td>AIOps 사용자는 대시보드를 보다가도 결국 질문과 조치 후보를 챗봇으로 받는다.</td>
+              </tr>
+              <tr>
+                <td>Cluster health</td>
+                <td>node/operator/workload 상태를 요약한다.</td>
+                <td>운영자가 현재 장애 맥락을 빠르게 잡는다.</td>
+              </tr>
+              <tr>
+                <td>Lightspeed link</td>
+                <td>OLS base URL, stream 상태, fallback 상태를 노출한다.</td>
+                <td>챗봇 답변이 Lightspeed와 연결됐는지 확인한다.</td>
+              </tr>
+              <tr>
+                <td>Tool Plan</td>
+                <td>read-only 실행 계획과 금지된 mutation을 명확히 보여준다.</td>
+                <td>Agentic 기능이 위험한 자동 실행으로 오해되지 않게 한다.</td>
+              </tr>
+              <tr>
+                <td>Evidence</td>
+                <td>events/logs/metrics/runbook/audit의 수집 또는 누락 상태를 표시한다.</td>
+                <td>근거 없는 답변을 성공처럼 보이지 않게 한다.</td>
+              </tr>
+              <tr>
+                <td>OS Adapter</td>
+                <td>OpenShift/Linux/Windows adapter의 가능 범위를 분리한다.</td>
+                <td>PDF의 OS-aware AIOps 방향을 제품 화면에 연결한다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="card span-12">
+          <h3>5회 검토 루프 기록</h3>
+          <div class="review-pass">
+            <strong>Pass 1</strong>
+            <span>Product UX: chatbot-first 부족, 상태 과장, 헤더/메뉴 분리로 인한 공간 낭비 지적. Cywell AI 통합 헤더, K 아이콘 토글, read-only UX, pending 상태 표시로 보완.</span>
+            <span class="pill ok">fixed</span>
+          </div>
+          <div class="review-pass">
+            <strong>Pass 2</strong>
+            <span>AIOps architecture: Tool Plan/Evidence/Adapter가 실제보다 앞서 보인다는 지적. safety contract에 contract-only 상태를 명시.</span>
+            <span class="pill ok">fixed</span>
+          </div>
+          <div class="review-pass">
+            <strong>Pass 3</strong>
+            <span>OLM/catalog safety: install/deploy 혼동과 protected plugin overwrite 위험 지적. Kugnus 전용 승인 env와 protected name guard 반영.</span>
+            <span class="pill ok">fixed</span>
+          </div>
+          <div class="review-pass">
+            <strong>Pass 4</strong>
+            <span>Learner guide: staging directory, 수동 env, evidence, local dev loop 누락 지적. 자동/수동 경로와 pass/fail evidence 보강.</span>
+            <span class="pill ok">fixed</span>
+          </div>
+          <div class="review-pass">
+            <strong>Pass 5</strong>
+            <span>Build/runtime consistency: Kugnus proxy name, logo asset, untracked files, legacy path 혼동 지적. Kugnus task와 docs를 현재 구현 기준으로 정리.</span>
+            <span class="pill ok">fixed</span>
+          </div>
+        </article>
+
+        <article class="card span-12">
+          <h3>다음 확인 순서</h3>
+          <ol>
+            <li>OpenShift Console 접속.</li>
+            <li>OperatorHub 또는 Software Catalog에서 <strong>Cywell AI</strong> 검색.</li>
+            <li>설치 후 콘솔 챗봇 헤더가 <strong>Cywell AI</strong>로 보이는지 확인.</li>
+            <li>카드가 보이면 catalog publish 목표는 pass.</li>
+            <li>Install 버튼은 누르기 전에 현재 namespace와 생성될 리소스를 다시 확인.</li>
+            <li>고도화는 read-only runtime 설치 이후 chatbot 응답, Evidence, Tool Plan 순서로 진행.</li>
+          </ol>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

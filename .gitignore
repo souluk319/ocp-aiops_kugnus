@@ -12,5 +12,6 @@ __pycache__/
 .ruff_cache/
 *.pyc
 *.log
+.tmp-*
 .dev-*.pid
 .DS_Store

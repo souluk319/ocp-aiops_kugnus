@@ -9,7 +9,7 @@ module.exports = {
   locales: ['en'],
   namespaceSeparator: '~',
   reactNamespace: false,
-  defaultNamespace: 'plugin__komsco-ai-console-plugin',
+  defaultNamespace: 'plugin__komsco-ai-console-plugin-kugnus',
   useKeysAsDefaultValue: true,
 
   // see below for more details

@@ -2,59 +2,59 @@
   {
     "type": "console.navigation/section",
     "properties": {
-      "id": "komsco-aiops",
+      "id": "komsco-aiops-kugnus",
       "perspective": "admin",
-      "name": "AIOps"
+      "name": "Cywell AI"
     }
   },
   {
     "type": "console.navigation/href",
     "properties": {
-      "id": "komsco-aiops-dashboard",
+      "id": "komsco-aiops-kugnus-assistant",
       "perspective": "admin",
-      "section": "komsco-aiops",
-      "name": "Dashboard",
-      "href": "/aiops",
+      "section": "komsco-aiops-kugnus",
+      "name": "챗봇",
+      "href": "/aiops-kugnus",
       "insertAfter": "home"
     }
   },
   {
     "type": "console.navigation/href",
     "properties": {
-      "id": "komsco-aiops-audit",
+      "id": "komsco-aiops-kugnus-audit",
       "perspective": "admin",
-      "section": "komsco-aiops",
+      "section": "komsco-aiops-kugnus",
       "name": "감사",
-      "href": "/aiops/audit",
-      "startsWith": ["/aiops/audit"]
+      "href": "/aiops-kugnus/audit",
+      "startsWith": ["/aiops-kugnus/audit"]
     }
   },
   {
     "type": "console.navigation/href",
     "properties": {
-      "id": "komsco-aiops-executions",
+      "id": "komsco-aiops-kugnus-executions",
       "perspective": "admin",
-      "section": "komsco-aiops",
+      "section": "komsco-aiops-kugnus",
       "name": "실행 기록",
-      "href": "/aiops/executions",
-      "startsWith": ["/aiops/executions"]
+      "href": "/aiops-kugnus/executions",
+      "startsWith": ["/aiops-kugnus/executions"]
     }
   },
   {
     "type": "console.navigation/href",
     "properties": {
-      "id": "komsco-aiops-policy",
+      "id": "komsco-aiops-kugnus-policy",
       "perspective": "admin",
-      "section": "komsco-aiops",
+      "section": "komsco-aiops-kugnus",
       "name": "정책",
-      "href": "/aiops/policy",
-      "startsWith": ["/aiops/policy"]
+      "href": "/aiops-kugnus/policy",
+      "startsWith": ["/aiops-kugnus/policy"]
     }
   },
   {
     "type": "console.page/route",
     "properties": {
-      "path": "/aiops",
+      "path": "/aiops-kugnus",
       "exact": true,
       "perspective": "admin",
       "component": { "$codeRef": "AiopsDashboardPage" }
@@ -63,7 +63,7 @@
   {
     "type": "console.page/route",
     "properties": {
-      "path": "/aiops/audit",
+      "path": "/aiops-kugnus/audit",
       "exact": true,
       "perspective": "admin",
       "component": { "$codeRef": "AiopsAuditPage" }
@@ -72,7 +72,7 @@
   {
     "type": "console.page/route",
     "properties": {
-      "path": "/aiops/executions",
+      "path": "/aiops-kugnus/executions",
       "exact": true,
       "perspective": "admin",
       "component": { "$codeRef": "AiopsExecutionRecordsPage" }
@@ -81,7 +81,7 @@
   {
     "type": "console.page/route",
     "properties": {
-      "path": "/aiops/policy",
+      "path": "/aiops-kugnus/policy",
       "exact": true,
       "perspective": "admin",
       "component": { "$codeRef": "AiopsPolicyPage" }

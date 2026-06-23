@@ -103,3 +103,38 @@ tasks:
     desc: Remove OLM subscription/catalog resources and the AIOpsInstallation custom resource
     cmds:
       - ./scripts/olm-deploy.sh uninstall
+
+  kugnus:package:
+    desc: Generate and verify the Kugnus OLM catalog package with deterministic internal image refs
+    cmds:
+      - ./scripts/kugnus-olm.sh package
+
+  kugnus:images:
+    desc: Build and push Kugnus gateway/operator and console plugin images
+    cmds:
+      - ./scripts/kugnus-olm.sh images
+
+  kugnus:publish:
+    desc: Build Kugnus images with OpenShift binary builds and register only the Kugnus OLM CatalogSource
+    cmds:
+      - ./scripts/kugnus-olm.sh publish
+
+  kugnus:install:
+    desc: Install Kugnus Subscription and AIOpsInstallation only when KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus
+    cmds:
+      - ./scripts/kugnus-olm.sh install
+
+  kugnus:uninstall:
+    desc: Remove only Kugnus catalog/install/runtime resources when KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus
+    cmds:
+      - ./scripts/kugnus-olm.sh uninstall
+
+  kugnus:status:
+    desc: Show Kugnus catalog, install, operand, and console plugin status
+    cmds:
+      - ./scripts/kugnus-olm.sh status
+
+  kugnus:ui:verify:
+    desc: Verify local Cywell AI chat UI layout, header, sidebar, fullscreen, and resize controls
+    cmds:
+      - node ./scripts/verify-kugnus-ui.mjs

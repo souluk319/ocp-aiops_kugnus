@@ -1,118 +1,134 @@
-# Ver.0.1.0 작업 방향
+# Ver.0.1.0 Kugnus AIOps 구축 방향
 
-작성 기준일: 2026-06-23 KST
+작성 기준일: 2026-06-24 KST
 
 ## 현재 판단
 
-Ver.0.1.0의 방향은 "회사 OCP에 바로 설치"가 아니다. 이 단계의 핵심은 WSL 로컬 개발환경에서 개발용 OpenShift Console bridge를 띄우고, 회사 OCP에 `oc login`과 port-forward로 연결해 기능을 확인한 뒤, Software Catalog 등록 준비까지 정리하는 것이다.
+Ver.0.1.0의 기준 문서는 `OpenShift_Lightspeed_커스터마이징_구축_수행_방안.pdf`다. 이 문서의 결론은 OpenShift Lightspeed를 새로 대체 설치하는 것이 아니라, 기존 OpenShift 환경과 Lightspeed 기능을 보존하면서 KOMSCO AI Gateway, Dynamic Console Plugin, Operator/OLM 배포 모델을 얹는 것이다.
 
-CRC는 이번 Ver.0.1.0의 target이 아니다. CRC는 개인 실습과 별도 프로젝트 검증용으로만 본다.
+이번 단계의 기본 완료 목표는 **Kugnus 전용 OperatorHub/OLM 카탈로그 카드가 보이고, Install을 누르면 자동 배포될 수 있는 패키지까지 준비하는 것**이다. 실제 `Subscription` 설치와 `AIOpsInstallation` 생성은 별도 승인 단계로 둔다.
 
-## 핵심 개념
+회사 OCP에는 이미 다음 공용 리소스가 있다.
 
-로컬 개발환경은 로컬에 OCP 전체를 설치하는 방식이 아니다.
+| 구분 | 현재 상태 | Ver.0.1.0 기준 |
+| :--- | :--- | :--- |
+| Lightspeed | `openshift-lightspeed` namespace와 app/plugin/operator/postgres가 Running | 재설치하지 않음 |
+| 공용 KOMSCO plugin | `ConsolePlugin/komsco-ai-console-plugin` 존재 | 덮어쓰지 않음 |
+| 공용 catalog | `komsco-aiops`, `komsco-aiops-jk` PackageManifest 존재 | Kugnus 이름으로 분리 |
+| 개인 후보 namespace | `komsco-ai-kugnus` 존재, runtime 미설치 | AIOps는 `komsco-ai-kugnus` 사용 |
+| Kugnus catalog | `komsco-aiops-catalog-kugnus` 등록됨 | PackageManifest 확인 대상 |
+
+## 목표 아키텍처
+
+PDF의 목표 구조를 Ver.0.1.0 repo 작업으로 매핑하면 다음과 같다.
 
 ```text
-WSL local
-  - FastAPI Gateway: localhost:18080
-  - Console plugin dev server: localhost:9001
-  - OpenShift Console bridge: localhost:9000
-
-Company OCP
-  - OpenShift API
-  - openshift-lightspeed service
-  - live cluster data
-  - user auth/RBAC
-
-Connection
-  - oc login
-  - oc port-forward
-  - local console bridge
+OpenShift Console
+  -> KOMSCO Dynamic Console Plugin
+  -> ConsolePlugin proxy with UserToken
+  -> KOMSCO AI Gateway
+  -> Agentic Tool Plan / Evidence / Safety Guard
+  -> OpenShift Lightspeed streaming_query
+  -> Chat UI and AIOps dashboard
 ```
 
-즉 브라우저에서는 `http://localhost:9000`을 열지만, 그 안에서 보는 OpenShift 데이터와 인증 컨텍스트는 회사 OCP 쪽을 사용한다. 운영 콘솔을 직접 수정하지 않고, 로컬 개발 중인 플러그인과 Gateway를 끼워 넣어 확인하는 구조다.
+핵심은 역할 분리다.
 
-## Ver.0.1.0 목표
+| 구성요소 | 역할 |
+| :--- | :--- |
+| Dynamic Console Plugin | OpenShift 콘솔 안의 Cywell AI UI, Chat, Dashboard |
+| AI Gateway | UserToken 전달, RBAC/민감정보/감사로그, Evidence/RAG/Tool Plan 구조화 |
+| Lightspeed | OpenShift 기반 최종 RCA 답변과 MCP/RAG 역량 |
+| Operator | `AIOpsInstallation` CR을 받아 Gateway, Plugin, ConsolePlugin, RBAC, Service CA를 자동 구성 |
+| OLM CatalogSource | Software Catalog/OperatorHub에 설치 항목 노출 |
 
-- WSL에서 repo 개발환경을 준비한다.
-- 회사 OCP에 `oc login`할 수 있는지 확인한다.
-- `task be:dev`로 Gateway와 Lightspeed port-forward 개발 루프를 준비한다.
-- `task fe:dev`로 plugin dev server와 local console bridge를 준비한다.
-- `http://localhost:9000`에서 개발용 웹콘솔을 확인한다.
-- Software Catalog 등록 준비를 한다.
-- 실제 설치, 기존 챗봇 교체, ConsolePlugin 활성 목록 변경은 하지 않는다.
+## Kugnus 전용 이름 기준
 
-## 작업 순서
+기존 공용 리소스를 덮어쓰지 않기 위해 Ver.0.1.0은 다음 이름을 기본값으로 사용한다.
 
-1. WSL에서 repo 위치 확인
+| 구분 | 값 |
+| :--- | :--- |
+| PackageManifest | `komsco-aiops-kugnus` |
+| CatalogSource | `komsco-aiops-catalog-kugnus` |
+| Operator namespace | `komsco-ai-kugnus` |
+| Operand namespace | `komsco-ai-kugnus` |
+| ConsolePlugin | `komsco-ai-console-plugin-kugnus` |
+| Console route base | `/aiops-kugnus` |
+| Catalog display | `Cywell AI` |
+| Catalog icon | `docs/Ver.0.1.0/design-assets/K_icon.png` |
+| Assistant product title | `Cywell AI` |
+| Assistant toggle mark | `docs/Ver.0.1.0/design-assets/K_icon.png` |
+| Chat header logo | `docs/Ver.0.1.0/design-assets/komsco_logo.svg` |
+
+중요: `ConsolePlugin`은 cluster-scoped 리소스다. namespace만 분리해도 `metadata.name`이 같으면 기존 공용 plugin을 덮어쓸 수 있다. 따라서 Kugnus 배포는 반드시 `komsco-ai-console-plugin-kugnus`를 사용한다.
+
+## PDF 요구사항 추적표
+
+| PDF page | 요구사항 | Ver.0.1.0 구현/산출물 |
+| :--- | :--- | :--- |
+| 1 | 기존 OpenShift 보존, Lightspeed REST 유지, 신규 Plugin/Gateway 구축 | 기존 Lightspeed/공용 plugin 미변경, Kugnus 전용 OLM 패키지 |
+| 2 | UserToken RBAC, Agentic Model, Tool Adapter, 안전한 Lightspeed 연동 | Gateway proxy UserToken, safety contract, read-only 기본값 |
+| 3 | Tool Plan, OS Adapter, Evidence API, Runbook/RAG, Lightspeed 통합 | Dashboard와 Gateway status에 Tool/Evidence 상태 표시 |
+| 4 | OS Context, Tool Router, Evidence Planner, RCA Reasoner, Safety Guard | `AIOpsInstallation`와 Gateway 계약 문서화, 위험 작업 차단 |
+| 5 | AIOps 모델 선정 근거 | Ver.0.1.0은 모델 학습이 아니라 Tool Plan/RCA JSON 인터페이스 준비 |
+| 6 | OS-aware Tool Reasoning 구조 | Linux/Windows/OpenShift Adapter 개념을 dashboard-design-brief에 반영 |
+| 7 | 학습/고도화 데이터 전략 | 감사로그, Evidence, Runbook, Tool 결과를 향후 학습 데이터 후보로 정의 |
+| 8 | Tool Plan JSON, RCA Context JSON 표준화 | Gateway safety/evidence contract와 UI 상태 카드로 노출 |
+| 9 | Evidence 기반 장애 분석 시나리오 | Cluster/Event/Metric/Audit 기반 read-only 챗봇 동작을 우선 검증 |
+| 10 | Namespace/RBAC/Image/OLM/CR/Console 전환 로드맵 | Kugnus OLM package, catalog publish, optional install task로 분리 |
+
+## 작업 기준
+
+기본 작업은 WSL에서 수행한다.
 
 ```bash
 cd /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus
-git status --short --branch
 ```
 
-2. 필수 도구 확인
+로컬 개발 확인:
 
 ```bash
-git --version
-python3 --version
-pip3 --version
-node --version
-yarn --version
-task --version
-oc version --client
-helm version
+AIOPS_GATEWAY_MODE=read-only task be:dev
+INSTALL_DEPS=true task fe:dev
 ```
 
-3. 회사 OCP context 확인
+두 번째 실행부터는 의존성이 이미 있으므로 `task fe:dev`만 실행한다. WSL에서 Docker Desktop console container가 WSL Gateway에 붙어야 하는 경우 `host.docker.internal`이 Windows 쪽 다른 서비스로 향할 수 있으므로, Gateway를 `0.0.0.0`로 열고 WSL IP proxy endpoint를 사용한다.
+
+Kugnus 카탈로그 준비:
 
 ```bash
-oc whoami --show-server
-oc config current-context
+task kugnus:package
 ```
 
-회사 OCP 작업이면 server가 `ocp.cywell.server` 계열이어야 한다. `api.crc.testing`이면 개인 CRC context다.
-
-4. 회사 OCP의 기존 콘솔 확장 상태를 read-only로 조사
+Kugnus 카탈로그 등록:
 
 ```bash
-oc get console.operator.openshift.io cluster -o jsonpath='{.spec.plugins}'
-oc get consoleplugin
-oc get deploy,svc -A
+KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift task kugnus:publish
 ```
 
-이 단계는 조회만 한다. 기존 챗봇, Lightspeed, ConsolePlugin, namespace, proxy alias를 건드리지 않는다.
+회사 OCP 현재 환경에서는 Docker Desktop이 외부 image registry route
+`default-route-openshift-image-registry.apps.ocp.cywell.server`를 직접 resolve하지 못할 수 있다.
+따라서 Ver.0.1.0의 선호 publish 경로는 OpenShift `BuildConfig` binary build를 사용해
+`komsco-ai-kugnus` 내부 ImageStream에 이미지를 넣는 방식이다. 이 방식은 기존 공용 plugin이나
+Lightspeed runtime을 건드리지 않는다.
 
-5. 로컬 개발 루프 실행 준비
+Kugnus 카탈로그 상태 확인:
 
 ```bash
-task be:dev
-task fe:dev
+task kugnus:status
 ```
 
-초기 실행에서는 Python venv, pip dependency, yarn install, webpack dev server 준비 때문에 시간이 오래 걸릴 수 있다.
-
-6. 개발용 웹콘솔 확인
-
-```text
-http://localhost:9000
-```
-
-이 콘솔은 회사 OCP 운영 콘솔을 대체 설치하는 것이 아니라, 로컬 개발용 bridge다.
-
-7. Software Catalog 준비
+선택 설치는 별도 승인 후에만 실행한다.
 
 ```bash
-task catalog:package
-task catalog:register
-task catalog:status
+KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus task kugnus:install
 ```
 
-`catalog:register`는 Software Catalog에 Helm chart repository를 보이게 등록하는 단계다. 실제 chart 설치와 다르다.
+승인 env 없이 `task kugnus:install`을 실행하면 스크립트가 거부해야 정상이다.
 
 ## 하지 않을 것
 
-다음 명령은 Ver.0.1.0 기본 범위에서 실행하지 않는다.
+Ver.0.1.0 기본 범위에서 다음을 실행하지 않는다.
 
 ```bash
 task catalog:deploy
@@ -124,33 +140,49 @@ task olm:install
 scripts/enable-console-plugin.sh
 ```
 
-회사 OCP에 이미 존재하는 커스텀 챗봇, ConsolePlugin, Gateway, namespace, proxy alias를 제거하거나 교체하지 않는다.
+다음도 하지 않는다.
 
-기존 `lightspeed-console-plugin`을 제거하거나 새 `komsco-ai-console-plugin`을 운영 콘솔 활성 목록에 추가하지 않는다.
-
-CRC에서 확인한 결과를 회사 OCP 검증 결과로 보고하지 않는다.
-
-`.env.local`, kubeconfig, token, password, private key, Authorization header 등 인증정보를 commit하지 않는다.
-
-## 조심할 것
-
-Software Catalog URL은 개발자 브라우저뿐 아니라 OCP console/cluster가 접근할 수 있어야 한다. 로컬 `localhost` URL은 정식 등록 URL로 쓰면 안 된다.
-
-`실험 무제한` 모드는 회사 OCP에서 기본 사용하지 않는다. 이 모드는 disposable local lab에서만 다룬다.
-
-`task catalog:register`와 `task catalog:deploy`는 다르다. 등록은 catalog entry를 보이게 하는 것이고, deploy는 실제 설치다.
+- 기존 `ConsolePlugin/komsco-ai-console-plugin` 수정
+- 기존 `ConsolePlugin/lightspeed-console-plugin` 제거
+- 기존 console active plugin 목록에서 Lightspeed 제거
+- `komsco-ai`, `komsco-ai-dev`, `komsco-ai-jk` runtime 교체
+- CRC 결과를 회사 OCP 결과로 보고
+- `.env`, kubeconfig, token, password, private key commit
 
 ## 완료 기준
 
-Ver.0.1.0은 다음 조건을 만족하면 완료로 본다.
+| 항목 | Pass 기준 | Evidence |
+| :--- | :--- | :--- |
+| 문서 | PDF 기준 아키텍처, 로드맵, 금지선, 실행 순서가 0.1.0 문서에 있음 | README, runbook, design brief |
+| 이름 분리 | Kugnus package/catalog/ConsolePlugin 이름이 기존 공용 값과 다름 | generated CSV/ConfigMap |
+| 아이콘 | CSV icon이 `image/png`이고 `K_icon.png`와 SHA256 일치 | local verification |
+| 빌드 | Gateway tests와 console plugin build 통과 | pytest, yarn build |
+| UI 계약 | Cywell AI header/sidebar/fullscreen/resize 기본 동작이 깨지지 않음 | `task kugnus:ui:verify` |
+| 카탈로그 | `komsco-aiops-kugnus` PackageManifest가 보임 | `oc get packagemanifest` |
+| 안전 | 기존 공용 plugin과 Lightspeed가 변경되지 않음 | before/after `oc get consoleplugin`, console plugins |
 
-- WSL에서 필수 도구 설치 상태가 확인됐다.
-- 회사 OCP context와 CRC context가 구분됐다.
-- 기존 회사 OCP 콘솔 확장 상태가 read-only로 조사됐다.
-- 로컬 개발용 console bridge 구조를 이해하고 실행 준비가 됐다.
-- Software Catalog 등록 준비 단계와 실제 설치 단계가 분리됐다.
-- 금지 명령을 실행하지 않았다.
+## 2026-06-24 publish 결과
 
-## 현재 결론
+현재 Ver.0.1.0 publish는 다음 상태까지 완료됐다.
 
-Ver.0.1.0은 "회사 OCP에 설치" 단계가 아니라 "회사 OCP에 붙는 로컬 개발 콘솔 + Software Catalog 등록 준비" 단계다. 실제 설치나 운영 콘솔 변경은 Ver.0.1.0의 기본 범위가 아니다.
+| 항목 | 결과 |
+| :--- | :--- |
+| Namespace | `komsco-ai-kugnus` exists |
+| Gateway image | `komsco-ai-kugnus/komsco-ai-gateway:0.1.2` ImageStreamTag exists |
+| Console plugin image | `komsco-ai-kugnus/komsco-ai-console-plugin:0.1.2` ImageStreamTag exists |
+| CatalogSource | `openshift-marketplace/komsco-aiops-catalog-kugnus` exists, display `Cywell AI Kugnus Catalog`, state `READY` |
+| PackageManifest | `komsco-aiops-kugnus` exists, currentCSV `komsco-aiops-kugnus-operator.v0.1.2` |
+| Subscription | not created |
+| CSV | not installed |
+| AIOpsInstallation | not created |
+| Kugnus ConsolePlugin | not created yet; install 단계에서 생성 |
+| 기존 공용 ConsolePlugin | `komsco-ai-console-plugin` -> `komsco-ai/komsco-ai-console-plugin`, `lightspeed-console-plugin` -> `openshift-lightspeed/lightspeed-console-plugin` 유지 |
+| UI 검증 | `task kugnus:ui:verify` 42 checks pass |
+| Gateway 검증 | `.venv/bin/python -m pytest -q` 131 passed, 2 warnings |
+
+## 다음 단계
+
+1. PDF 기준 문서 세트와 Kugnus package/publish 변경분을 commit한다.
+2. OpenShift Console의 OperatorHub 또는 Software Catalog에서 `Cywell AI` 카드 노출을 눈으로 확인한다.
+3. 고도화 단계에서만 `KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus task kugnus:install` 또는 콘솔 Install 버튼으로 read-only 챗봇 runtime을 설치한다.
+4. 설치 전까지는 `Subscription`, `CSV`, `AIOpsInstallation`, `ConsolePlugin/komsco-ai-console-plugin-kugnus`가 없는 상태가 정상이다.

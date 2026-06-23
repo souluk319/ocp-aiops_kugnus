@@ -9,21 +9,37 @@ from collections.abc import Mapping
 from typing import Any
 
 
-FIELD_MANAGER = "komsco-aiops-operator"
+FIELD_MANAGER = os.getenv("KOMSCO_AI_FIELD_MANAGER", "komsco-aiops-operator")
 GROUP = "aiops.komsco.io"
 VERSION = "v1alpha1"
 PLURAL = "aiopsinstallations"
-DEFAULT_NAME = "komsco-aiops"
-DEFAULT_TARGET_NAMESPACE = os.getenv("KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "komsco-ai")
+DEFAULT_NAME = os.getenv("KOMSCO_AI_DEFAULT_INSTALLATION_NAME", "komsco-aiops")
+DEFAULT_TARGET_NAMESPACE = os.getenv("KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "komsco-ai-kugnus")
 DEFAULT_PLUGIN_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_PLUGIN_IMAGE",
-    "image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.0",
+    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.2",
 )
 DEFAULT_GATEWAY_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE",
-    "image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0",
+    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2",
 )
-BOOTSTRAP_INSTALLATION = os.getenv("KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION", "true").lower() == "true"
+DEFAULT_CONSOLE_PLUGIN_NAME = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_NAME",
+    "komsco-ai-console-plugin-kugnus",
+)
+DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
+    "Cywell AI",
+)
+BOOTSTRAP_INSTALLATION = os.getenv("KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION", "false").lower() == "true"
+PROTECTED_CONSOLE_PLUGIN_NAMES = {
+    name.strip()
+    for name in os.getenv(
+        "KOMSCO_AI_PROTECTED_CONSOLE_PLUGIN_NAMES",
+        "komsco-ai-console-plugin,lightspeed-console-plugin",
+    ).split(",")
+    if name.strip()
+}
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 SERVICEACCOUNT_TOKEN_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SERVICEACCOUNT_CA_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -83,12 +99,45 @@ def request(
     return json.loads(data)
 
 
+def get_resource(api_version: str, kind: str, name: str, resource_namespace: str | None = None) -> dict[str, Any] | None:
+    path = resource_path(api_version, kind, name, resource_namespace)
+    try:
+        return request("GET", path)
+    except RuntimeError as exc:
+        if " failed: 404 " in str(exc):
+            return None
+        raise
+
+
+def validate_console_plugin_name(name: str) -> None:
+    if name in PROTECTED_CONSOLE_PLUGIN_NAMES and name != DEFAULT_CONSOLE_PLUGIN_NAME:
+        raise RuntimeError(f"refusing protected ConsolePlugin name: {name}")
+
+
+def validate_console_plugin_apply(resource: Mapping[str, Any]) -> None:
+    metadata = resource.get("metadata") if isinstance(resource.get("metadata"), Mapping) else {}
+    name = str(metadata["name"])
+    validate_console_plugin_name(name)
+    existing = get_resource("console.openshift.io/v1", "ConsolePlugin", name)
+    if not existing:
+        return
+
+    existing_metadata = existing.get("metadata") if isinstance(existing.get("metadata"), Mapping) else {}
+    existing_labels = (
+        existing_metadata.get("labels") if isinstance(existing_metadata.get("labels"), Mapping) else {}
+    )
+    if existing_labels.get("app.kubernetes.io/managed-by") != FIELD_MANAGER:
+        raise RuntimeError(f"refusing to overwrite existing unmanaged ConsolePlugin: {name}")
+
+
 def apply_resource(resource: Mapping[str, Any]) -> None:
     api_version = str(resource["apiVersion"])
     kind = str(resource["kind"])
     metadata = resource.get("metadata") if isinstance(resource.get("metadata"), Mapping) else {}
     name = str(metadata["name"])
     resource_namespace = metadata.get("namespace")
+    if kind == "ConsolePlugin":
+        validate_console_plugin_apply(resource)
     path = resource_path(api_version, kind, name, str(resource_namespace) if resource_namespace else None)
     params = urllib.parse.urlencode({"fieldManager": FIELD_MANAGER, "force": "true"})
     request(
@@ -171,10 +220,12 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
         "spec": {
             "targetNamespace": DEFAULT_TARGET_NAMESPACE,
             "createNamespace": True,
-            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "execute"),
+            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "read-only"),
             "pluginReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_PLUGIN_REPLICAS", "2")),
             "gatewayReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_GATEWAY_REPLICAS", "1")),
             "enableConsolePlugin": True,
+            "consolePluginName": DEFAULT_CONSOLE_PLUGIN_NAME,
+            "consolePluginDisplayName": DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME,
             "images": {
                 "plugin": DEFAULT_PLUGIN_IMAGE,
                 "gateway": DEFAULT_GATEWAY_IMAGE,
@@ -182,8 +233,8 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
             },
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_DIAGNOSTICS", "true").lower() == "true",
-                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "true").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
+                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "false").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
             },
         },
     }
@@ -237,7 +288,7 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
     cr_metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
     images = spec.get("images") if isinstance(spec.get("images"), Mapping) else {}
     capabilities = spec.get("capabilities") if isinstance(spec.get("capabilities"), Mapping) else {}
-    return {
+    config = {
         "name": str(spec_value(spec, "name", DEFAULT_NAME)),
         "namespace": str(spec_value(spec, "targetNamespace", cr_metadata.get("namespace") or DEFAULT_TARGET_NAMESPACE)),
         "createNamespace": bool(spec_value(spec, "createNamespace", True)),
@@ -246,12 +297,18 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "runnerImage": str(images.get("hostDiagnosticsRunner") or images.get("gateway") or DEFAULT_GATEWAY_IMAGE),
         "pluginReplicas": int(spec_value(spec, "pluginReplicas", 2)),
         "gatewayReplicas": int(spec_value(spec, "gatewayReplicas", 1)),
-        "mode": str(spec_value(spec, "mode", "execute")),
+        "mode": str(spec_value(spec, "mode", "read-only")),
         "diagnosticsEnabled": bool(capabilities.get("diagnostics", True)),
-        "mutationsEnabled": bool(capabilities.get("mutations", True)),
-        "unrestrictedEnabled": bool(capabilities.get("unrestrictedCommands", True)),
+        "mutationsEnabled": bool(capabilities.get("mutations", False)),
+        "unrestrictedEnabled": bool(capabilities.get("unrestrictedCommands", False)),
         "enableConsolePlugin": bool(spec_value(spec, "enableConsolePlugin", True)),
+        "consolePluginName": str(spec_value(spec, "consolePluginName", DEFAULT_CONSOLE_PLUGIN_NAME)),
+        "consolePluginDisplayName": str(
+            spec_value(spec, "consolePluginDisplayName", DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME)
+        ),
     }
+    validate_console_plugin_name(str(config["consolePluginName"]))
+    return config
 
 
 def common_labels(name: str) -> dict[str, str]:
@@ -259,6 +316,14 @@ def common_labels(name: str) -> dict[str, str]:
         "app.kubernetes.io/name": name,
         "app.kubernetes.io/part-of": "komsco-aiops",
         "app.kubernetes.io/managed-by": "komsco-aiops-operator",
+    }
+
+
+def cluster_resource_names(console_plugin_name: str) -> dict[str, str]:
+    return {
+        "actionExecutorClusterRole": f"{console_plugin_name}-action-executor",
+        "actionExecutorClusterRoleBinding": f"{console_plugin_name}-action-executor",
+        "gatewayAuthDelegatorClusterRoleBinding": f"{console_plugin_name}-gateway-auth-delegator",
     }
 
 
@@ -373,7 +438,9 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     target_namespace = str(config["namespace"])
     name = str(config["name"])
     labels = common_labels(name)
-    gateway_image = str(config["gatewayImage"])
+    console_plugin_name = str(config["consolePluginName"])
+    mutations_enabled = bool(config["mutationsEnabled"])
+    diagnostics_enabled = bool(config["diagnosticsEnabled"])
     resources: list[dict[str, Any]] = []
 
     if config["createNamespace"]:
@@ -383,9 +450,6 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
         [
             service_account("komsco-ai-console-plugin", target_namespace, labels),
             service_account("komsco-ai-gateway", target_namespace, labels),
-            service_account("komsco-ai-action-executor", target_namespace, labels),
-            service_account("komsco-ai-host-diagnostics-controller", target_namespace, labels),
-            service_account("komsco-ai-host-diagnostics-runner", target_namespace, labels),
             {
                 "apiVersion": "v1",
                 "kind": "ConfigMap",
@@ -421,20 +485,57 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
             },
             service("komsco-ai-console-plugin", target_namespace, labels, 9443, 9443, tls_secret="komsco-ai-console-plugin-cert"),
             service("komsco-ai-gateway", target_namespace, labels, 8443, "https", tls_secret="komsco-ai-gateway-tls"),
-            service("komsco-ai-action-executor", target_namespace, labels, 8080, "http"),
-            service("komsco-ai-host-diagnostics-controller", target_namespace, labels, 8080, "http"),
         ]
     )
 
-    resources.extend(rbac_resources(target_namespace, labels))
+    if mutations_enabled:
+        resources.extend(
+            [
+                service_account("komsco-ai-action-executor", target_namespace, labels),
+                service("komsco-ai-action-executor", target_namespace, labels, 8080, "http"),
+            ]
+        )
+
+    if diagnostics_enabled:
+        resources.extend(
+            [
+                service_account("komsco-ai-host-diagnostics-controller", target_namespace, labels),
+                service_account("komsco-ai-host-diagnostics-runner", target_namespace, labels),
+                service("komsco-ai-host-diagnostics-controller", target_namespace, labels, 8080, "http"),
+            ]
+        )
+
+    resources.extend(
+        rbac_resources(
+            target_namespace,
+            labels,
+            console_plugin_name,
+            mutations_enabled,
+            diagnostics_enabled,
+        )
+    )
     resources.extend(workload_resources(config, labels))
-    resources.append(console_plugin_resource(target_namespace, labels))
-    resources.extend(network_policies(target_namespace, labels))
+    resources.append(
+        console_plugin_resource(
+            target_namespace,
+            labels,
+            console_plugin_name,
+            str(config["consolePluginDisplayName"]),
+        )
+    )
+    resources.extend(network_policies(target_namespace, labels, mutations_enabled, diagnostics_enabled))
     return resources
 
 
-def rbac_resources(target_namespace: str, labels: Mapping[str, str]) -> list[dict[str, Any]]:
-    return [
+def rbac_resources(
+    target_namespace: str,
+    labels: Mapping[str, str],
+    console_plugin_name: str,
+    mutations_enabled: bool,
+    diagnostics_enabled: bool,
+) -> list[dict[str, Any]]:
+    cluster_names = cluster_resource_names(console_plugin_name)
+    resources: list[dict[str, Any]] = [
         role(
             "komsco-ai-gateway-ledger",
             target_namespace,
@@ -443,16 +544,21 @@ def rbac_resources(target_namespace: str, labels: Mapping[str, str]) -> list[dic
         ),
         role_binding("komsco-ai-gateway-ledger", target_namespace, labels, "Role", "komsco-ai-gateway-ledger", "komsco-ai-gateway"),
         cluster_role_binding(
-            "komsco-ai-gateway-auth-delegator",
+            cluster_names["gatewayAuthDelegatorClusterRoleBinding"],
             labels,
             "system:auth-delegator",
             "komsco-ai-gateway",
             target_namespace,
         ),
+    ]
+
+    if mutations_enabled:
+        resources.extend(
+            [
         {
             "apiVersion": "rbac.authorization.k8s.io/v1",
             "kind": "ClusterRole",
-            "metadata": {"name": "komsco-ai-action-executor", "labels": dict(labels)},
+            "metadata": {"name": cluster_names["actionExecutorClusterRole"], "labels": dict(labels)},
             "rules": [
                 {"apiGroups": ["apps"], "resources": ["deployments", "deployments/scale", "replicasets"], "verbs": ["get", "list", "patch", "update", "watch"]},
                 {"apiGroups": ["autoscaling"], "resources": ["horizontalpodautoscalers"], "verbs": ["get", "list", "patch", "update", "watch"]},
@@ -462,12 +568,18 @@ def rbac_resources(target_namespace: str, labels: Mapping[str, str]) -> list[dic
             ],
         },
         cluster_role_binding(
-            "komsco-ai-action-executor",
+            cluster_names["actionExecutorClusterRoleBinding"],
             labels,
-            "komsco-ai-action-executor",
+            cluster_names["actionExecutorClusterRole"],
             "komsco-ai-action-executor",
             target_namespace,
         ),
+            ]
+        )
+
+    if diagnostics_enabled:
+        resources.extend(
+            [
         role(
             "komsco-ai-host-diagnostics-controller",
             target_namespace,
@@ -495,16 +607,22 @@ def rbac_resources(target_namespace: str, labels: Mapping[str, str]) -> list[dic
             "system:openshift:scc:hostmount-anyuid-v2",
             "komsco-ai-host-diagnostics-runner",
         ),
-    ]
+            ]
+        )
+
+    return resources
 
 
 def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> list[dict[str, Any]]:
     target_namespace = str(config["namespace"])
     gateway_image = str(config["gatewayImage"])
-    mutations_enabled = str(bool(config["mutationsEnabled"])).lower()
-    diagnostics_enabled = str(bool(config["diagnosticsEnabled"])).lower()
+    console_plugin_name = str(config["consolePluginName"])
+    mutations_enabled_bool = bool(config["mutationsEnabled"])
+    diagnostics_enabled_bool = bool(config["diagnosticsEnabled"])
+    mutations_enabled = str(mutations_enabled_bool).lower()
+    diagnostics_enabled = str(diagnostics_enabled_bool).lower()
     unrestricted_enabled = str(bool(config["unrestrictedEnabled"])).lower()
-    return [
+    resources = [
         deployment(
             "komsco-ai-console-plugin",
             target_namespace,
@@ -539,17 +657,17 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
                     {"name": "KOMSCO_AI_SECURITY_PHASE", "value": "phase5-action-execution"},
                     {"name": "KOMSCO_AI_ENABLE_MUTATIONS", "value": mutations_enabled},
                     {"name": "KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS", "value": unrestricted_enabled},
-                    {"name": "KOMSCO_AI_ACTION_EXECUTOR_URL", "value": "http://komsco-ai-action-executor:8080"},
+                    {"name": "KOMSCO_AI_ACTION_EXECUTOR_URL", "value": "http://komsco-ai-action-executor:8080" if mutations_enabled_bool else ""},
                     {"name": "KOMSCO_AI_DIAGNOSTICS_ENABLED", "value": diagnostics_enabled},
-                    {"name": "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "value": "http://komsco-ai-host-diagnostics-controller:8080"},
+                    {"name": "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "value": "http://komsco-ai-host-diagnostics-controller:8080" if diagnostics_enabled_bool else ""},
                     {"name": "KOMSCO_AI_RECORD_STORE_ENABLED", "value": "true"},
                     {"name": "KOMSCO_AI_RECORD_STORE_CONFIGMAP", "value": "komsco-ai-gateway-ledger"},
                     {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED", "value": "true"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED", "value": "false"},
+                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED", "value": "true"},
                     {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_GROUP", "value": "console.openshift.io"},
                     {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_RESOURCE", "value": "consoleplugins"},
                     {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB", "value": "get"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME", "value": "komsco-ai-console-plugin"},
+                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME", "value": console_plugin_name},
                 ],
                 "readinessProbe": {"httpGet": {"path": "/healthz", "port": "https", "scheme": "HTTPS"}, "initialDelaySeconds": 5, "periodSeconds": 10},
                 "livenessProbe": {"httpGet": {"path": "/healthz", "port": "https", "scheme": "HTTPS"}, "initialDelaySeconds": 15, "periodSeconds": 20},
@@ -565,7 +683,11 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
                 {"name": "service-ca", "configMap": {"name": "komsco-ai-service-ca"}},
             ],
         ),
-        deployment(
+    ]
+
+    if mutations_enabled_bool:
+        resources.append(
+            deployment(
             "komsco-ai-action-executor",
             target_namespace,
             labels,
@@ -585,8 +707,12 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
                 "livenessProbe": {"httpGet": {"path": "/healthz", "port": "http"}, "initialDelaySeconds": 15, "periodSeconds": 20},
                 "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}, "runAsNonRoot": True},
             },
-        ),
-        deployment(
+            )
+        )
+
+    if diagnostics_enabled_bool:
+        resources.append(
+            deployment(
             "komsco-ai-host-diagnostics-controller",
             target_namespace,
             labels,
@@ -606,17 +732,24 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
                 "livenessProbe": {"httpGet": {"path": "/healthz", "port": "http"}, "initialDelaySeconds": 15, "periodSeconds": 20},
                 "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}, "runAsNonRoot": True},
             },
-        ),
-    ]
+            )
+        )
+
+    return resources
 
 
-def console_plugin_resource(target_namespace: str, labels: Mapping[str, str]) -> dict[str, Any]:
+def console_plugin_resource(
+    target_namespace: str,
+    labels: Mapping[str, str],
+    console_plugin_name: str,
+    console_plugin_display_name: str,
+) -> dict[str, Any]:
     return {
         "apiVersion": "console.openshift.io/v1",
         "kind": "ConsolePlugin",
-        "metadata": {"name": "komsco-ai-console-plugin", "labels": dict(labels)},
+        "metadata": {"name": console_plugin_name, "labels": dict(labels)},
         "spec": {
-            "displayName": "KOMSCO AI Assistant",
+            "displayName": console_plugin_display_name,
             "i18n": {"loadType": "Preload"},
             "backend": {
                 "type": "Service",
@@ -645,7 +778,12 @@ def console_plugin_resource(target_namespace: str, labels: Mapping[str, str]) ->
     }
 
 
-def network_policies(target_namespace: str, labels: Mapping[str, str]) -> list[dict[str, Any]]:
+def network_policies(
+    target_namespace: str,
+    labels: Mapping[str, str],
+    mutations_enabled: bool,
+    diagnostics_enabled: bool,
+) -> list[dict[str, Any]]:
     def policy(name: str, app: str, from_items: list[dict[str, Any]], port: int) -> dict[str, Any]:
         return {
             "apiVersion": "networking.k8s.io/v1",
@@ -658,22 +796,36 @@ def network_policies(target_namespace: str, labels: Mapping[str, str]) -> list[d
             },
         }
 
-    return [
+    resources = [
         policy(
             "komsco-ai-gateway-ingress",
             "komsco-ai-gateway",
             [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-console"}}}],
             8443,
         ),
-        policy("komsco-ai-action-executor-ingress", "komsco-ai-action-executor", [{"podSelector": {"matchLabels": {"app": "komsco-ai-gateway"}}}], 8080),
-        policy(
-            "komsco-ai-host-diagnostics-controller-ingress",
-            "komsco-ai-host-diagnostics-controller",
-            [{"podSelector": {"matchLabels": {"app": "komsco-ai-gateway"}}}],
-            8080,
-        ),
     ]
 
+    if mutations_enabled:
+        resources.append(
+            policy(
+                "komsco-ai-action-executor-ingress",
+                "komsco-ai-action-executor",
+                [{"podSelector": {"matchLabels": {"app": "komsco-ai-gateway"}}}],
+                8080,
+            )
+        )
+
+    if diagnostics_enabled:
+        resources.append(
+            policy(
+                "komsco-ai-host-diagnostics-controller-ingress",
+                "komsco-ai-host-diagnostics-controller",
+                [{"podSelector": {"matchLabels": {"app": "komsco-ai-gateway"}}}],
+                8080,
+            )
+        )
+
+    return resources
 
 def reconcile(custom_resource: Mapping[str, Any]) -> None:
     metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
@@ -684,7 +836,7 @@ def reconcile(custom_resource: Mapping[str, Any]) -> None:
         for resource in resources_for(config):
             apply_resource(resource)
         if config["enableConsolePlugin"]:
-            patch_console_plugin_enabled("komsco-ai-console-plugin")
+            patch_console_plugin_enabled(str(config["consolePluginName"]))
         update_status(custom_resource, "Ready", "KOMSCO AIOps runtime reconciled")
     except Exception as exc:
         print(f"reconcile failed for {name}: {exc}", flush=True)

@@ -2,8 +2,18 @@
 
 set -euo pipefail
 
-PLUGIN_NAME="${PLUGIN_NAME:-komsco-ai-console-plugin}"
-DISABLED_LIGHTSPEED_PLUGIN="${DISABLED_LIGHTSPEED_PLUGIN:-lightspeed-console-plugin}"
+PLUGIN_NAME="${PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
+
+if [[ "${KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN:-}" != "komsco-ai-console-plugin-kugnus" ]]; then
+  echo "Refusing to patch console active plugins without explicit Kugnus approval." >&2
+  echo "Set KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN=komsco-ai-console-plugin-kugnus only after install verification." >&2
+  exit 1
+fi
+
+if [[ "${PLUGIN_NAME}" != "komsco-ai-console-plugin-kugnus" ]]; then
+  echo "Refusing to enable protected or non-Kugnus ConsolePlugin: ${PLUGIN_NAME}" >&2
+  exit 1
+fi
 
 if ! command -v oc >/dev/null 2>&1; then
   echo "oc CLI is required. Install it or add it to PATH, then run oc login." >&2
@@ -19,9 +29,7 @@ plugins="$(
   oc get console.operator.openshift.io cluster -o json \
     | jq \
       --arg plugin "$PLUGIN_NAME" \
-      --arg disabled "$DISABLED_LIGHTSPEED_PLUGIN" \
       '.spec.plugins // []
-       | map(select(. != $disabled))
        | . + [$plugin]
        | unique'
 )"

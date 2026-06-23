@@ -74,10 +74,10 @@
     "webpack-dev-server": "^5.2.3"
   },
   "consolePlugin": {
-    "name": "komsco-ai-console-plugin",
+    "name": "komsco-ai-console-plugin-kugnus",
     "version": "0.1.0",
-    "displayName": "KOMSCO AI Assistant",
-    "description": "KOMSCO AI assistant for OpenShift operations.",
+    "displayName": "Cywell AI",
+    "description": "Cywell AI assistant for OpenShift operations.",
     "exposedModules": {
       "AiopsAuditPage": "./pages/AiopsAuditPage",
       "AiopsDashboardPage": "./pages/AiopsDashboardPage",

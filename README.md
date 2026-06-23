@@ -26,11 +26,11 @@ After VPN/hosts setup and `oc login`, run the local development loop with
 Task:
 
 ```bash
-task be:dev
+AIOPS_GATEWAY_MODE=read-only task be:dev
 ```
 
-`task be:dev` asks which mode to run and defaults to `실험 무제한` for the
-internal development network:
+For Kugnus catalog work, keep the gateway in `read-only` mode unless a separate
+lab approval explicitly says otherwise:
 
 - `읽기 전용`: analysis/planning only.
 - `실행 가능`: submit approved typed actions through the cluster Action
@@ -52,10 +52,8 @@ at that local Lightspeed endpoint. In `실행 가능` and `실험 무제한` mod
 same task also port-forwards the cluster `komsco-ai-action-executor:8080`
 service to the local gateway and sets `KOMSCO_AI_ENABLE_MUTATIONS=true`.
 `실험 무제한` additionally sets `KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS=true`.
-In that mode, requests such as `web-api 파드 3개로 올려줘` are converted to a
-typed AIOps action, auto-approved for the local lab, executed through the Action
-Executor path, and verified in the same chat response. It is intended only for
-disposable local labs where direct host command execution is acceptable.
+It is intended only for disposable local labs where direct host command
+execution is acceptable. Do not use it for the company OCP catalog work.
 
 `task fe:dev` starts the plugin webpack dev server on `http://127.0.0.1:9001`
 and then starts the local OpenShift Console bridge on `http://localhost:9000`.
@@ -133,8 +131,37 @@ yarn start-console
 ```
 
 `start-console.sh` defaults `BRIDGE_PLUGIN_PROXY` to forward
-`/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/` to the local gateway
-on `http://localhost:8080`.
+`/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/` to the local gateway
+on `http://localhost:18080`.
+
+## Kugnus Catalog-Safe Path
+
+Use this path for the current Ver.0.1.0 mission. It creates a Kugnus-specific
+OperatorHub catalog card and does not install runtime operands by default:
+
+```bash
+task kugnus:package
+KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift task kugnus:publish
+task kugnus:status
+```
+
+The protected names for this fork are:
+
+- package: `komsco-aiops-kugnus`
+- catalog: `komsco-aiops-catalog-kugnus`
+- namespace: `komsco-ai-kugnus`
+- ConsolePlugin: `komsco-ai-console-plugin-kugnus`
+- route base: `/aiops-kugnus`
+
+Optional install is deliberately gated:
+
+```bash
+KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus task kugnus:install
+```
+
+Do not use `task olm:deploy`, `task olm:release`, `task olm:install`,
+`task catalog:deploy`, `task catalog:release`, or `scripts/enable-console-plugin.sh`
+for this Kugnus catalog registration stage.
 
 ## OCP Dev Integration
 
@@ -158,11 +185,11 @@ helm upgrade -i komsco-ai-console-plugin \
   -f openshift/helm-values/console-plugin-dev.yaml
 ```
 
-Enable the KOMSCO plugin and remove only the Lightspeed UI plugin from the
-active console plugin list:
+The generic dev integration path is legacy for the current Kugnus catalog work.
+Do not use it to change the company console plugin list during Ver.0.1.0:
 
 ```bash
-scripts/enable-console-plugin.sh
+KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN=komsco-ai-console-plugin-kugnus scripts/enable-console-plugin.sh
 ```
 
 ## Official OLM / OperatorHub Deployment
@@ -179,18 +206,23 @@ The operator is intentionally lightweight and runs from the gateway image with
 `python -m komsco_ai_gateway.olm_operator`. OLM owns the operator lifecycle; the
 `AIOpsInstallation` custom resource owns the KOMSCO AIOps runtime.
 
+Generic OLM tasks below are for the shared upstream workflow. For Kugnus, prefer
+`task kugnus:*` above because it hard-codes collision-safe names and approval
+guards.
+
 Prepare images that are reachable by the cluster:
 
 ```bash
 export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.2
-export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai
-export KOMSCO_AIOPS_NAMESPACE=komsco-ai
-export KOMSCO_AIOPS_DISPLAY_NAME="KOMSCO AIOps"
+export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai-kugnus
+export KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus
+export KOMSCO_AIOPS_DISPLAY_NAME="Cywell AI"
+export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=komsco-ai-console-plugin-kugnus
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
-export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.2
-export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.2
-export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.2
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.2
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2
 ```
 
 `KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card
@@ -201,13 +233,12 @@ card title. The generated CSV also includes a default SVG icon; override
 asset.
 
 The console sidebar and assistant overlay are installed UI, not catalog preview
-UI. They appear only after the `komsco-ai-console-plugin` ConsolePlugin is
-enabled. For OperatorHub installs, the operator bootstraps a default
-`AIOpsInstallation` by default (`KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION=true`), so
-clicking Install creates the runtime and then enables the ConsolePlugin. Lab
-installs default to `mode=execute`, `mutations=true`, and
-`unrestrictedCommands=true`, so the assistant mode selector exposes
-`실험 무제한` immediately after the installed console plugin is loaded.
+UI. They appear only after the `komsco-ai-console-plugin-kugnus` ConsolePlugin is
+enabled. For OperatorHub installs, the operator does not bootstrap a default
+`AIOpsInstallation` by default (`KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION=false`), so
+clicking Install creates the runtime and then enables the ConsolePlugin. Kugnus
+installs default to `mode=read-only`, `mutations=false`, and
+`unrestrictedCommands=false`.
 
 Source-to-OLM one-shot release:
 
@@ -252,15 +283,18 @@ Useful checks:
 
 ```bash
 task olm:status
-oc get packagemanifest komsco-aiops -n openshift-marketplace
-oc get subscription,csv,aiopsinstallation -n komsco-ai
+oc get packagemanifest komsco-aiops-kugnus -n openshift-marketplace
+oc get subscription,csv,aiopsinstallation -n komsco-ai-kugnus
 ```
 
 To remove the OLM install path:
 
 ```bash
-task olm:uninstall
+KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus task kugnus:uninstall
 ```
+
+`task olm:uninstall` is the generic upstream removal path. Do not use it for
+Kugnus unless the generated manifests and target namespace have been reviewed.
 
 To keep the catalog card visible but remove the installed operator/runtime UI
 while testing the OperatorHub Install button:

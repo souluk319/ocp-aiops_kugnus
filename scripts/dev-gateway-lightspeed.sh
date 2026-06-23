@@ -121,7 +121,7 @@ select_gateway_mode() {
   fi
 
   if [ ! -t 0 ]; then
-    printf 'unrestricted'
+    printf 'read-only'
     return
   fi
 
@@ -129,10 +129,10 @@ select_gateway_mode() {
   echo "  1) 읽기 전용  - 분석/조회/계획 안내만 수행" >&2
   echo "  2) 실행 가능  - 승인된 Action Executor 실행 허용" >&2
   echo "  3) 실험용 무제한 - /exec 명령을 Gateway 로컬 권한으로 직접 실행" >&2
-  printf "선택 [1/2/3, 기본 3]: " >&2
+  printf "선택 [1/2/3, 기본 1]: " >&2
   read -r mode_choice
 
-  case "${mode_choice:-3}" in
+  case "${mode_choice:-1}" in
     1|read|readonly|read-only|읽기|읽기전용)
       printf 'read-only'
       ;;
@@ -313,6 +313,7 @@ export OLS_CA_FILE="${OLS_CA_FILE:-false}"
 export OPENSHIFT_API_URL="${OPENSHIFT_API_URL:-$(oc whoami --show-server)}"
 export OPENSHIFT_API_CA_FILE="${OPENSHIFT_API_CA_FILE:-false}"
 export KOMSCO_AI_SECURITY_PHASE="${KOMSCO_AI_SECURITY_PHASE:-phase5-action-execution}"
+export KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME="${KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME:-komsco-ai-console-plugin-kugnus}"
 export KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS:-$UNRESTRICTED_COMMANDS_ENABLED}"
 export KOMSCO_AI_UNRESTRICTED_COMMAND_CWD="${KOMSCO_AI_UNRESTRICTED_COMMAND_CWD:-$ROOT_DIR}"
 if [ "$ACTION_EXECUTOR_ENABLED" = "true" ]; then

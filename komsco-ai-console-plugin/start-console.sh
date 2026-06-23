@@ -6,8 +6,12 @@ CONSOLE_IMAGE=${CONSOLE_IMAGE:="quay.io/openshift/origin-console:latest"}
 CONSOLE_PORT=${CONSOLE_PORT:=9000}
 CONSOLE_IMAGE_PLATFORM=${CONSOLE_IMAGE_PLATFORM:="linux/amd64"}
 
+is_wsl() {
+    grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null
+}
+
 # Plugin metadata is declared in package.json
-PLUGIN_NAME=${npm_package_consolePlugin_name:-komsco-ai-console-plugin}
+PLUGIN_NAME=${npm_package_consolePlugin_name:-komsco-ai-console-plugin-kugnus}
 
 echo "Starting local OpenShift console..."
 
@@ -30,7 +34,7 @@ BRIDGE_K8S_AUTH_BEARER_TOKEN=$(oc whoami --show-token 2>/dev/null)
 BRIDGE_USER_SETTINGS_LOCATION="localstorage"
 BRIDGE_I18N_NAMESPACES="plugin__${PLUGIN_NAME}"
 if [ -z "${BRIDGE_PLUGIN_PROXY:-}" ]; then
-    BRIDGE_PLUGIN_PROXY='{"services":[{"consoleAPIPath":"/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/","endpoint":"http://localhost:8080","authorize":true}]}'
+    BRIDGE_PLUGIN_PROXY="{\"services\":[{\"consoleAPIPath\":\"/api/proxy/plugin/${PLUGIN_NAME}/ai-gateway/\",\"endpoint\":\"http://localhost:18080\",\"authorize\":true}]}"
 fi
 export \
     BRIDGE_USER_AUTH \
@@ -61,7 +65,7 @@ echo "Console Platform: $CONSOLE_IMAGE_PLATFORM"
 
 # Prefer podman if installed. Otherwise, fall back to docker.
 if [ -x "$(command -v podman)" ]; then
-    if [ "$(uname -s)" = "Linux" ]; then
+    if [ "$(uname -s)" = "Linux" ] && ! is_wsl; then
         # Use host networking on Linux since host.containers.internal is unreachable in some environments.
         export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://localhost:9001"
         podman run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm --network=host --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
@@ -70,7 +74,7 @@ if [ -x "$(command -v podman)" ]; then
         podman run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm -p "$CONSOLE_PORT":9000 --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
     fi
 else
-    if [ "$(uname -s)" = "Linux" ]; then
+    if [ "$(uname -s)" = "Linux" ] && ! is_wsl; then
         export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://localhost:9001"
         docker run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm --network=host --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
     else

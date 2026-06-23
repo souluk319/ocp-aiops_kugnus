@@ -28,6 +28,7 @@ from .aiops_core import (
     target_path,
     target_from_plan,
 )
+from .aiops_contracts import build_runtime_safety_contract
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -97,7 +98,7 @@ PRODUCT_ACCESS_REVIEW_RESOURCE = os.getenv(
 PRODUCT_ACCESS_REVIEW_VERB = os.getenv("KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB", "get")
 PRODUCT_ACCESS_REVIEW_NAME = os.getenv(
     "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME",
-    "komsco-ai-console-plugin",
+    "komsco-ai-console-plugin-kugnus",
 )
 RATE_LIMIT_PER_MINUTE = int(os.getenv("KOMSCO_AI_RATE_LIMIT_PER_MINUTE", "60"))
 AUDIT_MAX_RECORDS = int(os.getenv("KOMSCO_AI_AUDIT_MAX_RECORDS", "1000"))
@@ -2034,7 +2035,7 @@ def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deploymen
 
 def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
-    mode = str(context.get("aiopsExecutionMode") or "unrestricted").strip().lower()
+    mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
     if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
         return "unrestricted"
     if mode in {"execute", "execution", "execution-enabled", "enabled"}:
@@ -6964,6 +6965,12 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 "recordStoreEnabled": RECORD_STORE_ENABLED,
                 "recordStoreConfigMap": RECORD_STORE_CONFIGMAP if RECORD_STORE_ENABLED else "",
             },
+            "safetyContract": build_runtime_safety_contract(
+                mutations_enabled=MUTATIONS_ENABLED,
+                unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
+                diagnostics_enabled=DIAGNOSTICS_ENABLED,
+                record_store_enabled=RECORD_STORE_ENABLED,
+            ),
             "productAccessReview": redact_sensitive(product_access_review),
             "records": {
                 "auditRecords": latest_readable_audit_records(

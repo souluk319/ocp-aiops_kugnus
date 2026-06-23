@@ -7,7 +7,7 @@ but replaces the example page with a global assistant overlay:
 
 - `console.context-provider` injects the assistant at the Console root.
 - `useOverlay` renders a fixed bottom-right launcher and chat panel.
-- `consoleFetch` calls `/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/`.
+- `consoleFetch` calls `/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/`.
 - `ConsolePlugin.spec.proxy.authorization: UserToken` forwards the current
   OpenShift user token to `komsco-ai-gateway`.
 
@@ -49,7 +49,7 @@ yarn start-console
 ```
 
 `start-console.sh` provides a default `BRIDGE_PLUGIN_PROXY` that forwards the
-plugin proxy path to `http://localhost:8080`, matching the local FastAPI gateway
+plugin proxy path to `http://localhost:18080`, matching the local FastAPI gateway
 dev server.
 
 ## Build

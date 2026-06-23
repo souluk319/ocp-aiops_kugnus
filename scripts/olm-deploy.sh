@@ -11,9 +11,15 @@ CATALOG_NAME=${KOMSCO_AIOPS_OLM_CATALOG_NAME:-komsco-aiops-catalog}
 OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-operator}
+INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-komsco-aiops}
 OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
+CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin}
+DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-KOMSCO AIOps}
+ACTION_EXECUTOR_CLUSTER_ROLE=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE:-${CONSOLE_PLUGIN_NAME}-action-executor}
+ACTION_EXECUTOR_CLUSTER_ROLE_BINDING=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE_BINDING:-${CONSOLE_PLUGIN_NAME}-action-executor}
+GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING=${KOMSCO_AIOPS_GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING:-${CONSOLE_PLUGIN_NAME}-gateway-auth-delegator}
 
 usage() {
   cat <<EOF
@@ -36,7 +42,8 @@ Key environment variables:
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
   KOMSCO_AIOPS_OPERATOR_NAMESPACE   Operator install namespace. Default: komsco-ai
   KOMSCO_AIOPS_NAMESPACE            Operand target namespace. Default: operator namespace
-  KOMSCO_AIOPS_MODE                 read-only, execute, or unrestricted. Default: execute
+  KOMSCO_AIOPS_MODE                 read-only, execute, or unrestricted. Default: read-only
+  KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME  Cluster-scoped ConsolePlugin name.
   KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION
                                       true creates AIOpsInstallation automatically after UI install.
 
@@ -125,6 +132,7 @@ wait_operands() {
   wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-gateway 300s
   wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-action-executor 300s
   wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-host-diagnostics-controller 300s
+  oc get consoleplugin "${CONSOLE_PLUGIN_NAME}" >/dev/null
 }
 
 wait_deployment_rollout() {
@@ -162,8 +170,11 @@ show_status() {
   echo "# AIOpsInstallation"
   oc get aiopsinstallation -n "${OPERATOR_NAMESPACE}" -o wide 2>/dev/null || true
   echo
+  echo "# ConsolePlugin"
+  oc get consoleplugin "${CONSOLE_PLUGIN_NAME}" -o wide --ignore-not-found
+  echo
   echo "# Operands"
-  oc get deploy,svc,consoleplugin -n "${TARGET_NAMESPACE}" \
+  oc get deploy,svc -n "${TARGET_NAMESPACE}" \
     -l 'app.kubernetes.io/part-of=komsco-aiops' 2>/dev/null || true
 }
 
@@ -206,7 +217,7 @@ discover_operator_namespaces() {
   {
     echo "${OPERATOR_NAMESPACE}"
     oc get subscription -A -o jsonpath='{range .items[?(@.metadata.name=="'"${PACKAGE_NAME}"'")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
-    oc get csv -A -o jsonpath='{range .items[?(@.spec.displayName=="KOMSCO AIOps")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+    oc get csv -A -o jsonpath='{range .items[?(@.spec.displayName=="'"${DISPLAY_NAME}"'")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
     oc get deploy -A -l app=komsco-aiops-operator -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
   } | awk 'NF && !seen[$0]++'
 }
@@ -214,15 +225,18 @@ discover_operator_namespaces() {
 remove_aiops_runtime() {
   disable_console_plugin
   for namespace in $(discover_aiopsinstallation_namespaces); do
-    oc delete aiopsinstallation komsco-aiops -n "${namespace}" --ignore-not-found
+  oc delete aiopsinstallation "${INSTALLATION_NAME}" -n "${namespace}" --ignore-not-found
   done
-  oc delete consoleplugin komsco-ai-console-plugin --ignore-not-found
+  oc delete consoleplugin "${CONSOLE_PLUGIN_NAME}" --ignore-not-found
   for namespace in $(discover_runtime_namespaces); do
     oc delete deploy,svc,sa,cm,role,rolebinding,networkpolicy -n "${namespace}" \
       -l 'app.kubernetes.io/part-of=komsco-aiops' --ignore-not-found
   done
-  oc delete clusterrole komsco-ai-action-executor --ignore-not-found
-  oc delete clusterrolebinding komsco-ai-action-executor komsco-ai-gateway-auth-delegator --ignore-not-found
+  oc delete clusterrole "${ACTION_EXECUTOR_CLUSTER_ROLE}" --ignore-not-found
+  oc delete clusterrolebinding \
+    "${ACTION_EXECUTOR_CLUSTER_ROLE_BINDING}" \
+    "${GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING}" \
+    --ignore-not-found
 }
 
 discover_runtime_namespaces() {
@@ -237,14 +251,14 @@ discover_runtime_namespaces() {
 discover_aiopsinstallation_namespaces() {
   {
     echo "${OPERATOR_NAMESPACE}"
-    oc get aiopsinstallation -A -o jsonpath='{range .items[?(@.metadata.name=="komsco-aiops")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+    oc get aiopsinstallation -A -o jsonpath='{range .items[?(@.metadata.name=="'"${INSTALLATION_NAME}"'")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
   } | awk 'NF && !seen[$0]++'
 }
 
 disable_console_plugin() {
   local current_plugins patched_plugins
   current_plugins=$(oc get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || echo "[]")
-  patched_plugins=$(PLUGIN_NAME=komsco-ai-console-plugin CURRENT_PLUGINS="${current_plugins}" python3 - <<'PY'
+  patched_plugins=$(PLUGIN_NAME="${CONSOLE_PLUGIN_NAME}" CURRENT_PLUGINS="${current_plugins}" python3 - <<'PY'
 import json
 import os
 

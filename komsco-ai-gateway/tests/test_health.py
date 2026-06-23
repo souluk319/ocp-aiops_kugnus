@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 import komsco_ai_gateway.main as gateway_main
+import komsco_ai_gateway.olm_operator as olm_operator
 from komsco_ai_gateway.host_diagnostics_collector import collect_host_diagnostics
 from komsco_ai_gateway.host_diagnostics_controller import build_diagnostic_job_manifest
 from komsco_ai_gateway.main import (
@@ -103,6 +104,11 @@ from komsco_ai_gateway.aiops_core import (
     build_rollback_request,
     matching_hpas_for_deployment,
 )
+from komsco_ai_gateway.aiops_contracts import (
+    assert_read_only_tool_plan,
+    build_runtime_safety_contract,
+    create_evidence_status,
+)
 from komsco_ai_gateway.security import (
     build_evidence_reference,
     classify_request_policy,
@@ -139,6 +145,83 @@ def test_parse_ols_verify() -> None:
     assert parse_ols_verify("/var/run/configmaps/service-ca/service-ca.crt") == (
         "/var/run/configmaps/service-ca/service-ca.crt"
     )
+
+
+def test_aiops_contract_rejects_mutating_tool_plan() -> None:
+    result = assert_read_only_tool_plan(
+        {
+            "execution_policy": {"mode": "read_only"},
+            "tool_plan": [
+                {"step": 1, "tool": "get_pod", "verb": "get"},
+                {"step": 2, "tool": "rollout_restart_deployment", "verb": "patch"},
+            ],
+        }
+    )
+
+    assert not result["ok"]
+    assert any("patch" in violation for violation in result["violations"])
+    assert any("forbidden tool" in violation for violation in result["violations"])
+
+
+def test_aiops_contract_summarizes_missing_evidence() -> None:
+    status = create_evidence_status(
+        {
+            "evidence": [{"type": "event", "summary": "OOMKilled"}],
+            "missing": [{"type": "metric", "reason": "Prometheus unavailable"}],
+        }
+    )
+
+    by_type = {item["type"]: item for item in status}
+    assert by_type["openshift"]["status"] == "collected"
+    assert by_type["metric"]["status"] == "missing"
+    assert by_type["metric"]["reason"] == "Prometheus unavailable"
+
+
+def test_runtime_safety_contract_defaults_to_read_only() -> None:
+    contract = build_runtime_safety_contract(
+        mutations_enabled=False,
+        unrestricted_commands_enabled=False,
+        diagnostics_enabled=False,
+        record_store_enabled=False,
+    )
+
+    assert contract["mode"] == "read_only"
+    assert "patch" in contract["forbiddenActions"]
+    assert contract["capabilityGates"]["mutationsEnabled"] is False
+    assert contract["toolPlanStatus"]["status"] == "contract_only"
+    assert contract["lightspeedStatus"]["streamProbe"] == "not_probed_by_status_endpoint"
+    assert {adapter["name"]: adapter["status"] for adapter in contract["adapterStatus"]} == {
+        "Linux": "planned",
+        "OpenShift": "available",
+        "Windows": "planned",
+    }
+
+
+def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus"},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "capabilities": {
+                    "diagnostics": False,
+                    "mutations": False,
+                    "unrestrictedCommands": False,
+                },
+            },
+        }
+    )
+    resources = olm_operator.resources_for(config)
+    names = {(resource["kind"], resource["metadata"]["name"]) for resource in resources}
+
+    assert ("Deployment", "komsco-ai-gateway") in names
+    assert ("Deployment", "komsco-ai-console-plugin") in names
+    assert ("ConsolePlugin", "komsco-ai-console-plugin-kugnus") in names
+    assert ("Deployment", "komsco-ai-action-executor") not in names
+    assert ("Deployment", "komsco-ai-host-diagnostics-controller") not in names
+    assert ("ServiceAccount", "komsco-ai-action-executor") not in names
+    assert ("ServiceAccount", "komsco-ai-host-diagnostics-controller") not in names
 
 
 def parse_sse_events(body: str) -> list[dict | str]:
@@ -233,12 +316,12 @@ def test_unrestricted_command_endpoint_requires_feature_flag(monkeypatch) -> Non
     asyncio.run(run())
 
 
-def test_unrestricted_command_endpoint_executes_when_enabled(monkeypatch) -> None:
+def test_unrestricted_command_endpoint_executes_when_enabled(monkeypatch, tmp_path) -> None:
     async def fake_subject_review(_user_auth_header: str) -> dict:
         return {"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}
 
     monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
-    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", "/root/project/ocp-aiops")
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", str(tmp_path))
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
 
     async def run() -> None:
@@ -260,7 +343,7 @@ def test_unrestricted_command_endpoint_executes_when_enabled(monkeypatch) -> Non
     asyncio.run(run())
 
 
-def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch) -> None:
+def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch, tmp_path) -> None:
     async def fake_subject_review(_user_auth_header: str) -> dict:
         return {"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}
 
@@ -273,7 +356,7 @@ def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
-    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", "/root/project/ocp-aiops")
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", str(tmp_path))
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
 
@@ -1070,8 +1153,8 @@ def test_parse_natural_action_intent_scales_named_deployment() -> None:
     assert intent["parameters"]["replicas"] == 3
 
 
-def test_page_context_aiops_execution_mode_defaults_unrestricted() -> None:
-    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "unrestricted"
+def test_page_context_aiops_execution_mode_defaults_read_only() -> None:
+    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "read-only"
 
 
 def test_page_context_aiops_execution_mode_accepts_execute() -> None:

@@ -9,6 +9,10 @@ type ChatRequest = {
   recentMessages?: ChatContextMessage[];
 };
 
+type StreamChatOptions = {
+  signal?: AbortSignal;
+};
+
 export type ImageAttachment = {
   data: string;
   id: string;
@@ -95,6 +99,38 @@ export type AiopsRuntimeStatus = {
       recordStoreEnabled: boolean;
       unrestrictedCommandsEnabled?: boolean;
     };
+    safetyContract?: {
+      adapterStatus?: Array<{
+        detail?: string;
+        name: string;
+        status: string;
+      }>;
+      allowedReadOnlyVerbs: string[];
+      capabilityGates: Record<string, boolean>;
+      evidenceStatus: Array<{
+        count: number;
+        reason?: string;
+        status: 'collected' | 'missing' | string;
+        type: string;
+      }>;
+      forbiddenActions: string[];
+      lightspeedStatus?: {
+        baseService?: string;
+        status?: string;
+        streamProbe?: string;
+      };
+      mode: 'controlled_execution' | 'read_only' | string;
+      product: {
+        mission?: string;
+        mode?: string;
+        name?: string;
+      };
+      toolPlanStatus?: {
+        latestRuntimePlan?: string;
+        source?: string;
+        status?: string;
+      };
+    };
     records: {
       actionProposals: AiopsRecord[];
       auditRecords?: AiopsRecord[];
@@ -137,12 +173,12 @@ type StreamEvent =
   | { type: 'end'; conversationId?: string }
   | { type: 'error'; message: string };
 
-const GATEWAY_STREAM_URL = '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/chat/stream';
+const GATEWAY_STREAM_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/chat/stream';
 const GATEWAY_CLUSTER_SUMMARY_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/cluster/summary';
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/cluster/summary';
 const GATEWAY_AIOPS_STATUS_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/aiops/status';
-const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/v1/actions';
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
+const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
 const GATEWAY_AUTH_ERROR_MESSAGE =
   'OpenShift 콘솔 사용자 인증이 만료되었거나 Gateway로 사용자 토큰이 전달되지 않았습니다. 콘솔을 새로고침하거나 다시 로그인한 뒤 다시 시도하세요.';
 
@@ -252,7 +288,10 @@ export async function executeApprovedAction(
   });
 }
 
-export async function* streamChat(payload: ChatRequest): AsyncGenerator<StreamEvent> {
+export async function* streamChat(
+  payload: ChatRequest,
+  options: StreamChatOptions = {},
+): AsyncGenerator<StreamEvent> {
   const response = await consoleFetch(
     GATEWAY_STREAM_URL,
     {
@@ -262,6 +301,7 @@ export async function* streamChat(payload: ChatRequest): AsyncGenerator<StreamEv
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: options.signal,
     },
     5 * 60 * 1000,
   );

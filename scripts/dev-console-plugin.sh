@@ -7,17 +7,25 @@ PLUGIN_DIR="${ROOT_DIR}/komsco-ai-console-plugin"
 
 load_env_file() {
   local file="$1"
+  local normalized_file
   if [ ! -f "$file" ]; then
     return
   fi
 
+  normalized_file="$(mktemp)"
+  tr -d '\r' < "$file" > "$normalized_file"
   set -a
   # shellcheck source=/dev/null
-  . "$file"
+  . "$normalized_file"
   set +a
+  rm -f "$normalized_file"
 }
 
 load_env_files() {
+  if [ "${KOMSCO_AIOPS_SKIP_ENV_FILES:-false}" = "true" ]; then
+    return
+  fi
+
   load_env_file "${ROOT_DIR}/.env"
   load_env_file "${ROOT_DIR}/.env.local"
   OPENSHIFT_API_SERVER="${OPENSHIFT_API_SERVER:-${OPENSHIFT_SERVER:-}}"
@@ -27,16 +35,29 @@ load_env_files() {
 
 load_env_files
 
+is_wsl() {
+  grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null
+}
+
 PLUGIN_HOST="${PLUGIN_HOST:-127.0.0.1}"
+PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
 PLUGIN_PORT="${PLUGIN_PORT:-9001}"
 CONSOLE_PORT="${CONSOLE_PORT:-9000}"
 GATEWAY_PORT="${GATEWAY_PORT:-18080}"
-GATEWAY_ENDPOINT="${GATEWAY_ENDPOINT:-http://localhost:${GATEWAY_PORT}}"
+if [ -z "${GATEWAY_ENDPOINT:-}" ]; then
+  if is_wsl && command -v docker >/dev/null 2>&1; then
+    GATEWAY_ENDPOINT="http://host.docker.internal:${GATEWAY_PORT}"
+  else
+    GATEWAY_ENDPOINT="http://localhost:${GATEWAY_PORT}"
+  fi
+fi
 INSTALL_DEPS="${INSTALL_DEPS:-false}"
 PLUGIN_LOG="${PLUGIN_LOG:-${ROOT_DIR}/.dev-console-plugin-webpack.log}"
 CONSOLE_LOG="${CONSOLE_LOG:-${ROOT_DIR}/.dev-console-plugin-console.log}"
 CONSOLE_TOKEN_CHECK_INTERVAL="${CONSOLE_TOKEN_CHECK_INTERVAL:-60}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://127.0.0.1:${CONSOLE_PORT}/api/kubernetes/version}"
+PLUGIN_STARTUP_WAIT_ATTEMPTS="${PLUGIN_STARTUP_WAIT_ATTEMPTS:-1200}"
+CONSOLE_STARTUP_WAIT_ATTEMPTS="${CONSOLE_STARTUP_WAIT_ATTEMPTS:-1200}"
 OPENSHIFT_INSECURE_SKIP_TLS_VERIFY="${OPENSHIFT_INSECURE_SKIP_TLS_VERIFY:-false}"
 OPENSHIFT_RELOGIN_COMMAND="${OPENSHIFT_RELOGIN_COMMAND:-}"
 
@@ -273,7 +294,7 @@ start_console() {
   yarn start-console >>"$CONSOLE_LOG" 2>&1 &
   CONSOLE_PID="$!"
 
-  if ! wait_for_port "127.0.0.1" "$CONSOLE_PORT"; then
+  if ! wait_for_port "127.0.0.1" "$CONSOLE_PORT" "$CONSOLE_STARTUP_WAIT_ATTEMPTS"; then
     echo "Console bridge failed. Log: $CONSOLE_LOG" >&2
     cat "$CONSOLE_LOG" >&2
     return 1
@@ -327,7 +348,7 @@ else
   yarn start >"$PLUGIN_LOG" 2>&1 &
   PLUGIN_PID="$!"
 
-  if ! wait_for_port "$PLUGIN_HOST" "$PLUGIN_PORT"; then
+  if ! wait_for_port "$PLUGIN_HOST" "$PLUGIN_PORT" "$PLUGIN_STARTUP_WAIT_ATTEMPTS"; then
     echo "Plugin dev server failed. Log: $PLUGIN_LOG" >&2
     cat "$PLUGIN_LOG" >&2
     exit 1
@@ -338,12 +359,18 @@ else
 fi
 
 export CONSOLE_PORT
-if [ -z "${BRIDGE_PLUGIN_PROXY:-}" ]; then
-  BRIDGE_PLUGIN_PROXY=$(printf '{"services":[{"consoleAPIPath":"/api/proxy/plugin/komsco-ai-console-plugin/ai-gateway/","endpoint":"%s","authorize":true}]}' "$GATEWAY_ENDPOINT")
+EXPECTED_PROXY_PATH="/api/proxy/plugin/${PLUGIN_NAME}/ai-gateway/"
+if [ -n "${BRIDGE_PLUGIN_PROXY:-}" ] &&
+  [ "${KOMSCO_AIOPS_ALLOW_CUSTOM_BRIDGE_PROXY:-false}" = "true" ] &&
+  [[ "$BRIDGE_PLUGIN_PROXY" == *"$EXPECTED_PROXY_PATH"* ]]; then
+  :
+else
+  BRIDGE_PLUGIN_PROXY=$(printf '{"services":[{"consoleAPIPath":"/api/proxy/plugin/%s/ai-gateway/","endpoint":"%s","authorize":true}]}' "$PLUGIN_NAME" "$GATEWAY_ENDPOINT")
 fi
 export BRIDGE_PLUGIN_PROXY
 
 echo "Gateway proxy endpoint: ${GATEWAY_ENDPOINT}"
+echo "Bridge plugin proxy path: ${EXPECTED_PROXY_PATH}"
 echo "Console URL: http://localhost:${CONSOLE_PORT}"
 
 start_console

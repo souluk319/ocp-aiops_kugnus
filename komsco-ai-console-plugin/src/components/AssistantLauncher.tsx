@@ -1,17 +1,24 @@
 import * as React from 'react';
-import { Button, Card, CardBody, Spinner, TextArea } from '@patternfly/react-core';
+import { Button, Card, CardBody, TextArea } from '@patternfly/react-core';
+import { createPortal } from 'react-dom';
 import {
+  ArrowDownIcon,
+  BarsIcon,
   ClipboardIcon,
   CompressArrowsAltIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
   ExpandArrowsAltIcon,
-  OpenshiftIcon,
+  GlobeIcon,
+  HistoryIcon,
+  LockIcon,
+  LockOpenIcon,
   PaperclipIcon,
   PaperPlaneIcon,
-  RobotIcon,
+  PlusIcon,
   ServerIcon,
   ShieldAltIcon,
+  StopIcon,
   TerminalIcon,
   TimesIcon,
   UserCircleIcon,
@@ -29,6 +36,8 @@ import {
   fetchClusterSummary,
   streamChat,
 } from '../services/aiGateway';
+import kIcon from '../assets/k_icon.png';
+import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
 
 const QUICK_PROMPTS = [
@@ -50,7 +59,7 @@ const QUICK_PROMPTS = [
   },
   {
     icon: <ShieldAltIcon />,
-    label: '승인 실행',
+    label: '조치 후보 검토',
     prompt:
       '현재 화면의 대상에 대해 가능한 AIOps 조치 후보, 승인 필요 여부, 실행 전 검증 조건을 정리해줘.',
   },
@@ -64,6 +73,7 @@ type Message = {
 };
 
 type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';
+type UiLanguage = 'ko' | 'en';
 
 type ProgressStatus = 'running' | 'completed' | 'failed';
 
@@ -78,6 +88,14 @@ type ProgressStep = {
   endedAt?: number;
   serverName?: string;
   summary?: string;
+};
+
+type ConversationHistoryItem = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  conversationId?: string;
+  messages: Message[];
 };
 
 type ToolStreamEvent = {
@@ -110,8 +128,8 @@ const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
-const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'unrestricted';
-const ASSISTANT_TYPEWRITER_INTERVAL_MS = 16;
+const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
+const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
@@ -194,6 +212,38 @@ const RESPONSE_WAIT_PHASES = [
   },
 ];
 
+const UI_COPY: Record<
+  UiLanguage,
+  {
+    emptyHistory: string;
+    history: string;
+    inputPlaceholder: string;
+    newChat: string;
+    openSidebar: string;
+    sidebar: string;
+    switchLanguage: string;
+  }
+> = {
+  ko: {
+    emptyHistory: '아직 저장된 대화가 없습니다.',
+    history: '지난 대화',
+    inputPlaceholder: '현재 화면이나 클러스터 상태를 질문하세요',
+    newChat: '새 채팅',
+    openSidebar: '대화 사이드바',
+    sidebar: '대화 기록',
+    switchLanguage: 'English',
+  },
+  en: {
+    emptyHistory: 'No saved conversations yet.',
+    history: 'Recent chats',
+    inputPlaceholder: 'Ask about the current screen or cluster state',
+    newChat: 'New chat',
+    openSidebar: 'Conversation sidebar',
+    sidebar: 'Conversation history',
+    switchLanguage: 'Korean',
+  },
+};
+
 const getMessageLabel = (role: Message['role']): string => {
   if (role === 'user') {
     return '사용자';
@@ -203,7 +253,7 @@ const getMessageLabel = (role: Message['role']): string => {
     return '시스템';
   }
 
-  return 'AI Assistant';
+  return 'Cywell AI';
 };
 
 const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
@@ -215,8 +265,16 @@ const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
     return <ExclamationCircleIcon />;
   }
 
-  return <RobotIcon />;
+  return <img alt="" className="komsco-ai__message-logo" src={kIcon} />;
 };
+
+const TypingIndicator: React.FC = () => (
+  <div className="komsco-ai__typing" aria-label="응답 생성 중">
+    <span />
+    <span />
+    <span />
+  </div>
+);
 
 const normalizeToolName = (name: string): string =>
   name
@@ -257,24 +315,6 @@ const formatDuration = (milliseconds: number): string => {
   return `${seconds}초`;
 };
 
-const getTypewriterChunkSize = (pendingText: string): number => {
-  const length = Array.from(pendingText).length;
-
-  if (length > 1200) {
-    return 80;
-  }
-  if (length > 600) {
-    return 48;
-  }
-  if (length > 240) {
-    return 24;
-  }
-  if (length > 80) {
-    return 10;
-  }
-  return 3;
-};
-
 const formatFileSize = (size: number): string => {
   if (size < 1024) {
     return `${size} B`;
@@ -289,6 +329,27 @@ const formatFileSize = (size: number): string => {
 
 const createRunId = (): string =>
   `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const getConversationTitle = (messages: Message[], language: UiLanguage): string => {
+  const firstUserMessage = messages.find((message) => message.role === 'user');
+  const content = firstUserMessage?.content.trim();
+
+  if (!content && firstUserMessage?.attachments?.length) {
+    return language === 'ko' ? '이미지 첨부 대화' : 'Image conversation';
+  }
+
+  if (!content) {
+    return language === 'ko' ? '새 대화' : 'New conversation';
+  }
+
+  return content.length > 34 ? `${content.slice(0, 34)}...` : content;
+};
+
+const formatHistoryTime = (timestamp: number): string =>
+  new Date(timestamp).toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
 const getAttachmentPreviewUrl = (attachment: ImageAttachment): string =>
   `data:${attachment.mimeType};base64,${attachment.data}`;
@@ -465,6 +526,24 @@ const findLastAssistantIndex = (messages: Message[]): number => {
   }
 
   return -1;
+};
+
+const setLastAssistantContentIfEmpty = (
+  messages: Message[],
+  content: string,
+): Message[] => {
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0 || messages[assistantIndex].content.trim()) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    content,
+  };
+
+  return next;
 };
 
 const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =>
@@ -1173,33 +1252,8 @@ const formatNodeUsage = (node: ClusterSummary['nodes']['items'][number]): string
   return `CPU ${cpu ?? '-'} · 메모리 ${memory ?? '-'}`;
 };
 
-const getOperatorIssueLabel = (summary: ClusterSummary): string => {
-  const issueCount = summary.operators.issues.length;
-  if (issueCount === 0) {
-    return 'Operator 정상';
-  }
-
-  return `Operator 이슈 ${issueCount}`;
-};
-
 const getClusterFaultCount = (summary: ClusterSummary): number =>
   summary.operators.degraded + summary.operators.unavailable;
-
-const getContextHealthClass = (summary: ClusterSummary | null): string => {
-  if (!summary) {
-    return 'komsco-ai__context-pill--alert';
-  }
-
-  if (getClusterFaultCount(summary) > 0 || summary.nodes.notReady > 0) {
-    return 'komsco-ai__context-pill--danger';
-  }
-
-  if (summary.operators.progressing > 0) {
-    return 'komsco-ai__context-pill--alert';
-  }
-
-  return 'komsco-ai__context-pill--ok';
-};
 
 const getHealthTone = (summary: ClusterSummary | null): 'ok' | 'warn' | 'danger' | 'neutral' => {
   if (!summary) {
@@ -1269,70 +1323,39 @@ const getExecutionModeTone = (mode: AiopsExecutionMode): 'ok' | 'review' | 'dang
   return 'ok';
 };
 
-const getComposerModeLabel = (mode: AiopsExecutionMode): string => {
-  if (mode === 'unrestricted') {
-    return '실험 무제한 · 자연어 즉시 실행';
+const getAssistantConnectionState = (
+  summary: ClusterSummary | null,
+  summaryLoading: boolean,
+  summaryError: string,
+  status: AiopsRuntimeStatus | null,
+  statusError: string,
+): { label: string; tone: 'connected' | 'danger' | 'pending' } => {
+  if (summaryError || statusError) {
+    return {
+      label: 'Gateway 또는 cluster 상태 확인 필요',
+      tone: 'danger',
+    };
   }
-  if (mode === 'execute') {
-    return '실행 가능 · 승인 후 변경 수행';
-  }
-  return '읽기 전용 · 조치 계획/실행 차단';
-};
 
-const renderExecutionModeToggle = (
-  executionMode: AiopsExecutionMode,
-  actionExecutionAvailable: boolean,
-  unrestrictedAvailable: boolean,
-  onExecutionModeChange: (mode: AiopsExecutionMode) => void,
-) => (
-  <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
-    <button
-      aria-pressed={executionMode === 'read-only'}
-      className={`komsco-ai__mode-toggle-button${
-        executionMode === 'read-only' ? ' komsco-ai__mode-toggle-button--active' : ''
-      }`}
-      onClick={() => onExecutionModeChange('read-only')}
-      type="button"
-    >
-      <ShieldAltIcon />
-      읽기 전용
-    </button>
-    <button
-      aria-pressed={executionMode === 'execute'}
-      className={`komsco-ai__mode-toggle-button${
-        executionMode === 'execute' ? ' komsco-ai__mode-toggle-button--active-execute' : ''
-      }`}
-      disabled={!actionExecutionAvailable}
-      onClick={() => onExecutionModeChange('execute')}
-      title={
-        actionExecutionAvailable
-          ? '승인 후 실제 조치를 실행할 수 있습니다.'
-          : 'Gateway Action Executor가 연결되어야 선택할 수 있습니다.'
-      }
-      type="button"
-    >
-      <TerminalIcon />
-      실행 가능
-    </button>
-    <button
-      aria-pressed={executionMode === 'unrestricted'}
-      className={`komsco-ai__mode-toggle-button${
-        executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
-      }`}
-      disabled={!unrestrictedAvailable}
-      onClick={() => onExecutionModeChange('unrestricted')}
-      title={
-        unrestrictedAvailable
-          ? '지원되는 자연어 AIOps 조치와 /exec 명령을 즉시 실행합니다.'
-          : 'Gateway 실험용 자연어/명령 실행이 꺼져 있습니다.'
-      }
-      type="button"
-    >
-      <ExclamationTriangleIcon />
-      실험 무제한
-    </button>
-  </div>
-);
+  if (summary && status) {
+    return {
+      label: `${summary.apiUrl || 'console proxy'} · Gateway 연결됨`,
+      tone: 'connected',
+    };
+  }
+
+  if (summary || status) {
+    return {
+      label: `${summary?.apiUrl || 'cluster'} · 연결 일부 확인됨`,
+      tone: 'pending',
+    };
+  }
+
+  return {
+    label: summaryLoading ? '연결 확인 중' : 'Gateway 연결 대기',
+    tone: 'pending',
+  };
+};
 
 type AiopsRecordView = AiopsRecord;
 type AiopsActionStep = 'create-plan' | 'approve-plan' | 'execute-approval';
@@ -1577,36 +1600,6 @@ const renderActionRecordRows = (
   });
 };
 
-const renderContextStrip = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  executionMode: AiopsExecutionMode,
-  actionExecutionAvailable: boolean,
-  unrestrictedAvailable: boolean,
-  onExecutionModeChange: (mode: AiopsExecutionMode) => void,
-) => (
-  <div className="komsco-ai__context-strip">
-    <span className="komsco-ai__context-pill">
-      <ServerIcon />
-      {summary
-        ? `Node ${summary.nodes.ready}/${summary.nodes.total}`
-        : loading
-          ? '상태 수집 중'
-          : '현재 콘솔'}
-    </span>
-    <span className={`komsco-ai__context-pill ${getContextHealthClass(summary)}`}>
-      <ExclamationTriangleIcon />
-      {summary ? getOperatorIssueLabel(summary) : '클러스터 상태'}
-    </span>
-    {renderExecutionModeToggle(
-      executionMode,
-      actionExecutionAvailable,
-      unrestrictedAvailable,
-      onExecutionModeChange,
-    )}
-  </div>
-);
-
 const renderInsightRail = (
   summary: ClusterSummary | null,
   loading: boolean,
@@ -1629,13 +1622,17 @@ const renderInsightRail = (
       <div className="komsco-ai__health-score">
         {summary ? summary.healthScore : loading ? '...' : '--'} <small>/ 100</small>
       </div>
-      <div className="komsco-ai__health-bar">
-        <span
-          className={`komsco-ai__health-bar-fill komsco-ai__health-bar-fill--${getHealthTone(
-            summary,
-          )}`}
-          style={{ width: `${summary?.healthScore ?? 0}%` }}
-        />
+      <div className={`komsco-ai__health-bar${summary ? '' : ' komsco-ai__health-bar--pending'}`}>
+        {summary ? (
+          <span
+            className={`komsco-ai__health-bar-fill komsco-ai__health-bar-fill--${getHealthTone(
+              summary,
+            )}`}
+            style={{ width: `${summary.healthScore}%` }}
+          />
+        ) : (
+          <span className="komsco-ai__health-bar-placeholder">status pending</span>
+        )}
       </div>
     </div>
 
@@ -1687,7 +1684,7 @@ const renderInsightRail = (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>클러스터 상태</strong>
-        <span>{summary?.version.version ?? 'version unknown'}</span>
+        <span>{summary?.version.version ?? 'version pending'}</span>
       </div>
       <div className="komsco-ai__scope-list">
         {summary
@@ -1709,20 +1706,28 @@ const renderInsightRail = (
               summary.operators.progressing > 0 ? 'warn' : 'neutral',
             )
           : renderStatusTag('Progressing 대기')}
-        {renderStatusTag(summary?.version.channel ?? 'channel unknown', 'neutral')}
-        {renderStatusTag(
-          summary?.version.updateAvailable ? 'Update available' : 'No update signal',
-          summary?.version.updateAvailable ? 'review' : 'neutral',
-        )}
-        {renderStatusTag(
-          summary?.version.upgradeable === false ? 'Upgrade blocked' : 'Upgradeable',
-          summary?.version.upgradeable === false ? 'warn' : 'ok',
-          summary?.version.upgradeableMessage,
-        )}
-        {renderStatusTag(
-          `Metrics ${summary?.nodes.metricsAvailable ? 'available' : 'unavailable'}`,
-          summary?.nodes.metricsAvailable ? 'ok' : 'warn',
-        )}
+        {summary
+          ? renderStatusTag(summary.version.channel ?? 'Channel unknown', 'neutral')
+          : renderStatusTag('Channel 대기')}
+        {summary
+          ? renderStatusTag(
+              summary.version.updateAvailable ? 'Update available' : 'No update signal',
+              summary.version.updateAvailable ? 'review' : 'neutral',
+            )
+          : renderStatusTag('Update signal 대기')}
+        {summary
+          ? renderStatusTag(
+              summary.version.upgradeable === false ? 'Upgrade blocked' : 'Upgradeable',
+              summary.version.upgradeable === false ? 'warn' : 'ok',
+              summary.version.upgradeableMessage,
+            )
+          : renderStatusTag('Upgradeable 대기')}
+        {summary
+          ? renderStatusTag(
+              `Metrics ${summary.nodes.metricsAvailable ? 'available' : 'unavailable'}`,
+              summary.nodes.metricsAvailable ? 'ok' : 'warn',
+            )
+          : renderStatusTag('Metrics 대기')}
       </div>
     </div>
 
@@ -1754,26 +1759,56 @@ const renderInsightRail = (
       </div>
       <div className="komsco-ai__scope-list">
         {renderStatusTag(
-          aiopsStatus?.spec.capabilities.diagnosticsEnabled ? 'Diagnostics on' : 'Diagnostics off',
-          aiopsStatus?.spec.capabilities.diagnosticsEnabled ? 'ok' : 'warn',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.diagnosticsEnabled
+              ? 'Diagnostics on'
+              : 'Diagnostics off'
+            : 'Diagnostics pending',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.diagnosticsEnabled
+              ? 'ok'
+              : 'warn'
+            : 'neutral',
         )}
         {renderStatusTag(
-          aiopsStatus?.spec.capabilities.mutationsEnabled ? 'Mutations on' : 'Mutations off',
-          aiopsStatus?.spec.capabilities.mutationsEnabled ? 'review' : 'neutral',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.mutationsEnabled
+              ? 'Mutations on'
+              : 'Mutations off'
+            : 'Mutations pending',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.mutationsEnabled
+              ? 'review'
+              : 'neutral'
+            : 'neutral',
         )}
         {renderStatusTag(
           getExecutionModeLabel(executionMode),
           getExecutionModeTone(executionMode),
         )}
         {renderStatusTag(
-          aiopsStatus?.spec.capabilities.unrestrictedCommandsEnabled
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.unrestrictedCommandsEnabled
             ? 'Unrestricted on'
-            : 'Unrestricted off',
-          aiopsStatus?.spec.capabilities.unrestrictedCommandsEnabled ? 'danger' : 'neutral',
+              : 'Unrestricted off'
+            : 'Unrestricted pending',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.unrestrictedCommandsEnabled
+              ? 'danger'
+              : 'neutral'
+            : 'neutral',
         )}
         {renderStatusTag(
-          aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'Ledger on' : 'Ledger off',
-          aiopsStatus?.spec.capabilities.recordStoreEnabled ? 'ok' : 'warn',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.recordStoreEnabled
+              ? 'Ledger on'
+              : 'Ledger off'
+            : 'Ledger pending',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.recordStoreEnabled
+              ? 'ok'
+              : 'warn'
+            : 'neutral',
         )}
       </div>
       {aiopsStatusError && (
@@ -1784,7 +1819,7 @@ const renderInsightRail = (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>최근 진단</strong>
-        <span>{aiopsStatus?.spec.records.diagnosticRequests.length ?? 0}건</span>
+        <span>{aiopsStatus ? `${aiopsStatus.spec.records.diagnosticRequests.length}건` : '대기'}</span>
       </div>
       {renderRecordRows(aiopsStatus?.spec.records.diagnosticRequests ?? [], '최근 진단 요청이 없습니다.')}
     </div>
@@ -1794,12 +1829,13 @@ const renderInsightRail = (
         <strong>승인·실행</strong>
         <span>
           {aiopsStatus
-            ? aiopsStatus.spec.records.actionProposals.length +
-              aiopsStatus.spec.records.sealedActionPlans.length +
-              aiopsStatus.spec.records.approvalDecisions.length +
-              aiopsStatus.spec.records.executionRecords.length
-            : 0}
-          건
+            ? `${
+                aiopsStatus.spec.records.actionProposals.length +
+                aiopsStatus.spec.records.sealedActionPlans.length +
+                aiopsStatus.spec.records.approvalDecisions.length +
+                aiopsStatus.spec.records.executionRecords.length
+              }건`
+            : '대기'}
         </span>
       </div>
       {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
@@ -1821,8 +1857,31 @@ const renderInsightRail = (
   </aside>
 );
 
-const AssistantLauncher: React.FC = () => {
-  const [open, setOpen] = React.useState(false);
+type AssistantLauncherProps = {
+  defaultOpen?: boolean;
+  embedded?: boolean;
+  lockOpen?: boolean;
+  overlayId?: string;
+  closeOverlay?: () => void;
+};
+
+const FullscreenPortal: React.FC<{ active: boolean; children: React.ReactNode }> = ({
+  active,
+  children,
+}) => {
+  if (active && typeof document !== 'undefined') {
+    return createPortal(children, document.body);
+  }
+
+  return <>{children}</>;
+};
+
+const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
+  defaultOpen = false,
+  embedded = false,
+  lockOpen = false,
+}) => {
+  const [open, setOpen] = React.useState(defaultOpen || embedded || lockOpen);
   const [fullScreen, setFullScreen] = React.useState(false);
   const [input, setInput] = React.useState('');
   const [pendingAttachments, setPendingAttachments] = React.useState<ImageAttachment[]>([]);
@@ -1841,16 +1900,96 @@ const AssistantLauncher: React.FC = () => {
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [conversationId, setConversationId] = React.useState<string | undefined>();
+  const [activeSessionId, setActiveSessionId] = React.useState(() => createRunId());
+  const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>([]);
+  const [historySidebarOpen, setHistorySidebarOpen] = React.useState(true);
+  const [panelResizeUnlocked, setPanelResizeUnlocked] = React.useState(false);
+  const [panelSize, setPanelSize] = React.useState<{ height?: number; width?: number }>({});
+  const [stickToBottom, setStickToBottom] = React.useState(true);
+  const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
+  const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>('ko');
   const [loading, setLoading] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
   const [, setProgressTick] = React.useState(0);
+  const bodyRef = React.useRef<HTMLDivElement | null>(null);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
   const assistantTypewriterTimerRef = React.useRef<number | undefined>();
+  const chatAbortControllerRef = React.useRef<AbortController | null>(null);
+  const stopRequestedRef = React.useRef(false);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
   const unrestrictedAvailable = canUseUnrestrictedCommands(aiopsStatus);
+  const assistantConnection = getAssistantConnectionState(
+    clusterSummary,
+    clusterSummaryLoading,
+    clusterSummaryError,
+    aiopsStatus,
+    aiopsStatusError,
+  );
+  const copy = UI_COPY[uiLanguage];
+  const surfaceStyle = React.useMemo<React.CSSProperties>(() => {
+    if (!panelResizeUnlocked || fullScreen) {
+      return {};
+    }
+
+    const style: React.CSSProperties = {};
+    if (panelSize.height) {
+      style.height = `${panelSize.height}px`;
+    }
+    if (!embedded && panelSize.width) {
+      style.width = `${panelSize.width}px`;
+    }
+    return style;
+  }, [embedded, fullScreen, panelResizeUnlocked, panelSize.height, panelSize.width]);
+
+  const startPanelResize = React.useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (!panelResizeUnlocked || fullScreen) {
+        return;
+      }
+
+      const surface = event.currentTarget.closest('.komsco-ai__surface') as HTMLElement | null;
+      if (!surface) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const initialRect = surface.getBoundingClientRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const minHeight = 420;
+      const maxHeight = Math.max(minHeight, window.innerHeight - 32);
+      const minWidth = Math.min(460, Math.max(320, window.innerWidth - 32));
+      const maxWidth = Math.max(minWidth, window.innerWidth - 32);
+      const clamp = (value: number, min: number, max: number) =>
+        Math.min(Math.max(value, min), max);
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const nextHeight = clamp(initialRect.height + moveEvent.clientY - startY, minHeight, maxHeight);
+        const nextWidth = embedded
+          ? initialRect.width
+          : clamp(initialRect.width + moveEvent.clientX - startX, minWidth, maxWidth);
+
+        setPanelSize({
+          height: Math.round(nextHeight),
+          width: embedded ? undefined : Math.round(nextWidth),
+        });
+      };
+
+      const stopPanelResize = () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', stopPanelResize);
+      };
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', stopPanelResize);
+    },
+    [embedded, fullScreen, panelResizeUnlocked],
+  );
 
   React.useEffect(() => {
     if (!aiopsStatus) {
@@ -1864,26 +2003,95 @@ const AssistantLauncher: React.FC = () => {
     }
   }, [actionExecutionAvailable, aiopsStatus, executionMode, unrestrictedAvailable]);
 
-  const handleExecutionModeChange = React.useCallback(
-    (mode: AiopsExecutionMode) => {
-      if (mode === 'execute' && !actionExecutionAvailable) {
-        setAiopsActionError('Gateway Action Executor가 연결되어야 실행 가능 모드를 선택할 수 있습니다.');
-        return;
-      }
-      if (mode === 'unrestricted' && !unrestrictedAvailable) {
-        setAiopsActionError('Gateway 실험용 자연어/명령 실행이 켜져야 선택할 수 있습니다.');
+  const saveCurrentConversation = React.useCallback(
+    (snapshotMessages = messages, snapshotConversationId = conversationId) => {
+      if (snapshotMessages.length === 0) {
         return;
       }
 
-      setAiopsActionError('');
-      setExecutionMode(mode);
+      const item: ConversationHistoryItem = {
+        id: activeSessionId,
+        title: getConversationTitle(snapshotMessages, uiLanguage),
+        updatedAt: Date.now(),
+        conversationId: snapshotConversationId,
+        messages: snapshotMessages,
+      };
+
+      setConversationHistory((prev) => [
+        item,
+        ...prev.filter((conversation) => conversation.id !== activeSessionId),
+      ].slice(0, 12));
     },
-    [actionExecutionAvailable, unrestrictedAvailable],
+    [activeSessionId, conversationId, messages, uiLanguage],
   );
 
   React.useEffect(() => {
-    bodyEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [loading, messages]);
+    if (!loading) {
+      saveCurrentConversation();
+    }
+  }, [loading, saveCurrentConversation]);
+
+  const startNewConversation = React.useCallback(() => {
+    if (loading) {
+      return;
+    }
+
+    saveCurrentConversation();
+    setActiveSessionId(createRunId());
+    setConversationId(undefined);
+    setMessages([]);
+    setInput('');
+    setPendingAttachments([]);
+    setAttachmentError('');
+    setAiopsActionError('');
+    setAiopsActionNotice('');
+  }, [loading, saveCurrentConversation]);
+
+  const loadConversation = React.useCallback(
+    (conversation: ConversationHistoryItem) => {
+      if (loading) {
+        return;
+      }
+
+      saveCurrentConversation();
+      setActiveSessionId(conversation.id);
+      setConversationId(conversation.conversationId);
+      setMessages(conversation.messages);
+      setInput('');
+      setPendingAttachments([]);
+      setAttachmentError('');
+    },
+    [loading, saveCurrentConversation],
+  );
+
+  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const body = bodyRef.current;
+    if (body) {
+      body.scrollTo({ top: body.scrollHeight, behavior });
+    }
+    bodyEndRef.current?.scrollIntoView({ block: 'end', behavior });
+  }, []);
+
+  const handleConversationScroll = React.useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.currentTarget;
+      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+      const nearBottom = distanceToBottom <= SCROLL_BOTTOM_THRESHOLD_PX;
+
+      setStickToBottom(nearBottom);
+      setShowScrollToBottom(!nearBottom);
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    if (stickToBottom) {
+      scrollToBottom('auto');
+      setShowScrollToBottom(false);
+    } else {
+      setShowScrollToBottom(true);
+    }
+  }, [loading, messages, scrollToBottom, stickToBottom]);
 
   React.useEffect(() => {
     if (!loading) {
@@ -2075,58 +2283,17 @@ const AssistantLauncher: React.FC = () => {
     appendAssistantText(queuedText);
   }, [appendAssistantText, clearAssistantTypewriterTimer]);
 
-  const flushAssistantTextQueue = React.useCallback(() => {
-    assistantTypewriterTimerRef.current = undefined;
-
-    const queuedText = assistantTextQueueRef.current;
-    if (!queuedText) {
-      return;
-    }
-
-    const queuedChars = Array.from(queuedText);
-    const chunkSize = getTypewriterChunkSize(queuedText);
-    const visibleChunk = queuedChars.slice(0, chunkSize).join('');
-
-    assistantTextQueueRef.current = queuedChars.slice(chunkSize).join('');
-    appendAssistantText(visibleChunk);
-
-    if (assistantTextQueueRef.current) {
-      assistantTypewriterTimerRef.current = window.setTimeout(
-        flushAssistantTextQueue,
-        ASSISTANT_TYPEWRITER_INTERVAL_MS,
-      );
-    }
-  }, [appendAssistantText]);
-
-  const scheduleAssistantTextFlush = React.useCallback(() => {
-    if (assistantTypewriterTimerRef.current !== undefined) {
-      return;
-    }
-
-    assistantTypewriterTimerRef.current = window.setTimeout(
-      flushAssistantTextQueue,
-      ASSISTANT_TYPEWRITER_INTERVAL_MS,
-    );
-  }, [flushAssistantTextQueue]);
-
   const enqueueAssistantText = React.useCallback(
     (content: string) => {
       assistantTextQueueRef.current += content;
-      scheduleAssistantTextFlush();
+      flushAssistantTextQueueNow();
     },
-    [scheduleAssistantTextFlush],
+    [flushAssistantTextQueueNow],
   );
 
   const waitForAssistantTextQueue = React.useCallback(async () => {
-    while (
-      assistantTextQueueRef.current ||
-      assistantTypewriterTimerRef.current !== undefined
-    ) {
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, ASSISTANT_TYPEWRITER_INTERVAL_MS);
-      });
-    }
-  }, []);
+    flushAssistantTextQueueNow();
+  }, [flushAssistantTextQueueNow]);
 
   React.useEffect(
     () => () => {
@@ -2309,17 +2476,24 @@ const AssistantLauncher: React.FC = () => {
         return;
       }
 
+      setStickToBottom(true);
+      setShowScrollToBottom(false);
       setInput('');
       setPendingAttachments([]);
       setAttachmentError('');
       setLoading(true);
       flushAssistantTextQueueNow();
+      window.setTimeout(() => scrollToBottom('auto'), 0);
       const recentMessages = buildRecentContextMessages(messages);
       setMessages((prev) => [
         ...prev,
         { role: 'user', attachments, content: question },
         { role: 'assistant', content: '', progressSteps: [] },
       ]);
+
+      const abortController = new AbortController();
+      chatAbortControllerRef.current = abortController;
+      stopRequestedRef.current = false;
 
       try {
         const runId = createRunId();
@@ -2534,7 +2708,7 @@ const AssistantLauncher: React.FC = () => {
           pageContext,
           recentMessages,
           runId,
-        })) {
+        }, { signal: abortController.signal })) {
           if (event.type === 'run_status') {
             handleRunStatusEvent(event);
           }
@@ -2589,16 +2763,29 @@ const AssistantLauncher: React.FC = () => {
         await waitForAssistantTextQueue();
         finishAnswerStreamStep();
       } catch (error) {
+        const stopped =
+          stopRequestedRef.current ||
+          (error instanceof Error && error.name === 'AbortError');
+
         flushAssistantTextQueueNow();
-        markRunningProgressFailed(error instanceof Error ? error.message : 'AI response failed.');
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'system',
-            content: error instanceof Error ? error.message : 'AI response failed.',
-          },
-        ]);
+        if (stopped) {
+          markRunningProgressFailed('사용자가 응답 생성을 중지했습니다.');
+          setMessages((prev) =>
+            setLastAssistantContentIfEmpty(prev, '응답 생성을 중지했습니다.'),
+          );
+        } else {
+          markRunningProgressFailed(error instanceof Error ? error.message : 'AI response failed.');
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'system',
+              content: error instanceof Error ? error.message : 'AI response failed.',
+            },
+          ]);
+        }
       } finally {
+        chatAbortControllerRef.current = null;
+        stopRequestedRef.current = false;
         setLoading(false);
       }
     },
@@ -2609,6 +2796,7 @@ const AssistantLauncher: React.FC = () => {
       input,
       loading,
       markRunningProgressFailed,
+      scrollToBottom,
       conversationId,
       messages,
       pendingAttachments,
@@ -2617,38 +2805,127 @@ const AssistantLauncher: React.FC = () => {
     ],
   );
 
+  const cancelAssistantResponse = React.useCallback(() => {
+    if (!loading || !chatAbortControllerRef.current) {
+      return;
+    }
+
+    stopRequestedRef.current = true;
+    chatAbortControllerRef.current.abort();
+    flushAssistantTextQueueNow();
+  }, [flushAssistantTextQueueNow, loading]);
+
+  const closeAssistant = React.useCallback(() => {
+    if (lockOpen) {
+      return;
+    }
+
+    setOpen(false);
+  }, [lockOpen]);
+
+  const historySidebar = historySidebarOpen ? (
+    <aside className="komsco-ai__history-sidebar" aria-label={copy.sidebar}>
+      <Button
+        className="komsco-ai__new-chat"
+        isDisabled={loading}
+        onClick={startNewConversation}
+        variant="secondary"
+      >
+        <PlusIcon />
+        <span>{copy.newChat}</span>
+      </Button>
+      <div className="komsco-ai__history-title">
+        <HistoryIcon />
+        <span>{copy.history}</span>
+      </div>
+      <div className="komsco-ai__history-list">
+        {conversationHistory.length === 0 ? (
+          <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
+        ) : (
+          conversationHistory.map((conversation) => (
+            <button
+              className={`komsco-ai__history-item${
+                conversation.id === activeSessionId ? ' komsco-ai__history-item--active' : ''
+              }`}
+              disabled={loading}
+              key={conversation.id}
+              onClick={() => loadConversation(conversation)}
+              title={conversation.title}
+              type="button"
+            >
+              <span>{conversation.title}</span>
+              <small>{formatHistoryTime(conversation.updatedAt)}</small>
+            </button>
+          ))
+        )}
+      </div>
+    </aside>
+  ) : null;
+
   return (
-    <div className="komsco-ai">
-      {!open && (
+    <div
+      className={`komsco-ai${embedded ? ' komsco-ai--embedded' : ''}${
+        fullScreen ? ' komsco-ai--fullscreen-active' : ''
+      }`}
+    >
+      {!open && !embedded && (
         <Button
-          aria-label="Open KOMSCO AI Assistant"
+          aria-label="Open Cywell AI"
           className="komsco-ai__fab"
           onClick={() => setOpen(true)}
         >
           <span className="komsco-ai__fab-icon">
-            <RobotIcon />
+            <img alt="" className="komsco-ai__fab-logo" src={kIcon} />
           </span>
-          <span className="komsco-ai__fab-status" />
+          <span
+            className={`komsco-ai__fab-status komsco-ai__fab-status--${assistantConnection.tone}`}
+          />
         </Button>
       )}
 
-      {open && (
-        <Card className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}>
+      {(open || embedded || lockOpen) && (
+        <FullscreenPortal active={fullScreen}>
+        <div
+          className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
+            historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
+          }${panelResizeUnlocked ? ' komsco-ai__surface--resize-unlocked' : ''}${
+            !panelResizeUnlocked ? ' komsco-ai__surface--resize-locked' : ''
+          }`}
+          style={surfaceStyle}
+        >
+          {historySidebar}
+          <Card className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}>
           <div className="komsco-ai__header">
+            <Button
+              aria-label={copy.openSidebar}
+              className="komsco-ai__icon-button komsco-ai__sidebar-toggle"
+              onClick={() => setHistorySidebarOpen((value) => !value)}
+              title={copy.openSidebar}
+              variant="plain"
+            >
+              <BarsIcon />
+            </Button>
             <div className="komsco-ai__brand">
               <div className="komsco-ai__brand-mark">
-                <OpenshiftIcon />
+                <img alt="" className="komsco-ai__brand-logo" src={komscoLogo} />
               </div>
               <div className="komsco-ai__brand-copy">
-                <div className="komsco-ai__kicker">OCP Operations Copilot</div>
-                <strong className="komsco-ai__title">KOMSCO AI Assistant</strong>
-                <div className="komsco-ai__subtitle">
-                  <span className="komsco-ai__status-dot" />
-                  prod-cluster · 실시간 컨텍스트 연결됨
-                </div>
+                <strong className="komsco-ai__title">Cywell AI</strong>
               </div>
             </div>
             <div className="komsco-ai__header-actions">
+              <Button
+                aria-label={copy.switchLanguage}
+                className="komsco-ai__icon-button komsco-ai__language-button"
+                onClick={() => setUiLanguage((value) => (value === 'ko' ? 'en' : 'ko'))}
+                title={copy.switchLanguage}
+                variant="plain"
+              >
+                <GlobeIcon />
+                <span className="komsco-ai__language-code">
+                  {uiLanguage === 'ko' ? 'EN' : 'KO'}
+                </span>
+              </Button>
               <Button
                 aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'}
                 className="komsco-ai__icon-button"
@@ -2658,33 +2935,42 @@ const AssistantLauncher: React.FC = () => {
                 {fullScreen ? <CompressArrowsAltIcon /> : <ExpandArrowsAltIcon />}
               </Button>
               <Button
-                aria-label="Close KOMSCO AI Assistant"
-                className="komsco-ai__icon-button"
-                onClick={() => setOpen(false)}
+                aria-label={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
+                className={`komsco-ai__icon-button${
+                  panelResizeUnlocked ? ' komsco-ai__icon-button--active' : ''
+                }`}
+                onClick={() => setPanelResizeUnlocked((value) => !value)}
+                title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
                 variant="plain"
               >
-                <TimesIcon />
+                {panelResizeUnlocked ? <LockOpenIcon /> : <LockIcon />}
               </Button>
+              {!lockOpen && (
+                <Button
+                  aria-label="Close Cywell AI"
+                  className="komsco-ai__icon-button"
+                  onClick={closeAssistant}
+                  variant="plain"
+                >
+                  <TimesIcon />
+                </Button>
+              )}
             </div>
           </div>
 
-          {renderContextStrip(
-            clusterSummary,
-            clusterSummaryLoading,
-            executionMode,
-            actionExecutionAvailable,
-            unrestrictedAvailable,
-            handleExecutionModeChange,
-          )}
-
           <div className="komsco-ai__workspace">
             <div className="komsco-ai__chat-column">
-              <CardBody className="komsco-ai__body" aria-live="polite">
+              <CardBody
+                className="komsco-ai__body"
+                aria-live="polite"
+                onScroll={handleConversationScroll}
+                ref={bodyRef}
+              >
                 <div className="komsco-ai__conversation-inner">
                   {messages.length === 0 && (
                     <div className="komsco-ai__empty">
                       <div className="komsco-ai__empty-mark">
-                        <RobotIcon />
+                        <img alt="" className="komsco-ai__empty-logo" src={kIcon} />
                       </div>
                       <div className="komsco-ai__empty-title">운영 확인 항목을 정리합니다</div>
                       <div className="komsco-ai__empty-text">
@@ -2697,6 +2983,8 @@ const AssistantLauncher: React.FC = () => {
                     const hasProgress = (message.progressSteps?.length ?? 0) > 0;
                     const hasContent = message.content.trim().length > 0;
                     const activeMessage = loading && index === messages.length - 1;
+                    const waitingForContent =
+                      activeMessage && message.role === 'assistant' && !hasContent;
 
                     return (
                       <div
@@ -2724,26 +3012,23 @@ const AssistantLauncher: React.FC = () => {
                               </button>
                             )}
                           </div>
-                          {hasProgress && message.progressSteps && (
-                            <ProgressTimeline
-                              active={activeMessage}
-                              steps={message.progressSteps}
-                            />
-                          )}
-                          {(hasContent || !hasProgress) && (
+                          {waitingForContent && <TypingIndicator />}
+                          {(hasContent || (!hasProgress && !waitingForContent)) && (
                             <div className="komsco-ai__message-content">
                               {renderFormattedContent(message, setPreviewAttachment)}
                             </div>
+                          )}
+                          {hasProgress && message.progressSteps && (
+                            <ProgressTimeline active={false} steps={message.progressSteps} />
                           )}
                         </div>
                       </div>
                     );
                   })}
 
-                  {loading && (messages[messages.length - 1]?.progressSteps?.length ?? 0) === 0 && (
+                  {loading && messages[messages.length - 1]?.role !== 'assistant' && (
                     <div className="komsco-ai__loading">
-                      <Spinner size="sm" />
-                      <span>응답 생성 중</span>
+                      <TypingIndicator />
                     </div>
                   )}
                   <div ref={bodyEndRef} />
@@ -2766,6 +3051,20 @@ const AssistantLauncher: React.FC = () => {
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleDrop}
               >
+                {showScrollToBottom && (
+                  <Button
+                    aria-label="최신 답변으로 이동"
+                    className="komsco-ai__scroll-bottom"
+                    onClick={() => {
+                      setStickToBottom(true);
+                      setShowScrollToBottom(false);
+                      scrollToBottom('auto');
+                    }}
+                    variant="secondary"
+                  >
+                    <ArrowDownIcon />
+                  </Button>
+                )}
                 <div className="komsco-ai__quick-prompts">
                   {QUICK_PROMPTS.map((item) => (
                     <Button
@@ -2850,26 +3149,26 @@ const AssistantLauncher: React.FC = () => {
                         }
                       }}
                       onPaste={handlePaste}
-                      placeholder="현재 화면이나 클러스터 상태를 질문하세요"
+                      placeholder={copy.inputPlaceholder}
                       rows={1}
                       style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
                       value={input}
                     />
                   </div>
                   <Button
-                    aria-label="Send question"
-                    className="komsco-ai__send"
-                    isDisabled={(!input.trim() && pendingAttachments.length === 0) || loading}
-                    onClick={() => send()}
+                    aria-label={loading ? '응답 중지' : '질문 전송'}
+                    className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
+                    isDisabled={!loading && !input.trim() && pendingAttachments.length === 0}
+                    onClick={() => {
+                      if (loading) {
+                        cancelAssistantResponse();
+                        return;
+                      }
+                      void send();
+                    }}
                   >
-                    <PaperPlaneIcon />
+                    {loading ? <StopIcon /> : <PaperPlaneIcon />}
                   </Button>
-                </div>
-                <div className="komsco-ai__composer-foot">
-                  <span className="komsco-ai__read-only">
-                    {getComposerModeLabel(executionMode)}
-                  </span>
-                  <span>Enter 전송 · Shift+Enter 줄바꿈</span>
                 </div>
               </div>
             </div>
@@ -2886,7 +3185,17 @@ const AssistantLauncher: React.FC = () => {
               handleAiopsAction,
             )}
           </div>
-        </Card>
+          </Card>
+          {panelResizeUnlocked && !fullScreen && (
+            <button
+              aria-label="창 크기 조절"
+              className="komsco-ai__resize-grip"
+              onMouseDown={startPanelResize}
+              type="button"
+            />
+          )}
+        </div>
+        </FullscreenPortal>
       )}
       {previewAttachment && (
         <div
