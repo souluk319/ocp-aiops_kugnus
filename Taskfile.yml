@@ -58,3 +58,43 @@ tasks:
       - task: catalog:package
       - task: catalog:register
       - task: catalog:deploy
+
+  olm:package:
+    desc: Generate OLM bundle, ConfigMap catalog, Subscription, and AIOpsInstallation manifests
+    cmds:
+      - ./scripts/olm-deploy.sh package
+
+  olm:catalog:
+    desc: Register the KOMSCO AIOps Operator in OLM OperatorHub via CatalogSource
+    cmds:
+      - ./scripts/olm-deploy.sh catalog
+
+  olm:install:
+    desc: Install or update KOMSCO AIOps through OLM Subscription and AIOpsInstallation
+    cmds:
+      - ./scripts/olm-deploy.sh install
+
+  olm:deploy:
+    desc: "One-shot official OLM deployment: catalog, subscription, installation, and rollout wait"
+    cmds:
+      - ./scripts/olm-deploy.sh deploy
+
+  olm:release:
+    desc: Build/push release images, then install or update through official OLM
+    cmds:
+      - ./scripts/olm-release-images.sh deploy
+
+  olm:images:
+    desc: Build and push OLM release images without installing the operator
+    cmds:
+      - ./scripts/olm-release-images.sh build-push
+
+  olm:status:
+    desc: Show OLM catalog, subscription, CSV, AIOpsInstallation, and operand status
+    cmds:
+      - ./scripts/olm-deploy.sh status
+
+  olm:uninstall:
+    desc: Remove OLM subscription/catalog resources and the AIOpsInstallation custom resource
+    cmds:
+      - ./scripts/olm-deploy.sh uninstall

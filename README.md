@@ -165,7 +165,90 @@ active console plugin list:
 scripts/enable-console-plugin.sh
 ```
 
-## Software Catalog Deployment
+## Official OLM / OperatorHub Deployment
+
+Use this path when the OpenShift console should provide install and update as
+official Operator Lifecycle Manager features. The packaging flow is:
+
+```text
+CatalogSource -> PackageManifest -> Subscription -> CSV -> Operator Deployment
+-> AIOpsInstallation CR -> ConsolePlugin/Gateway/Executor/Diagnostics operands
+```
+
+The operator is intentionally lightweight and runs from the gateway image with
+`python -m komsco_ai_gateway.olm_operator`. OLM owns the operator lifecycle; the
+`AIOpsInstallation` custom resource owns the KOMSCO AIOps runtime.
+
+Prepare images that are reachable by the cluster:
+
+```bash
+export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.0
+export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai
+export KOMSCO_AIOPS_NAMESPACE=komsco-ai
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.0
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
+```
+
+Source-to-OLM one-shot release:
+
+```bash
+task olm:release
+```
+
+This builds and pushes the gateway/operator image plus the console plugin image,
+then registers the OLM catalog and installs or updates the Subscription. By
+default it pushes to `oc registry info` and writes operand image references with
+`oc registry info --internal`. Override `KOMSCO_AIOPS_PUSH_REGISTRY` and
+`KOMSCO_AIOPS_PULL_REGISTRY` when the workstation push endpoint and in-cluster
+pull endpoint differ.
+
+To build and push only:
+
+```bash
+task olm:images
+```
+
+Generate the OLM bundle/catalog/install manifests:
+
+```bash
+task olm:package
+```
+
+OLM-only one-shot install or update when images already exist:
+
+```bash
+task olm:deploy
+```
+
+This registers a ConfigMap-backed `CatalogSource` in `openshift-marketplace`,
+creates the operator namespace, `OperatorGroup`, `Subscription`, and then
+creates `AIOpsInstallation`. The same command can be used for updates after
+bumping `KOMSCO_AIOPS_OPERATOR_VERSION` and image references. OLM will resolve
+the new CSV and update the operator; the operator then reconciles the operands.
+
+Useful checks:
+
+```bash
+task olm:status
+oc get packagemanifest komsco-aiops -n openshift-marketplace
+oc get subscription,csv,aiopsinstallation -n komsco-ai
+```
+
+To remove the OLM install path:
+
+```bash
+task olm:uninstall
+```
+
+The generated files live under `olm/generated/` and are not committed as build
+outputs. Source of truth is:
+
+- `komsco-ai-gateway/komsco_ai_gateway/olm_operator.py`
+- `scripts/olm-package.py`
+- `scripts/olm-deploy.sh`
+
+## Helm Software Catalog Deployment
 
 The local development loop stays source-first and hot-reload friendly:
 
@@ -232,9 +315,7 @@ task catalog:register
 ```
 
 Users can then upgrade the installed Helm release from the OpenShift console.
-The target product experience for one-click product updates is an Operator/OLM
-bundle; this Helm catalog path is the practical intermediate step for Software
-Catalog installation and chart-version upgrades.
+For production install/update UX, prefer the OLM path above.
 
 ## Namespace Policy
 

@@ -4,6 +4,7 @@
 node_modules/
 dist/
 build/
+olm/generated/
 .venv/
 __pycache__/
 .pytest_cache/
