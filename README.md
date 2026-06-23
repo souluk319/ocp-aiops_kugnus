@@ -185,10 +185,20 @@ Prepare images that are reachable by the cluster:
 export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.0
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai
 export KOMSCO_AIOPS_NAMESPACE=komsco-ai
+export KOMSCO_AIOPS_DISPLAY_NAME="KOMSCO AIOps"
+export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
+export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
 export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
 export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.0
 export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
 ```
+
+`KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card
+render as `Cywell 제공` in a Korean console. `KOMSCO_AIOPS_CATALOG_PUBLISHER`
+sets the CatalogSource publisher, and `KOMSCO_AIOPS_DISPLAY_NAME` controls the
+card title. The generated CSV also includes a default SVG icon; override
+`KOMSCO_AIOPS_ICON_BASE64` and `KOMSCO_AIOPS_ICON_MEDIA_TYPE` to ship a branded
+asset.
 
 Source-to-OLM one-shot release:
 

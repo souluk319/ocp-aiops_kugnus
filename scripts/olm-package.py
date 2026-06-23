@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import base64
 import json
 import os
 import shutil
@@ -30,6 +31,38 @@ GATEWAY_IMAGE = os.getenv(
     f"image-registry.openshift-image-registry.svc:5000/{TARGET_NAMESPACE}/komsco-ai-gateway:{VERSION}",
 )
 OPERATOR_IMAGE = os.getenv("KOMSCO_AIOPS_OPERATOR_IMAGE", GATEWAY_IMAGE)
+DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "KOMSCO AIOps")
+PROVIDER_NAME = os.getenv("KOMSCO_AIOPS_PROVIDER_NAME", "Cywell")
+CATALOG_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CATALOG_DISPLAY_NAME", f"{DISPLAY_NAME} Catalog")
+CATALOG_PUBLISHER = os.getenv("KOMSCO_AIOPS_CATALOG_PUBLISHER", PROVIDER_NAME)
+MAINTAINER_NAME = os.getenv("KOMSCO_AIOPS_MAINTAINER_NAME", f"{PROVIDER_NAME} Platform Team")
+REPOSITORY_URL = os.getenv("KOMSCO_AIOPS_REPOSITORY_URL", "https://github.com/komsco/ocp-aiops")
+DESCRIPTION = os.getenv(
+    "KOMSCO_AIOPS_DESCRIPTION",
+    f"{DISPLAY_NAME} provides an OpenShift console assistant, audit trail, policy views, action execution, and host diagnostics integration.",
+)
+SHORT_DESCRIPTION = os.getenv(
+    "KOMSCO_AIOPS_SHORT_DESCRIPTION",
+    f"{DISPLAY_NAME} installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
+)
+CATEGORIES = os.getenv("KOMSCO_AIOPS_CATEGORIES", "OpenShift Optional, Monitoring")
+KEYWORDS = [
+    item.strip()
+    for item in os.getenv("KOMSCO_AIOPS_KEYWORDS", "aiops,openshift,assistant,operations").split(",")
+    if item.strip()
+]
+
+
+def default_icon_base64() -> str:
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<rect width="64" height="64" rx="12" fill="#0f766e"/>
+<path d="M18 45 30 17h8l12 28h-8l-2-6H28l-2 6h-8Zm12-13h8l-4-11-4 11Z" fill="#ffffff"/>
+</svg>"""
+    return base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+ICON_BASE64 = os.getenv("KOMSCO_AIOPS_ICON_BASE64", default_icon_base64())
+ICON_MEDIA_TYPE = os.getenv("KOMSCO_AIOPS_ICON_MEDIA_TYPE", "image/svg+xml")
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -63,7 +96,7 @@ def crd() -> dict[str, Any]:
                     "schema": {
                         "openAPIV3Schema": {
                             "type": "object",
-                            "description": "AIOpsInstallation configures a KOMSCO AIOps runtime managed by OLM.",
+                            "description": f"AIOpsInstallation configures a {DISPLAY_NAME} runtime managed by OLM.",
                             "properties": {
                                 "spec": {
                                     "type": "object",
@@ -137,21 +170,22 @@ def csv() -> dict[str, Any]:
             "annotations": {
                 "alm-examples": json.dumps([aiops_installation()], ensure_ascii=False),
                 "capabilities": "Full Lifecycle",
-                "categories": "OpenShift Optional, Monitoring",
+                "categories": CATEGORIES,
                 "containerImage": OPERATOR_IMAGE,
-                "description": "KOMSCO AIOps installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
-                "repository": "https://github.com/komsco/ocp-aiops",
+                "description": SHORT_DESCRIPTION,
+                "repository": REPOSITORY_URL,
             },
         },
         "spec": {
-            "displayName": "KOMSCO AIOps",
-            "description": "KOMSCO AIOps provides an OpenShift console assistant, audit trail, policy views, action execution, and host diagnostics integration.",
+            "displayName": DISPLAY_NAME,
+            "description": DESCRIPTION,
             "version": VERSION,
             "maturity": "alpha",
-            "provider": {"name": "KOMSCO"},
-            "keywords": ["aiops", "openshift", "assistant", "operations"],
-            "maintainers": [{"name": "KOMSCO Platform Team"}],
-            "links": [{"name": "KOMSCO AIOps", "url": "https://github.com/komsco/ocp-aiops"}],
+            "provider": {"name": PROVIDER_NAME},
+            "keywords": KEYWORDS,
+            "maintainers": [{"name": MAINTAINER_NAME}],
+            "links": [{"name": DISPLAY_NAME, "url": REPOSITORY_URL}],
+            "icon": [{"base64data": ICON_BASE64, "mediatype": ICON_MEDIA_TYPE}],
             "installModes": [
                 {"type": "OwnNamespace", "supported": True},
                 {"type": "SingleNamespace", "supported": True},
@@ -165,7 +199,7 @@ def csv() -> dict[str, Any]:
                         "version": "v1alpha1",
                         "kind": "AIOpsInstallation",
                         "displayName": "AIOps Installation",
-                        "description": "Configures a KOMSCO AIOps runtime installation.",
+                        "description": f"Configures a {DISPLAY_NAME} runtime installation.",
                     }
                 ]
             },
@@ -251,8 +285,8 @@ def catalog_source() -> dict[str, Any]:
         "kind": "CatalogSource",
         "metadata": {"name": CATALOG_NAME, "namespace": CATALOG_NAMESPACE},
         "spec": {
-            "displayName": "KOMSCO AIOps Catalog",
-            "publisher": "KOMSCO",
+            "displayName": CATALOG_DISPLAY_NAME,
+            "publisher": CATALOG_PUBLISHER,
             "sourceType": "internal",
             "configMap": CATALOG_NAME,
         },
