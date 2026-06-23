@@ -11,7 +11,7 @@ CATALOG_NAME=${KOMSCO_AIOPS_OLM_CATALOG_NAME:-komsco-aiops-catalog}
 OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-operator}
-OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.1}
+OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 
@@ -30,7 +30,7 @@ Commands:
   uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.1
+  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.2
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
@@ -41,10 +41,10 @@ Key environment variables:
                                       true creates AIOpsInstallation automatically after UI install.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.1 \\
-  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.1 \\
-  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.1 \\
-  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.1 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.2 \\
+  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.2 \\
+  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.2 \\
+  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.2 \\
   task olm:deploy
 EOF
 }

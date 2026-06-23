@@ -2255,7 +2255,7 @@ def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
     if replicas_match:
         target_name = natural_target_name(req, scale_match)
         replicas = int(replicas_match.group("replicas"))
-        if not namespace or not target_name:
+        if not target_name:
             return None
         return {
             "apiVersion": "apps/v1",
@@ -2292,7 +2292,7 @@ def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
 
     if ROLLBACK_REQUEST_RE.search(req.message):
         target_name = natural_target_name(req, None)
-        if not namespace or not target_name:
+        if not target_name:
             return None
         revision = rollback_revision_from_message(req.message)
         return {
@@ -2311,7 +2311,7 @@ def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
     restart_match = RESTART_INTENT_RE.search(req.message)
     if restart_match or RESTART_REQUEST_RE.search(req.message):
         target_name = natural_target_name(req, restart_match)
-        if not namespace or not target_name:
+        if not target_name:
             return None
         return {
             "apiVersion": "apps/v1",
@@ -2342,19 +2342,29 @@ async def create_natural_action_plan(
     target_name = str(intent["targetName"])
     api_version = str(intent.get("apiVersion") or "apps/v1")
     kind = str(intent.get("kind") or "Deployment")
-    lookup_target = {
-        "apiVersion": api_version,
-        "kind": kind,
-        "namespace": namespace,
-        "name": target_name,
-    }
-    target_path_value = target_path(lookup_target)
 
     async with httpx.AsyncClient(
         verify=OPENSHIFT_API_CA_FILE,
         timeout=httpx.Timeout(20.0, connect=5.0),
     ) as client:
-        live_target = await fetch_ocp_json(client, target_path_value, authorization)
+        resolved_target = await resolve_natural_action_target(client, intent, authorization)
+
+    if resolved_target.get("status") == "ambiguous":
+        return {
+            "candidates": resolved_target.get("candidates", []),
+            "intent": intent,
+            "status": "ambiguous",
+            "summary": f"{kind} `{target_name}` 후보가 여러 namespace에서 발견되었습니다.",
+        }
+
+    if resolved_target.get("status") == "missing_namespace":
+        return {
+            "intent": intent,
+            "status": "missing_namespace",
+            "summary": f"{kind} `{target_name}` 조치에는 namespace가 필요합니다.",
+        }
+
+    live_target = resolved_target.get("target") if isinstance(resolved_target.get("target"), Mapping) else None
 
     if not live_target:
         return {
@@ -2364,6 +2374,14 @@ async def create_natural_action_plan(
         }
 
     metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
+    namespace = str(metadata.get("namespace") or namespace)
+    target_name = str(metadata.get("name") or target_name)
+    intent = {
+        **intent,
+        "namespace": namespace,
+        "targetName": target_name,
+        "summary": f"{kind} `{namespace}/{target_name}` 조치",
+    }
     target = ActionTarget(
         apiVersion=api_version,
         kind=kind,
@@ -2403,6 +2421,35 @@ async def create_natural_action_plan(
 
 
 def natural_action_plan_response(result: Mapping[str, Any]) -> str:
+    if result.get("status") == "ambiguous":
+        intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
+        candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
+        candidate_lines = [
+            f"- `{candidate.get('namespace')}/{candidate.get('name')}` ({candidate.get('kind') or intent.get('kind') or 'resource'})"
+            for candidate in candidates
+            if isinstance(candidate, Mapping)
+        ]
+        return "\n".join(
+            [
+                "자연어 조치 요청을 해석했지만 대상 후보가 여러 개라 실행하지 않았습니다.",
+                "",
+                "### 대상 후보",
+                *(candidate_lines or ["- 후보를 표시할 수 없습니다."]),
+                "",
+                "namespace와 대상 이름을 함께 지정해 다시 요청하세요.",
+            ]
+        )
+
+    if result.get("status") == "missing_namespace":
+        return "\n".join(
+            [
+                "자연어 조치 요청을 해석했지만 namespace가 없어 실행하지 않았습니다.",
+                "",
+                f"- 요청 해석: {result.get('summary')}",
+                "- 예: `cis 네임스페이스의 cis 파드 3개로 올려줘`",
+            ]
+        )
+
     if result.get("status") == "not_found":
         intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
         kind = str(intent.get("kind") or "resource")
@@ -3717,6 +3764,106 @@ def pod_matches_target_fallback(pod: Mapping[str, Any], target_name: str, namesp
         "name",
     )
     return any(str(labels.get(key) or "") == target_name for key in standard_identity_labels)
+
+
+def deployment_matches_identity(deployment: Mapping[str, Any], target_name: str) -> bool:
+    if metadata_name(deployment) == target_name:
+        return True
+
+    standard_identity_labels = (
+        "app",
+        "app.kubernetes.io/name",
+        "app.kubernetes.io/instance",
+        "deployment",
+        "deploymentconfig",
+        "name",
+    )
+    metadata_labels = resource_labels(deployment)
+    if any(str(metadata_labels.get(key) or "") == target_name for key in standard_identity_labels):
+        return True
+
+    spec = deployment.get("spec", {}) if isinstance(deployment.get("spec"), Mapping) else {}
+    template = spec.get("template") if isinstance(spec.get("template"), Mapping) else {}
+    template_metadata = template.get("metadata") if isinstance(template.get("metadata"), Mapping) else {}
+    template_labels = template_metadata.get("labels") if isinstance(template_metadata.get("labels"), Mapping) else {}
+    return any(str(template_labels.get(key) or "") == target_name for key in standard_identity_labels)
+
+
+def choose_single_natural_action_target(
+    candidates: list[Mapping[str, Any]],
+    *,
+    target_name: str,
+) -> dict[str, Any]:
+    if not candidates:
+        return {"status": "not_found"}
+
+    exact = [candidate for candidate in candidates if metadata_name(candidate) == target_name]
+    narrowed = exact or candidates
+    unique_by_namespace_name = {
+        (metadata_namespace(candidate), metadata_name(candidate)): candidate for candidate in narrowed
+    }
+    unique_candidates = list(unique_by_namespace_name.values())
+    if len(unique_candidates) == 1:
+        return {"status": "found", "target": unique_candidates[0]}
+
+    return {
+        "candidates": [
+            {
+                "kind": str(candidate.get("kind") or ""),
+                "name": metadata_name(candidate),
+                "namespace": metadata_namespace(candidate),
+            }
+            for candidate in sorted(unique_candidates, key=lambda item: (metadata_namespace(item), metadata_name(item)))[:10]
+        ],
+        "status": "ambiguous",
+    }
+
+
+async def resolve_natural_action_target(
+    client: httpx.AsyncClient,
+    intent: Mapping[str, Any],
+    authorization: str,
+) -> dict[str, Any]:
+    namespace = str(intent.get("namespace") or "")
+    target_name = str(intent.get("targetName") or "")
+    api_version = str(intent.get("apiVersion") or "apps/v1")
+    kind = str(intent.get("kind") or "Deployment")
+    lookup_target = {
+        "apiVersion": api_version,
+        "kind": kind,
+        "namespace": namespace,
+        "name": target_name,
+    }
+
+    if namespace:
+        live_target = await fetch_ocp_json(client, target_path(lookup_target), authorization)
+        return {"status": "found", "target": live_target} if live_target else {"status": "not_found"}
+
+    if kind != "Deployment" or api_version != "apps/v1":
+        return {"status": "missing_namespace"}
+
+    deployments_payload = await fetch_ocp_json(client, "/apis/apps/v1/deployments", authorization)
+    deployments = resource_items(deployments_payload)
+    identity_matches = [
+        deployment for deployment in deployments if deployment_matches_identity(deployment, target_name)
+    ]
+    identity_result = choose_single_natural_action_target(identity_matches, target_name=target_name)
+    if identity_result["status"] in {"found", "ambiguous"}:
+        return identity_result
+
+    pods_payload = await fetch_ocp_json(client, "/api/v1/pods", authorization)
+    matched_pods = [
+        pod for pod in resource_items(pods_payload) if pod_matches_target_fallback(pod, target_name)
+    ]
+    selector_matches = [
+        deployment
+        for deployment in deployments
+        if any(pod_matches_deployment_selector(pod, deployment) for pod in matched_pods)
+    ]
+    selector_result = choose_single_natural_action_target(selector_matches, target_name=target_name)
+    if selector_result["status"] == "found":
+        selector_result["matchStrategy"] = "pod_name_or_standard_labels_to_deployment_selector"
+    return selector_result
 
 
 def summarize_counted_pods(pods: list[Mapping[str, Any]]) -> dict[str, Any]:

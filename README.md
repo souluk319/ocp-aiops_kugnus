@@ -182,15 +182,15 @@ The operator is intentionally lightweight and runs from the gateway image with
 Prepare images that are reachable by the cluster:
 
 ```bash
-export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.1
+export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.2
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai
 export KOMSCO_AIOPS_NAMESPACE=komsco-ai
 export KOMSCO_AIOPS_DISPLAY_NAME="KOMSCO AIOps"
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
-export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.1
-export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.1
-export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.1
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.2
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.2
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.2
 ```
 
 `KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card

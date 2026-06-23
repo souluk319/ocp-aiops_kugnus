@@ -1091,6 +1091,7 @@ def test_page_context_aiops_execution_mode_accepts_execute() -> None:
     [
         ("team-a 네임스페이스의 web-api 파드 5개로 올려줘", "team-a", "web-api", 5),
         ("6:cis 파드 3개로 올려줘", "6", "cis", 3),
+        ("cis파드 3개로 올려줘", "", "cis", 3),
         ("komsco-ai-dev/worker 2 replicas로 설정", "komsco-ai-dev", "worker", 2),
         ("batch-worker를 1개로 줄여줘", "prod-a", "batch-worker", 1),
         ("deployment/payment-api 7개로 scale", "payments", "payment-api", 7),
@@ -1265,6 +1266,89 @@ def test_create_natural_action_plan_uses_intent_target_kind(monkeypatch) -> None
     assert result["status"] == "planned"
     assert result["target"]["kind"] == "HorizontalPodAutoscaler"
     assert observed_paths == ["/apis/autoscaling/v2/namespaces/team-a/horizontalpodautoscalers/web-hpa"]
+
+
+def test_create_natural_action_plan_resolves_namespace_from_cluster_deployments(monkeypatch) -> None:
+    observed_paths: list[str] = []
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, **_kwargs):
+        observed_paths.append(path)
+        if path == "/apis/apps/v1/deployments":
+            return {
+                "items": [
+                    {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "metadata": {
+                            "name": "cis",
+                            "namespace": "cis",
+                            "uid": "deployment-cis-uid",
+                        },
+                        "spec": {"replicas": 1},
+                    }
+                ]
+            }
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+
+    result = asyncio.run(
+        gateway_main.create_natural_action_plan(
+            ChatRequest(message="cis파드 3개로 올려줘"),
+            "Bearer token",
+            safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}),
+            incident_id="inc-cis-scale",
+            run_id="run-cis-scale",
+        )
+    )
+
+    assert result
+    assert result["status"] == "planned"
+    assert result["target"]["namespace"] == "cis"
+    assert result["target"]["name"] == "cis"
+    assert result["parameters"]["replicas"] == 3
+    assert observed_paths == ["/apis/apps/v1/deployments"]
+
+
+def test_create_natural_action_plan_reports_ambiguous_cluster_matches(monkeypatch) -> None:
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, **_kwargs):
+        if path == "/apis/apps/v1/deployments":
+            return {
+                "items": [
+                    {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "metadata": {"name": "web", "namespace": "team-a", "uid": "deployment-a"},
+                    },
+                    {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "metadata": {"name": "web", "namespace": "team-b", "uid": "deployment-b"},
+                    },
+                ]
+            }
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+
+    result = asyncio.run(
+        gateway_main.create_natural_action_plan(
+            ChatRequest(message="web 파드 2개로 올려줘"),
+            "Bearer token",
+            safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]}),
+            incident_id="inc-web-scale",
+            run_id="run-web-scale",
+        )
+    )
+
+    assert result
+    assert result["status"] == "ambiguous"
+    assert result["candidates"] == [
+        {"kind": "Deployment", "name": "web", "namespace": "team-a"},
+        {"kind": "Deployment", "name": "web", "namespace": "team-b"},
+    ]
 
 
 @pytest.mark.parametrize(
