@@ -167,33 +167,70 @@ uninstall_olm() {
 
 reset_install() {
   require_cmd oc
-  remove_operator_install
+  local install_namespaces
+  install_namespaces=$(discover_operator_namespaces)
+  for namespace in ${install_namespaces}; do
+    remove_operator_install "${namespace}"
+  done
   remove_aiops_runtime
 }
 
 remove_operator_install() {
+  local namespace=${1:-${OPERATOR_NAMESPACE}}
   local csv_name
-  csv_name=$(oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath='{.status.installedCSV}' 2>/dev/null || true)
-  oc delete subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  csv_name=$(oc get subscription "${PACKAGE_NAME}" -n "${namespace}" -o jsonpath='{.status.installedCSV}' 2>/dev/null || true)
+  oc delete subscription "${PACKAGE_NAME}" -n "${namespace}" --ignore-not-found
   if [[ -n "${csv_name}" ]]; then
-    oc delete csv "${csv_name}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+    oc delete csv "${csv_name}" -n "${namespace}" --ignore-not-found
   fi
-  csv_names=$(oc get csv -n "${OPERATOR_NAMESPACE}" -o name 2>/dev/null | grep "/${OPERATOR_NAME}\\.v" || true)
+  csv_names=$(oc get csv -n "${namespace}" -o name 2>/dev/null | grep "/${OPERATOR_NAME}\\.v" || true)
   if [[ -n "${csv_names}" ]]; then
-    printf '%s\n' "${csv_names}" | xargs -r oc delete -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+    printf '%s\n' "${csv_names}" | xargs -r oc delete -n "${namespace}" --ignore-not-found
   fi
-  oc delete operatorgroup komsco-aiops -n "${OPERATOR_NAMESPACE}" --ignore-not-found
-  oc delete deployment "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  operator_groups=$(oc get operatorgroup -n "${namespace}" -o name 2>/dev/null | grep -E '/(komsco-aiops|default-)' || true)
+  if [[ -n "${operator_groups}" ]]; then
+    printf '%s\n' "${operator_groups}" | xargs -r oc delete -n "${namespace}" --ignore-not-found
+  fi
+  oc delete deployment "${OPERATOR_NAME}" -n "${namespace}" --ignore-not-found
+}
+
+discover_operator_namespaces() {
+  {
+    echo "${OPERATOR_NAMESPACE}"
+    oc get subscription -A -o jsonpath='{range .items[?(@.metadata.name=="'"${PACKAGE_NAME}"'")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+    oc get csv -A -o jsonpath='{range .items[?(@.spec.displayName=="KOMSCO AIOps")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+    oc get deploy -A -l app=komsco-aiops-operator -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+  } | awk 'NF && !seen[$0]++'
 }
 
 remove_aiops_runtime() {
   disable_console_plugin
-  oc delete aiopsinstallation komsco-aiops -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  for namespace in $(discover_aiopsinstallation_namespaces); do
+    oc delete aiopsinstallation komsco-aiops -n "${namespace}" --ignore-not-found
+  done
   oc delete consoleplugin komsco-ai-console-plugin --ignore-not-found
-  oc delete deploy,svc,sa,cm,role,rolebinding,networkpolicy -n "${TARGET_NAMESPACE}" \
-    -l 'app.kubernetes.io/part-of=komsco-aiops' --ignore-not-found
+  for namespace in $(discover_runtime_namespaces); do
+    oc delete deploy,svc,sa,cm,role,rolebinding,networkpolicy -n "${namespace}" \
+      -l 'app.kubernetes.io/part-of=komsco-aiops' --ignore-not-found
+  done
   oc delete clusterrole komsco-ai-action-executor --ignore-not-found
   oc delete clusterrolebinding komsco-ai-action-executor komsco-ai-gateway-auth-delegator --ignore-not-found
+}
+
+discover_runtime_namespaces() {
+  {
+    echo "${TARGET_NAMESPACE}"
+    echo "${OPERATOR_NAMESPACE}"
+    oc get deploy -A -l app.kubernetes.io/part-of=komsco-aiops -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+    oc get svc -A -l app.kubernetes.io/part-of=komsco-aiops -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+  } | awk 'NF && !seen[$0]++'
+}
+
+discover_aiopsinstallation_namespaces() {
+  {
+    echo "${OPERATOR_NAMESPACE}"
+    oc get aiopsinstallation -A -o jsonpath='{range .items[?(@.metadata.name=="komsco-aiops")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null || true
+  } | awk 'NF && !seen[$0]++'
 }
 
 disable_console_plugin() {
