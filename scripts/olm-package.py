@@ -43,12 +43,15 @@ DESCRIPTION = os.getenv(
 )
 SHORT_DESCRIPTION = os.getenv(
     "KOMSCO_AIOPS_SHORT_DESCRIPTION",
-    f"{DISPLAY_NAME} installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
+    f"{DISPLAY_NAME} (komsco-aiops) installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
 )
 CATEGORIES = os.getenv("KOMSCO_AIOPS_CATEGORIES", "OpenShift Optional, Monitoring")
 KEYWORDS = [
     item.strip()
-    for item in os.getenv("KOMSCO_AIOPS_KEYWORDS", "aiops,openshift,assistant,operations").split(",")
+    for item in os.getenv(
+        "KOMSCO_AIOPS_KEYWORDS",
+        "komsco-aiops,komsco,cywell,aiops,openshift,assistant,operations",
+    ).split(",")
     if item.strip()
 ]
 
