@@ -9,6 +9,7 @@ PUSH_REGISTRY=${KOMSCO_AIOPS_PUSH_REGISTRY:-}
 PULL_REGISTRY=${KOMSCO_AIOPS_PULL_REGISTRY:-}
 TLS_VERIFY=${KOMSCO_AIOPS_REGISTRY_TLS_VERIFY:-false}
 CONTAINER_ENGINE=${KOMSCO_AIOPS_CONTAINER_ENGINE:-}
+GRANT_IMAGE_PULL=${KOMSCO_AIOPS_GRANT_IMAGE_PULL:-true}
 
 usage() {
   cat <<EOF
@@ -26,6 +27,7 @@ Key environment variables:
   KOMSCO_AIOPS_PULL_REGISTRY         Registry used by cluster workloads for pull.
   KOMSCO_AIOPS_REGISTRY_TLS_VERIFY   true or false for podman login/push. Default: false
   KOMSCO_AIOPS_CONTAINER_ENGINE      podman or docker. Auto-detected if unset.
+  KOMSCO_AIOPS_GRANT_IMAGE_PULL      Grant all service accounts image pull access to the image namespace. Default: true
 
 Example:
   KOMSCO_AIOPS_OPERATOR_VERSION=0.1.1 \\
@@ -157,6 +159,14 @@ ensure_namespace() {
   oc get namespace "${NAMESPACE}" >/dev/null 2>&1 || oc create namespace "${NAMESPACE}"
 }
 
+grant_image_pull_access() {
+  require_cmd oc
+  if [[ "${GRANT_IMAGE_PULL}" != "true" ]]; then
+    return
+  fi
+  oc policy add-role-to-group system:image-puller system:serviceaccounts -n "${NAMESPACE}"
+}
+
 build_push() {
   local engine
   local push_registry_value
@@ -182,6 +192,7 @@ build_push() {
   build_image "${engine}" "${plugin_push}" "${ROOT_DIR}/komsco-ai-console-plugin"
   tag_image "${engine}" "${plugin_push}" "${plugin_pull}"
   push_image "${engine}" "${plugin_push}"
+  grant_image_pull_access
 
   print_env
 }
