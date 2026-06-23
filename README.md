@@ -200,6 +200,12 @@ card title. The generated CSV also includes a default SVG icon; override
 `KOMSCO_AIOPS_ICON_BASE64` and `KOMSCO_AIOPS_ICON_MEDIA_TYPE` to ship a branded
 asset.
 
+The console sidebar and assistant overlay are installed UI, not catalog preview
+UI. They appear only after the `komsco-ai-console-plugin` ConsolePlugin is
+enabled. For OperatorHub installs, the operator bootstraps a default
+`AIOpsInstallation` by default (`KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION=true`), so
+clicking Install creates the runtime and then enables the ConsolePlugin.
+
 Source-to-OLM one-shot release:
 
 ```bash
@@ -249,6 +255,13 @@ To remove the OLM install path:
 
 ```bash
 task olm:uninstall
+```
+
+To keep the catalog card visible but remove the installed operator/runtime UI
+while testing the OperatorHub Install button:
+
+```bash
+task olm:reset-install
 ```
 
 The generated files live under `olm/generated/` and are not committed as build

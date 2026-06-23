@@ -153,7 +153,8 @@ def crd() -> dict[str, Any]:
 
 def operator_rules() -> list[dict[str, Any]]:
     return [
-        {"apiGroups": ["aiops.komsco.io"], "resources": ["aiopsinstallations", "aiopsinstallations/status"], "verbs": ["get", "list", "watch", "patch", "update"]},
+        {"apiGroups": ["aiops.komsco.io"], "resources": ["aiopsinstallations"], "verbs": ["create", "delete", "get", "list", "watch", "patch", "update"]},
+        {"apiGroups": ["aiops.komsco.io"], "resources": ["aiopsinstallations/status"], "verbs": ["get", "patch", "update"]},
         {"apiGroups": [""], "resources": ["namespaces", "serviceaccounts", "services", "configmaps", "secrets", "events"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
         {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
         {"apiGroups": [""], "resources": ["pods/log"], "verbs": ["get"]},
@@ -250,6 +251,16 @@ def csv() -> dict[str, Any]:
                                                     {"name": "KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "value": TARGET_NAMESPACE},
                                                     {"name": "KOMSCO_AI_DEFAULT_PLUGIN_IMAGE", "value": PLUGIN_IMAGE},
                                                     {"name": "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE", "value": GATEWAY_IMAGE},
+                                                    {
+                                                        "name": "KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION",
+                                                        "value": os.getenv("KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION", "true"),
+                                                    },
+                                                    {"name": "KOMSCO_AI_DEFAULT_MODE", "value": os.getenv("KOMSCO_AIOPS_MODE", "execute")},
+                                                    {"name": "KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "value": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true")},
+                                                    {
+                                                        "name": "KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS",
+                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false"),
+                                                    },
                                                     {"name": "KOMSCO_AI_OPERATOR_RECONCILE_SECONDS", "value": "30"},
                                                 ],
                                                 "securityContext": {

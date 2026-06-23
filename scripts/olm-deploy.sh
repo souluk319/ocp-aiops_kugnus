@@ -23,7 +23,9 @@ Commands:
   catalog     Apply only the generated OLM CatalogSource resources.
   install     Apply only namespace, OperatorGroup, Subscription, and AIOpsInstallation.
   status      Show PackageManifest, Subscription, CSV, AIOpsInstallation, and operand rollout status.
-  uninstall   Remove the AIOpsInstallation, Subscription, OperatorGroup, CSV, and CatalogSource resources.
+  reset-install
+              Remove installed operator/runtime/UI, but keep the OLM catalog for UI install tests.
+  uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
   KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.0
@@ -33,6 +35,8 @@ Key environment variables:
   KOMSCO_AIOPS_OPERATOR_NAMESPACE   Operator install namespace. Default: komsco-ai
   KOMSCO_AIOPS_NAMESPACE            Operand target namespace. Default: operator namespace
   KOMSCO_AIOPS_MODE                 read-only, execute, or unrestricted. Default: execute
+  KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION
+                                      true creates AIOpsInstallation automatically after UI install.
 
 Example:
   KOMSCO_AIOPS_OPERATOR_VERSION=0.1.1 \\
@@ -157,11 +161,60 @@ show_status() {
 
 uninstall_olm() {
   require_cmd oc
-  oc delete aiopsinstallation komsco-aiops -n "${OPERATOR_NAMESPACE}" --ignore-not-found
-  oc delete subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
-  oc delete csv -n "${OPERATOR_NAMESPACE}" -l "operators.coreos.com/${PACKAGE_NAME}.${OPERATOR_NAMESPACE}" --ignore-not-found
-  oc delete operatorgroup komsco-aiops -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  reset_install
   oc delete -f "${CATALOG_DIR}" --ignore-not-found=true || true
+}
+
+reset_install() {
+  require_cmd oc
+  remove_operator_install
+  remove_aiops_runtime
+}
+
+remove_operator_install() {
+  local csv_name
+  csv_name=$(oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath='{.status.installedCSV}' 2>/dev/null || true)
+  oc delete subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  if [[ -n "${csv_name}" ]]; then
+    oc delete csv "${csv_name}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  fi
+  csv_names=$(oc get csv -n "${OPERATOR_NAMESPACE}" -o name 2>/dev/null | grep "/${OPERATOR_NAME}\\.v" || true)
+  if [[ -n "${csv_names}" ]]; then
+    printf '%s\n' "${csv_names}" | xargs -r oc delete -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  fi
+  oc delete operatorgroup komsco-aiops -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  oc delete deployment "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+}
+
+remove_aiops_runtime() {
+  disable_console_plugin
+  oc delete aiopsinstallation komsco-aiops -n "${OPERATOR_NAMESPACE}" --ignore-not-found
+  oc delete consoleplugin komsco-ai-console-plugin --ignore-not-found
+  oc delete deploy,svc,sa,cm,role,rolebinding,networkpolicy -n "${TARGET_NAMESPACE}" \
+    -l 'app.kubernetes.io/part-of=komsco-aiops' --ignore-not-found
+  oc delete clusterrole komsco-ai-action-executor --ignore-not-found
+  oc delete clusterrolebinding komsco-ai-action-executor komsco-ai-gateway-auth-delegator --ignore-not-found
+}
+
+disable_console_plugin() {
+  local current_plugins patched_plugins
+  current_plugins=$(oc get consoles.operator.openshift.io cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || echo "[]")
+  patched_plugins=$(PLUGIN_NAME=komsco-ai-console-plugin CURRENT_PLUGINS="${current_plugins}" python3 - <<'PY'
+import json
+import os
+
+plugin_name = os.environ["PLUGIN_NAME"]
+try:
+    plugins = json.loads(os.environ.get("CURRENT_PLUGINS") or "[]")
+except json.JSONDecodeError:
+    plugins = []
+if not isinstance(plugins, list):
+    plugins = []
+filtered = [plugin for plugin in plugins if plugin != plugin_name]
+print(json.dumps({"spec": {"plugins": filtered}}))
+PY
+)
+  oc patch consoles.operator.openshift.io cluster --type=merge -p "${patched_plugins}" >/dev/null
 }
 
 command=${1:-}
@@ -187,6 +240,9 @@ case "${command}" in
     ;;
   status)
     show_status
+    ;;
+  reset-install)
+    reset_install
     ;;
   uninstall)
     uninstall_olm

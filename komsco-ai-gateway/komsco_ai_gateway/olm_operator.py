@@ -23,6 +23,7 @@ DEFAULT_GATEWAY_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE",
     "image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0",
 )
+BOOTSTRAP_INSTALLATION = os.getenv("KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION", "true").lower() == "true"
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 SERVICEACCOUNT_TOKEN_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SERVICEACCOUNT_CA_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -156,6 +157,51 @@ def list_installations() -> list[dict[str, Any]]:
     )
     items = payload.get("items")
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def default_installation(operator_namespace: str) -> dict[str, Any]:
+    return {
+        "apiVersion": f"{GROUP}/{VERSION}",
+        "kind": "AIOpsInstallation",
+        "metadata": {
+            "name": DEFAULT_NAME,
+            "namespace": operator_namespace,
+            "labels": common_labels(DEFAULT_NAME),
+        },
+        "spec": {
+            "targetNamespace": DEFAULT_TARGET_NAMESPACE,
+            "createNamespace": True,
+            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "execute"),
+            "pluginReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_PLUGIN_REPLICAS", "2")),
+            "gatewayReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_GATEWAY_REPLICAS", "1")),
+            "enableConsolePlugin": True,
+            "images": {
+                "plugin": DEFAULT_PLUGIN_IMAGE,
+                "gateway": DEFAULT_GATEWAY_IMAGE,
+                "hostDiagnosticsRunner": os.getenv("KOMSCO_AI_DEFAULT_HOST_DIAGNOSTICS_RUNNER_IMAGE", DEFAULT_GATEWAY_IMAGE),
+            },
+            "capabilities": {
+                "diagnostics": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_DIAGNOSTICS", "true").lower() == "true",
+                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "true").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+            },
+        },
+    }
+
+
+def bootstrap_installation_if_needed() -> list[dict[str, Any]]:
+    installations = list_installations()
+    if installations or not BOOTSTRAP_INSTALLATION:
+        return installations
+
+    operator_namespace = namespace()
+    print(f"bootstrapping default AIOpsInstallation {operator_namespace}/{DEFAULT_NAME}", flush=True)
+    request(
+        "POST",
+        f"/apis/{GROUP}/{VERSION}/namespaces/{operator_namespace}/{PLURAL}",
+        body=default_installation(operator_namespace),
+    )
+    return list_installations()
 
 
 def update_status(custom_resource: Mapping[str, Any], phase: str, message: str) -> None:
@@ -649,7 +695,7 @@ def main() -> None:
     print("KOMSCO AIOps operator started", flush=True)
     while True:
         try:
-            installations = list_installations()
+            installations = bootstrap_installation_if_needed()
             if not installations:
                 print("waiting for AIOpsInstallation resources", flush=True)
             for item in installations:

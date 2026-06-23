@@ -94,6 +94,11 @@ tasks:
     cmds:
       - ./scripts/olm-deploy.sh status
 
+  olm:reset-install:
+    desc: Remove the installed AIOps runtime and operator while keeping the OLM catalog visible
+    cmds:
+      - ./scripts/olm-deploy.sh reset-install
+
   olm:uninstall:
     desc: Remove OLM subscription/catalog resources and the AIOpsInstallation custom resource
     cmds:
