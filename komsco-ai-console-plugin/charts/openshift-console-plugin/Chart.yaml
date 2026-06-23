@@ -1,5 +1,6 @@
 apiVersion: v2
-name: openshift-console-plugin
-description: A Helm chart for Kubernetes
+name: komsco-aiops
+description: KOMSCO AIOps console plugin for OpenShift operations
 type: application
 version: 0.1.0
+appVersion: 0.1.0

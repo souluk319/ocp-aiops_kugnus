@@ -165,6 +165,77 @@ active console plugin list:
 scripts/enable-console-plugin.sh
 ```
 
+## Software Catalog Deployment
+
+The local development loop stays source-first and hot-reload friendly:
+
+```bash
+task be:dev
+task fe:dev
+```
+
+For shared dev/stage/prod systems, publish the KOMSCO AIOps Helm chart as an
+OpenShift Software Catalog source. The current catalog chart installs the
+console plugin and `ConsolePlugin` proxy wiring. The gateway, Action Executor,
+and host diagnostics runtime are still applied from the OpenShift overlay before
+or alongside the catalog install:
+
+```bash
+export KOMSCO_AIOPS_ENV=prod
+task catalog:runtime:apply
+```
+
+Package a chart version and create the Helm repository index:
+
+```bash
+export KOMSCO_AIOPS_CATALOG_URL=https://charts.example.internal/komsco-aiops
+export KOMSCO_AIOPS_CHART_VERSION=0.1.0
+export KOMSCO_AIOPS_PACKAGE_VALUES=openshift/helm-values/console-plugin-prod.yaml
+task catalog:package
+```
+
+`task catalog:package` writes `dist/software-catalog/index.yaml` and the chart
+archive. The packaged chart defaults are taken from
+`KOMSCO_AIOPS_PACKAGE_VALUES` so Software Catalog installs can work without
+manually re-entering the plugin image and gateway values. Publish the contents of
+`dist/software-catalog/` to the URL above, then register the repository in
+OpenShift. After this, the chart appears in **Ecosystem > Software Catalog**.
+
+```bash
+task catalog:register
+task catalog:status
+```
+
+For CLI parity with the catalog install/upgrade flow:
+
+```bash
+export KOMSCO_AIOPS_NAMESPACE=komsco-ai
+export KOMSCO_AIOPS_VALUES=openshift/helm-values/console-plugin-prod.yaml
+task catalog:deploy
+```
+
+For an end-to-end CLI release using the same chart package:
+
+```bash
+export KOMSCO_AIOPS_CATALOG_URL=https://charts.example.internal/komsco-aiops
+task catalog:release
+```
+
+To ship an update, build and push new runtime images, update the values file or
+image tags, publish a new chart version, and refresh the catalog repo:
+
+```bash
+export KOMSCO_AIOPS_CHART_VERSION=0.1.1
+task catalog:package
+# upload dist/software-catalog/* to KOMSCO_AIOPS_CATALOG_URL
+task catalog:register
+```
+
+Users can then upgrade the installed Helm release from the OpenShift console.
+The target product experience for one-click product updates is an Operator/OLM
+bundle; this Helm catalog path is the practical intermediate step for Software
+Catalog installation and chart-version upgrades.
+
 ## Namespace Policy
 
 ```text

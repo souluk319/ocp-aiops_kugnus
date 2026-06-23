@@ -15,3 +15,46 @@ tasks:
     desc: Run local console plugin dev server connected to the local gateway
     cmds:
       - ./scripts/dev-console-plugin.sh
+
+  catalog:package:
+    desc: Package the Helm chart and generate a Software Catalog repository index
+    cmds:
+      - ./scripts/software-catalog-helm.sh package
+
+  catalog:runtime:apply:
+    desc: Apply gateway, action executor, and diagnostics runtime prerequisites for catalog installs
+    cmds:
+      - oc apply -k openshift/overlays/${KOMSCO_AIOPS_ENV:-prod}
+
+  catalog:serve:
+    desc: Serve the generated Helm chart repository for local catalog checks
+    cmds:
+      - ./scripts/software-catalog-helm.sh serve
+
+  catalog:register:
+    desc: Register the Helm repository in OpenShift Software Catalog
+    cmds:
+      - ./scripts/software-catalog-helm.sh register
+
+  catalog:unregister:
+    desc: Remove the Helm repository from OpenShift Software Catalog
+    cmds:
+      - ./scripts/software-catalog-helm.sh unregister
+
+  catalog:deploy:
+    desc: Install or upgrade the catalog chart with Helm, matching Software Catalog release behavior
+    cmds:
+      - ./scripts/software-catalog-helm.sh deploy
+
+  catalog:status:
+    desc: Show Software Catalog registration and deployed AIOps runtime status
+    cmds:
+      - ./scripts/software-catalog-helm.sh status
+
+  catalog:release:
+    desc: Apply runtime prerequisites, package/register the catalog chart, and install or upgrade the release
+    cmds:
+      - task: catalog:runtime:apply
+      - task: catalog:package
+      - task: catalog:register
+      - task: catalog:deploy
