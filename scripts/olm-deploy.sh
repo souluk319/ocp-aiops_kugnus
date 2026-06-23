@@ -108,11 +108,29 @@ wait_subscription_csv() {
 wait_operands() {
   require_cmd oc
   echo "Waiting for KOMSCO AIOps operands in ${TARGET_NAMESPACE}..."
-  oc rollout status deployment/"${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" --timeout=180s
-  oc rollout status deployment/komsco-ai-console-plugin -n "${TARGET_NAMESPACE}" --timeout=300s
-  oc rollout status deployment/komsco-ai-gateway -n "${TARGET_NAMESPACE}" --timeout=300s
-  oc rollout status deployment/komsco-ai-action-executor -n "${TARGET_NAMESPACE}" --timeout=300s
-  oc rollout status deployment/komsco-ai-host-diagnostics-controller -n "${TARGET_NAMESPACE}" --timeout=300s
+  wait_deployment_rollout "${OPERATOR_NAMESPACE}" "${OPERATOR_NAME}" 180s
+  wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-console-plugin 300s
+  wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-gateway 300s
+  wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-action-executor 300s
+  wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-host-diagnostics-controller 300s
+}
+
+wait_deployment_rollout() {
+  local namespace=$1
+  local deployment=$2
+  local timeout=$3
+  echo "Waiting for Deployment ${namespace}/${deployment}..."
+  for _ in $(seq 1 60); do
+    if oc get deployment "${deployment}" -n "${namespace}" >/dev/null 2>&1; then
+      oc rollout status deployment/"${deployment}" -n "${namespace}" --timeout="${timeout}"
+      return
+    fi
+    sleep 5
+  done
+  echo "Deployment ${namespace}/${deployment} did not appear." >&2
+  oc get aiopsinstallation -n "${OPERATOR_NAMESPACE}" -o yaml 2>/dev/null || true
+  oc logs deployment/"${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" --tail=120 2>/dev/null || true
+  exit 1
 }
 
 show_status() {
