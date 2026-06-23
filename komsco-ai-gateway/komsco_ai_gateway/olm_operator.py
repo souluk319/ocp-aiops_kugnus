@@ -183,7 +183,7 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_DIAGNOSTICS", "true").lower() == "true",
                 "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "true").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
             },
         },
     }
@@ -249,7 +249,7 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "mode": str(spec_value(spec, "mode", "execute")),
         "diagnosticsEnabled": bool(capabilities.get("diagnostics", True)),
         "mutationsEnabled": bool(capabilities.get("mutations", True)),
-        "unrestrictedEnabled": bool(capabilities.get("unrestrictedCommands", False)),
+        "unrestrictedEnabled": bool(capabilities.get("unrestrictedCommands", True)),
         "enableConsolePlugin": bool(spec_value(spec, "enableConsolePlugin", True)),
     }
 

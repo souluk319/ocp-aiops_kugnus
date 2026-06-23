@@ -11,6 +11,8 @@ CATALOG_NAME=${KOMSCO_AIOPS_OLM_CATALOG_NAME:-komsco-aiops-catalog}
 OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-operator}
+OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.1}
+EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 
 usage() {
@@ -28,7 +30,7 @@ Commands:
   uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.0
+  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.1
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
@@ -63,19 +65,25 @@ package_olm() {
 apply_catalog() {
   require_cmd oc
   oc apply -f "${CATALOG_DIR}"
+  oc delete pod -n "${CATALOG_NAMESPACE}" -l "olm.catalogSource=${CATALOG_NAME}" --ignore-not-found
 }
 
 wait_catalog() {
   require_cmd oc
-  echo "Waiting for PackageManifest ${PACKAGE_NAME} from ${CATALOG_NAME}..."
+  echo "Waiting for PackageManifest ${PACKAGE_NAME} from ${CATALOG_NAME} to publish ${EXPECTED_CSV}..."
   for _ in $(seq 1 60); do
-    if oc get packagemanifest "${PACKAGE_NAME}" -n "${CATALOG_NAMESPACE}" >/dev/null 2>&1; then
+    catalog_state=$(oc get catalogsource "${CATALOG_NAME}" -n "${CATALOG_NAMESPACE}" -o jsonpath='{.status.connectionState.lastObservedState}' 2>/dev/null || true)
+    current_csv=$(oc get packagemanifest "${PACKAGE_NAME}" -n "${CATALOG_NAMESPACE}" -o jsonpath='{.status.channels[?(@.name=="'"${KOMSCO_AIOPS_CHANNEL:-stable}"'")].currentCSV}' 2>/dev/null || true)
+    if [[ "${catalog_state}" == "READY" && "${current_csv}" == "${EXPECTED_CSV}" ]]; then
       return
     fi
     sleep 5
   done
-  echo "PackageManifest ${PACKAGE_NAME} did not appear in ${CATALOG_NAMESPACE}." >&2
+  echo "PackageManifest ${PACKAGE_NAME} did not publish ${EXPECTED_CSV} in ${CATALOG_NAMESPACE}." >&2
   oc get catalogsource "${CATALOG_NAME}" -n "${CATALOG_NAMESPACE}" -o yaml || true
+  oc get pod -n "${CATALOG_NAMESPACE}" -l "olm.catalogSource=${CATALOG_NAME}" -o wide || true
+  oc logs -n "${CATALOG_NAMESPACE}" -l "olm.catalogSource=${CATALOG_NAME}" --tail=120 || true
+  oc get packagemanifest "${PACKAGE_NAME}" -n "${CATALOG_NAMESPACE}" -o yaml 2>/dev/null || true
   exit 1
 }
 
@@ -94,10 +102,10 @@ wait_subscription_csv() {
   echo "Waiting for Subscription ${OPERATOR_NAMESPACE}/${PACKAGE_NAME}..."
   for _ in $(seq 1 90); do
     csv_name=$(oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath='{.status.installedCSV}' 2>/dev/null || true)
-    if [[ -n "${csv_name}" ]]; then
-      phase=$(oc get csv "${csv_name}" -n "${OPERATOR_NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    if [[ "${csv_name}" == "${EXPECTED_CSV}" ]]; then
+      phase=$(oc get csv "${EXPECTED_CSV}" -n "${OPERATOR_NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || true)
       if [[ "${phase}" == "Succeeded" ]]; then
-        echo "CSV ${csv_name} is Succeeded."
+        echo "CSV ${EXPECTED_CSV} is Succeeded."
         return
       fi
     fi

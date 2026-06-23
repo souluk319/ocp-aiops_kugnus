@@ -18,8 +18,9 @@ OPERATOR_NAME = os.getenv("KOMSCO_AIOPS_OPERATOR_NAME", "komsco-aiops-operator")
 CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "komsco-aiops-catalog")
 CATALOG_NAMESPACE = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE", "openshift-marketplace")
 CHANNEL = os.getenv("KOMSCO_AIOPS_CHANNEL", "stable")
-VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.0")
+VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.1")
 CSV_NAME = f"{OPERATOR_NAME}.v{VERSION}"
+SKIPS_CSV = os.getenv("KOMSCO_AIOPS_SKIPS_CSV", "")
 INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "komsco-ai")
 TARGET_NAMESPACE = os.getenv("KOMSCO_AIOPS_NAMESPACE", INSTALL_NAMESPACE)
 PLUGIN_IMAGE = os.getenv(
@@ -54,6 +55,22 @@ KEYWORDS = [
     ).split(",")
     if item.strip()
 ]
+
+
+def default_skips_csv() -> list[str]:
+    if SKIPS_CSV:
+        return [item.strip() for item in SKIPS_CSV.split(",") if item.strip()]
+
+    parts = VERSION.split(".")
+    if len(parts) != 3:
+        return []
+    try:
+        major, minor, patch = (int(part) for part in parts)
+    except ValueError:
+        return []
+    if patch <= 0:
+        return []
+    return [f"{OPERATOR_NAME}.v{major}.{minor}.{patch - 1}"]
 
 
 def default_icon_base64() -> str:
@@ -128,7 +145,7 @@ def crd() -> dict[str, Any]:
                                             "properties": {
                                                 "diagnostics": {"type": "boolean", "default": True},
                                                 "mutations": {"type": "boolean", "default": True},
-                                                "unrestrictedCommands": {"type": "boolean", "default": False},
+                                                "unrestrictedCommands": {"type": "boolean", "default": True},
                                             },
                                         },
                                     },
@@ -176,6 +193,7 @@ def operator_rules() -> list[dict[str, Any]]:
 
 def csv() -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": OPERATOR_NAME, "app.kubernetes.io/part-of": PACKAGE_NAME}
+    skips = default_skips_csv()
     return {
         "apiVersion": "operators.coreos.com/v1alpha1",
         "kind": "ClusterServiceVersion",
@@ -195,6 +213,7 @@ def csv() -> dict[str, Any]:
             "description": DESCRIPTION,
             "version": VERSION,
             "maturity": "alpha",
+            **({"skips": skips} if skips else {}),
             "provider": {"name": PROVIDER_NAME},
             "keywords": KEYWORDS,
             "maintainers": [{"name": MAINTAINER_NAME}],
@@ -259,7 +278,7 @@ def csv() -> dict[str, Any]:
                                                     {"name": "KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "value": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true")},
                                                     {
                                                         "name": "KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS",
-                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false"),
+                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "true"),
                                                     },
                                                     {"name": "KOMSCO_AI_OPERATOR_RECONCILE_SECONDS", "value": "30"},
                                                 ],
@@ -369,7 +388,7 @@ def aiops_installation() -> dict[str, Any]:
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AIOPS_ENABLE_DIAGNOSTICS", "true").lower() == "true",
                 "mutations": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
             },
         },
     }

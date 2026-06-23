@@ -182,15 +182,15 @@ The operator is intentionally lightweight and runs from the gateway image with
 Prepare images that are reachable by the cluster:
 
 ```bash
-export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.0
+export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.1
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai
 export KOMSCO_AIOPS_NAMESPACE=komsco-ai
 export KOMSCO_AIOPS_DISPLAY_NAME="KOMSCO AIOps"
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
-export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
-export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.0
-export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.1
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.1
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.1
 ```
 
 `KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card
@@ -204,7 +204,10 @@ The console sidebar and assistant overlay are installed UI, not catalog preview
 UI. They appear only after the `komsco-ai-console-plugin` ConsolePlugin is
 enabled. For OperatorHub installs, the operator bootstraps a default
 `AIOpsInstallation` by default (`KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION=true`), so
-clicking Install creates the runtime and then enables the ConsolePlugin.
+clicking Install creates the runtime and then enables the ConsolePlugin. Lab
+installs default to `mode=execute`, `mutations=true`, and
+`unrestrictedCommands=true`, so the assistant mode selector exposes
+`실험 무제한` immediately after the installed console plugin is loaded.
 
 Source-to-OLM one-shot release:
 
@@ -242,6 +245,8 @@ creates the operator namespace, `OperatorGroup`, `Subscription`, and then
 creates `AIOpsInstallation`. The same command can be used for updates after
 bumping `KOMSCO_AIOPS_OPERATOR_VERSION` and image references. OLM will resolve
 the new CSV and update the operator; the operator then reconciles the operands.
+Patch-version releases automatically set `spec.skips` to the previous patch
+CSV, or set `KOMSCO_AIOPS_SKIPS_CSV` explicitly for a custom upgrade path.
 
 Useful checks:
 
