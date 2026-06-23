@@ -100,6 +100,7 @@ PRODUCT_ACCESS_REVIEW_NAME = os.getenv(
     "komsco-ai-console-plugin",
 )
 RATE_LIMIT_PER_MINUTE = int(os.getenv("KOMSCO_AI_RATE_LIMIT_PER_MINUTE", "60"))
+AUDIT_MAX_RECORDS = int(os.getenv("KOMSCO_AI_AUDIT_MAX_RECORDS", "1000"))
 EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
 WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
 DIAGNOSTICS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_DIAGNOSTICS_ENABLED"), default=False)
@@ -323,6 +324,7 @@ METRICS: dict[str, int] = {
     "aiops_chat_requests_total": 0,
     "aiops_chat_completed_total": 0,
     "aiops_chat_failed_total": 0,
+    "aiops_audit_records_total": 0,
     "aiops_evidence_records_total": 0,
     "aiops_diagnostic_requests_total": 0,
     "aiops_action_proposals_total": 0,
@@ -342,6 +344,7 @@ METRICS: dict[str, int] = {
     "aiops_record_store_writes_total": 0,
     "aiops_record_store_failures_total": 0,
 }
+AUDIT_RECORDS: dict[str, dict[str, Any]] = {}
 EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
 WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
 DIAGNOSTIC_REQUESTS: dict[str, dict[str, Any]] = {}
@@ -5282,8 +5285,12 @@ async def collect_cronjob_activity_evidence(user_auth_header: str, context_text:
 
 
 def log_audit_record(record: Mapping[str, Any]) -> None:
+    safe_record = redact_sensitive(dict(record))
+    audit_id = str(safe_record.get("auditId") or f"audit-{uuid.uuid4().hex[:16]}")
+    bounded_put(AUDIT_RECORDS, audit_id, safe_record, AUDIT_MAX_RECORDS)
+    increment_metric("aiops_audit_records_total")
     print(
-        json.dumps({"aiopsAudit": redact_sensitive(dict(record))}, ensure_ascii=False),
+        json.dumps({"aiopsAudit": safe_record}, ensure_ascii=False),
         flush=True,
     )
 
@@ -6755,6 +6762,38 @@ def latest_readable_records(
     ]
 
 
+def latest_readable_audit_records(
+    subject: Mapping[str, Any],
+    *,
+    product_access_allowed: bool = False,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    records = [
+        record
+        for record in AUDIT_RECORDS.values()
+        if product_access_allowed or can_subject_read_record(record, subject)
+    ]
+    records.sort(key=lambda record: str(record.get("timestamp") or ""), reverse=True)
+    return [
+        {
+            "kind": "AuditRecord",
+            "metadata": {
+                "createdAt": record.get("timestamp"),
+                "name": record.get("auditId"),
+            },
+            "spec": {
+                "action": record.get("action"),
+                "incidentId": record.get("incidentId"),
+                "policy": record.get("policy", {}),
+                "requestId": record.get("requestId"),
+                "runId": record.get("runId"),
+                "target": record.get("target", {}),
+            },
+        }
+        for record in records[:limit]
+    ]
+
+
 @app.get("/v1/aiops/status")
 async def get_aiops_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -6780,6 +6819,10 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
             },
             "productAccessReview": redact_sensitive(product_access_review),
             "records": {
+                "auditRecords": latest_readable_audit_records(
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
                 "diagnosticRequests": latest_readable_records(
                     DIAGNOSTIC_REQUESTS,
                     subject,
@@ -7198,6 +7241,8 @@ async def metrics() -> str:
     for name in sorted(METRICS):
         lines.append(f"# TYPE {name} counter")
         lines.append(f"{name} {METRICS[name]}")
+    lines.append("# TYPE aiops_audit_records gauge")
+    lines.append(f"aiops_audit_records {len(AUDIT_RECORDS)}")
     lines.append("# TYPE aiops_evidence_records gauge")
     lines.append(f"aiops_evidence_records {len(EVIDENCE_RECORDS)}")
     lines.append("# TYPE aiops_workflow_records gauge")

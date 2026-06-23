@@ -1,5 +1,93 @@
 [
   {
+    "type": "console.navigation/section",
+    "properties": {
+      "id": "komsco-aiops",
+      "perspective": "admin",
+      "name": "AIOps"
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "komsco-aiops-dashboard",
+      "perspective": "admin",
+      "section": "komsco-aiops",
+      "name": "Dashboard",
+      "href": "/aiops",
+      "insertAfter": "home"
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "komsco-aiops-audit",
+      "perspective": "admin",
+      "section": "komsco-aiops",
+      "name": "감사",
+      "href": "/aiops/audit",
+      "startsWith": ["/aiops/audit"]
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "komsco-aiops-executions",
+      "perspective": "admin",
+      "section": "komsco-aiops",
+      "name": "실행 기록",
+      "href": "/aiops/executions",
+      "startsWith": ["/aiops/executions"]
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
+      "id": "komsco-aiops-policy",
+      "perspective": "admin",
+      "section": "komsco-aiops",
+      "name": "정책",
+      "href": "/aiops/policy",
+      "startsWith": ["/aiops/policy"]
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "path": "/aiops",
+      "exact": true,
+      "perspective": "admin",
+      "component": { "$codeRef": "AiopsDashboardPage" }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "path": "/aiops/audit",
+      "exact": true,
+      "perspective": "admin",
+      "component": { "$codeRef": "AiopsAuditPage" }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "path": "/aiops/executions",
+      "exact": true,
+      "perspective": "admin",
+      "component": { "$codeRef": "AiopsExecutionRecordsPage" }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "path": "/aiops/policy",
+      "exact": true,
+      "perspective": "admin",
+      "component": { "$codeRef": "AiopsPolicyPage" }
+    }
+  },
+  {
     "type": "console.context-provider",
     "properties": {
       "provider": { "$codeRef": "NullContextProvider" },

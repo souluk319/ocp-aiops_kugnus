@@ -79,6 +79,10 @@
     "displayName": "KOMSCO AI Assistant",
     "description": "KOMSCO AI assistant for OpenShift operations.",
     "exposedModules": {
+      "AiopsAuditPage": "./pages/AiopsAuditPage",
+      "AiopsDashboardPage": "./pages/AiopsDashboardPage",
+      "AiopsExecutionRecordsPage": "./pages/AiopsExecutionRecordsPage",
+      "AiopsPolicyPage": "./pages/AiopsPolicyPage",
       "NullContextProvider": "./components/NullContextProvider",
       "useAssistantOverlay": "./hooks/useAssistantOverlay"
     },

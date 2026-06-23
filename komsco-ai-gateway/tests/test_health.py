@@ -14,6 +14,7 @@ from komsco_ai_gateway.main import (
     ACTION_REGISTRY_DIGEST,
     ACTION_REGISTRY_ENTRIES,
     APPROVAL_DECISIONS,
+    AUDIT_RECORDS,
     BREAK_GLASS_PROFILE_DIGEST,
     BREAK_GLASS_PROFILES,
     BREAK_GLASS_REQUESTS,
@@ -2620,6 +2621,7 @@ def test_workflow_and_metrics_endpoints_expose_non_secret_runtime_state() -> Non
 
 
 def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> None:
+    AUDIT_RECORDS.clear()
     DIAGNOSTIC_REQUESTS.clear()
     ACTION_PROPOSALS.clear()
     SEALED_ACTION_PLANS.clear()
@@ -2640,6 +2642,18 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
         "spec": {"mutationOutcome": {"status": "mutation_succeeded"}},
         "subject": subject,
     }
+    AUDIT_RECORDS["audit-runtime"] = {
+        "schemaVersion": "v1",
+        "action": "chat_request_accepted",
+        "auditId": "audit-runtime",
+        "incidentId": "incident-runtime",
+        "policy": {"decision": "allow_read_only_evidence"},
+        "requestId": "request-runtime",
+        "runId": "run-runtime",
+        "subject": subject,
+        "target": {"messageLength": 10},
+        "timestamp": "2026-06-21T00:02:00Z",
+    }
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -2658,6 +2672,9 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
         }
         assert payload["spec"]["records"]["diagnosticRequests"][0]["metadata"]["name"] == "diag-runtime"
         assert payload["spec"]["records"]["executionRecords"][0]["metadata"]["name"] == "execution-runtime"
+        audit_record = payload["spec"]["records"]["auditRecords"][0]
+        assert audit_record["metadata"]["name"] == "audit-runtime"
+        assert audit_record["spec"]["action"] == "chat_request_accepted"
         assert "Bearer" not in json.dumps(payload)
 
     asyncio.run(run())
