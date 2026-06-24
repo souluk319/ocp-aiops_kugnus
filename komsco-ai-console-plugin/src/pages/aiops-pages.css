@@ -344,6 +344,152 @@
   color: var(--pf-t--global--text--color--subtle);
 }
 
+.komsco-ai-page__action-candidate-board {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  margin-block-end: 16px;
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-inline-start: 4px solid #0066cc;
+  border-radius: 8px;
+}
+
+.komsco-ai-page__action-candidate-board.is-success {
+  border-inline-start-color: #3e8635;
+}
+
+.komsco-ai-page__action-candidate-board.is-warning {
+  border-inline-start-color: #f0ab00;
+}
+
+.komsco-ai-page__action-candidate-board.is-danger {
+  border-inline-start-color: #c9190b;
+}
+
+.komsco-ai-page__action-candidate-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.komsco-ai-page__action-candidate-head span {
+  display: block;
+  margin-block-end: 2px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai-page__action-candidate-head strong {
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai-page__action-candidate-badges,
+.komsco-ai-page__action-candidate-policy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.komsco-ai-page__action-candidate-head code {
+  padding: 3px 8px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  white-space: nowrap;
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai-page__action-candidate-policy {
+  padding: 8px 10px;
+  color: var(--pf-t--global--text--color--subtle);
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px dashed var(--pf-t--global--border--color--default);
+  border-radius: 6px;
+}
+
+.komsco-ai-page__action-candidate-policy svg {
+  flex: 0 0 auto;
+  color: var(--pf-t--global--text--color--status--success--default);
+}
+
+.komsco-ai-page__action-candidate-list {
+  display: grid;
+  gap: 10px;
+}
+
+.komsco-ai-page__action-candidate,
+.komsco-ai-page__action-candidate-empty {
+  min-width: 0;
+  padding: 12px;
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai-page__action-candidate-title {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+  margin-block-end: 10px;
+}
+
+.komsco-ai-page__action-candidate-title span,
+.komsco-ai-page__action-candidate-title code {
+  padding: 3px 7px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai-page__action-candidate-title strong {
+  overflow: hidden;
+  color: var(--pf-t--global--text--color--regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai-page__action-candidate dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+  font-size: var(--pf-t--global--font--size--body--sm);
+}
+
+.komsco-ai-page__action-candidate dt {
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai-page__action-candidate dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--pf-t--global--text--color--regular);
+  overflow-wrap: anywhere;
+}
+
+.komsco-ai-page__action-candidate-empty {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.komsco-ai-page__action-candidate-empty svg {
+  flex: 0 0 auto;
+  color: #3e8635;
+}
+
+.komsco-ai-page__action-candidate-empty span {
+  display: block;
+  margin-block-start: 2px;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
 .komsco-ai-page__source-board--pending {
   grid-template-columns: minmax(0, 1fr);
   color: var(--pf-t--global--text--color--subtle);

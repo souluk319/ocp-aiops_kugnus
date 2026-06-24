@@ -889,6 +889,7 @@ const getDashboardState = async (cdp) =>
         overview: rectOf('.komsco-ai-page__overview'),
         metrics: rectOf('.komsco-ai-page__metrics'),
         anomalyBoard: rectOf('.komsco-ai-page__anomaly-board'),
+        actionCandidateBoard: rectOf('.komsco-ai-page__action-candidate-board'),
         sourceBoard: rectOf('.komsco-ai-page__source-board'),
         assistant: rectOf('.komsco-ai-page__assistant-stage'),
         dashboardGrid: rectOf('.komsco-ai-page__dashboard-grid'),
@@ -909,6 +910,16 @@ const getDashboardState = async (cdp) =>
           node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         ),
         anomalyTotalsText: document.querySelector('.komsco-ai-page__anomaly-totals')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        actionCandidateText: document.querySelector('.komsco-ai-page__action-candidate-board')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        actionCandidateStatus: document.querySelector('.komsco-ai-page__action-candidate-board')?.getAttribute('data-action-candidate-status') || '',
+        actionCandidateTotal: Number(document.querySelector('.komsco-ai-page__action-candidate-board')?.getAttribute('data-action-candidate-total') || '0'),
+        actionCandidateExecution: document.querySelector('.komsco-ai-page__action-candidate-board')?.getAttribute('data-action-candidate-execution') || '',
+        actionCandidateMode: document.querySelector('.komsco-ai-page__action-candidate-board')?.getAttribute('data-action-candidate-mode') || '',
+        actionCandidateItemCount: document.querySelectorAll('.komsco-ai-page__action-candidate').length,
+        actionCandidateVisibleCount: Number(document.querySelector('.komsco-ai-page__action-candidate-list')?.getAttribute('data-visible-action-candidate-count') || document.querySelector('.komsco-ai-page__action-candidate-empty')?.getAttribute('data-visible-action-candidate-count') || '0'),
+        actionCandidateItemTexts: [...document.querySelectorAll('.komsco-ai-page__action-candidate')].map((node) =>
+          node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        ),
         evidencePanelText: panelText('Evidence posture'),
         lightspeedPanelText: panelText('Lightspeed link'),
         rcaContextText: panelText('RCA Context JSON'),
@@ -923,10 +934,20 @@ const run = async () => {
 
   try {
     try {
-      await waitFor(cdp, 'Cywell AI root', "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')");
+      await waitFor(
+        cdp,
+        'Cywell AI root',
+        "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')",
+        60000,
+      );
     } catch (error) {
       cdp = await recoverLoadedAiopsPage(cdp);
-      await waitFor(cdp, 'Cywell AI root', "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')");
+      await waitFor(
+        cdp,
+        'Cywell AI root',
+        "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')",
+        60000,
+      );
       record('recovered loaded Cywell AI tab after stale console target', true, {
         reason: error instanceof Error ? error.message : String(error),
       });
@@ -1047,12 +1068,20 @@ const run = async () => {
         },
       );
       assertCheck(
-        'dashboard anomaly summary sits between metrics and source board before assistant',
-        Boolean(dashboardState.metrics && dashboardState.anomalyBoard && dashboardState.sourceBoard && dashboardState.assistant) &&
+        'dashboard anomaly and action candidates sit between metrics and source board before assistant',
+        Boolean(
+          dashboardState.metrics &&
+            dashboardState.anomalyBoard &&
+            dashboardState.actionCandidateBoard &&
+            dashboardState.sourceBoard &&
+            dashboardState.assistant,
+        ) &&
           dashboardState.metrics.bottom <= dashboardState.anomalyBoard.top + 2 &&
-          dashboardState.anomalyBoard.bottom <= dashboardState.sourceBoard.top + 2 &&
+          dashboardState.anomalyBoard.bottom <= dashboardState.actionCandidateBoard.top + 2 &&
+          dashboardState.actionCandidateBoard.bottom <= dashboardState.sourceBoard.top + 2 &&
           dashboardState.sourceBoard.bottom <= dashboardState.assistant.top + 2,
         {
+          actionCandidateTop: Math.round(dashboardState.actionCandidateBoard?.top || 0),
           anomalyTop: Math.round(dashboardState.anomalyBoard?.top || 0),
           assistantTop: Math.round(dashboardState.assistant?.top || 0),
           metricsBottom: Math.round(dashboardState.metrics?.bottom || 0),
@@ -1102,13 +1131,75 @@ const run = async () => {
           },
         );
       }
+      assertCheck(
+        'dashboard exposes Stage 4 read-only action candidate board',
+        Boolean(dashboardState.actionCandidateBoard) &&
+          dashboardState.actionCandidateText.includes('Cywell AI 조치 후보') &&
+          ['normal', 'candidates', 'blocked', 'unknown'].includes(dashboardState.actionCandidateStatus) &&
+          dashboardState.actionCandidateExecution === 'not-executed' &&
+          dashboardState.actionCandidateMode === 'read-only' &&
+          dashboardState.actionCandidateText.includes('제안만 함 / 실행 안 함'),
+        {
+          actionCandidateExecution: dashboardState.actionCandidateExecution,
+          actionCandidateMode: dashboardState.actionCandidateMode,
+          actionCandidateStatus: dashboardState.actionCandidateStatus,
+          actionCandidateText: dashboardState.actionCandidateText.slice(0, 720),
+        },
+      );
+      assertCheck(
+        'dashboard action candidate board states mutation-disabled forbidden actions',
+        dashboardState.actionCandidateText.includes('mutation disabled') &&
+          ['apply', 'delete', 'patch', 'scale', 'exec'].every((verb) =>
+            dashboardState.actionCandidateText.includes(verb),
+          ),
+        {
+          actionCandidateText: dashboardState.actionCandidateText.slice(0, 720),
+        },
+      );
+      assertCheck(
+        'dashboard action candidate board shows compact top three candidates only',
+        dashboardState.actionCandidateVisibleCount <= 3 && dashboardState.actionCandidateItemCount <= 3,
+        {
+          actionCandidateItemCount: dashboardState.actionCandidateItemCount,
+          actionCandidateVisibleCount: dashboardState.actionCandidateVisibleCount,
+        },
+      );
+      if (dashboardState.actionCandidateItemCount > 0) {
+        assertCheck(
+          'dashboard action candidates expose risk, precheck, impact, approval, and verification',
+          dashboardState.actionCandidateItemTexts.every(
+            (text) =>
+              text.includes('대상') &&
+              text.includes('상태') &&
+              text.includes('선행 확인') &&
+              text.includes('예상 영향') &&
+              text.includes('승인') &&
+              text.includes('검증') &&
+              text.includes('실행 안 함'),
+          ),
+          {
+            actionCandidateItemTexts: dashboardState.actionCandidateItemTexts,
+          },
+        );
+      } else {
+        assertCheck(
+          'dashboard action candidate empty state avoids fake execution claims',
+          dashboardState.actionCandidateText.includes('제안할 조치 후보 없음') ||
+            dashboardState.actionCandidateText.includes('근거가 충분하지 않음') ||
+            dashboardState.actionCandidateText.includes('필수 데이터 소스'),
+          {
+            actionCandidateStatus: dashboardState.actionCandidateStatus,
+            actionCandidateText: dashboardState.actionCandidateText,
+          },
+        );
+      }
       await evaluate(
         cdp,
-        `document.querySelector('.komsco-ai-page__anomaly-board')?.scrollIntoView({ block: 'center', inline: 'nearest' })`,
+        `document.querySelector('.komsco-ai-page__action-candidate-board')?.scrollIntoView({ block: 'center', inline: 'nearest' })`,
       );
       await sleep(250);
-      const anomalyShot = await screenshot(cdp, '.tmp-aiops-kugnus-ui-verify-anomaly-summary.png');
-      record('anomaly summary screenshot saved', true, { path: anomalyShot });
+      const actionCandidateShot = await screenshot(cdp, '.tmp-aiops-kugnus-ui-verify-action-candidates.png');
+      record('action candidate screenshot saved', true, { path: actionCandidateShot });
       [
         'Evidence posture',
         'Lightspeed link',

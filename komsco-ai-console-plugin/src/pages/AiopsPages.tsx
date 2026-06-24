@@ -17,6 +17,7 @@ import {
   TachometerAltIcon,
 } from '@patternfly/react-icons';
 import {
+  type AiopsActionCandidate,
   type AiopsAnomalyFinding,
   type AiopsOverview,
   type AiopsRecord,
@@ -293,6 +294,24 @@ const anomalyResourceLabel = (finding: AiopsAnomalyFinding): string => {
   return `${namespace}/${kind}/${name}`;
 };
 
+const actionCandidateTone = (riskLevel?: string, status?: string): Tone => {
+  if (status === 'normal') {
+    return 'success';
+  }
+  if (status === 'blocked' || riskLevel === 'high') {
+    return 'danger';
+  }
+  return 'warning';
+};
+
+const actionCandidateTargetLabel = (candidate: AiopsActionCandidate): string => {
+  const target = candidate.target ?? {};
+  const namespace = target.namespace || 'cluster-scoped';
+  const kind = target.kind || 'Resource';
+  const name = target.name || candidate.title;
+  return `${namespace}/${kind}/${name}`;
+};
+
 const AnomalySummaryBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
   const anomalies = overview?.spec.anomalies?.spec;
   const status = anomalies?.status ?? (overview ? 'unknown' : 'loading');
@@ -387,6 +406,105 @@ const AnomalySummaryBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ove
                 ? failedSources.map((source) => `${source.label}: ${source.status}`).join(' / ')
                 : normalSignals.join(' / ')) || '데이터 소스 상태 확인 중'}
             </span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
+  const actionCandidates = overview?.spec.actionCandidates?.spec;
+  const candidates = actionCandidates?.candidates ?? [];
+  const visibleCandidates = candidates.slice(0, 3);
+  const totals = actionCandidates?.totals ?? {};
+  const status = actionCandidates?.status ?? (overview ? 'unknown' : 'loading');
+  const tone = actionCandidateTone(visibleCandidates[0]?.riskLevel, status);
+  const forbiddenVerbs = actionCandidates?.safety?.forbiddenMutationVerbs ?? ['apply', 'delete', 'patch', 'scale', 'exec'];
+  const mode = actionCandidates?.safety?.mode ?? 'read-only';
+
+  if (!overview) {
+    return (
+      <section className="komsco-ai-page__action-candidate-board is-warning" aria-label="Read-only action candidates">
+        <div className="komsco-ai-page__action-candidate-head">
+          <div>
+            <span>read-only 조치 후보</span>
+            <strong>overview 수집 중</strong>
+          </div>
+          <code>제안만 함 / 실행 안 함</code>
+        </div>
+        <p>이상 징후를 읽은 뒤 실행 없는 조치 후보를 정리합니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className={`komsco-ai-page__action-candidate-board is-${tone}`}
+      aria-label="Read-only action candidates"
+      data-action-candidate-status={status}
+      data-action-candidate-total={totals.total ?? candidates.length}
+      data-action-candidate-execution="not-executed"
+      data-action-candidate-mode={mode}
+    >
+      <div className="komsco-ai-page__action-candidate-head">
+        <div>
+          <span>Cywell AI 조치 후보</span>
+          <strong>{actionCandidates?.statusLabel ?? '조치 후보 상태 확인 중'}</strong>
+        </div>
+        <div className="komsco-ai-page__action-candidate-badges">
+          <code>제안만 함 / 실행 안 함</code>
+          <code>{mode}</code>
+          <code>승인 필요 {totals.approvalRequired ?? candidates.length}</code>
+        </div>
+      </div>
+
+      <div className="komsco-ai-page__action-candidate-policy">
+        <ShieldAltIcon />
+        <span>
+          mutation disabled. 금지 동작: {forbiddenVerbs.join(', ')}
+        </span>
+      </div>
+
+      {visibleCandidates.length > 0 ? (
+        <div
+          className="komsco-ai-page__action-candidate-list"
+          data-visible-action-candidate-count={visibleCandidates.length}
+        >
+          {visibleCandidates.map((candidate) => (
+            <article className="komsco-ai-page__action-candidate" key={candidate.id}>
+              <div className="komsco-ai-page__action-candidate-title">
+                <span>{candidate.riskLabel || candidate.riskLevel || '위험도 확인'}</span>
+                <strong>{candidate.title}</strong>
+                <code>P{candidate.priority ?? '-'}</code>
+              </div>
+              <dl>
+                <dt>대상</dt>
+                <dd>{actionCandidateTargetLabel(candidate)}</dd>
+                <dt>상태</dt>
+                <dd>{candidate.statusLabel || '제안만 함 / 실행 안 함'}</dd>
+                <dt>선행 확인</dt>
+                <dd>{candidate.prerequisiteChecks?.[0] || '관련 리소스 상태와 이벤트 확인'}</dd>
+                <dt>예상 영향</dt>
+                <dd>{candidate.expectedImpact || '승인 전 영향 범위 확인 필요'}</dd>
+                <dt>승인</dt>
+                <dd>{candidate.approvalRequired ? '승인 전 실행 불가' : '승인 정책 확인 필요'}</dd>
+                <dt>검증</dt>
+                <dd>{candidate.verificationChecks?.[0] || '조치 후 상태 재확인 필요'}</dd>
+              </dl>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="komsco-ai-page__action-candidate-empty" data-visible-action-candidate-count="0">
+          <CheckCircleIcon />
+          <div>
+            <strong>
+              {status === 'normal'
+                ? '현재 제안할 조치 후보 없음'
+                : '조치 후보를 만들 만큼 근거가 충분하지 않음'}
+            </strong>
+            <span>{actionCandidates?.statusLabel ?? '이상 징후 데이터와 필수 소스 상태를 먼저 확인합니다.'}</span>
           </div>
         </div>
       )}
@@ -869,6 +987,8 @@ export const AiopsDashboardPage: React.FC = () => {
       </div>
 
       <AnomalySummaryBoard overview={data.overview} />
+
+      <ActionCandidateBoard overview={data.overview} />
 
       <DataSourceBoard overview={data.overview} />
 

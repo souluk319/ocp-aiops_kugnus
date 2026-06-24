@@ -148,6 +148,75 @@ export type AiopsAnomalySummary = {
   };
 };
 
+export type AiopsActionCandidate = {
+  approvalRequired?: boolean;
+  blockedActions?: string[];
+  blockedReasons?: string[];
+  confidence?: string;
+  evidence?: string;
+  evidenceRefs?: Array<Record<string, unknown>>;
+  executable?: boolean;
+  executionPolicy?: {
+    executionEnabled?: boolean;
+    mode?: string;
+    mutationVerbsDisabled?: boolean;
+    proposalOnly?: boolean;
+  };
+  expectedImpact?: string;
+  id: string;
+  mutationSubmitted?: boolean;
+  priority?: number;
+  prerequisiteChecks?: string[];
+  recommendationSteps?: string[];
+  riskLabel?: string;
+  riskLevel?: 'high' | 'medium' | 'low' | string;
+  severity?: string;
+  sourceFindingId?: string;
+  sourceType?: string;
+  statusLabel?: string;
+  target?: {
+    kind?: string;
+    name?: string;
+    namespace?: string;
+  };
+  title: string;
+  verificationChecks?: string[];
+};
+
+export type AiopsActionCandidateSummary = {
+  apiVersion?: string;
+  kind?: 'AIOpsActionCandidateSummary' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec?: {
+    candidates?: AiopsActionCandidate[];
+    dataSources?: AiopsDataSourceStatus[];
+    safety?: {
+      forbiddenMutationVerbs?: string[];
+      methodsUsed?: string[];
+      mode?: string;
+      mutationsEnabled?: boolean;
+      proposalOnly?: boolean;
+      unrestrictedCommandsEnabled?: boolean;
+    };
+    source?: {
+      anomalySummaryName?: string;
+      requiredDataSourceGaps?: AiopsDataSourceStatus[];
+    };
+    status?: 'normal' | 'candidates' | 'blocked' | 'unknown' | string;
+    statusLabel?: string;
+    totals?: {
+      approvalRequired?: number;
+      blockedByRequiredSourceGap?: number;
+      highRisk?: number;
+      shown?: number;
+      total?: number;
+    };
+  };
+};
+
 export type AiopsOverview = {
   apiVersion?: string;
   kind?: 'AIOpsOverview' | string;
@@ -167,6 +236,7 @@ export type AiopsOverview = {
       target?: string;
     };
     anomalies?: AiopsAnomalySummary;
+    actionCandidates?: AiopsActionCandidateSummary;
     dataSources: AiopsDataSourceStatus[];
     monitoring?: {
       probe?: {

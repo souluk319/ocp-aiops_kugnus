@@ -44,6 +44,7 @@ from komsco_ai_gateway.main import (
     build_action_proposal_record,
     build_action_proposal_fallback,
     build_action_access_review_request,
+    build_aiops_action_candidates,
     build_aiops_anomaly_summary,
     build_aiops_overview,
     build_active_alerts_rca_evidence,
@@ -4145,6 +4146,94 @@ def test_build_aiops_anomaly_summary_does_not_report_false_normal_on_source_gap(
     assert "정상" not in missing_optional["spec"]["statusLabel"]
     assert failed_required["spec"]["status"] == "error"
     assert failed_required["spec"]["statusLabel"] == "필수 이상 징후 데이터 소스 확인 실패"
+
+
+def test_build_aiops_action_candidates_are_read_only_and_not_action_records() -> None:
+    before_counts = {
+        "approvals": len(APPROVAL_DECISIONS),
+        "executions": len(EXECUTION_RECORDS),
+        "plans": len(SEALED_ACTION_PLANS),
+        "proposals": len(ACTION_PROPOSALS),
+    }
+    cluster_summary = {
+        "healthScore": 62,
+        "nodes": {"notReady": 0, "pressureCount": 0},
+        "operators": {"degraded": 0, "issues": [], "progressing": 0, "unavailable": 0},
+        "version": {"upgradeable": True},
+    }
+    pods_payload = {
+        "items": [
+            {
+                "metadata": {"name": "api-1", "namespace": "prod"},
+                "status": {
+                    "containerStatuses": [
+                        {
+                            "lastState": {"terminated": {"reason": "Error"}},
+                            "name": "api",
+                            "restartCount": 9,
+                            "state": {"waiting": {"message": "back-off restarting", "reason": "CrashLoopBackOff"}},
+                        }
+                    ],
+                    "phase": "Running",
+                },
+            }
+        ]
+    }
+    data_sources = [
+        {"label": "Cluster operators", "name": "clusteroperators", "path": "", "required": False, "status": "available"},
+        {"label": "Pod anomaly signals", "name": "pods", "path": "", "required": True, "status": "available"},
+        {"label": "Warning events", "name": "events", "path": "", "required": True, "status": "available"},
+        {"label": "Active alerts", "name": "alerts", "path": "", "required": False, "status": "available"},
+        {"label": "Restart increase metric", "name": "restart-metrics", "path": "", "required": False, "status": "available"},
+    ]
+
+    anomaly_summary = build_aiops_anomaly_summary(
+        cluster_summary,
+        pods_payload,
+        {"items": []},
+        {"result": [], "status": "available"},
+        {"result": [], "status": "available"},
+        data_sources,
+    )
+    action_candidates = build_aiops_action_candidates(anomaly_summary, data_sources)
+    overview = build_aiops_overview(
+        cluster_summary,
+        data_sources,
+        {"thanos": "https://thanos.test"},
+        {"query": "up", "resultCount": 1, "status": "available"},
+        anomaly_summary,
+    )
+
+    candidate_spec = action_candidates["spec"]
+    candidate = candidate_spec["candidates"][0]
+
+    assert action_candidates["kind"] == "AIOpsActionCandidateSummary"
+    assert candidate_spec["status"] == "candidates"
+    assert candidate_spec["safety"]["mode"] == "read-only"
+    assert candidate_spec["safety"]["proposalOnly"] is True
+    assert candidate_spec["safety"]["mutationsEnabled"] is False
+    assert candidate["approvalRequired"] is True
+    assert candidate["executable"] is False
+    assert candidate["mutationSubmitted"] is False
+    assert candidate["executionPolicy"]["executionEnabled"] is False
+    assert candidate["statusLabel"] == "제안만 함 / 실행 안 함"
+    assert candidate["riskLevel"] == "high"
+    assert candidate["prerequisiteChecks"]
+    assert candidate["expectedImpact"]
+    assert candidate["verificationChecks"]
+    assert candidate["evidenceRefs"][0]["status"] == "collected"
+    assert {"apply", "delete", "patch", "scale", "exec"}.issubset(set(candidate["blockedActions"]))
+    assert "planId" not in candidate
+    assert "approvalId" not in candidate
+    assert "executionId" not in candidate
+    assert "sealedActionPlan" not in candidate
+    assert overview["spec"]["actionCandidates"]["spec"]["candidates"][0]["id"] == candidate["id"]
+    assert before_counts == {
+        "approvals": len(APPROVAL_DECISIONS),
+        "executions": len(EXECUTION_RECORDS),
+        "plans": len(SEALED_ACTION_PLANS),
+        "proposals": len(ACTION_PROPOSALS),
+    }
 
 
 def test_data_source_status_marks_paginated_lists_as_partial() -> None:
