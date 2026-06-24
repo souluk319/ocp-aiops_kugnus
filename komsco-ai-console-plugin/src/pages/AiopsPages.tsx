@@ -17,6 +17,7 @@ import {
   TachometerAltIcon,
 } from '@patternfly/react-icons';
 import {
+  type AiopsAnomalyFinding,
   type AiopsOverview,
   type AiopsRecord,
   type AiopsRuntimeStatus,
@@ -261,6 +262,136 @@ const dataSourceTone = (status?: string): Tone => {
     return 'danger';
   }
   return 'warning';
+};
+
+const anomalyStatusTone = (status?: string): Tone => {
+  if (status === 'normal') {
+    return 'success';
+  }
+  if (status === 'risk' || status === 'error') {
+    return 'danger';
+  }
+  return 'warning';
+};
+
+const anomalySeverityTone = (severity?: string): Tone => {
+  if (severity === '위험') {
+    return 'danger';
+  }
+  if (severity === '정상') {
+    return 'success';
+  }
+  return 'warning';
+};
+
+const anomalyResourceLabel = (finding: AiopsAnomalyFinding): string => {
+  const resource = finding.resource ?? {};
+  const namespace = finding.namespace || resource.namespace || 'cluster-scoped';
+  const name = resource.name || finding.title;
+  const kind = resource.kind || finding.category || 'Resource';
+
+  return `${namespace}/${kind}/${name}`;
+};
+
+const AnomalySummaryBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
+  const anomalies = overview?.spec.anomalies?.spec;
+  const status = anomalies?.status ?? (overview ? 'unknown' : 'loading');
+  const tone = anomalyStatusTone(status);
+  const findings = anomalies?.findings ?? [];
+  const topFindings = findings.slice(0, 3);
+  const totals = anomalies?.totals ?? {};
+  const dataSources = anomalies?.dataSources ?? [];
+  const failedSources = dataSources.filter((source) => source.status !== 'available');
+  const normalSignals = anomalies?.normalSignals ?? [];
+  const sourceText =
+    dataSources.length > 0
+      ? `${dataSources.filter((source) => source.status === 'available').length}/${dataSources.length} sources`
+      : 'source pending';
+
+  if (!overview) {
+    return (
+      <section className="komsco-ai-page__anomaly-board is-warning" aria-label="Cywell AI anomaly summary">
+        <div className="komsco-ai-page__anomaly-head">
+          <div>
+            <span>Cywell AI 이상 징후</span>
+            <strong>overview 수집 중</strong>
+          </div>
+          <code>read-only</code>
+        </div>
+        <p>회사 OCP의 Alert, Pod, Operator, Event, 재시작 지표를 읽는 중입니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className={`komsco-ai-page__anomaly-board is-${tone}`}
+      aria-label="Cywell AI anomaly summary"
+      data-anomaly-status={status}
+      data-anomaly-total={totals.total ?? 0}
+    >
+      <div className="komsco-ai-page__anomaly-head">
+        <div>
+          <span>Cywell AI 이상 징후 자동 정리</span>
+          <strong>{anomalies?.statusLabel ?? '이상 징후 상태 확인 중'}</strong>
+        </div>
+        <div className="komsco-ai-page__anomaly-badges">
+          <code>{sourceText}</code>
+          <code>{overview.spec.anomalies?.spec?.safety?.mode ?? 'read-only'}</code>
+        </div>
+      </div>
+
+      <div className="komsco-ai-page__anomaly-totals" aria-label="Anomaly severity totals">
+        <span className="is-danger">위험 {totals.danger ?? 0}</span>
+        <span className="is-warning">확인 필요 {totals.attention ?? 0}</span>
+        <span>주의 {totals.warning ?? 0}</span>
+        <span>총 {totals.total ?? findings.length}</span>
+      </div>
+
+      {topFindings.length > 0 ? (
+        <div className="komsco-ai-page__anomaly-list" data-visible-anomaly-count={topFindings.length}>
+          {topFindings.map((finding) => {
+            const findingTone = anomalySeverityTone(finding.severity);
+            return (
+              <article className={`komsco-ai-page__anomaly-item is-${findingTone}`} key={finding.id}>
+                <div className="komsco-ai-page__anomaly-item-head">
+                  <span>{finding.severity}</span>
+                  <strong>{finding.title}</strong>
+                  <code>P{finding.priority}</code>
+                </div>
+                <dl>
+                  <dt>대상</dt>
+                  <dd>{anomalyResourceLabel(finding)}</dd>
+                  <dt>원인 후보</dt>
+                  <dd>{finding.candidateCause || finding.reason || '추가 확인 필요'}</dd>
+                  <dt>근거</dt>
+                  <dd>{finding.evidence || finding.message || '근거 수집 중'}</dd>
+                  <dt>다음 확인</dt>
+                  <dd>{finding.nextCheck || '관련 리소스 상태와 이벤트 확인'}</dd>
+                </dl>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="komsco-ai-page__anomaly-normal" data-visible-anomaly-count="0">
+          {status === 'normal' ? <CheckCircleIcon /> : <ExclamationTriangleIcon />}
+          <div>
+            <strong>
+              {status === 'normal'
+                ? '현재 수집 범위에서 주요 이상 징후 없음'
+                : '아직 정상으로 단정할 수 없음'}
+            </strong>
+            <span>
+              {(failedSources.length > 0
+                ? failedSources.map((source) => `${source.label}: ${source.status}`).join(' / ')
+                : normalSignals.join(' / ')) || '데이터 소스 상태 확인 중'}
+            </span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 };
 
 const DataSourceBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
@@ -736,6 +867,8 @@ export const AiopsDashboardPage: React.FC = () => {
           value={actionCountValue}
         />
       </div>
+
+      <AnomalySummaryBoard overview={data.overview} />
 
       <DataSourceBoard overview={data.overview} />
 

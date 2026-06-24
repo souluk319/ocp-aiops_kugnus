@@ -89,6 +89,65 @@ export type AiopsDataSourceStatus = {
   status: 'available' | 'unavailable' | 'error' | string;
 };
 
+export type AiopsAnomalyFinding = {
+  candidateCause?: string;
+  category?: string;
+  evidence?: string;
+  id: string;
+  impact?: string;
+  lastObservedAt?: string;
+  message?: string;
+  namespace?: string;
+  nextCheck?: string;
+  priority: number;
+  reason?: string;
+  resource?: {
+    kind?: string;
+    name?: string;
+    namespace?: string;
+  };
+  severity: '정상' | '주의' | '확인 필요' | '위험' | string;
+  source: string;
+  status?: string;
+  statusLabel?: string;
+  title: string;
+  type: string;
+};
+
+export type AiopsAnomalySummary = {
+  apiVersion?: string;
+  kind?: 'AIOpsAnomalySummary' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec?: {
+    dataSources?: AiopsDataSourceStatus[];
+    excludedAlerts?: Array<Record<string, unknown>>;
+    findings?: AiopsAnomalyFinding[];
+    normalSignals?: string[];
+    query?: {
+      limit?: number;
+      namespace?: string;
+      sinceMinutes?: number;
+    };
+    safety?: {
+      methodsUsed?: string[];
+      mode?: string;
+      mutationsEnabled?: boolean;
+      unrestrictedCommandsEnabled?: boolean;
+    };
+    status?: 'normal' | 'warning' | 'attention' | 'risk' | 'error' | 'unknown' | string;
+    statusLabel?: string;
+    totals?: {
+      attention?: number;
+      danger?: number;
+      total?: number;
+      warning?: number;
+    };
+  };
+};
+
 export type AiopsOverview = {
   apiVersion?: string;
   kind?: 'AIOpsOverview' | string;
@@ -107,6 +166,7 @@ export type AiopsOverview = {
       statusLabel: string;
       target?: string;
     };
+    anomalies?: AiopsAnomalySummary;
     dataSources: AiopsDataSourceStatus[];
     monitoring?: {
       probe?: {

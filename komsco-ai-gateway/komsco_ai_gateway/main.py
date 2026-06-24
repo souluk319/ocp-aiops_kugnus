@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import hashlib
 import json
 import os
 import re
@@ -3212,6 +3213,12 @@ def data_source_status(
         item["reason"] = reason
     if http_status is not None:
         item["httpStatus"] = http_status
+    if isinstance(payload, Mapping):
+        metadata = payload.get("metadata")
+        if isinstance(metadata, Mapping) and metadata.get("continue"):
+            item["status"] = "partial"
+            item["reason"] = "Kubernetes list response is paginated; additional pages were not fetched in this read-only summary."
+            item["continueTokenPresent"] = True
     return item
 
 
@@ -3253,7 +3260,18 @@ async def fetch_ocp_json_observed(
             http_status=response.status_code,
         )
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        return None, data_source_status(
+            label=label,
+            name=name,
+            path=path,
+            required=required,
+            reason=f"Invalid JSON response: {exc}",
+            status="error",
+        )
+
     if isinstance(payload, Mapping):
         return payload, data_source_status(
             label=label,
@@ -3284,10 +3302,10 @@ def monitoring_urls_from_config(configmap_payload: Mapping[str, Any] | None) -> 
     }
 
 
-async def probe_thanos_query(thanos_url: str, authorization: str) -> dict[str, Any]:
+async def query_thanos_instant(thanos_url: str, authorization: str, query: str) -> dict[str, Any]:
     if not thanos_url:
         return {
-            "query": "up",
+            "query": query,
             "status": "unavailable",
             "reason": "thanosPublicURL is not published in monitoring-shared-config.",
         }
@@ -3300,26 +3318,518 @@ async def probe_thanos_query(thanos_url: str, authorization: str) -> dict[str, A
             response = await client.get(
                 f"{thanos_url.rstrip('/')}/api/v1/query",
                 headers={"Accept": "application/json", "Authorization": authorization},
-                params={"query": "up"},
+                params={"query": query},
             )
     except httpx.HTTPError as exc:
-        return {"query": "up", "status": "error", "reason": str(exc)}
+        return {"query": query, "status": "error", "reason": str(exc)}
 
     if response.status_code >= 400:
         return {
             "httpStatus": response.status_code,
-            "query": "up",
+            "query": query,
             "reason": response.text[:240],
             "status": "error",
         }
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        return {"query": query, "status": "error", "reason": f"Invalid JSON response: {exc}"}
+
+    if not isinstance(payload, Mapping):
+        return {"query": query, "status": "error", "reason": "Thanos response was not a JSON object."}
+    prometheus_status = str(payload.get("status") or "")
+    if prometheus_status and prometheus_status != "success":
+        reason = (
+            str(payload.get("error") or payload.get("errorType") or "Prometheus query failed")
+        )
+        return {"query": query, "status": "error", "reason": reason[:240]}
+
     data = payload.get("data", {}) if isinstance(payload, Mapping) else {}
     result = data.get("result", []) if isinstance(data, Mapping) else []
+    if not isinstance(result, list):
+        return {"query": query, "status": "error", "reason": "Thanos query result was not a vector list."}
     return {
-        "query": "up",
-        "resultCount": len(result) if isinstance(result, list) else 0,
-        "status": "available" if isinstance(result, list) else "error",
+        "query": query,
+        "result": result[:50],
+        "resultCount": len(result),
+        "status": "partial" if len(result) > 50 else "available",
+        **(
+            {"reason": "Thanos vector result was capped at 50 series for dashboard summary."}
+            if len(result) > 50
+            else {}
+        ),
+    }
+
+
+async def probe_thanos_query(thanos_url: str, authorization: str) -> dict[str, Any]:
+    return await query_thanos_instant(thanos_url, authorization, "up")
+
+
+def anomaly_resource(
+    *,
+    kind: str,
+    name: str,
+    namespace: str = "",
+) -> dict[str, str]:
+    resource = {"kind": kind, "name": name}
+    if namespace:
+        resource["namespace"] = namespace
+    return resource
+
+
+def anomaly_finding(
+    *,
+    candidate_cause: str,
+    evidence: str,
+    finding_type: str,
+    priority: int,
+    resource: Mapping[str, Any],
+    severity: str,
+    source: str,
+    title: str,
+    next_check: str = "",
+    namespace: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    identity = json.dumps(
+        {
+            "namespace": namespace or resource.get("namespace"),
+            "priority": priority,
+            "resource": dict(resource),
+            "source": source,
+            "title": title,
+            "type": finding_type,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    severity_rank = {"위험": "danger", "확인 필요": "attention", "주의": "warning"}
+    finding = {
+        "candidateCause": candidate_cause,
+        "category": finding_type.split("_", 1)[0],
+        "evidence": evidence,
+        "id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16],
+        "impact": (
+            "서비스 영향 또는 운영 안정성 저하 가능성이 높습니다."
+            if severity == "위험"
+            else "운영자가 원인 확인과 후속 관찰을 해야 합니다."
+            if severity == "확인 필요"
+            else "즉시 장애로 단정하지 않고 추세를 확인해야 합니다."
+        ),
+        "lastObservedAt": now_rfc3339(),
+        "message": evidence,
+        "priority": priority,
+        "resource": dict(resource),
+        "severity": severity,
+        "source": source,
+        "statusLabel": severity,
+        "status": severity_rank.get(severity, "info"),
+        "title": title,
+        "type": finding_type,
+    }
+    if namespace or resource.get("namespace"):
+        finding["namespace"] = namespace or str(resource.get("namespace") or "")
+    if next_check:
+        finding["nextCheck"] = next_check
+    if reason:
+        finding["reason"] = reason
+    return finding
+
+
+def pod_anomaly_findings(pods_payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for pod in resource_items(pods_payload):
+        namespace = metadata_namespace(pod)
+        pod_name = metadata_name(pod)
+        status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+        phase = str(status.get("phase") or "Unknown")
+        resource = anomaly_resource(kind="Pod", namespace=namespace, name=pod_name)
+        owner = pod_owner_summary(pod)
+        ready = pod_ready_summary(pod)
+
+        if phase == "Pending":
+            findings.append(
+                anomaly_finding(
+                    candidate_cause="스케줄링, PVC, 이미지 pull, node resource 중 하나가 막혔을 가능성이 있습니다. Events 확인이 우선입니다.",
+                    evidence=f"Pod phase=`Pending`, ready={ready}, owner={owner}",
+                    finding_type="pod_pending",
+                    namespace=namespace,
+                    next_check=f"oc get events -n {namespace} --field-selector involvedObject.name={pod_name}",
+                    priority=25,
+                    reason=phase,
+                    resource=resource,
+                    severity="확인 필요",
+                    source="pods",
+                    title=f"Pending Pod: {namespace}/{pod_name}",
+                )
+            )
+
+        statuses = status.get("containerStatuses", [])
+        if not isinstance(statuses, list):
+            statuses = []
+        for container in statuses:
+            if not isinstance(container, Mapping):
+                continue
+
+            container_name = str(container.get("name") or "unknown-container")
+            state = container.get("state", {}) if isinstance(container.get("state"), Mapping) else {}
+            waiting = state.get("waiting") if isinstance(state.get("waiting"), Mapping) else {}
+            waiting_reason = str(waiting.get("reason") or "")
+            waiting_message = str(waiting.get("message") or "")
+            restart_count = int(container.get("restartCount") or 0)
+            last_state = container.get("lastState", {}) if isinstance(container.get("lastState"), Mapping) else {}
+            last_terminated = (
+                last_state.get("terminated")
+                if isinstance(last_state.get("terminated"), Mapping)
+                else {}
+            )
+            last_reason = str(last_terminated.get("reason") or "")
+
+            if waiting_reason in {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"}:
+                is_pull = waiting_reason in {"ImagePullBackOff", "ErrImagePull"}
+                findings.append(
+                    anomaly_finding(
+                        candidate_cause=(
+                            "이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이 우선입니다."
+                            if is_pull
+                            else "컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다."
+                        ),
+                        evidence=(
+                            f"container={container_name}, waiting.reason={waiting_reason}, "
+                            f"restartCount={restart_count}, message={waiting_message[:180]}"
+                        ),
+                        finding_type="pod_image_pull" if is_pull else "pod_crashloop",
+                        namespace=namespace,
+                        next_check=(
+                            f"oc describe pod {pod_name} -n {namespace}"
+                            if is_pull
+                            else f"oc logs {pod_name} -n {namespace} -c {container_name} --previous"
+                        ),
+                        priority=5 if not is_pull else 8,
+                        reason=waiting_reason,
+                        resource=resource,
+                        severity="위험",
+                        source="pods",
+                        title=f"{waiting_reason}: {namespace}/{pod_name}",
+                    )
+                )
+            elif waiting_reason and waiting_reason not in {"ContainerCreating", "PodInitializing"}:
+                findings.append(
+                    anomaly_finding(
+                        candidate_cause="컨테이너가 정상 실행 상태로 진입하지 못했습니다. waiting reason과 Events를 같이 확인해야 합니다.",
+                        evidence=f"container={container_name}, waiting.reason={waiting_reason}, message={waiting_message[:180]}",
+                        finding_type="pod_waiting",
+                        namespace=namespace,
+                        next_check=f"oc describe pod {pod_name} -n {namespace}",
+                        priority=18,
+                        reason=waiting_reason,
+                        resource=resource,
+                        severity="확인 필요",
+                        source="pods",
+                        title=f"Waiting container: {namespace}/{pod_name}",
+                    )
+                )
+
+            if restart_count >= 5:
+                findings.append(
+                    anomaly_finding(
+                        candidate_cause="누적 재시작 이력이 있습니다. 현재 장애인지 최근 복구 이력인지는 lastState와 metrics 증가량 확인이 필요합니다.",
+                        evidence=(
+                            f"container={container_name}, restartCount={restart_count}, "
+                            f"lastState.reason={last_reason or '-'}"
+                        ),
+                        finding_type="pod_restart_history",
+                        namespace=namespace,
+                        next_check=f"oc get pod {pod_name} -n {namespace} -o jsonpath='{{.status.containerStatuses}}'",
+                        priority=35 if restart_count < 20 else 16,
+                        reason=last_reason or "RestartCountHigh",
+                        resource=resource,
+                        severity="주의" if restart_count < 20 else "확인 필요",
+                        source="pods",
+                        title=f"Container restart history: {namespace}/{pod_name}",
+                    )
+                )
+
+    return findings
+
+
+def event_anomaly_findings(events_payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for event in resource_items(events_payload):
+        event_type = str(event.get("type") or "")
+        if event_type != "Warning":
+            continue
+        namespace = metadata_namespace(event)
+        reason = str(event.get("reason") or "Warning")
+        message = str(event.get("message") or "")
+        involved = event.get("involvedObject", {}) if isinstance(event.get("involvedObject"), Mapping) else {}
+        resource = anomaly_resource(
+            kind=str(involved.get("kind") or "Event"),
+            namespace=str(involved.get("namespace") or namespace),
+            name=str(involved.get("name") or metadata_name(event)),
+        )
+        priority = 12 if reason in {"FailedScheduling", "FailedMount", "FailedAttachVolume"} else 28
+        findings.append(
+            anomaly_finding(
+                candidate_cause="Kubernetes Warning Event가 발생했습니다. 해당 리소스 describe와 같은 namespace의 후속 이벤트 확인이 필요합니다.",
+                evidence=f"event.reason={reason}, message={message[:220]}",
+                finding_type="warning_event",
+                namespace=str(resource.get("namespace") or namespace),
+                next_check=f"oc describe {resource.get('kind')} {resource.get('name')} -n {resource.get('namespace')}",
+                priority=priority,
+                reason=reason,
+                resource=resource,
+                severity="확인 필요" if priority <= 20 else "주의",
+                source="events",
+                title=f"Warning Event: {reason}",
+            )
+        )
+    return findings[:12]
+
+
+def operator_anomaly_findings(cluster_summary_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    operators = cluster_summary_payload.get("operators", {}) if isinstance(cluster_summary_payload.get("operators"), Mapping) else {}
+    issues = operators.get("issues") if isinstance(operators.get("issues"), list) else []
+    findings: list[dict[str, Any]] = []
+    for issue in issues:
+        if not isinstance(issue, Mapping):
+            continue
+        name = str(issue.get("name") or "unknown-operator")
+        unavailable = not bool(issue.get("available"))
+        degraded = bool(issue.get("degraded"))
+        progressing = bool(issue.get("progressing"))
+        upgradeable = str(issue.get("upgradeable") or "")
+        reason = str(issue.get("reason") or "")
+        message = str(issue.get("message") or "")
+        severity = "위험" if unavailable or degraded else "확인 필요"
+        priority = 3 if unavailable else 6 if degraded else 22
+        if upgradeable == "False":
+            priority = min(priority, 14)
+        findings.append(
+            anomaly_finding(
+                candidate_cause="ClusterOperator condition이 정상 조건을 벗어났습니다. reason/message를 기준으로 관련 operand와 namespace를 확인해야 합니다.",
+                evidence=(
+                    f"available={issue.get('available')}, degraded={degraded}, progressing={progressing}, "
+                    f"upgradeable={upgradeable or '-'}, reason={reason}, message={message[:180]}"
+                ),
+                finding_type="clusteroperator_condition",
+                next_check=f"oc get clusteroperator {name} -o yaml",
+                priority=priority,
+                reason=reason or "ClusterOperatorCondition",
+                resource=anomaly_resource(kind="ClusterOperator", name=name),
+                severity=severity,
+                source="clusteroperators",
+                title=f"ClusterOperator 확인 필요: {name}",
+            )
+        )
+    return findings
+
+
+def version_anomaly_findings(cluster_summary_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    version = cluster_summary_payload.get("version", {}) if isinstance(cluster_summary_payload.get("version"), Mapping) else {}
+    if version.get("upgradeable") is not False:
+        return []
+    return [
+        anomaly_finding(
+            candidate_cause="ClusterVersion Upgradeable=False 상태입니다. 업그레이드 전 차단 조건을 해소해야 합니다.",
+            evidence=(
+                f"version={version.get('version')}, channel={version.get('channel')}, "
+                f"reason={version.get('upgradeableReason')}, message={str(version.get('upgradeableMessage') or '')[:220]}"
+            ),
+            finding_type="upgrade_blocked",
+            next_check="oc get clusterversion version -o yaml",
+            priority=20,
+            reason=str(version.get("upgradeableReason") or "UpgradeableFalse"),
+            resource=anomaly_resource(kind="ClusterVersion", name="version"),
+            severity="확인 필요",
+            source="clusterversion",
+            title="Cluster upgrade blocked",
+        )
+    ]
+
+
+def prometheus_vector_results(probe: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
+    if not isinstance(probe, Mapping):
+        return []
+    result = probe.get("result")
+    if not isinstance(result, list):
+        return []
+    return [item for item in result if isinstance(item, Mapping)]
+
+
+def alert_anomaly_findings(alerts_probe: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    findings: list[dict[str, Any]] = []
+    excluded: list[dict[str, Any]] = []
+    for item in prometheus_vector_results(alerts_probe):
+        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
+        alertname = str(metric.get("alertname") or "unknown-alert")
+        severity_label = str(metric.get("severity") or metric.get("alert_severity") or "").lower()
+        namespace = str(metric.get("namespace") or "")
+        pod_name = str(metric.get("pod") or metric.get("pod_name") or "")
+        resource_name = pod_name or str(metric.get("instance") or alertname)
+        if alertname == "Watchdog":
+            excluded.append({"alertname": alertname, "reason": "Watchdog is an always-firing pipeline health alert."})
+            continue
+        severity = "위험" if severity_label in {"critical", "error"} else "확인 필요" if severity_label in {"warning", "warn"} else "주의"
+        priority = 4 if severity == "위험" else 13 if severity == "확인 필요" else 32
+        findings.append(
+            anomaly_finding(
+                candidate_cause="Alert labels/annotations 기준의 활성 경고입니다. 관련 리소스 상세 조회로 원인을 확정해야 합니다.",
+                evidence=(
+                    f"alertname={alertname}, severity={severity_label or '-'}, "
+                    f"namespace={namespace or '-'}, pod={pod_name or '-'}"
+                ),
+                finding_type="active_alert",
+                namespace=namespace,
+                next_check=(
+                    f"oc describe pod {pod_name} -n {namespace}"
+                    if pod_name and namespace
+                    else "Alert labels에서 namespace/pod/resource를 확인한 뒤 관련 리소스를 describe"
+                ),
+                priority=priority,
+                reason=alertname,
+                resource=anomaly_resource(kind="Alert", namespace=namespace, name=alertname if not pod_name else pod_name),
+                severity=severity,
+                source="alerts",
+                title=f"Active alert: {alertname}",
+            )
+        )
+    return findings, excluded
+
+
+def restart_metric_findings(restart_probe: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for item in prometheus_vector_results(restart_probe):
+        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
+        value = item.get("value")
+        restart_delta = 0.0
+        if isinstance(value, list) and len(value) >= 2:
+            try:
+                restart_delta = float(value[1])
+            except (TypeError, ValueError):
+                restart_delta = 0.0
+        if restart_delta <= 0:
+            continue
+        namespace = str(metric.get("namespace") or "")
+        pod_name = str(metric.get("pod") or "")
+        container = str(metric.get("container") or "")
+        findings.append(
+            anomaly_finding(
+                candidate_cause="최근 1시간 restart 증가가 관측되었습니다. 현재 CrashLoop인지 복구된 이력인지는 Pod 상태와 lastState로 확정해야 합니다.",
+                evidence=f"increase(kube_pod_container_status_restarts_total[1h])={restart_delta:g}, container={container or '-'}",
+                finding_type="pod_restart_spike",
+                namespace=namespace,
+                next_check=f"oc get pod {pod_name} -n {namespace} -o jsonpath='{{.status.containerStatuses}}'",
+                priority=10,
+                reason="RestartIncrease1h",
+                resource=anomaly_resource(kind="Pod", namespace=namespace, name=pod_name or "unknown-pod"),
+                severity="확인 필요",
+                source="metrics",
+                title=f"Recent restart increase: {namespace}/{pod_name or 'unknown-pod'}",
+            )
+        )
+    return findings
+
+
+def build_aiops_anomaly_summary(
+    cluster_summary_payload: Mapping[str, Any],
+    pods_payload: Mapping[str, Any] | None,
+    events_payload: Mapping[str, Any] | None,
+    alerts_probe: Mapping[str, Any] | None,
+    restart_probe: Mapping[str, Any] | None,
+    data_sources: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    alert_findings, excluded_alerts = alert_anomaly_findings(alerts_probe)
+    source_status_by_name = {str(item.get("name") or ""): str(item.get("status") or "") for item in data_sources}
+    findings = (
+        operator_anomaly_findings(cluster_summary_payload)
+        + version_anomaly_findings(cluster_summary_payload)
+        + pod_anomaly_findings(pods_payload)
+        + event_anomaly_findings(events_payload)
+        + alert_findings
+        + restart_metric_findings(restart_probe)
+    )
+    unique: dict[str, dict[str, Any]] = {}
+    for finding in findings:
+        unique[str(finding.get("id"))] = finding
+    ordered = sorted(
+        unique.values(),
+        key=lambda item: (
+            int(item.get("priority") or 999),
+            str(item.get("source") or ""),
+            str(item.get("namespace") or ""),
+            str(item.get("title") or ""),
+        ),
+    )
+    danger = sum(1 for item in ordered if item.get("severity") == "위험")
+    attention = sum(1 for item in ordered if item.get("severity") == "확인 필요")
+    warning = sum(1 for item in ordered if item.get("severity") == "주의")
+    unavailable_sources = [item for item in data_sources if item.get("status") != "available"]
+    source_errors = [
+        item for item in data_sources if item.get("status") == "error" and item.get("required")
+    ]
+
+    if source_errors:
+        status = "error"
+        label = "필수 이상 징후 데이터 소스 확인 실패"
+    elif danger:
+        status = "risk"
+        label = f"위험 이상 징후 {danger}건"
+    elif attention:
+        status = "attention"
+        label = f"확인 필요 이상 징후 {attention}건"
+    elif warning:
+        status = "warning"
+        label = f"주의 이상 징후 {warning}건"
+    elif unavailable_sources:
+        status = "unknown"
+        label = "일부 이상 징후 데이터 소스 미확인"
+    else:
+        status = "normal"
+        label = "현재 수집 범위에서 주요 이상 징후 없음"
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "AIOpsAnomalySummary",
+        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-anomaly-summary"},
+        "spec": {
+            "dataSources": list(data_sources),
+            "excludedAlerts": excluded_alerts,
+            "findings": ordered[:24],
+            "normalSignals": [
+                signal
+                for signal in [
+                    "ClusterOperator issues 없음"
+                    if source_status_by_name.get("clusteroperators") == "available"
+                    and not operator_anomaly_findings(cluster_summary_payload)
+                    else "",
+                    "Pod 비정상 상태 없음"
+                    if source_status_by_name.get("pods") == "available"
+                    and not pod_anomaly_findings(pods_payload)
+                    else "",
+                    "Warning Event 없음"
+                    if source_status_by_name.get("events") == "available"
+                    and not event_anomaly_findings(events_payload)
+                    else "",
+                ]
+                if signal
+            ],
+            "status": status,
+            "statusLabel": label,
+            "safety": {
+                "methodsUsed": ["GET"],
+                "mode": "read-only",
+                "mutationsEnabled": MUTATIONS_ENABLED,
+                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
+            },
+            "totals": {
+                "attention": attention,
+                "danger": danger,
+                "total": len(ordered),
+                "warning": warning,
+            },
+        },
     }
 
 
@@ -3328,6 +3838,7 @@ def build_aiops_overview(
     data_sources: list[Mapping[str, Any]],
     monitoring_urls: Mapping[str, str],
     monitoring_probe: Mapping[str, Any],
+    anomaly_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     health_score = int(cluster_summary_payload.get("healthScore") or 0)
     nodes = cluster_summary_payload.get("nodes", {}) if isinstance(cluster_summary_payload.get("nodes"), Mapping) else {}
@@ -3361,6 +3872,26 @@ def build_aiops_overview(
         tower_status = "risk"
         tower_label = "즉시 확인 필요"
 
+    anomaly_spec = (
+        anomaly_summary.get("spec", {})
+        if isinstance(anomaly_summary, Mapping) and isinstance(anomaly_summary.get("spec"), Mapping)
+        else {}
+    )
+    anomaly_status = str(anomaly_spec.get("status") or "")
+    anomaly_totals = (
+        anomaly_spec.get("totals", {}) if isinstance(anomaly_spec.get("totals"), Mapping) else {}
+    )
+    anomaly_total = int(anomaly_totals.get("total") or 0)
+    if anomaly_status in {"error", "unknown"}:
+        tower_status = "error"
+        tower_label = str(anomaly_spec.get("statusLabel") or "이상 징후 데이터 소스 확인 필요")
+    elif anomaly_status == "risk":
+        tower_status = "risk"
+        tower_label = str(anomaly_spec.get("statusLabel") or "위험 이상 징후 확인 필요")
+    elif anomaly_status in {"attention", "warning"} and tower_status == "healthy":
+        tower_status = "attention"
+        tower_label = str(anomaly_spec.get("statusLabel") or "이상 징후 확인 필요")
+
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "AIOpsOverview",
@@ -3372,11 +3903,12 @@ def build_aiops_overview(
                 "mode": "read-only",
                 "status": tower_status,
                 "statusLabel": tower_label,
-                "attentionCount": attention_count,
+                "attentionCount": attention_count + anomaly_total,
                 "healthScore": health_score,
                 "target": cluster_summary_payload.get("apiUrl") or OPENSHIFT_API_URL,
             },
             "dataSources": list(data_sources),
+            "anomalies": dict(anomaly_summary or {}),
             "monitoring": {
                 "probe": dict(monitoring_probe),
                 "urls": {
@@ -7223,9 +7755,35 @@ async def aiops_overview(authorization: str | None = Header(default=None)) -> di
             label="Monitoring public URLs",
             name="monitoring-shared-config",
         )
+        pods_payload, pods_status = await fetch_ocp_json_observed(
+            client,
+            "/api/v1/pods?limit=500",
+            user_auth_header,
+            label="Pod anomaly signals",
+            name="pods",
+            required=True,
+        )
+        events_payload, events_status = await fetch_ocp_json_observed(
+            client,
+            "/api/v1/events?limit=500",
+            user_auth_header,
+            label="Warning events",
+            name="events",
+            required=True,
+        )
 
     monitoring_urls = monitoring_urls_from_config(monitoring_config_payload)
     monitoring_probe = await probe_thanos_query(monitoring_urls.get("thanos", ""), user_auth_header)
+    alerts_probe = await query_thanos_instant(
+        monitoring_urls.get("thanos", ""),
+        user_auth_header,
+        'ALERTS{alertstate="firing"}',
+    )
+    restart_probe = await query_thanos_instant(
+        monitoring_urls.get("thanos", ""),
+        user_auth_header,
+        "increase(kube_pod_container_status_restarts_total[1h]) > 0",
+    )
     monitoring_probe_status = data_source_status(
         label="Thanos query probe",
         name="thanos-query",
@@ -7237,6 +7795,28 @@ async def aiops_overview(authorization: str | None = Header(default=None)) -> di
         if isinstance(monitoring_probe.get("httpStatus"), int)
         else None,
     )
+    alerts_probe_status = data_source_status(
+        label="Active alerts",
+        name="alerts",
+        path='/api/v1/query?query=ALERTS{alertstate="firing"}',
+        payload=alerts_probe if alerts_probe.get("status") == "available" else None,
+        reason=str(alerts_probe.get("reason") or ""),
+        status=str(alerts_probe.get("status") or "unavailable"),
+        http_status=alerts_probe.get("httpStatus")
+        if isinstance(alerts_probe.get("httpStatus"), int)
+        else None,
+    )
+    restart_probe_status = data_source_status(
+        label="Restart increase metric",
+        name="restart-metrics",
+        path="/api/v1/query?query=increase(kube_pod_container_status_restarts_total[1h]) > 0",
+        payload=restart_probe if restart_probe.get("status") == "available" else None,
+        reason=str(restart_probe.get("reason") or ""),
+        status=str(restart_probe.get("status") or "unavailable"),
+        http_status=restart_probe.get("httpStatus")
+        if isinstance(restart_probe.get("httpStatus"), int)
+        else None,
+    )
 
     summary = build_cluster_summary(
         nodes_payload or {"items": []},
@@ -7244,20 +7824,70 @@ async def aiops_overview(authorization: str | None = Header(default=None)) -> di
         cluster_version_payload,
         cluster_operators_payload,
     )
+    data_sources = [
+        nodes_status,
+        metrics_status,
+        version_status,
+        operators_status,
+        monitoring_config_status,
+        monitoring_probe_status,
+        pods_status,
+        events_status,
+        alerts_probe_status,
+        restart_probe_status,
+    ]
+    anomaly_summary = build_aiops_anomaly_summary(
+        summary,
+        pods_payload,
+        events_payload,
+        alerts_probe,
+        restart_probe,
+        data_sources,
+    )
 
     return build_aiops_overview(
         summary,
-        [
-            nodes_status,
-            metrics_status,
-            version_status,
-            operators_status,
-            monitoring_config_status,
-            monitoring_probe_status,
-        ],
+        data_sources,
         monitoring_urls,
         monitoring_probe,
+        anomaly_summary,
     )
+
+
+@app.get("/v1/aiops/anomalies")
+async def aiops_anomalies(
+    authorization: str | None = Header(default=None),
+    namespace: str | None = Query(default=None),
+    since_minutes: int = Query(default=60, alias="sinceMinutes", ge=1, le=1440),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    overview = await aiops_overview(authorization)
+    anomalies = overview.get("spec", {}).get("anomalies")
+    if not isinstance(anomalies, dict):
+        return {}
+
+    filtered = dict(anomalies)
+    spec = dict(filtered.get("spec", {})) if isinstance(filtered.get("spec"), Mapping) else {}
+    findings = spec.get("findings") if isinstance(spec.get("findings"), list) else []
+    if namespace:
+        findings = [
+            finding
+            for finding in findings
+            if isinstance(finding, Mapping)
+            and (
+                finding.get("namespace") == namespace
+                or not finding.get("namespace")
+                or str(finding.get("namespace")) == "cluster-scoped"
+            )
+        ]
+    spec["findings"] = findings[:limit]
+    spec["query"] = {
+        "limit": limit,
+        "namespace": namespace or "",
+        "sinceMinutes": since_minutes,
+    }
+    filtered["spec"] = spec
+    return filtered
 
 
 @app.get("/v1/auth/subject")

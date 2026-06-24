@@ -44,6 +44,7 @@ from komsco_ai_gateway.main import (
     build_action_proposal_record,
     build_action_proposal_fallback,
     build_action_access_review_request,
+    build_aiops_anomaly_summary,
     build_aiops_overview,
     build_cluster_summary,
     build_cluster_operator_status_evidence,
@@ -3766,6 +3767,231 @@ def test_build_aiops_overview_exposes_control_tower_and_data_sources() -> None:
     assert overview["spec"]["safety"]["readOnlyDefault"] is True
 
 
+def test_build_aiops_anomaly_summary_orders_stage2_signals() -> None:
+    cluster_summary = {
+        "operators": {
+            "issues": [
+                {
+                    "available": False,
+                    "degraded": True,
+                    "message": "OAuth route unavailable",
+                    "name": "authentication",
+                    "progressing": False,
+                    "reason": "RouteHealth_Failed",
+                    "upgradeable": "True",
+                }
+            ]
+        },
+        "version": {
+            "channel": "stable-4.20",
+            "upgradeable": False,
+            "upgradeableMessage": "AdminAckRequired blocks upgrade",
+            "upgradeableReason": "AdminAckRequired",
+            "version": "4.20.23",
+        },
+    }
+    pods_payload = {
+        "items": [
+            {
+                "metadata": {"name": "api-1", "namespace": "prod"},
+                "status": {
+                    "containerStatuses": [
+                        {
+                            "lastState": {"terminated": {"reason": "Error"}},
+                            "name": "api",
+                            "restartCount": 12,
+                            "state": {"waiting": {"message": "back-off restarting", "reason": "CrashLoopBackOff"}},
+                        }
+                    ],
+                    "phase": "Running",
+                },
+            },
+            {
+                "metadata": {"name": "worker-1", "namespace": "prod"},
+                "status": {
+                    "containerStatuses": [
+                        {
+                            "name": "worker",
+                            "restartCount": 0,
+                            "state": {"waiting": {"message": "manifest unknown", "reason": "ImagePullBackOff"}},
+                        }
+                    ],
+                    "phase": "Pending",
+                },
+            },
+        ]
+    }
+    events_payload = {
+        "items": [
+            {
+                "involvedObject": {"kind": "Pod", "name": "worker-1", "namespace": "prod"},
+                "message": "0/3 nodes are available",
+                "metadata": {"name": "worker-schedule", "namespace": "prod"},
+                "reason": "FailedScheduling",
+                "type": "Warning",
+            }
+        ]
+    }
+    alerts_probe = {
+        "result": [
+            {"metric": {"alertname": "Watchdog"}},
+            {"metric": {"alertname": "KubePodCrashLooping", "namespace": "prod", "pod": "api-1", "severity": "warning"}},
+        ],
+        "status": "available",
+    }
+    restart_probe = {
+        "result": [
+            {"metric": {"container": "api", "namespace": "prod", "pod": "api-1"}, "value": [1, "3"]},
+        ],
+        "status": "available",
+    }
+    data_sources = [
+        {"label": "Cluster operators", "name": "clusteroperators", "path": "", "required": False, "status": "available"},
+        {"label": "Pod anomaly signals", "name": "pods", "path": "", "required": True, "status": "available"},
+        {"label": "Warning events", "name": "events", "path": "", "required": True, "status": "available"},
+        {"label": "Active alerts", "name": "alerts", "path": "", "required": False, "status": "available"},
+        {"label": "Restart increase metric", "name": "restart-metrics", "path": "", "required": False, "status": "available"},
+    ]
+
+    summary = build_aiops_anomaly_summary(
+        cluster_summary,
+        pods_payload,
+        events_payload,
+        alerts_probe,
+        restart_probe,
+        data_sources,
+    )
+
+    spec = summary["spec"]
+    findings = spec["findings"]
+    finding_types = {finding["type"] for finding in findings}
+
+    assert spec["status"] == "risk"
+    assert spec["totals"]["danger"] >= 2
+    assert "clusteroperator_condition" in finding_types
+    assert "pod_crashloop" in finding_types
+    assert "pod_image_pull" in finding_types
+    assert "pod_pending" in finding_types
+    assert "warning_event" in finding_types
+    assert "active_alert" in finding_types
+    assert "pod_restart_spike" in finding_types
+    assert "upgrade_blocked" in finding_types
+    assert [finding["priority"] for finding in findings] == sorted(finding["priority"] for finding in findings)
+    assert findings[0]["resource"]["kind"] == "ClusterOperator"
+    assert all("candidateCause" in finding and "evidence" in finding for finding in findings)
+    assert spec["excludedAlerts"] == [
+        {"alertname": "Watchdog", "reason": "Watchdog is an always-firing pipeline health alert."}
+    ]
+
+
+def test_build_aiops_anomaly_summary_does_not_report_false_normal_on_source_gap() -> None:
+    cluster_summary = {
+        "operators": {"issues": []},
+        "version": {"upgradeable": True},
+    }
+
+    missing_optional = build_aiops_anomaly_summary(
+        cluster_summary,
+        {"items": []},
+        {"items": []},
+        {"status": "unavailable", "result": []},
+        {"status": "available", "result": []},
+        [
+            {"label": "Pod anomaly signals", "name": "pods", "path": "", "required": True, "status": "available"},
+            {"label": "Warning events", "name": "events", "path": "", "required": True, "status": "available"},
+            {"label": "Active alerts", "name": "alerts", "path": "", "required": False, "status": "unavailable"},
+        ],
+    )
+    failed_required = build_aiops_anomaly_summary(
+        cluster_summary,
+        None,
+        {"items": []},
+        {"status": "available", "result": []},
+        {"status": "available", "result": []},
+        [
+            {"label": "Pod anomaly signals", "name": "pods", "path": "", "required": True, "status": "error"},
+            {"label": "Warning events", "name": "events", "path": "", "required": True, "status": "available"},
+        ],
+    )
+
+    assert missing_optional["spec"]["status"] == "unknown"
+    assert "정상" not in missing_optional["spec"]["statusLabel"]
+    assert failed_required["spec"]["status"] == "error"
+    assert failed_required["spec"]["statusLabel"] == "필수 이상 징후 데이터 소스 확인 실패"
+
+
+def test_data_source_status_marks_paginated_lists_as_partial() -> None:
+    status = gateway_main.data_source_status(
+        label="Pod anomaly signals",
+        name="pods",
+        path="/api/v1/pods?limit=500",
+        payload={"items": [], "metadata": {"continue": "next-page-token"}},
+        required=True,
+    )
+
+    assert status["status"] == "partial"
+    assert status["continueTokenPresent"] is True
+    assert "paginated" in status["reason"]
+
+
+def test_query_thanos_instant_surfaces_prometheus_error_and_partial_results(monkeypatch) -> None:
+    class FakeResponse:
+        def __init__(self, payload: Mapping[str, object], status_code: int = 200) -> None:
+            self._payload = payload
+            self.status_code = status_code
+            self.text = json.dumps(payload)
+
+        def json(self) -> Mapping[str, object]:
+            return self._payload
+
+    class FakeAsyncClient:
+        payload: Mapping[str, object] = {"status": "success", "data": {"result": []}}
+
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get(self, *args, **kwargs) -> FakeResponse:
+            return FakeResponse(self.payload)
+
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeAsyncClient)
+
+    async def run() -> None:
+        FakeAsyncClient.payload = {
+            "error": "bad_data: query failed",
+            "errorType": "bad_data",
+            "status": "error",
+        }
+        error_probe = await gateway_main.query_thanos_instant(
+            "https://thanos.test",
+            "Bearer token",
+            "ALERTS",
+        )
+        FakeAsyncClient.payload = {
+            "data": {"result": [{"metric": {"pod": f"pod-{index}"}, "value": [1, "1"]} for index in range(55)]},
+            "status": "success",
+        }
+        partial_probe = await gateway_main.query_thanos_instant(
+            "https://thanos.test",
+            "Bearer token",
+            "up",
+        )
+
+        assert error_probe["status"] == "error"
+        assert "bad_data" in error_probe["reason"]
+        assert partial_probe["status"] == "partial"
+        assert partial_probe["resultCount"] == 55
+        assert len(partial_probe["result"]) == 50
+        assert "capped" in partial_probe["reason"]
+
+    asyncio.run(run())
+
+
 def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch) -> None:
     nodes_payload = {
         "items": [
@@ -3812,6 +4038,8 @@ def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch)
                 "thanosPublicURL": "https://thanos.test",
             }
         },
+        "/api/v1/pods?limit=500": {"items": []},
+        "/api/v1/events?limit=500": {"items": []},
     }
 
     async def fake_fetch_ocp_json_observed(
@@ -3836,9 +4064,14 @@ def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch)
         assert thanos_url == "https://thanos.test"
         return {"query": "up", "resultCount": 3, "status": "available"}
 
+    async def fake_query_thanos_instant(thanos_url: str, _authorization: str, query: str) -> dict:
+        assert thanos_url == "https://thanos.test"
+        return {"query": query, "result": [], "resultCount": 0, "status": "available"}
+
     monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
     monkeypatch.setattr(gateway_main, "fetch_ocp_json_observed", fake_fetch_ocp_json_observed)
     monkeypatch.setattr(gateway_main, "probe_thanos_query", fake_probe_thanos_query)
+    monkeypatch.setattr(gateway_main, "query_thanos_instant", fake_query_thanos_instant)
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -3862,7 +4095,13 @@ def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch)
             "clusteroperators",
             "monitoring-shared-config",
             "thanos-query",
+            "pods",
+            "events",
+            "alerts",
+            "restart-metrics",
         }
+        assert payload["spec"]["anomalies"]["kind"] == "AIOpsAnomalySummary"
+        assert payload["spec"]["anomalies"]["spec"]["status"] == "normal"
 
     asyncio.run(run())
 

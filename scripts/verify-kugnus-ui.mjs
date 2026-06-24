@@ -884,6 +884,8 @@ const getDashboardState = async (cdp) =>
           }),
         overview: rectOf('.komsco-ai-page__overview'),
         metrics: rectOf('.komsco-ai-page__metrics'),
+        anomalyBoard: rectOf('.komsco-ai-page__anomaly-board'),
+        sourceBoard: rectOf('.komsco-ai-page__source-board'),
         assistant: rectOf('.komsco-ai-page__assistant-stage'),
         dashboardGrid: rectOf('.komsco-ai-page__dashboard-grid'),
         metricCount: document.querySelectorAll('.komsco-ai-page__metric').length,
@@ -894,6 +896,15 @@ const getDashboardState = async (cdp) =>
           node.textContent?.trim(),
         ),
         adapterPanelText: panelText('OS-aware adapters'),
+        anomalyText: document.querySelector('.komsco-ai-page__anomaly-board')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        anomalyStatus: document.querySelector('.komsco-ai-page__anomaly-board')?.getAttribute('data-anomaly-status') || '',
+        anomalyTotal: Number(document.querySelector('.komsco-ai-page__anomaly-board')?.getAttribute('data-anomaly-total') || '0'),
+        anomalyItemCount: document.querySelectorAll('.komsco-ai-page__anomaly-item').length,
+        anomalyVisibleCount: Number(document.querySelector('.komsco-ai-page__anomaly-list')?.getAttribute('data-visible-anomaly-count') || document.querySelector('.komsco-ai-page__anomaly-normal')?.getAttribute('data-visible-anomaly-count') || '0'),
+        anomalyItemTexts: [...document.querySelectorAll('.komsco-ai-page__anomaly-item')].map((node) =>
+          node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        ),
+        anomalyTotalsText: document.querySelector('.komsco-ai-page__anomaly-totals')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         evidencePanelText: panelText('Evidence posture'),
         lightspeedPanelText: panelText('Lightspeed link'),
         rcaContextText: panelText('RCA Context JSON'),
@@ -1021,6 +1032,79 @@ const run = async () => {
           metricLabels: dashboardState.metricLabels,
         });
       });
+      assertCheck(
+        'dashboard exposes Stage 2 anomaly summary board',
+        Boolean(dashboardState.anomalyBoard) &&
+          dashboardState.anomalyText.includes('Cywell AI 이상 징후 자동 정리') &&
+          ['normal', 'warning', 'attention', 'risk', 'error', 'unknown'].includes(dashboardState.anomalyStatus),
+        {
+          anomalyStatus: dashboardState.anomalyStatus,
+          anomalyText: dashboardState.anomalyText.slice(0, 640),
+        },
+      );
+      assertCheck(
+        'dashboard anomaly summary sits between metrics and source board before assistant',
+        Boolean(dashboardState.metrics && dashboardState.anomalyBoard && dashboardState.sourceBoard && dashboardState.assistant) &&
+          dashboardState.metrics.bottom <= dashboardState.anomalyBoard.top + 2 &&
+          dashboardState.anomalyBoard.bottom <= dashboardState.sourceBoard.top + 2 &&
+          dashboardState.sourceBoard.bottom <= dashboardState.assistant.top + 2,
+        {
+          anomalyTop: Math.round(dashboardState.anomalyBoard?.top || 0),
+          assistantTop: Math.round(dashboardState.assistant?.top || 0),
+          metricsBottom: Math.round(dashboardState.metrics?.bottom || 0),
+          sourceTop: Math.round(dashboardState.sourceBoard?.top || 0),
+        },
+      );
+      assertCheck(
+        'dashboard anomaly summary shows compact top three issues only',
+        dashboardState.anomalyVisibleCount <= 3 && dashboardState.anomalyItemCount <= 3,
+        {
+          anomalyItemCount: dashboardState.anomalyItemCount,
+          anomalyVisibleCount: dashboardState.anomalyVisibleCount,
+        },
+      );
+      assertCheck(
+        'dashboard anomaly totals expose severity buckets',
+        ['위험', '확인 필요', '주의', '총'].every((label) => dashboardState.anomalyTotalsText.includes(label)),
+        {
+          anomalyTotalsText: dashboardState.anomalyTotalsText,
+        },
+      );
+      if (dashboardState.anomalyItemCount > 0) {
+        assertCheck(
+          'dashboard anomaly items explain priority, target, cause, evidence, and next check',
+          dashboardState.anomalyItemTexts.every(
+            (text) =>
+              text.includes('P') &&
+              text.includes('대상') &&
+              text.includes('원인 후보') &&
+              text.includes('근거') &&
+              text.includes('다음 확인'),
+          ),
+          {
+            anomalyItemTexts: dashboardState.anomalyItemTexts,
+          },
+        );
+      } else {
+        assertCheck(
+          'dashboard anomaly empty state does not falsely report normal when sources are incomplete',
+          dashboardState.anomalyStatus === 'normal'
+            ? dashboardState.anomalyText.includes('주요 이상 징후 없음')
+            : dashboardState.anomalyText.includes('정상으로 단정할 수 없음') ||
+                dashboardState.anomalyText.includes('데이터 소스'),
+          {
+            anomalyStatus: dashboardState.anomalyStatus,
+            anomalyText: dashboardState.anomalyText,
+          },
+        );
+      }
+      await evaluate(
+        cdp,
+        `document.querySelector('.komsco-ai-page__anomaly-board')?.scrollIntoView({ block: 'center', inline: 'nearest' })`,
+      );
+      await sleep(250);
+      const anomalyShot = await screenshot(cdp, '.tmp-aiops-kugnus-ui-verify-anomaly-summary.png');
+      record('anomaly summary screenshot saved', true, { path: anomalyShot });
       [
         'Evidence posture',
         'Lightspeed link',
