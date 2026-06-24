@@ -6,11 +6,11 @@ export const redactSensitiveText = (value: unknown, fallback = ''): string => {
 
   return raw
     .replace(
-      /\b((?:x[-_]?api[-_]?key|api[-_]?key|apikey|apiKey|token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd|authorization|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*)(["']?)[^\s,"'`<>]+(?:\2)?/gi,
+      /\b((?:client-key-data|client-certificate-data|certificate-authority-data)\s*:\s*(?:\|\s*)?\n)(?:\s+[A-Za-z0-9+/=]{16,}\s*\n?)+/gi,
       '$1[redacted-secret]',
     )
     .replace(
-      /\b((?:client-key-data|client-certificate-data|certificate-authority-data)\s*:\s*(?:\|\s*)?\n(?:\s+[A-Za-z0-9+/=]{16,}\s*\n?)+)/gi,
+      /\b((?:x[-_]?api[-_]?key|api[-_]?key|apikey|apiKey|token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd|authorization|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*)(["']?)[^\s,"'`<>]+(?:\2)?/gi,
       '$1[redacted-secret]',
     )
     .replace(/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi, 'Bearer [redacted]')

@@ -109,6 +109,7 @@
 | Frontend/UX FAIL | CDP에 stale `/dashboards` tab이 쌓여 새 verifier target이 `.komsco-ai` root 없는 콘솔 초기화 실패 상태를 잡을 수 있었다. | loaded Cywell AI tab recovery, refresh recovery, resize drag wait 안정화를 추가했다. | `/dashboards` UI verifier `64 checked, 0 failed` |
 | Backend/Safety 재FAIL | message copy와 code-block copy가 raw answer/code text를 clipboard에 쓸 수 있었다. | `redactSensitiveText`를 추가하고 message copy/code-block copy 모두 clipboard write 전에 적용했다. | `node scripts/verify-evidence-display.cjs` PASS, `corepack yarn build` PASS |
 | Backend/Safety 2차 재FAIL | kubeconfig-shaped `client-key-data`, `client-certificate-data`, `certificate-authority-data` base64 값이 clipboard redaction을 통과할 수 있었다. | kubeconfig credential key redaction과 base64 certificate/private-key probe를 추가했다. | `node scripts/verify-evidence-display.cjs` PASS, `corepack yarn build` PASS |
+| Product/Safety 최종 재FAIL | multiline `client-key-data: |` redaction이 payload까지 포함한 `$1`을 다시 내보낼 수 있었다. | multiline kubeconfig redaction을 generic single-line rule보다 먼저 적용하고 payload capture를 제거했다. | multiline probe 포함 `node scripts/verify-evidence-display.cjs` PASS, `corepack yarn build` PASS |
 
 ## Reviewer Gate 기록
 

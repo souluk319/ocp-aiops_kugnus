@@ -24,6 +24,8 @@ const sensitiveInputs = [
   'client-key-data: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t',
   'client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t',
   'certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t',
+  'client-key-data: |\n  LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t\n  UHJpdmF0ZUtleUJvZHk=',
+  'client-certificate-data: |\n  LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t\n  Q2VydGlmaWNhdGVCb2R5',
   'AKIAIOSFODNN7EXAMPLE',
   'opaque_token abcdefghijklmnop.qrstuvwxyzABCDEFGHIJKLMN/OPQRSTUVWXYZ1234567890',
 ];
@@ -60,6 +62,9 @@ const sensitiveClipboardBody = [
   'x-api-key: shortsecret',
   'client-key-data: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t',
   'client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t',
+  'client-key-data: |',
+  '  LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t',
+  '  UHJpdmF0ZUtleUJvZHk=',
   'user admin kubeadmin operator@example.com',
   'aws_access_key_id=AKIAIOSFODNN7EXAMPLE',
   '```',
