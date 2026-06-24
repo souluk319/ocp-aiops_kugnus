@@ -1787,6 +1787,8 @@ const getAssistantConnectionState = (
 
 type AiopsRecordView = AiopsRecord;
 type AiopsActionStep = 'create-plan' | 'approve-plan' | 'execute-approval';
+type AiopsLifecycleStage = 'proposal' | 'plan' | 'approval' | 'execution';
+type UiTone = 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
 
 type AiopsRecordAction = {
   disabledReason?: string;
@@ -1896,6 +1898,194 @@ const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neu
   return 'neutral';
 };
 
+const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleStage => {
+  const spec = getRecordSpecMap(record);
+  const kind = record.kind ?? '';
+  if (kind === 'ExecutionRecord' || spec.mutationOutcome || spec.approvalId) {
+    return 'execution';
+  }
+  if (kind === 'ApprovalDecisionRecord' || spec.approvalDecision) {
+    return 'approval';
+  }
+  if (kind === 'SealedActionPlanRecord' || spec.sealedActionPlan) {
+    return 'plan';
+  }
+  return 'proposal';
+};
+
+const getActionRecordStageLabel = (record: AiopsRecordView): string => {
+  const stage = getActionRecordStage(record);
+  if (stage === 'execution') {
+    return 'Execution record';
+  }
+  if (stage === 'approval') {
+    return 'Approval decision';
+  }
+  if (stage === 'plan') {
+    return 'Sealed plan';
+  }
+  return 'Proposal';
+};
+
+const getActionRecordProof = (record: AiopsRecordView): string => {
+  const spec = getRecordSpecMap(record);
+  const planDigest = getPlanDigest(record);
+  const approvalPlanDigest = getApprovalPlanDigest(record);
+  const approvalId = getApprovalId(record);
+
+  if (planDigest) {
+    return `sealed plan digest ${shortDigest(planDigest)}`;
+  }
+  if (approvalPlanDigest) {
+    const decision = getApprovalDecision(record);
+    const status = String(decision?.status ?? 'unknown');
+    const approvalLabel = status === 'approved' ? 'active approval' : `${status} approval`;
+    return `${approvalLabel} ${shortDigest(approvalId)} · plan digest ${shortDigest(approvalPlanDigest)}`;
+  }
+  if (typeof spec.approvalId === 'string') {
+    return `execution record · approval ${shortDigest(spec.approvalId)}`;
+  }
+  return 'proposal waits for a sealed plan before approval';
+};
+
+const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
+  const records = status?.spec.records;
+
+  return [
+    {
+      count: records?.actionProposals.length ?? 0,
+      detail: 'candidate action request',
+      key: 'proposal',
+      label: 'Proposal',
+    },
+    {
+      count: records?.sealedActionPlans.length ?? 0,
+      detail: 'sealed plan digest',
+      key: 'plan',
+      label: 'Sealed plan',
+    },
+    {
+      count: records?.approvalDecisions.length ?? 0,
+      detail: 'approval decision',
+      key: 'approval',
+      label: 'Approval',
+    },
+    {
+      count: records?.executionRecords.length ?? 0,
+      detail: 'execution record',
+      key: 'execution',
+      label: 'Execution',
+    },
+  ] as Array<{
+    count: number;
+    detail: string;
+    key: AiopsLifecycleStage;
+    label: string;
+  }>;
+};
+
+const getActionLifecycleSummary = (
+  status: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+) => {
+  if (!status) {
+    return {
+      label: 'Runtime status',
+      text: 'AIOps runtime status loading; execution disabled until status resolves.',
+      tone: 'neutral' as UiTone,
+      value: 'pending',
+    };
+  }
+
+  const actionExecutorConfigured = Boolean(status?.spec.capabilities.actionExecutorConfigured);
+  const mutationsEnabled = Boolean(status?.spec.capabilities.mutationsEnabled);
+  const actionsAllowed = canUseActionExecution(status) && executionModeAllowsActions(executionMode);
+  const blockers: string[] = [];
+  if (!actionExecutorConfigured) {
+    blockers.push('Action Executor URL not configured');
+  }
+  if (!mutationsEnabled) {
+    blockers.push('Mutation flag: read-only mode: mutation execution disabled');
+  }
+  if (!executionModeAllowsActions(executionMode)) {
+    blockers.push('read-only UI blocks proposal, approval, and execution mutations');
+  }
+
+  if (blockers.length === 0 && actionsAllowed) {
+    return {
+      label: 'Current gate',
+      text: 'Plan, approval, and execution requests may be submitted after server-side checks.',
+      tone: 'review' as UiTone,
+      value: getExecutionModeShortLabel(executionMode),
+    };
+  }
+
+  return {
+    label: 'Current blocker',
+    text: blockers.join('; '),
+    tone: 'warn' as UiTone,
+    value: 'not configured',
+  };
+};
+
+const renderActionLifecycle = (
+  aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+) => {
+  const summary = getActionLifecycleSummary(aiopsStatus, executionMode);
+  const actionExecutorState = !aiopsStatus
+    ? 'pending'
+    : aiopsStatus.spec.capabilities.actionExecutorConfigured
+      ? 'configured'
+      : 'not-configured';
+  const mutationFlagState = !aiopsStatus
+    ? 'pending'
+    : aiopsStatus.spec.capabilities.mutationsEnabled
+      ? 'enabled'
+      : 'disabled';
+
+  return (
+    <div
+      className="komsco-ai__action-lifecycle"
+      data-action-executor-state={actionExecutorState}
+      data-execute-guard="sealed-plan-digest active-approval evidence-freshness ssar mutation-flag"
+      data-komsco-action-lifecycle
+      data-mutation-flag-state={mutationFlagState}
+      data-ui-execution-mode={executionMode}
+    >
+      <div className="komsco-ai__action-lifecycle-steps" aria-label="AIOps action lifecycle">
+        {getActionLifecycleSteps(aiopsStatus).map((step) => (
+          <div
+            className={`komsco-ai__action-lifecycle-step${
+              step.count > 0 ? ' komsco-ai__action-lifecycle-step--active' : ''
+            }`}
+            data-action-lifecycle-step={step.key}
+            key={step.key}
+          >
+            <span>{step.label}</span>
+            <strong>{step.count}</strong>
+            <small>{step.detail}</small>
+          </div>
+        ))}
+      </div>
+      <div className="komsco-ai__action-lifecycle-summary">
+        <div className="komsco-ai__action-lifecycle-current">
+          <div>
+            <strong>{summary.label}</strong>
+            <p>{summary.text}</p>
+          </div>
+          {renderStatusTag(summary.value, summary.tone)}
+        </div>
+        <p className="komsco-ai__action-lifecycle-proof">
+          Execute guard: sealed plan digest, active approval, evidence freshness, SSAR,
+          and mutation flag are checked. Expired or stale evidence blocks execution and is
+          surfaced as a failure reason; create a new plan and approval.
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const getAiopsRecordAction = (
   record: AiopsRecordView,
   aiopsStatus: AiopsRuntimeStatus | null,
@@ -1996,12 +2186,20 @@ const renderActionRecordRows = (
     const busy = actionId === busyActionId;
 
     return (
-      <div className="komsco-ai__rail-command" key={record.metadata?.name ?? phase}>
+      <div
+        className="komsco-ai__rail-command"
+        data-action-lifecycle-stage={getActionRecordStage(record)}
+        key={record.metadata?.name ?? phase}
+      >
         <div className="komsco-ai__rail-command-head">
-          <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
+          <div className="komsco-ai__rail-command-title">
+            <span>{getActionRecordStageLabel(record)}</span>
+            <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
+          </div>
           {renderStatusTag(phase, getPhaseTone(phase))}
         </div>
         <p>{getRecordTargetLabel(record)}</p>
+        <p className="komsco-ai__rail-action-proof">{getActionRecordProof(record)}</p>
         {action && (
           <div className="komsco-ai__rail-action-row">
             <Button
@@ -2316,6 +2514,7 @@ const renderInsightRail = (
             : '대기'}
         </span>
       </div>
+      {renderActionLifecycle(aiopsStatus, executionMode)}
       {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
       {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
       {renderActionRecordRows(

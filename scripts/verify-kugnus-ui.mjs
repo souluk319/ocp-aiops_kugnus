@@ -670,6 +670,12 @@ const getUiState = async (cdp) =>
       const headerStatus = surface?.querySelector('.komsco-ai__header-status');
       const headerActions = surface?.querySelector('.komsco-ai__header-actions');
       const headerModeButtons = [...(headerStatus?.querySelectorAll('.komsco-ai__mode-toggle-button') || [])];
+      const actionLifecycle = surface?.querySelector('.komsco-ai__action-lifecycle');
+      const actionLifecycleSteps = [...(actionLifecycle?.querySelectorAll('[data-action-lifecycle-step]') || [])];
+      const actionLifecycleStepRects = actionLifecycleSteps.map((step) => {
+        const r = step.getBoundingClientRect();
+        return { height: r.height, width: r.width };
+      });
       const resizeHandles = [...(surface?.querySelectorAll('.komsco-ai__resize-handle') || [])];
       const titleStyle = title ? window.getComputedStyle(title) : null;
       const brandCopy = surface?.querySelector('.komsco-ai__brand-copy');
@@ -718,6 +724,16 @@ const getUiState = async (cdp) =>
           disabledReason: button.getAttribute('data-disabled-reason') || '',
           title: button.getAttribute('title') || '',
         })),
+        actionLifecycleText: actionLifecycle?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        actionLifecycleStepCount: actionLifecycleSteps.length,
+        actionLifecycleStepKeys: actionLifecycleSteps.map((step) => step.getAttribute('data-action-lifecycle-step') || ''),
+        actionLifecycleStepRects,
+        actionLifecycleAttrs: {
+          actionExecutorState: actionLifecycle?.getAttribute('data-action-executor-state') || '',
+          executeGuard: actionLifecycle?.getAttribute('data-execute-guard') || '',
+          mutationFlagState: actionLifecycle?.getAttribute('data-mutation-flag-state') || '',
+          uiExecutionMode: actionLifecycle?.getAttribute('data-ui-execution-mode') || '',
+        },
         headerStatusLabel: headerStatus?.querySelector('.komsco-ai__status-chip')?.getAttribute('aria-label') || '',
         headerStatusTitle: headerStatus?.querySelector('.komsco-ai__status-chip')?.getAttribute('title') || '',
         hasHeaderStatusChip: Boolean(headerStatus?.querySelector('.komsco-ai__status-chip')),
@@ -738,6 +754,7 @@ const getUiState = async (cdp) =>
         hasWorkspaceHistoryClass: Boolean(surface?.querySelector('.komsco-ai__workspace--history-open')),
         workspaceGrid: workspace ? window.getComputedStyle(workspace).gridTemplateColumns : null,
         documentOverflowWidth: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        railHorizontalOverflow: rail ? rail.scrollWidth - rail.clientWidth : 0,
         surface: rectOf('.komsco-ai__surface'),
         toggle: rectOf('.komsco-ai__sidebar-toggle'),
         logo: rectOf('.komsco-ai__brand-logo'),
@@ -754,6 +771,7 @@ const getUiState = async (cdp) =>
         panel: rectOf('.komsco-ai__panel'),
         chat: rectOf('.komsco-ai__chat-column'),
         rail: rectOf('.komsco-ai__insight-rail'),
+        actionLifecycle: rectOf('.komsco-ai__action-lifecycle'),
         railDisplay: rail ? window.getComputedStyle(rail).display : null,
         sendDisabled: send ? send.disabled || send.getAttribute('aria-disabled') === 'true' : null,
         inputExists: Boolean(input),
@@ -1054,7 +1072,6 @@ const run = async () => {
         headerStatusTitle: state.headerStatusTitle,
       },
     );
-
     const languageBefore = state.languageText;
     await click(cdp, '.komsco-ai__language-button');
     await waitFor(
@@ -1168,6 +1185,23 @@ const run = async () => {
 
     await click(cdp, 'button[aria-label="Open full screen"]');
     await waitFor(cdp, 'fullscreen surface', "!!document.querySelector('.komsco-ai__surface--fullscreen')");
+    await waitFor(
+      cdp,
+      'visible action lifecycle loaded in fullscreen rail',
+      `(() => {
+        const surface = document.querySelector('.komsco-ai__surface--fullscreen');
+        const rail = surface?.querySelector('.komsco-ai__insight-rail');
+        const lifecycle = surface?.querySelector('.komsco-ai__action-lifecycle');
+        const rect = lifecycle?.getBoundingClientRect();
+        return rail &&
+          window.getComputedStyle(rail).display !== 'none' &&
+          lifecycle &&
+          rect.width > 0 &&
+          rect.height > 0 &&
+          lifecycle.getAttribute('data-action-executor-state') !== 'pending';
+      })()`,
+      15000,
+    );
     state = await getUiState(cdp);
     assertCheck('fullscreen surface is portaled to body', state.surfaceParentTag === 'BODY', {
       surfaceParentTag: state.surfaceParentTag,
@@ -1183,6 +1217,58 @@ const run = async () => {
         railLeft: Math.round(state.rail.left),
       });
     }
+    assertCheck(
+      'visible fullscreen rail exposes action lifecycle in exact stage order',
+      state.railDisplay !== 'none' &&
+        state.actionLifecycle &&
+        state.actionLifecycle.width > 0 &&
+        state.actionLifecycle.height > 0 &&
+        state.actionLifecycleStepCount === 4 &&
+        state.actionLifecycleStepKeys.join('|') === 'proposal|plan|approval|execution' &&
+        state.actionLifecycleStepRects.every((rect) => rect.width > 0 && rect.height > 0) &&
+        ['Proposal', 'Sealed plan', 'Approval', 'Execution'].every((label) =>
+          state.actionLifecycleText.includes(label),
+        ),
+      {
+        actionLifecycleRect: state.actionLifecycle,
+        actionLifecycleStepCount: state.actionLifecycleStepCount,
+        actionLifecycleStepKeys: state.actionLifecycleStepKeys,
+        actionLifecycleStepRects: state.actionLifecycleStepRects,
+        railDisplay: state.railDisplay,
+      },
+    );
+    assertCheck(
+      'visible action lifecycle exposes stable local read-only gate states',
+      state.actionLifecycleAttrs.actionExecutorState === 'not-configured' &&
+        state.actionLifecycleAttrs.mutationFlagState === 'disabled' &&
+        state.actionLifecycleAttrs.uiExecutionMode === 'read-only' &&
+        state.actionLifecycleText.includes('Action Executor URL not configured') &&
+        state.actionLifecycleText.includes('mutation execution disabled') &&
+        state.actionLifecycleText.includes('read-only UI blocks proposal, approval, and execution mutations'),
+      {
+        actionLifecycleAttrs: state.actionLifecycleAttrs,
+        actionLifecycleTextPreview: state.actionLifecycleText.slice(0, 640),
+      },
+    );
+    assertCheck(
+      'visible action lifecycle documents execute guard proof tokens',
+      ['sealed-plan-digest', 'active-approval', 'evidence-freshness', 'ssar', 'mutation-flag'].every(
+        (token) => state.actionLifecycleAttrs.executeGuard.includes(token),
+      ) &&
+        ['sealed plan digest', 'active approval', 'evidence freshness', 'SSAR', 'mutation flag'].every(
+          (label) => state.actionLifecycleText.includes(label),
+        ) &&
+        state.actionLifecycleText.includes('Expired or stale evidence blocks execution') &&
+        state.actionLifecycleText.includes('create a new plan and approval'),
+      {
+        actionLifecycleAttrs: state.actionLifecycleAttrs,
+        actionLifecycleTextPreview: state.actionLifecycleText.slice(0, 720),
+      },
+    );
+    assertCheck('visible insight rail action lifecycle has no horizontal overflow', state.railHorizontalOverflow <= 1, {
+      railDisplay: state.railDisplay,
+      railHorizontalOverflow: state.railHorizontalOverflow,
+    });
     const fullscreenShot = await screenshot(cdp, '.tmp-aiops-kugnus-ui-verify-fullscreen.png');
     record('fullscreen screenshot saved', true, { path: fullscreenShot });
 

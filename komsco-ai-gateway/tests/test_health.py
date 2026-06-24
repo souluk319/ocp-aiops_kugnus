@@ -4329,8 +4329,11 @@ def test_execution_evidence_freshness_rejects_expired_evidence_refs() -> None:
         }
     }
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as exc_info:
         validate_execution_evidence_freshness(plan)
+    assert exc_info.value.status_code == 409
+    assert "evidence is no longer fresh" in str(exc_info.value.detail)
+    assert "create a new plan and approval" in str(exc_info.value.detail)
 
 
 def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> None:
