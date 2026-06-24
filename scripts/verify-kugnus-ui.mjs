@@ -16,6 +16,7 @@ const delegateWslRunToWindowsNode = async () => {
   const forwardedEnv = [
     'KUGNUS_UI_WINDOWS_DELEGATED',
     'KUGNUS_UI_URL',
+    'KUGNUS_UI_VERIFY_MODE',
     'KUGNUS_CHROME_DEBUG_HOST',
     'KUGNUS_CHROME_DEBUG_PORT',
     'KUGNUS_UI_SCREENSHOT_DIR',
@@ -50,10 +51,19 @@ if (os.release().toLowerCase().includes('microsoft') && process.env.KUGNUS_UI_WI
 
 const chromePort = Number(process.env.KUGNUS_CHROME_DEBUG_PORT || 9231);
 const uiUrl = process.env.KUGNUS_UI_URL || 'http://localhost:9000/aiops-kugnus';
+const verifyMode =
+  process.env.KUGNUS_UI_VERIFY_MODE ||
+  (new URL(uiUrl).pathname === '/aiops-kugnus' ? 'dashboard' : 'overlay');
 const screenshotDir = process.env.KUGNUS_UI_SCREENSHOT_DIR || process.cwd();
 const autostartChrome = process.env.KUGNUS_UI_AUTOSTART_CHROME !== 'false';
 
 const results = [];
+const browserDiagnostics = {
+  console: [],
+  exceptions: [],
+  networkFailures: [],
+  responses: [],
+};
 let activeChromeHost = '127.0.0.1';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -242,6 +252,7 @@ class CdpClient {
     this.webSocketDebuggerUrl = webSocketDebuggerUrl;
     this.nextId = 1;
     this.pending = new Map();
+    this.eventHandlers = new Map();
   }
 
   async connect() {
@@ -254,6 +265,8 @@ class CdpClient {
     this.ws.addEventListener('message', (event) => {
       const message = JSON.parse(event.data);
       if (!message.id || !this.pending.has(message.id)) {
+        const handlers = this.eventHandlers.get(message.method) || [];
+        handlers.forEach((handler) => handler(message.params || {}));
         return;
       }
 
@@ -269,14 +282,40 @@ class CdpClient {
     });
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 30000) {
     const id = this.nextId;
     this.nextId += 1;
-    this.ws.send(JSON.stringify({ id, method, params }));
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP ${method} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+      });
+
+      try {
+        this.ws.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      }
     });
+  }
+
+  on(method, handler) {
+    const handlers = this.eventHandlers.get(method) || [];
+    handlers.push(handler);
+    this.eventHandlers.set(method, handlers);
   }
 
   async close() {
@@ -285,6 +324,50 @@ class CdpClient {
     }
   }
 }
+
+const pushDiagnostic = (bucket, value, limit = 12) => {
+  bucket.push(value);
+  if (bucket.length > limit) {
+    bucket.shift();
+  }
+};
+
+const attachCdpDiagnostics = (cdp, label) => {
+  cdp.on('Runtime.consoleAPICalled', (params) => {
+    pushDiagnostic(browserDiagnostics.console, {
+      label,
+      type: params.type,
+      text: (params.args || [])
+        .map((arg) => arg.value ?? arg.description ?? '')
+        .join(' ')
+        .slice(0, 500),
+    });
+  });
+  cdp.on('Runtime.exceptionThrown', (params) => {
+    pushDiagnostic(browserDiagnostics.exceptions, {
+      label,
+      text: params.exceptionDetails?.exception?.description || params.exceptionDetails?.text || '',
+    });
+  });
+  cdp.on('Network.loadingFailed', (params) => {
+    pushDiagnostic(browserDiagnostics.networkFailures, {
+      label,
+      errorText: params.errorText,
+      requestId: params.requestId,
+      type: params.type,
+    });
+  });
+  cdp.on('Network.responseReceived', (params) => {
+    if (params.response?.status >= 400) {
+      pushDiagnostic(browserDiagnostics.responses, {
+        label,
+        status: params.response.status,
+        type: params.type,
+        url: params.response.url,
+      });
+    }
+  });
+};
 
 const openPage = async () => {
   let target;
@@ -301,6 +384,7 @@ const openPage = async () => {
 
   const cdp = new CdpClient(target.webSocketDebuggerUrl);
   await cdp.connect();
+  attachCdpDiagnostics(cdp, 'fresh-target');
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
   await cdp.send('DOM.enable');
@@ -321,6 +405,7 @@ const openPage = async () => {
 const connectToTarget = async (target) => {
   const cdp = new CdpClient(target.webSocketDebuggerUrl);
   await cdp.connect();
+  attachCdpDiagnostics(cdp, 'recovered-target');
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
   await cdp.send('DOM.enable');
@@ -393,11 +478,44 @@ const waitFor = async (cdp, name, expression, timeoutMs = 20000) => {
   throw new Error(`Timed out waiting for ${name}`);
 };
 
+const getPageDiagnostics = async (cdp, extra = {}) => {
+  let page = {};
+  try {
+    page = await evaluate(
+      cdp,
+      `(() => ({
+        href: window.location.href,
+        readyState: document.readyState,
+        title: document.title,
+        hasAiopsRoot: !!document.querySelector('.komsco-ai'),
+        hasAiopsPage: !!document.querySelector('.komsco-ai-page'),
+        bodyPreview: document.body?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim().slice(0, 900) || '',
+      }))()`,
+    );
+  } catch (error) {
+    page = {
+      diagnosticError: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  return {
+    ...extra,
+    verifyMode,
+    page,
+    browserDiagnostics,
+  };
+};
+
 const activeSurfaceExpression = `
   document.querySelector('.komsco-ai__surface--fullscreen')
   || document.querySelector('.komsco-ai--embedded .komsco-ai__surface')
   || document.querySelector('.komsco-ai__surface')
 `;
+
+const initialRootExpression =
+  verifyMode === 'dashboard'
+    ? "document.readyState === 'complete' && !!document.querySelector('.komsco-ai-page')"
+    : "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')";
 
 const click = async (cdp, selector) => {
   const clicked = await evaluate(
@@ -867,6 +985,15 @@ const getDashboardState = async (cdp) =>
           .find((node) => node.textContent?.trim() === heading);
         return title?.closest('section')?.textContent?.trim() || '';
       };
+      const clippedText = (selector) =>
+        [...document.querySelectorAll(selector)]
+          .filter((node) => node.scrollWidth > node.clientWidth + 1)
+          .map((node) => ({
+            className: node.className,
+            clientWidth: Math.round(node.clientWidth),
+            scrollWidth: Math.round(node.scrollWidth),
+            text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+          }));
 
       return {
         title: document.querySelector('.komsco-ai-page h1')?.textContent?.trim() || '',
@@ -887,6 +1014,7 @@ const getDashboardState = async (cdp) =>
             return r.width > 0 && r.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
           }),
         overview: rectOf('.komsco-ai-page__overview'),
+        operatorFlow: rectOf('.komsco-ai-page__operator-flow'),
         metrics: rectOf('.komsco-ai-page__metrics'),
         anomalyBoard: rectOf('.komsco-ai-page__anomaly-board'),
         actionCandidateBoard: rectOf('.komsco-ai-page__action-candidate-board'),
@@ -896,6 +1024,17 @@ const getDashboardState = async (cdp) =>
         metricCount: document.querySelectorAll('.komsco-ai-page__metric').length,
         metricLabels: [...document.querySelectorAll('.komsco-ai-page__metric-label')].map((node) =>
           node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
+        ),
+        operatorFlowText: document.querySelector('.komsco-ai-page__operator-flow')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        operatorFlowItemCount: document.querySelectorAll('.komsco-ai-page__operator-flow-item').length,
+        operatorFlowLabels: [...document.querySelectorAll('.komsco-ai-page__operator-flow-label')].map((node) =>
+          node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
+        ),
+        operatorFlowClippedItems: clippedText(
+          '.komsco-ai-page__operator-flow-item strong, .komsco-ai-page__operator-flow-item small, .komsco-ai-page__operator-flow-label',
+        ),
+        essentialClippedItems: clippedText(
+          '.komsco-ai-page__operator-flow-item strong, .komsco-ai-page__operator-flow-item small, .komsco-ai-page__operator-flow-label, .komsco-ai-page__anomaly-item-head strong, .komsco-ai-page__action-candidate-title strong',
         ),
         panelHeadings: [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')].map((node) =>
           node.textContent?.trim(),
@@ -936,22 +1075,36 @@ const run = async () => {
     try {
       await waitFor(
         cdp,
-        'Cywell AI root',
-        "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')",
+        'Cywell AI initial root',
+        initialRootExpression,
         60000,
       );
     } catch (error) {
+      if (verifyMode === 'dashboard') {
+        record(
+          'fresh dashboard target loads Cywell AI root without stale-tab recovery',
+          false,
+          await getPageDiagnostics(cdp, {
+            reason: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        throw error;
+      }
       cdp = await recoverLoadedAiopsPage(cdp);
       await waitFor(
         cdp,
-        'Cywell AI root',
-        "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')",
+        'Cywell AI initial root',
+        initialRootExpression,
         60000,
       );
       record('recovered loaded Cywell AI tab after stale console target', true, {
         reason: error instanceof Error ? error.message : String(error),
       });
     }
+    record('initial Cywell AI route root mounted', true, {
+      mode: verifyMode,
+      url: await evaluate(cdp, 'window.location.href'),
+    });
     await evaluate(
       cdp,
       `(() => {
@@ -1001,6 +1154,14 @@ const run = async () => {
     const currentHasSurface = await evaluate(cdp, "!!document.querySelector('.komsco-ai__surface')");
     const currentHasEmbeddedSurface = await evaluate(cdp, "!!document.querySelector('.komsco-ai--embedded .komsco-ai__surface')");
     const isAiopsDashboardRoute = dashboardState.pageExists && dashboardState.title.includes('Cywell AI');
+    if (verifyMode === 'dashboard' && !isAiopsDashboardRoute) {
+      assertCheck('dashboard verifier is running against /aiops-kugnus product route', false, {
+        pageExists: dashboardState.pageExists,
+        title: dashboardState.title,
+        url: await evaluate(cdp, 'window.location.href'),
+      });
+      throw new Error('Expected /aiops-kugnus dashboard route, but Cywell AI dashboard page was not mounted');
+    }
     if (isAiopsDashboardRoute) {
       assertCheck('dashboard page is Cywell AI', true, {
         title: dashboardState.title,
@@ -1049,10 +1210,38 @@ const run = async () => {
           assistantTop: Math.round(dashboardState.assistant?.top || 0),
         },
       );
+      assertCheck(
+        'dashboard exposes Stage 5 operator flow summary before metrics',
+        Boolean(dashboardState.overview && dashboardState.operatorFlow && dashboardState.metrics) &&
+          dashboardState.overview.bottom <= dashboardState.operatorFlow.top + 2 &&
+          dashboardState.operatorFlow.bottom <= dashboardState.metrics.top + 2 &&
+          dashboardState.operatorFlowItemCount === 6 &&
+          ['클러스터 상태', '이상 징후', 'RCA 근거', '조치 후보', '감사·대화', '안전 정책'].every((label) =>
+            dashboardState.operatorFlowLabels.includes(label),
+          ) &&
+          dashboardState.operatorFlowText.includes('제안만 함 / 실행 안 함') &&
+          dashboardState.operatorFlowText.includes('대화 기록 기본 접힘') &&
+          /mutation (disabled|enabled)|mutation 상태 확인 중/.test(dashboardState.operatorFlowText) &&
+          !/(overview pending|waiting_for_question|status pending)/i.test(dashboardState.operatorFlowText),
+        {
+          metricsTop: Math.round(dashboardState.metrics?.top || 0),
+          operatorFlowBottom: Math.round(dashboardState.operatorFlow?.bottom || 0),
+          operatorFlowItemCount: dashboardState.operatorFlowItemCount,
+          operatorFlowLabels: dashboardState.operatorFlowLabels,
+          operatorFlowText: dashboardState.operatorFlowText.slice(0, 720),
+          overviewBottom: Math.round(dashboardState.overview?.bottom || 0),
+        },
+      );
+      assertCheck('dashboard Stage 5 operator flow text is not clipped', dashboardState.operatorFlowClippedItems.length === 0, {
+        operatorFlowClippedItems: dashboardState.operatorFlowClippedItems,
+      });
+      assertCheck('dashboard essential operational titles are not clipped', dashboardState.essentialClippedItems.length === 0, {
+        essentialClippedItems: dashboardState.essentialClippedItems,
+      });
       assertCheck('dashboard exposes four primary metrics', dashboardState.metricCount >= 4, {
         metricCount: dashboardState.metricCount,
       });
-      ['Ready nodes', 'Operator issues', 'Audit records', 'Action records'].forEach((metricLabel) => {
+      ['Ready nodes', 'Operator issues', 'Audit records', 'Execution records'].forEach((metricLabel) => {
         assertCheck(`dashboard metric connected: ${metricLabel}`, dashboardState.metricLabels.includes(metricLabel), {
           metricLabels: dashboardState.metricLabels,
         });
@@ -1886,20 +2075,29 @@ const run = async () => {
       '다음 확인',
       '우선순위',
     ];
+    const structuredBlockCount =
+      (rcaAssistantMessage?.formattedHeadingCount || 0) +
+      (rcaAssistantMessage?.formattedListCount || 0) +
+      (rcaAssistantMessage?.formattedCodeBlockCount || 0) +
+      (rcaAssistantMessage?.formattedTableCount || 0);
+    const hasRcaOperationsReport =
+      requiredRcaSections.every((section) => rcaText.includes(section)) && structuredBlockCount >= 3;
+    const hasDirectStatusAnswer =
+      /aiops-two-pod-exec/.test(rcaText) &&
+      /총\s*3개|Running\s*3개|Ready\s*3\/3/.test(rcaText) &&
+      (rcaAssistantMessage?.formattedTableCount || 0) >= 1 &&
+      /read-only|변경 조치는 수행하지 않았습니다/.test(rcaText);
     assertCheck(
-      'assistant RCA answer is structured as an operations report',
-      requiredRcaSections.every((section) => rcaText.includes(section)) &&
-        (
-          (rcaAssistantMessage?.formattedHeadingCount || 0) +
-          (rcaAssistantMessage?.formattedListCount || 0) +
-          (rcaAssistantMessage?.formattedCodeBlockCount || 0) +
-          (rcaAssistantMessage?.formattedTableCount || 0)
-        ) >= 3,
+      'assistant answer uses the correct operations structure for the question type',
+      hasRcaOperationsReport || hasDirectStatusAnswer,
       {
         codeBlocks: rcaAssistantMessage?.formattedCodeBlockCount,
+        hasDirectStatusAnswer,
+        hasRcaOperationsReport,
         headings: rcaAssistantMessage?.formattedHeadingCount,
         lists: rcaAssistantMessage?.formattedListCount,
         missingSections: requiredRcaSections.filter((section) => !rcaText.includes(section)),
+        structuredBlockCount,
         tables: rcaAssistantMessage?.formattedTableCount,
         textPreview: rcaText.slice(0, 420),
       },

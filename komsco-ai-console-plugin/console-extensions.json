@@ -13,7 +13,7 @@
       "id": "komsco-aiops-kugnus-assistant",
       "perspective": "admin",
       "section": "komsco-aiops-kugnus",
-      "name": "챗봇",
+      "name": "관제탑",
       "href": "/aiops-kugnus",
       "insertAfter": "home"
     }

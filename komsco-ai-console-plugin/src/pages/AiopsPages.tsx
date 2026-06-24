@@ -226,13 +226,13 @@ const PageShell: React.FC<{
       </Button>
     </div>
     {data.error && <div className="komsco-ai-page__error">{data.error}</div>}
-    {data.loading && !data.status && !data.summary ? (
+    {data.loading && !data.status && !data.summary && (
       <div className="komsco-ai-page__loading">
         <Spinner size="lg" />
+        <span>초기 관제 데이터를 수집 중입니다.</span>
       </div>
-    ) : (
-      children
     )}
+    {children}
   </div>
 );
 
@@ -254,6 +254,102 @@ const MetricTile: React.FC<{
     {detail && <span className="komsco-ai-page__metric-detail">{detail}</span>}
   </div>
 );
+
+const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
+  const overview = data.overview;
+  const status = data.status;
+  const summary = data.summary;
+  const overviewLoaded = Boolean(data.overview);
+  const statusLoaded = Boolean(data.status);
+  const anomalies = overview?.spec.anomalies?.spec;
+  const actionCandidates = overview?.spec.actionCandidates?.spec;
+  const evidenceStatus = status?.spec.safetyContract?.evidenceStatus ?? [];
+  const collectedEvidence = evidenceStatus
+    .filter((item) => item.status === 'collected')
+    .reduce((total, item) => total + item.count, 0);
+  const mutationsEnabled = Boolean(status?.spec.capabilities.mutationsEnabled);
+  const rcaStatus = status?.spec.safetyContract?.rcaContextStatus?.status;
+  const rcaStatusLabel =
+    rcaStatus === 'ready'
+      ? 'RCA 근거 준비됨'
+      : rcaStatus === 'missing_question'
+        ? '질문 후 RCA 근거 생성'
+        : statusLoaded
+          ? 'RCA 근거 확인 중'
+          : '질문 후 RCA 근거 생성';
+  const flowItems = [
+    {
+      detail: summary
+        ? `${summary.nodes.ready}/${summary.nodes.total} ready`
+        : '상태 수집 중',
+      icon: <ServerIcon />,
+      label: '클러스터 상태',
+      tone: !summary || summary.nodes.notReady ? 'warning' : 'success',
+      value: overview ? overview.spec.controlTower.statusLabel ?? '관제 상태 확인 중' : '관제 상태 확인 중',
+    },
+    {
+      detail: overviewLoaded && anomalies ? `총 ${anomalies.totals?.total ?? 0}건` : '소스 확인 중',
+      icon: <ExclamationTriangleIcon />,
+      label: '이상 징후',
+      tone: anomalyStatusTone(anomalies?.status),
+      value: overviewLoaded ? (anomalies?.statusLabel ?? '이상 징후 확인 중') : '이상 징후 수집 중',
+    },
+    {
+      detail: statusLoaded ? `근거 ${collectedEvidence} collected` : '근거 상태 확인 중',
+      icon: <ClipboardCheckIcon />,
+      label: 'RCA 근거',
+      tone: collectedEvidence > 0 ? 'info' : 'warning',
+      value: rcaStatusLabel,
+    },
+    {
+      detail: '제안만 함 / 실행 안 함',
+      icon: <BoltIcon />,
+      label: '조치 후보',
+      tone: actionCandidateTone(
+        actionCandidates?.candidates?.[0]?.riskLevel,
+        actionCandidates?.status,
+      ),
+      value: actionCandidates?.statusLabel ?? '조치 후보 확인 중',
+    },
+    {
+      detail: '대화 기록 기본 접힘',
+      icon: <HistoryIcon />,
+      label: '감사·대화',
+      tone: statusLoaded ? 'info' : 'warning',
+      value: statusLoaded ? `감사 ${status?.spec.records.auditRecords?.length ?? 0}건` : '감사 상태 확인 중',
+    },
+    {
+      detail: statusLoaded
+        ? mutationsEnabled
+          ? 'mutation enabled'
+          : 'mutation disabled'
+        : 'mutation 상태 확인 중',
+      icon: <ShieldAltIcon />,
+      label: '안전 정책',
+      tone: statusLoaded ? (mutationsEnabled ? 'danger' : 'success') : 'warning',
+      value: statusLoaded ? status?.spec.safetyContract?.mode ?? '정책 확인 중' : '안전 정책 확인 중',
+    },
+  ] as const;
+
+  return (
+    <section className="komsco-ai-page__operator-flow" aria-label="AIOps operator flow">
+      <div className="komsco-ai-page__operator-flow-head">
+        <span className="komsco-ai-page__section-kicker">Operator flow</span>
+        <h2>운영 흐름</h2>
+      </div>
+      <div className="komsco-ai-page__operator-flow-grid">
+        {flowItems.map((item) => (
+          <div className={`komsco-ai-page__operator-flow-item is-${item.tone}`} key={item.label}>
+            <span className="komsco-ai-page__operator-flow-icon">{item.icon}</span>
+            <span className="komsco-ai-page__operator-flow-label">{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.detail}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
 
 const dataSourceTone = (status?: string): Tone => {
   if (status === 'available') {
@@ -632,27 +728,27 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
   const items = [
     {
       label: 'Mutation gate',
-      value: statusLoaded ? (capabilities?.mutationsEnabled ? 'enabled' : 'read-only') : 'status pending',
+      value: statusLoaded ? (capabilities?.mutationsEnabled ? 'enabled' : 'read-only') : '상태 확인 중',
       tone: statusLoaded ? statusTone(!capabilities?.mutationsEnabled) : 'warning',
     },
     {
       label: 'Action executor',
-      value: statusLoaded ? (capabilities?.actionExecutorConfigured ? 'connected' : 'not configured') : 'status pending',
+      value: statusLoaded ? (capabilities?.actionExecutorConfigured ? 'connected' : 'not configured') : '상태 확인 중',
       tone: statusLoaded ? statusTone(Boolean(capabilities?.actionExecutorConfigured)) : 'warning',
     },
     {
       label: 'Diagnostics',
-      value: statusLoaded ? (capabilities?.diagnosticsEnabled ? 'enabled' : 'off') : 'status pending',
+      value: statusLoaded ? (capabilities?.diagnosticsEnabled ? 'enabled' : 'off') : '상태 확인 중',
       tone: statusLoaded && capabilities?.diagnosticsEnabled ? 'info' : 'warning',
     },
     {
       label: 'Record ledger',
-      value: statusLoaded ? (capabilities?.recordStoreEnabled ? 'on' : 'memory') : 'status pending',
+      value: statusLoaded ? (capabilities?.recordStoreEnabled ? 'on' : 'memory') : '상태 확인 중',
       tone: statusLoaded && capabilities?.recordStoreEnabled ? 'success' : 'warning',
     },
     {
       label: 'Runbook RAG',
-      value: statusLoaded ? (capabilities?.rag?.status ?? 'not reported') : 'status pending',
+      value: statusLoaded ? (capabilities?.rag?.status ?? 'not reported') : '상태 확인 중',
       tone: statusLoaded && capabilities?.rag?.status !== 'not_configured' ? 'info' : 'warning',
     },
   ] as const;
@@ -672,7 +768,7 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
             ? 'read-only contract active'
             : contract?.mode
               ? 'controlled execution contract active'
-              : 'safety contract not loaded'}
+              : '안전 계약 확인 중'}
         </span>
       </div>
     </div>
@@ -697,7 +793,7 @@ const LightspeedLink: React.FC<{ data: AiopsPageData }> = ({ data }) => {
               ? 'Gateway fallback active'
               : gatewayStatusLoaded
                 ? 'Gateway status loaded'
-                : 'Gateway status pending'}
+                : 'Gateway 상태 확인 중'}
           </strong>
           <span>
             {streamProbe}
@@ -905,9 +1001,9 @@ export const AiopsDashboardPage: React.FC = () => {
   const readyNodes = data.summary
     ? `${data.summary.nodes.ready}/${data.summary.nodes.total}`
     : '-';
-  const safetyMode = data.status?.spec.safetyContract?.mode ?? 'status pending';
+  const safetyMode = data.status?.spec.safetyContract?.mode ?? '상태 확인 중';
   const lightspeedProbe =
-    data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe pending';
+    data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
   const controlTower = data.overview?.spec.controlTower;
   const focusAssistant = React.useCallback(() => {
     assistantStageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -955,6 +1051,8 @@ export const AiopsDashboardPage: React.FC = () => {
         </div>
       </section>
 
+      <OperatorFlowBoard data={data} />
+
       <div className="komsco-ai-page__metrics">
         <MetricTile
           detail="readiness ratio"
@@ -978,9 +1076,9 @@ export const AiopsDashboardPage: React.FC = () => {
           value={auditCountValue}
         />
         <MetricTile
-          detail="proposal to execution"
+          detail="approved lifecycle"
           icon={<BoltIcon />}
-          label="Action records"
+          label="Execution records"
           tone={data.status && actionCount > 0 ? 'info' : 'warning'}
           value={actionCountValue}
         />

@@ -186,6 +186,91 @@
   margin-block-end: 16px;
 }
 
+.komsco-ai-page__operator-flow {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  margin-block-end: 16px;
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai-page__operator-flow-head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.komsco-ai-page__operator-flow-head h2 {
+  margin: 0;
+  font-size: var(--pf-t--global--font--size--heading--md);
+}
+
+.komsco-ai-page__operator-flow-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.komsco-ai-page__operator-flow-item {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 11px 11px 11px 34px;
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai-page__operator-flow-item::before {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 3px;
+  content: "";
+  background: #2b9af3;
+  border-radius: 8px 0 0 8px;
+}
+
+.komsco-ai-page__operator-flow-item.is-success::before {
+  background: #3e8635;
+}
+
+.komsco-ai-page__operator-flow-item.is-warning::before {
+  background: #f0ab00;
+}
+
+.komsco-ai-page__operator-flow-item.is-danger::before {
+  background: #c9190b;
+}
+
+.komsco-ai-page__operator-flow-icon {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-start: 12px;
+  color: #0066cc;
+}
+
+.komsco-ai-page__operator-flow-label,
+.komsco-ai-page__operator-flow-item small {
+  min-width: 0;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  color: var(--pf-t--global--text--color--subtle);
+  overflow-wrap: anywhere;
+}
+
+.komsco-ai-page__operator-flow-item strong {
+  min-width: 0;
+  color: var(--pf-t--global--text--color--regular);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .komsco-ai-page__source-board {
   display: grid;
   gap: 12px;
@@ -302,10 +387,10 @@
 }
 
 .komsco-ai-page__anomaly-item-head strong {
-  overflow: hidden;
   color: var(--pf-t--global--text--color--regular);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .komsco-ai-page__anomaly-item dl {
@@ -448,10 +533,10 @@
 }
 
 .komsco-ai-page__action-candidate-title strong {
-  overflow: hidden;
   color: var(--pf-t--global--text--color--regular);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .komsco-ai-page__action-candidate dl {
@@ -981,6 +1066,10 @@
   .komsco-ai-page__metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .komsco-ai-page__operator-flow-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 768px) {
@@ -998,6 +1087,15 @@
   }
 
   .komsco-ai-page__metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .komsco-ai-page__operator-flow-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .komsco-ai-page__operator-flow-grid {
     grid-template-columns: 1fr;
   }
 
