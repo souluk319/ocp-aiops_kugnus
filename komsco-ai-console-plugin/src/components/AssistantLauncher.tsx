@@ -32,6 +32,7 @@ import {
   type AuthSubject,
   type ChatContextMessage,
   type ClusterSummary,
+  type EvidenceStatusItem,
   type ImageAttachment,
   approveActionPlan,
   createActionPlan,
@@ -41,6 +42,7 @@ import {
   fetchConsoleUserSubject,
   streamChat,
 } from '../services/aiGateway';
+import { evidenceCount, safeEvidenceText, shortDigest } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
 import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
@@ -99,7 +101,37 @@ type Message = {
   role: 'user' | 'assistant' | 'system';
   attachments?: ImageAttachment[];
   content: string;
+  evidenceFooter?: EvidenceFooter;
   progressSteps?: ProgressStep[];
+};
+
+type EvidenceFooterRef = {
+  contentDigest?: string;
+  evidenceId?: string;
+  sourceType?: string;
+  status?: string;
+  summary?: string;
+  type?: string;
+};
+
+type EvidenceFooterMissing = {
+  contentDigest?: string;
+  evidenceId?: string;
+  reason?: string;
+  type?: string;
+};
+
+type EvidenceFooter = {
+  collectedCount: number;
+  collectedRefs: EvidenceFooterRef[];
+  contextId?: string;
+  digest?: string;
+  failedCount: number;
+  failedRefs: EvidenceFooterRef[];
+  missing: EvidenceFooterMissing[];
+  missingCount: number;
+  phase?: string;
+  status?: string;
 };
 
 type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';
@@ -621,6 +653,91 @@ const setLastAssistantContentIfEmpty = (
   return next;
 };
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+const asRecordArray = (value: unknown): Record<string, unknown>[] =>
+  Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
+
+const normalizeEvidenceRef = (value: Record<string, unknown>): EvidenceFooterRef => ({
+  contentDigest: safeEvidenceText(value.contentDigest),
+  evidenceId: safeEvidenceText(value.evidenceId),
+  sourceType: safeEvidenceText(value.sourceType),
+  status: safeEvidenceText(value.status),
+  summary: safeEvidenceText(value.summary || value.eventName || 'evidence'),
+  type: safeEvidenceText(value.type, 'evidence'),
+});
+
+const normalizeMissingEvidence = (value: Record<string, unknown>): EvidenceFooterMissing => ({
+  contentDigest: safeEvidenceText(value.contentDigest),
+  evidenceId: safeEvidenceText(value.evidenceId),
+  reason: safeEvidenceText(value.reason || 'additional evidence required'),
+  type: safeEvidenceText(value.type, 'evidence'),
+});
+
+const evidenceStatusCounts = (items: EvidenceStatusItem[] | undefined) => ({
+  collected: (items ?? [])
+    .filter((item) => item.status === 'collected')
+    .reduce((total, item) => total + item.count, 0),
+  missing: (items ?? [])
+    .filter((item) => item.status === 'missing')
+    .reduce((total, item) => total + Math.max(item.count, 1), 0),
+});
+
+const buildEvidenceFooter = (
+  context: unknown,
+  evidenceStatus?: EvidenceStatusItem[],
+  status?: string,
+): EvidenceFooter | undefined => {
+  const contextRecord = asRecord(context);
+  if (Object.keys(contextRecord).length === 0) {
+    return undefined;
+  }
+
+  const metadata = asRecord(contextRecord.metadata);
+  const evidence = asRecord(contextRecord.evidence);
+  const summary = asRecord(evidence.summary);
+  const collectedRefs = asRecordArray(evidence.collectedRefs).map(normalizeEvidenceRef);
+  const failedRefs = asRecordArray(evidence.failedRefs).map(normalizeEvidenceRef);
+  const missing = asRecordArray(evidence.missing).map(normalizeMissingEvidence);
+  const statusCounts = evidenceStatusCounts(evidenceStatus);
+
+  return {
+    collectedCount: evidenceCount(summary.collectedCount, statusCounts.collected, collectedRefs.length),
+    collectedRefs,
+    contextId: safeEvidenceText(metadata.contextId),
+    digest: safeEvidenceText(metadata.digest),
+    failedCount: evidenceCount(summary.failedCount, 0, failedRefs.length),
+    failedRefs,
+    missing,
+    missingCount: evidenceCount(summary.missingCount, statusCounts.missing, missing.length),
+    phase: safeEvidenceText(metadata.phase),
+    status: safeEvidenceText(status),
+  };
+};
+
+const attachEvidenceFooterToLastAssistant = (
+  messages: Message[],
+  evidenceFooter: EvidenceFooter | undefined,
+): Message[] => {
+  if (!evidenceFooter) {
+    return messages;
+  }
+
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    evidenceFooter,
+  };
+
+  return next;
+};
+
 const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =>
   messages
     .filter((message) => message.content.trim())
@@ -1124,6 +1241,85 @@ const renderFormattedContent = (
   flushCodeBlock();
 
   return <div className="komsco-ai__formatted">{nodes}</div>;
+};
+
+const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
+  if (!footer) {
+    return '';
+  }
+
+  const lines = [
+    '',
+    '[Evidence]',
+    `- context: ${footer.contextId || shortDigest(footer.digest) || 'unavailable'}`,
+    `- collected: ${footer.collectedCount}`,
+    `- additional_check_required: ${footer.missingCount}`,
+  ];
+
+  footer.collectedRefs.slice(0, 3).forEach((ref) => {
+    lines.push(
+      `- ref: ${ref.evidenceId || 'evidence'} ${ref.type || 'evidence'} ${shortDigest(
+        ref.contentDigest,
+      )}`,
+    );
+  });
+
+  footer.missing.slice(0, 3).forEach((item) => {
+    lines.push(`- missing: ${item.type || 'evidence'} ${item.reason || 'additional evidence required'}`);
+  });
+
+  return lines.join('\n');
+};
+
+const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNode => {
+  if (!footer) {
+    return null;
+  }
+
+  const collectedRefs = footer.collectedRefs.slice(0, 3);
+  const missing = footer.missing.slice(0, 3);
+  const traceLabel = footer.contextId || shortDigest(footer.digest) || 'context pending';
+
+  return (
+    <div
+      className="komsco-ai__evidence-footer"
+      data-evidence-context-id={footer.contextId || ''}
+      data-evidence-digest={footer.digest || ''}
+    >
+      <div className="komsco-ai__evidence-footer-head">
+        <span className="komsco-ai__evidence-title">근거</span>
+        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
+          수집 {footer.collectedCount}
+        </span>
+        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
+          추가 확인 {footer.missingCount}
+        </span>
+        <code>{traceLabel}</code>
+      </div>
+
+      {collectedRefs.length > 0 && (
+        <div className="komsco-ai__evidence-list" aria-label="수집된 답변 근거">
+          {collectedRefs.map((ref, index) => (
+            <div className="komsco-ai__evidence-ref" key={`${ref.evidenceId || ref.type || 'ref'}-${index}`}>
+              <strong>{ref.type || 'evidence'}</strong>
+              <span>{ref.summary || ref.sourceType || 'runtime evidence'}</span>
+              <code>{ref.evidenceId || shortDigest(ref.contentDigest) || 'ref'}</code>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {missing.length > 0 && (
+        <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
+          {missing.map((item, index) => (
+            <span key={`${item.type || 'missing'}-${index}`}>
+              {item.type || 'evidence'}: {item.reason || '추가 확인 필요'}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const getProgressSummary = (steps: ProgressStep[], active: boolean): string => {
@@ -2748,7 +2944,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   );
 
   const copyMessage = React.useCallback((message: Message, index: number) => {
-    const text = message.content.trim();
+    const text = `${message.content.trim()}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
     if (!text || !navigator.clipboard) {
       return;
     }
@@ -3185,6 +3381,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
 
           if (event.type === 'rca_context') {
+            const evidenceFooter = buildEvidenceFooter(
+              event.context,
+              event.evidenceStatus,
+              event.status,
+            );
+            setMessages((prev) => attachEvidenceFooterToLastAssistant(prev, evidenceFooter));
             setAiopsStatus((prev) => {
               const base = prev ?? createPendingAiopsStatus();
               const safetyContract =
@@ -3567,6 +3769,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               {renderFormattedContent(message, setPreviewAttachment)}
                             </div>
                           )}
+                          {message.role === 'assistant' &&
+                            hasContent &&
+                            renderEvidenceFooter(message.evidenceFooter)}
                           {hasProgress && message.progressSteps && (
                             <ProgressTimeline active={false} steps={message.progressSteps} />
                           )}

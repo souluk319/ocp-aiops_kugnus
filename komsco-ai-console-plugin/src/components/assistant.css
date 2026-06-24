@@ -1531,6 +1531,99 @@
   border-color: #dce4ee;
 }
 
+.komsco-ai__evidence-footer {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  color: var(--komsco-ink-500);
+  border-top: 1px solid #e1e8f0;
+}
+
+.komsco-ai__evidence-footer-head,
+.komsco-ai__evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.komsco-ai__evidence-title {
+  font-size: 10px;
+  font-weight: 760;
+  color: var(--komsco-ink-700);
+}
+
+.komsco-ai__evidence-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  font-weight: 720;
+  border: 1px solid transparent;
+  border-radius: 999px;
+}
+
+.komsco-ai__evidence-pill--collected {
+  color: #1f6f3a;
+  background: #effaf1;
+  border-color: #b9e7c4;
+}
+
+.komsco-ai__evidence-pill--missing {
+  color: #8a6100;
+  background: #fff8e5;
+  border-color: #ead186;
+}
+
+.komsco-ai__evidence-footer code {
+  max-width: 190px;
+  padding: 2px 5px;
+  overflow: hidden;
+  font-size: 10px;
+  color: #536276;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #f6f8fb;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+}
+
+.komsco-ai__evidence-ref {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 6px;
+  font-size: 10px;
+  background: #f8fbff;
+  border: 1px solid #dbe6f2;
+  border-radius: 6px;
+}
+
+.komsco-ai__evidence-ref strong {
+  color: var(--komsco-ink-700);
+}
+
+.komsco-ai__evidence-ref span {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__evidence-missing {
+  display: grid;
+  gap: 4px;
+  padding: 6px 7px;
+  font-size: 10px;
+  color: #7a5a00;
+  background: #fffaf0;
+  border: 1px solid #ead99f;
+  border-radius: 6px;
+}
+
 .komsco-ai__progress {
   margin-block: 2px 10px;
 }

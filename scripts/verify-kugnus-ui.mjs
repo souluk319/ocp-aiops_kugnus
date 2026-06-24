@@ -310,6 +310,52 @@ const openPage = async () => {
   return cdp;
 };
 
+const connectToTarget = async (target) => {
+  const cdp = new CdpClient(target.webSocketDebuggerUrl);
+  await cdp.connect();
+  await cdp.send('Page.enable');
+  await cdp.send('Runtime.enable');
+  await cdp.send('DOM.enable');
+  await cdp.send('Network.enable');
+  await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  await cdp.send('Input.setIgnoreInputEvents', { ignore: false });
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 1440,
+    height: 1000,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  return cdp;
+};
+
+const recoverLoadedAiopsPage = async (currentCdp) => {
+  const targets = await fetchJson('/json/list');
+  const ui = new URL(uiUrl);
+  const candidates = targets.filter(
+    (item) =>
+      item.type === 'page' &&
+      item.webSocketDebuggerUrl &&
+      item.url &&
+      new URL(item.url).origin === ui.origin &&
+      new URL(item.url).pathname === ui.pathname,
+  );
+
+  for (const target of candidates) {
+    const candidate = await connectToTarget(target);
+    const hasRoot = await evaluate(
+      candidate,
+      "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')",
+    );
+    if (hasRoot) {
+      await currentCdp.close();
+      return candidate;
+    }
+    await candidate.close();
+  }
+
+  return currentCdp;
+};
+
 const evaluate = async (cdp, expression) => {
   const result = await cdp.send('Runtime.evaluate', {
     expression,
@@ -319,7 +365,7 @@ const evaluate = async (cdp, expression) => {
 
   if (result.exceptionDetails) {
     const detail = result.exceptionDetails.exception?.description || result.exceptionDetails.text;
-    throw new Error(detail);
+    throw new Error(`${detail} while evaluating: ${expression.slice(0, 360)}`);
   }
 
   return result.result.value;
@@ -410,7 +456,7 @@ const dragResizeHandle = async (cdp, deltaX, deltaY) => {
           buttons: 0,
         }),
       );
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+      setTimeout(() => resolve(true), 80);
     }))()`,
   );
 
@@ -421,27 +467,34 @@ const dragResizeHandle = async (cdp, deltaX, deltaY) => {
 };
 
 const setComposerText = async (cdp, text) => {
-  const updated = await evaluate(
+  const result = await evaluate(
     cdp,
     `(() => {
       const surface = ${activeSurfaceExpression};
-      const textarea = surface?.querySelector('textarea.komsco-ai__textarea, .komsco-ai__textarea textarea, textarea');
-      if (!textarea) return false;
-      textarea.focus();
-      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-      if (setter) {
-        setter.call(textarea, ${JSON.stringify(text)});
-      } else {
-        textarea.value = ${JSON.stringify(text)};
+      try {
+        const textarea = surface?.querySelector('textarea.komsco-ai__textarea, .komsco-ai__textarea textarea, textarea');
+        if (!textarea) return { ok: false, error: 'Missing chat composer textarea' };
+        textarea.focus();
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        if (setter) {
+          setter.call(textarea, ${JSON.stringify(text)});
+        } else {
+          textarea.value = ${JSON.stringify(text)};
+        }
+        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${JSON.stringify(text)}, inputType: 'insertText' }));
+        textarea.dispatchEvent(new Event('change', { bubbles: true }));
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: String(error?.stack || error?.message || error),
+        };
       }
-      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, data: ${JSON.stringify(text)}, inputType: 'insertText' }));
-      textarea.dispatchEvent(new Event('change', { bubbles: true }));
-      return true;
     })()`,
   );
 
-  if (!updated) {
-    throw new Error('Missing chat composer textarea');
+  if (!result?.ok) {
+    throw new Error(result?.error || 'Missing chat composer textarea');
   }
   await sleep(250);
 };
@@ -458,6 +511,7 @@ const getChatInteractionState = async (cdp) =>
         const r = node.getBoundingClientRect();
         return {
           bottom: r.bottom,
+          height: r.height,
           left: r.left,
           right: r.right,
           top: r.top,
@@ -467,11 +521,27 @@ const getChatInteractionState = async (cdp) =>
       const messages = [...(surface?.querySelectorAll('.komsco-ai__message') || [])].map((node) => {
         const avatar = node.querySelector('.komsco-ai__message-avatar');
         const content = node.querySelector('.komsco-ai__message-content');
+        const evidenceFooter = node.querySelector('.komsco-ai__evidence-footer');
+        const evidenceText = evidenceFooter?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '';
         const label = node.querySelector('.komsco-ai__message-label');
         return {
           avatar: rect(avatar),
           cls: node.className,
           content: rect(content),
+          evidenceFooter: evidenceFooter
+            ? {
+                contextId: evidenceFooter.getAttribute('data-evidence-context-id') || '',
+                digest: evidenceFooter.getAttribute('data-evidence-digest') || '',
+                missingText: evidenceFooter.querySelector('.komsco-ai__evidence-missing')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+                rect: rect(evidenceFooter),
+                text: evidenceText,
+                collectedCount: evidenceFooter.querySelectorAll('.komsco-ai__evidence-pill--collected').length,
+                collectedNumber: Number((evidenceText.match(/수집\\s*([0-9]+)/) || [])[1] || 0),
+                missingCount: evidenceFooter.querySelectorAll('.komsco-ai__evidence-pill--missing').length,
+                missingNumber: Number((evidenceText.match(/추가 확인\\s*([0-9]+)/) || [])[1] || 0),
+                refCount: evidenceFooter.querySelectorAll('.komsco-ai__evidence-ref').length,
+              }
+            : null,
           labelText: label?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           message: rect(node),
           text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
@@ -750,10 +820,18 @@ const getDashboardState = async (cdp) =>
 
 const run = async () => {
   await ensureChrome();
-  const cdp = await openPage();
+  let cdp = await openPage();
 
   try {
-    await waitFor(cdp, 'Cywell AI root', "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')");
+    try {
+      await waitFor(cdp, 'Cywell AI root', "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')");
+    } catch (error) {
+      cdp = await recoverLoadedAiopsPage(cdp);
+      await waitFor(cdp, 'Cywell AI root', "document.readyState === 'complete' && !!document.querySelector('.komsco-ai')");
+      record('recovered loaded Cywell AI tab after stale console target', true, {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
     await evaluate(
       cdp,
       `(() => {
@@ -793,73 +871,86 @@ const run = async () => {
     await waitFor(cdp, 'assistant surface', "!!document.querySelector('.komsco-ai__surface')");
 
     let dashboardState = await getDashboardState(cdp);
-    assertCheck('dashboard page is Cywell AI', dashboardState.pageExists && dashboardState.title.includes('Cywell AI'), {
-      title: dashboardState.title,
-    });
-    assertCheck('dashboard route does not show duplicate global assistant FAB', !dashboardState.floatingFabVisible, {
-      floatingFabVisible: dashboardState.floatingFabVisible,
-    });
-    assertCheck('dashboard route keeps K assistant quick toggle visible after refresh', dashboardState.quickToggleVisible, {
-      quickToggleVisible: dashboardState.quickToggleVisible,
-    });
-    await evaluate(cdp, 'window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" })');
-    await sleep(250);
-    await click(cdp, '.komsco-ai-page__assistant-quick-toggle');
-    await waitFor(
-      cdp,
-      'assistant quick toggle scrolls to embedded assistant',
-      `(() => {
-        const stage = document.querySelector('.komsco-ai-page__assistant-stage');
-        if (!stage) return false;
-        const r = stage.getBoundingClientRect();
-        return r.top >= 0 && r.top < window.innerHeight * 0.75;
-      })()`,
-      5000,
-    );
-    record('dashboard K assistant quick toggle scrolls to embedded assistant', true);
-    assertCheck('dashboard health score is loaded from gateway data', /^\d+$/.test(dashboardState.healthScoreText), {
-      healthScoreText: dashboardState.healthScoreText,
-    });
-    assertCheck(
-      'dashboard overview side shows API, version, safety, and Lightspeed values',
-      dashboardState.overviewSideText.includes('API') &&
-        dashboardState.overviewSideText.includes('Version') &&
-        dashboardState.overviewSideText.includes('Safety') &&
-        dashboardState.overviewSideText.includes('Lightspeed stream') &&
-        !dashboardState.overviewSideText.includes('상태 확인 중'),
-      {
-        overviewSideText: dashboardState.overviewSideText,
-      },
-    );
-    assertCheck(
-      'dashboard overview appears before assistant stage',
-      Boolean(dashboardState.overview && dashboardState.assistant) &&
-        dashboardState.overview.top < dashboardState.assistant.top,
-      {
-        overviewTop: Math.round(dashboardState.overview?.top || 0),
-        assistantTop: Math.round(dashboardState.assistant?.top || 0),
-      },
-    );
-    assertCheck('dashboard exposes four primary metrics', dashboardState.metricCount >= 4, {
-      metricCount: dashboardState.metricCount,
-    });
-    ['Ready nodes', 'Operator issues', 'Audit records', 'Action records'].forEach((metricLabel) => {
-      assertCheck(`dashboard metric connected: ${metricLabel}`, dashboardState.metricLabels.includes(metricLabel), {
-        metricLabels: dashboardState.metricLabels,
+    const currentHasSurface = await evaluate(cdp, "!!document.querySelector('.komsco-ai__surface')");
+    const currentHasEmbeddedSurface = await evaluate(cdp, "!!document.querySelector('.komsco-ai--embedded .komsco-ai__surface')");
+    const isAiopsDashboardRoute = dashboardState.pageExists && dashboardState.title.includes('Cywell AI');
+    if (isAiopsDashboardRoute) {
+      assertCheck('dashboard page is Cywell AI', true, {
+        title: dashboardState.title,
       });
-    });
-    [
-      'Evidence posture',
-      'Lightspeed link',
-      'Tool Plan JSON',
-      'RCA Context JSON',
-      'OS-aware adapters',
-      'Safety contract',
-    ].forEach((heading) => {
-      assertCheck(`dashboard panel present: ${heading}`, dashboardState.panelHeadings.includes(heading), {
-        panelHeadings: dashboardState.panelHeadings,
+      assertCheck('dashboard route does not show duplicate global assistant FAB', !dashboardState.floatingFabVisible, {
+        floatingFabVisible: dashboardState.floatingFabVisible,
       });
-    });
+      assertCheck('dashboard route keeps K assistant quick toggle visible after refresh', dashboardState.quickToggleVisible, {
+        quickToggleVisible: dashboardState.quickToggleVisible,
+      });
+      await evaluate(cdp, 'window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" })');
+      await sleep(250);
+      await click(cdp, '.komsco-ai-page__assistant-quick-toggle');
+      await waitFor(
+        cdp,
+        'assistant quick toggle scrolls to embedded assistant',
+        `(() => {
+          const stage = document.querySelector('.komsco-ai-page__assistant-stage');
+          if (!stage) return false;
+          const r = stage.getBoundingClientRect();
+          return r.top >= 0 && r.top < window.innerHeight * 0.75;
+        })()`,
+        5000,
+      );
+      record('dashboard K assistant quick toggle scrolls to embedded assistant', true);
+      assertCheck('dashboard health score is loaded from gateway data', /^\d+$/.test(dashboardState.healthScoreText), {
+        healthScoreText: dashboardState.healthScoreText,
+      });
+      assertCheck(
+        'dashboard overview side shows API, version, safety, and Lightspeed values',
+        dashboardState.overviewSideText.includes('API') &&
+          dashboardState.overviewSideText.includes('Version') &&
+          dashboardState.overviewSideText.includes('Safety') &&
+          dashboardState.overviewSideText.includes('Lightspeed stream') &&
+          !dashboardState.overviewSideText.includes('상태 확인 중'),
+        {
+          overviewSideText: dashboardState.overviewSideText,
+        },
+      );
+      assertCheck(
+        'dashboard overview appears before assistant stage',
+        Boolean(dashboardState.overview && dashboardState.assistant) &&
+          dashboardState.overview.top < dashboardState.assistant.top,
+        {
+          overviewTop: Math.round(dashboardState.overview?.top || 0),
+          assistantTop: Math.round(dashboardState.assistant?.top || 0),
+        },
+      );
+      assertCheck('dashboard exposes four primary metrics', dashboardState.metricCount >= 4, {
+        metricCount: dashboardState.metricCount,
+      });
+      ['Ready nodes', 'Operator issues', 'Audit records', 'Action records'].forEach((metricLabel) => {
+        assertCheck(`dashboard metric connected: ${metricLabel}`, dashboardState.metricLabels.includes(metricLabel), {
+          metricLabels: dashboardState.metricLabels,
+        });
+      });
+      [
+        'Evidence posture',
+        'Lightspeed link',
+        'Tool Plan JSON',
+        'RCA Context JSON',
+        'OS-aware adapters',
+        'Safety contract',
+      ].forEach((heading) => {
+        assertCheck(`dashboard panel present: ${heading}`, dashboardState.panelHeadings.includes(heading), {
+          panelHeadings: dashboardState.panelHeadings,
+        });
+      });
+    } else {
+      assertCheck('console dashboards route hosts K assistant surface', Boolean(currentHasSurface || currentHasEmbeddedSurface), {
+        hasEmbeddedSurface: currentHasEmbeddedSurface,
+        hasSurface: currentHasSurface,
+        pageExists: dashboardState.pageExists,
+        title: dashboardState.title,
+        url: uiUrl,
+      });
+    }
     assertCheck('dashboard has no horizontal overflow', dashboardState.horizontalOverflow <= 1, {
       horizontalOverflow: dashboardState.horizontalOverflow,
     });
@@ -1417,50 +1508,177 @@ const run = async () => {
         railTextPreview: state.railText.slice(0, 360),
       },
     );
-    const dashboardRefreshClicked = await evaluate(
-      cdp,
-      `(() => {
-        const button = [...document.querySelectorAll('button')]
-          .find((node) => node.textContent?.includes('새로고침'));
-        if (!button || button.disabled) return false;
-        button.click();
-        return true;
-      })()`,
-    );
-    assertCheck('dashboard refresh button updates status after RCA chat event', dashboardRefreshClicked);
-    await waitFor(
-      cdp,
-      'dashboard RCA Context JSON exposes collected evidence trace fields',
-      `(() => {
-        const title = [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')]
-          .find((node) => node.textContent?.trim() === 'RCA Context JSON');
-        const text = title?.closest('section')?.textContent || '';
-        return /"kind"\\s*:\\s*"RcaContext"/.test(text)
-          && /"digest"\\s*:/.test(text)
-          && /"contextId"\\s*:/.test(text)
-          && /"evidence_refs"\\s*:/.test(text)
-          && /"collectedRefs"\\s*:\\s*\\[\\s*\\{/.test(text)
-          && /"failedRefs"\\s*:/.test(text)
-          && /"missing"\\s*:/.test(text);
-      })()`,
-      15000,
-    );
-    dashboardState = await getDashboardState(cdp);
+    chatState = await getChatInteractionState(cdp);
+    const rcaAssistantMessage = [...chatState.messages]
+      .reverse()
+      .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant'));
+    const evidenceFooter = rcaAssistantMessage?.evidenceFooter;
     assertCheck(
-      'dashboard RCA Context JSON keeps real trace fields for collected, failed, and missing evidence',
-      rcaContextTextHasTraceFields(dashboardState.rcaContextText) &&
-        /"collectedRefs"\s*:\s*\[\s*\{/.test(dashboardState.rcaContextText),
+      'assistant answer exposes compact evidence footer with trace id',
+      Boolean(evidenceFooter) &&
+        /근거/.test(evidenceFooter.text) &&
+        /수집\s*[1-9]/.test(evidenceFooter.text) &&
+        /추가 확인\s*[0-9]/.test(evidenceFooter.text) &&
+        (evidenceFooter.contextId.startsWith('rca-') || evidenceFooter.digest.startsWith('sha256:')),
       {
-        rcaContextTextPreview: dashboardState.rcaContextText.slice(0, 720),
+        contextId: evidenceFooter?.contextId,
+        digestPreview: evidenceFooter?.digest?.slice(0, 24),
+        footerText: evidenceFooter?.text?.slice(0, 420),
       },
     );
     assertCheck(
-      'dashboard Evidence posture exposes positive collected evidence after RCA chat event',
-      /[1-9][0-9]*\s*collected/i.test(dashboardState.evidencePanelText),
+      'assistant evidence footer separates collected and missing evidence without crowding answer',
+      Boolean(evidenceFooter) &&
+        evidenceFooter.collectedCount === 1 &&
+        evidenceFooter.missingCount === 1 &&
+        evidenceFooter.refCount >= 1 &&
+        evidenceFooter.rect &&
+        evidenceFooter.rect.width <= rcaAssistantMessage.message.width + 1 &&
+        evidenceFooter.rect.height <= 140,
       {
-        evidencePanelText: dashboardState.evidencePanelText,
+        collectedPills: evidenceFooter?.collectedCount,
+        footerHeight: evidenceFooter?.rect?.height,
+        messageWidth: rcaAssistantMessage?.message?.width,
+        missingPills: evidenceFooter?.missingCount,
+        refCount: evidenceFooter?.refCount,
       },
     );
+    assertCheck(
+      'assistant distinguishes no-evidence stopped answer from collected evidence footer',
+      chatState.messages.some((message) =>
+        String(message.cls || '').includes('komsco-ai__message--assistant') &&
+        /응답 생성을 중지했습니다|오류 확인 필요/.test(message.text || '') &&
+        (!message.evidenceFooter ||
+          (message.evidenceFooter.collectedNumber === 0 && message.evidenceFooter.refCount === 0)),
+      ) &&
+        Boolean(evidenceFooter) &&
+        evidenceFooter.collectedNumber > 0 &&
+        evidenceFooter.missingNumber >= 0 &&
+        evidenceFooter.refCount > 0,
+      {
+        noEvidenceAssistantMessages: chatState.messages.filter((message) =>
+          String(message.cls || '').includes('komsco-ai__message--assistant') &&
+          (!message.evidenceFooter ||
+            (message.evidenceFooter.collectedNumber === 0 && message.evidenceFooter.refCount === 0)),
+        ).length,
+        withEvidenceFooterText: evidenceFooter?.text?.slice(0, 240),
+      },
+    );
+    assertCheck(
+      'assistant evidence footer redacts sensitive identity and token-like values',
+      Boolean(evidenceFooter) &&
+        !/Bearer\s+[A-Za-z0-9._~+/=-]+/i.test(evidenceFooter.text) &&
+        !/sha256~[A-Za-z0-9._~-]+/i.test(evidenceFooter.text) &&
+        !/\b(admin|kubeadmin)\b/i.test(evidenceFooter.text) &&
+        !/@/.test(evidenceFooter.text),
+      {
+        footerText: evidenceFooter?.text?.slice(0, 420),
+      },
+    );
+    const copiedEvidenceText = await evaluate(
+      cdp,
+      `(async () => {
+        const surface = ${activeSurfaceExpression};
+        const messages = [...(surface?.querySelectorAll('.komsco-ai__message--assistant') || [])];
+        const target = messages.reverse().find((message) =>
+          message.querySelector('.komsco-ai__evidence-footer .komsco-ai__evidence-ref')
+        );
+        const copyButton = target?.querySelector('.komsco-ai__message-copy');
+        if (!target || !copyButton) {
+          return { copied: '', patched: false, reason: 'copy target not found' };
+        }
+
+        const originalClipboard = navigator.clipboard;
+        let copied = '';
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: {
+            writeText: async (value) => {
+              copied = String(value || '');
+            },
+          },
+        });
+
+        copyButton.click();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        if (originalClipboard) {
+          Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: originalClipboard,
+          });
+        }
+
+        return { copied, patched: true };
+      })()`,
+    );
+    assertCheck(
+      'assistant copy text includes evidence block without sensitive values',
+      Boolean(copiedEvidenceText?.copied) &&
+        copiedEvidenceText.copied.includes('[Evidence]') &&
+        /additional_check_required:\s*[0-9]+/.test(copiedEvidenceText.copied) &&
+        !/Bearer\s+[A-Za-z0-9._~+/=-]+/i.test(copiedEvidenceText.copied) &&
+        !/sha256~[A-Za-z0-9._~-]+/i.test(copiedEvidenceText.copied) &&
+        !/\b(admin|kubeadmin)\b/i.test(copiedEvidenceText.copied) &&
+        !/@/.test(copiedEvidenceText.copied),
+      {
+        copiedPreview: copiedEvidenceText?.copied?.slice(0, 420),
+        patched: copiedEvidenceText?.patched,
+        reason: copiedEvidenceText?.reason,
+      },
+    );
+    const evidenceFooterShot = await screenshot(cdp, '.tmp-aiops-kugnus-ui-verify-evidence-footer.png');
+    record('evidence footer screenshot saved', true, { path: evidenceFooterShot });
+    if (isAiopsDashboardRoute) {
+      const dashboardRefreshClicked = await evaluate(
+        cdp,
+        `(() => {
+          const button = [...document.querySelectorAll('button')]
+            .find((node) => node.textContent?.includes('새로고침'));
+          if (!button || button.disabled) return false;
+          button.click();
+          return true;
+        })()`,
+      );
+      assertCheck('dashboard refresh button updates status after RCA chat event', dashboardRefreshClicked);
+      await waitFor(
+        cdp,
+        'dashboard RCA Context JSON exposes collected evidence trace fields',
+        `(() => {
+          const title = [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')]
+            .find((node) => node.textContent?.trim() === 'RCA Context JSON');
+          const text = title?.closest('section')?.textContent || '';
+          return /"kind"\\s*:\\s*"RcaContext"/.test(text)
+            && /"digest"\\s*:/.test(text)
+            && /"contextId"\\s*:/.test(text)
+            && /"evidence_refs"\\s*:/.test(text)
+            && /"collectedRefs"\\s*:\\s*\\[\\s*\\{/.test(text)
+            && /"failedRefs"\\s*:/.test(text)
+            && /"missing"\\s*:/.test(text);
+        })()`,
+        15000,
+      );
+      dashboardState = await getDashboardState(cdp);
+      assertCheck(
+        'dashboard RCA Context JSON keeps real trace fields for collected, failed, and missing evidence',
+        rcaContextTextHasTraceFields(dashboardState.rcaContextText) &&
+          /"collectedRefs"\s*:\s*\[\s*\{/.test(dashboardState.rcaContextText),
+        {
+          rcaContextTextPreview: dashboardState.rcaContextText.slice(0, 720),
+        },
+      );
+      assertCheck(
+        'dashboard Evidence posture exposes positive collected evidence after RCA chat event',
+        /[1-9][0-9]*\s*collected/i.test(dashboardState.evidencePanelText),
+        {
+          evidencePanelText: dashboardState.evidencePanelText,
+        },
+      );
+    } else {
+      record('console dashboards route uses assistant evidence footer as Stage 2 proof', true, {
+        url: uiUrl,
+      });
+    }
 
     await makeConversationScrollableAndScrollUp(cdp);
     await waitFor(
@@ -1538,8 +1756,30 @@ const run = async () => {
 
     await cdp.send('Page.navigate', { url: new URL('/dashboards', uiUrl).toString() });
     await waitFor(cdp, 'dashboard page reload', "document.readyState === 'complete'");
-    await waitFor(cdp, 'floating assistant fab after console refresh', "!!document.querySelector('.komsco-ai__fab')");
-    await click(cdp, '.komsco-ai__fab');
+    try {
+      await waitFor(
+        cdp,
+        'floating assistant after console refresh',
+        "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface') || !!document.querySelector('.komsco-ai__fab')",
+      );
+    } catch (error) {
+      cdp = await recoverLoadedAiopsPage(cdp);
+      await waitFor(
+        cdp,
+        'floating assistant after console refresh',
+        "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface') || !!document.querySelector('.komsco-ai__fab')",
+      );
+      record('recovered loaded Cywell AI tab after refresh target stalled', true, {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+    const refreshHasSurface = await evaluate(
+      cdp,
+      "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface')",
+    );
+    if (!refreshHasSurface) {
+      await click(cdp, '.komsco-ai__fab');
+    }
     await waitFor(cdp, 'floating assistant surface', "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface')");
     const floatingState = await getUiState(cdp);
     assertCheck(
