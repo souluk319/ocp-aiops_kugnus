@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -106,6 +107,7 @@ from komsco_ai_gateway.aiops_core import (
 )
 from komsco_ai_gateway.aiops_contracts import (
     assert_read_only_tool_plan,
+    build_rca_context,
     build_runtime_safety_contract,
     build_runtime_tool_plan,
     create_evidence_status,
@@ -228,6 +230,201 @@ def test_runtime_safety_contract_exposes_latest_tool_plan() -> None:
     assert contract["toolPlanStatus"]["latestRuntimePlan"]["task_type"] == "cluster_operator_status"
 
 
+def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
+    plan = build_runtime_tool_plan("어제 새벽 default 네임스페이스 pod가 왜 재시작됐어?")
+    context = build_rca_context(
+        message="어제 새벽 default 네임스페이스 pod가 왜 재시작됐어?",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "collectedAt": "2026-06-24T00:00:00Z",
+                "contentDigest": "sha256:abc",
+                "evidenceId": "ev-abc",
+                "eventName": "pod_status_evidence",
+                "eventStatus": "success",
+                "sourceType": "gateway-preflight-evidence",
+                "summary": "Pod 상태/재시작 증거 수집 완료",
+            }
+        ],
+        page_context={"namespace": "default", "resourceKind": "Pod"},
+        run_id="run-test",
+        incident_id="inc-test",
+    )
+
+    assert context["kind"] == "RcaContext"
+    assert context["metadata"]["contextId"].startswith("rca-")
+    assert context["metadata"]["digest"].startswith("sha256:")
+    assert context["metadata"]["runId"] == "run-test"
+    assert context["question"]["digest"].startswith("sha256:")
+    assert context["question"]["taskType"] == "pod_restart_rca"
+    assert context["question"]["pageContext"] == {"namespace": "default", "resourceKind": "Pod"}
+    assert context["evidence"]["summary"]["collectedCount"] == 1
+    assert context["evidence"]["collectedRefs"][0]["type"] == "pod_status"
+    assert any(item["type"] == "metric" for item in context["evidence"]["missing"])
+    assert context["confidence"]["level"] == "evidence_based"
+
+
+def test_rca_context_without_evidence_marks_uncertainty() -> None:
+    plan = build_runtime_tool_plan("clusteroperator 상태 확인해줘")
+    context = build_rca_context(
+        message="clusteroperator 상태 확인해줘",
+        tool_plan=plan,
+        evidence_refs=[],
+        run_id="run-test",
+        incident_id="inc-test",
+    )
+
+    assert context["evidence"]["summary"]["collectedCount"] == 0
+    assert context["confidence"]["level"] == "insufficient_evidence"
+    assert any(item["type"] == "openshift" for item in context["evidence"]["missing"])
+
+
+def test_rca_context_treats_skipped_or_failed_refs_as_missing_not_collected() -> None:
+    plan = build_runtime_tool_plan("backend-api pod count 알려줘")
+    context = build_rca_context(
+        message="backend-api pod count 알려줘",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "collectedAt": "2026-06-24T00:00:00Z",
+                "contentDigest": "sha256:skipped",
+                "evidenceId": "ev-skipped",
+                "eventName": "pod_count_investigation",
+                "eventStatus": "skipped",
+                "sourceType": "gateway-direct-evidence",
+                "summary": "Pod 개수 직접 조회 완료",
+            }
+        ],
+        run_id="run-test",
+        incident_id="inc-test",
+    )
+
+    assert context["evidence"]["summary"]["collectedCount"] == 0
+    assert context["evidence"]["summary"]["failedCount"] == 1
+    assert context["evidence"]["failedRefs"][0]["evidenceId"] == "ev-skipped"
+    assert any(item.get("evidenceId") == "ev-skipped" for item in context["evidence"]["missing"])
+    assert context["confidence"]["level"] == "insufficient_evidence"
+
+
+def test_rca_context_classifies_clusteroperator_detail_before_pod_status_name() -> None:
+    plan = build_runtime_tool_plan("clusteroperator 상태 확인해줘")
+    context = build_rca_context(
+        message="clusteroperator 상태 확인해줘",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "collectedAt": "2026-06-24T00:00:00Z",
+                "contentDigest": "sha256:co",
+                "detail": "Gateway-collected ClusterOperator evidence from Kubernetes API.",
+                "evidenceId": "ev-co",
+                "eventName": "pod_status_evidence",
+                "eventStatus": "success",
+                "sourceType": "gateway-preflight-evidence",
+                "summary": "Pod 상태/재시작 증거 수집 완료",
+            }
+        ],
+        run_id="run-test",
+        incident_id="inc-test",
+    )
+
+    assert context["evidence"]["collectedRefs"][0]["type"] == "clusteroperator"
+
+
+def test_runtime_safety_contract_exposes_latest_rca_context() -> None:
+    plan = build_runtime_tool_plan("clusteroperator 상태 확인해줘")
+    context = build_rca_context(
+        message="clusteroperator 상태 확인해줘",
+        tool_plan=plan,
+        evidence_refs=[],
+        run_id="run-test",
+        incident_id="inc-test",
+    )
+    contract = build_runtime_safety_contract(
+        mutations_enabled=False,
+        unrestricted_commands_enabled=False,
+        diagnostics_enabled=False,
+        record_store_enabled=False,
+        latest_runtime_tool_plan=plan,
+        latest_rca_context=context,
+    )
+
+    assert contract["rcaContextStatus"]["status"] == "available"
+    assert contract["rcaContextStatus"]["digest"] == context["metadata"]["digest"]
+    assert contract["rcaContextStatus"]["latestContext"]["kind"] == "RcaContext"
+    assert any(item["type"] == "openshift" for item in contract["evidenceStatus"])
+
+
+def test_runtime_safety_contract_counts_rca_collected_refs_as_evidence() -> None:
+    plan = build_runtime_tool_plan("clusteroperator 상태 확인해줘")
+    context = build_rca_context(
+        message="clusteroperator 상태 확인해줘",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "collectedAt": "2026-06-24T00:00:00Z",
+                "contentDigest": "sha256:clusteroperator",
+                "eventStatus": "success",
+                "sourceType": "gateway-preflight-evidence",
+                "summary": "clusteroperator 상태 증거 수집 완료",
+            }
+        ],
+        run_id="run-test",
+        incident_id="inc-test",
+    )
+    contract = build_runtime_safety_contract(
+        mutations_enabled=False,
+        unrestricted_commands_enabled=False,
+        diagnostics_enabled=False,
+        record_store_enabled=False,
+        latest_runtime_tool_plan=plan,
+        latest_rca_context=context,
+    )
+
+    openshift_status = next(
+        item for item in contract["evidenceStatus"] if item["type"] == "openshift"
+    )
+    assert context["evidence"]["summary"]["collectedCount"] == 1
+    assert openshift_status["status"] == "collected"
+    assert openshift_status["count"] == 1
+
+
+def test_runtime_safety_contract_counts_pod_count_direct_evidence_as_openshift_collected() -> None:
+    plan = build_runtime_tool_plan("aiops-two-pod-exec 파드 몇개 띄었어?")
+    context = build_rca_context(
+        message="aiops-two-pod-exec 파드 몇개 띄었어?",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "collectedAt": "2026-06-24T00:00:00Z",
+                "contentDigest": "sha256:pod-count",
+                "evidenceId": "ev-pod-count",
+                "eventName": "pod_count_investigation",
+                "eventStatus": "success",
+                "sourceType": "gateway-direct-evidence",
+                "summary": "Pod 개수 직접 조회 완료",
+            }
+        ],
+        run_id="run-pod-count",
+        incident_id="inc-pod-count",
+    )
+    contract = build_runtime_safety_contract(
+        mutations_enabled=False,
+        unrestricted_commands_enabled=False,
+        diagnostics_enabled=False,
+        record_store_enabled=False,
+        latest_runtime_tool_plan=plan,
+        latest_rca_context=context,
+    )
+
+    openshift_status = next(
+        item for item in contract["evidenceStatus"] if item["type"] == "openshift"
+    )
+    assert context["evidence"]["summary"]["collectedCount"] == 1
+    assert context["evidence"]["collectedRefs"][0]["type"] == "pod_status"
+    assert openshift_status["status"] == "collected"
+    assert openshift_status["count"] == 1
+
+
 def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:
     config = olm_operator.installation_config(
         {
@@ -268,6 +465,26 @@ def parse_sse_events(body: str) -> list[dict | str]:
         raw = "\n".join(data_lines)
         events.append("[DONE]" if raw == "[DONE]" else json.loads(raw))
     return events
+
+
+def assert_post_answer_rca_before_done(events: list[dict | str]) -> dict:
+    assert events[-1] == "[DONE]"
+    rca_events = [
+        (index, event)
+        for index, event in enumerate(events)
+        if isinstance(event, dict) and event.get("type") == "rca_context"
+    ]
+    assert rca_events
+    latest_index, latest_event = rca_events[-1]
+    assert latest_index == len(events) - 2
+    context = latest_event["context"]
+    assert context["metadata"]["phase"] == "post_answer"
+    assert (
+        context["evidence"]["summary"]["collectedCount"] > 0
+        or context["evidence"]["summary"]["missingCount"] > 0
+        or context["confidence"]["level"] == "insufficient_evidence"
+    )
+    return context
 
 
 def test_page_context_aiops_execution_mode_accepts_unrestricted_aliases() -> None:
@@ -425,6 +642,98 @@ def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch, tmp_path
     asyncio.run(run())
 
 
+def test_chat_stream_emits_rca_context_event(monkeypatch) -> None:
+    EVIDENCE_RECORDS.clear()
+    gateway_main.LAST_RCA_CONTEXT = None
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "OpenShift 상태 간단히 확인해줘", "runId": "run-rca-test"},
+            )
+
+        assert response.status_code == 200
+        assert "test-token" not in response.text
+        events = parse_sse_events(response.text)
+        rca_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        assert len(rca_events) >= 2
+        latest_context = rca_events[-1]["context"]
+        assert latest_context["kind"] == "RcaContext"
+        assert latest_context["metadata"]["runId"] == "run-rca-test"
+        assert latest_context["metadata"]["phase"] == "post_answer"
+        assert latest_context["metadata"]["digest"].startswith("sha256:")
+        assert latest_context["evidence"]["summary"]["missingCount"] >= 1
+        assert gateway_main.LAST_RCA_CONTEXT["metadata"]["digest"] == latest_context["metadata"]["digest"]
+
+    asyncio.run(run())
+
+
+def test_chat_stream_unexpected_exception_emits_failed_rca_context_before_done(monkeypatch) -> None:
+    EVIDENCE_RECORDS.clear()
+    gateway_main.LAST_RCA_CONTEXT = None
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        raise RuntimeError("synthetic product access failure")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "OpenShift 상태 확인", "runId": "run-rca-failed-test"},
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        assert events[-1] == "[DONE]"
+        rca_events = [
+            (index, event)
+            for index, event in enumerate(events)
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        assert rca_events
+        failed_index, failed_event = rca_events[-1]
+        done_index = len(events) - 1
+        assert failed_index < done_index
+        context = failed_event["context"]
+        assert context["kind"] == "RcaContext"
+        assert context["metadata"]["phase"] == "failed"
+        assert context["metadata"]["runId"] == "run-rca-failed-test"
+        assert context["confidence"]["level"] == "insufficient_evidence"
+        assert context["evidence"]["summary"]["missingCount"] >= 1
+        assert gateway_main.LAST_RCA_CONTEXT["metadata"]["digest"] == context["metadata"]["digest"]
+
+    asyncio.run(run())
+
+
 def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> None:
     ACTION_PROPOSALS.clear()
     SEALED_ACTION_PLANS.clear()
@@ -532,6 +841,8 @@ def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> 
         assert len(APPROVAL_DECISIONS) == 1
         assert len(EXECUTION_RECORDS) == 1
         assert any("실행까지 완료" in event.get("content", "") for event in text_events)
+        context = assert_post_answer_rca_before_done(events)
+        assert context["confidence"]["level"] == "insufficient_evidence"
 
     asyncio.run(run())
 
@@ -1751,6 +2062,171 @@ def test_chat_stream_unrestricted_followup_uses_recent_user_action_context(monke
         assert "team-a/web-api" in response.text
         assert "scale_spec_matches" in response.text
         assert "lightspeed_stream" not in response.text
+        context = assert_post_answer_rca_before_done(events)
+        assert context["confidence"]["level"] == "insufficient_evidence"
+
+    asyncio.run(run())
+
+
+def test_chat_stream_unrestricted_followup_executes_pending_action_with_post_answer_rca(
+    monkeypatch,
+) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    def fake_latest_pending_action_plan_result(_subject: Mapping[str, object]) -> dict:
+        return {
+            "intent": {
+                "kind": "Deployment",
+                "namespace": "team-a",
+                "parameters": {"replicas": 4},
+                "targetName": "web-api",
+                "toolName": "set_replicas_within_bounds",
+            },
+            "planId": "plan-pending",
+            "status": "planned",
+            "target": {"kind": "Deployment", "namespace": "team-a", "name": "web-api"},
+        }
+
+    async def fake_execute_natural_action_plan_result(plan_result, *_args, **_kwargs):
+        return {
+            "approvalId": "approval-pending",
+            "executionId": "execution-pending",
+            "mutationOutcome": {"status": "mutation_succeeded", "reason": "typed_action_executed"},
+            "plan": dict(plan_result),
+            "remediationOutcome": {"status": "verified", "reason": "pending_plan_verified"},
+            "status": "executed",
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for pending followup execution")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(
+        gateway_main,
+        "latest_pending_action_plan_result",
+        fake_latest_pending_action_plan_result,
+    )
+    monkeypatch.setattr(
+        gateway_main,
+        "execute_natural_action_plan_result",
+        fake_execute_natural_action_plan_result,
+    )
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "진행해",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        followup_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_followup"
+        ]
+        assert followup_results
+        assert followup_results[0]["status"] == "success"
+        assert "pending_plan_verified" in response.text
+        assert "lightspeed_stream" not in response.text
+        context = assert_post_answer_rca_before_done(events)
+        assert context["confidence"]["level"] == "insufficient_evidence"
+
+    asyncio.run(run())
+
+
+def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
+    monkeypatch,
+) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_create_natural_action_plan(req, *_args, **_kwargs):
+        assert req.message == "team-a 네임스페이스의 web-api 파드 4개로 올려줘"
+        return {
+            "intent": {
+                "kind": "Deployment",
+                "namespace": "team-a",
+                "parameters": {"replicas": 4},
+                "targetName": "web-api",
+                "toolName": "set_replicas_within_bounds",
+            },
+            "planId": "plan-execute-mode",
+            "status": "planned",
+            "target": {"kind": "Deployment", "namespace": "team-a", "name": "web-api"},
+        }
+
+    async def fail_execute_natural_action_plan_result(*_args, **_kwargs):
+        raise AssertionError("execute mode should stop at plan response unless unrestricted")
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for action plan responses")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
+    monkeypatch.setattr(
+        gateway_main,
+        "execute_natural_action_plan_result",
+        fail_execute_natural_action_plan_result,
+    )
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "team-a 네임스페이스의 web-api 파드 4개로 올려줘",
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        plan_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_plan"
+        ]
+        assert plan_results
+        assert plan_results[0]["status"] == "success"
+        assert "plan-execute-mode" in response.text
+        assert "natural_action_execute" not in response.text
+        assert "lightspeed_stream" not in response.text
+        context = assert_post_answer_rca_before_done(events)
+        assert context["confidence"]["level"] == "insufficient_evidence"
 
     asyncio.run(run())
 
@@ -1908,6 +2384,8 @@ def test_chat_stream_unrestricted_followup_uses_3_4_5_turn_contexts(
         assert "scenario_verified" in response.text
         assert "lightspeed_stream" not in response.text
         assert created_from_messages == [expected_action_message]
+        context = assert_post_answer_rca_before_done(events)
+        assert context["confidence"]["level"] == "insufficient_evidence"
 
     asyncio.run(run())
 
@@ -2007,6 +2485,29 @@ def test_chat_stream_pod_count_question_directly_investigates_cluster(monkeypatc
         assert pod_count_results
         assert pod_count_results[0]["status"] == "success"
         assert pod_count_results[0]["result"]["rows"][0]["totalPods"] == 3
+        evidence_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "evidence_ref"
+            and event.get("result", {}).get("sourceType") == "gateway-direct-evidence"
+        ]
+        rca_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        assert evidence_results
+        assert rca_events
+        latest_context = rca_events[-1]["context"]
+        assert latest_context["metadata"]["phase"] == "post_answer"
+        assert latest_context["evidence"]["summary"]["collectedCount"] >= 1
+        assert latest_context["evidence"]["collectedRefs"][0]["evidenceId"] == evidence_results[-1]["result"]["evidenceId"]
+        assert (
+            latest_context["evidence"]["collectedRefs"][0]["contentDigest"]
+            == evidence_results[-1]["result"]["contentDigest"]
+        )
         assert "`komsco-ai-dev/aiops-two-pod-exec` 기준 현재 Pod는 총 3개" in response.text
         assert "natural_action_unresolved" not in response.text
         assert "lightspeed_stream" not in response.text
@@ -2056,7 +2557,72 @@ def test_chat_stream_unparsed_mutation_request_does_not_fall_through_to_ols(monk
         ]
         assert unresolved_results
         assert unresolved_results[0]["status"] == "skipped"
+        rca_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        assert rca_events
+        assert rca_events[-1]["context"]["metadata"]["phase"] == "post_answer"
+        assert rca_events[-1]["context"]["confidence"]["level"] == "insufficient_evidence"
         assert "대상 리소스 이름이 명확하지 않습니다" in response.text
+        assert "lightspeed_stream" not in response.text
+
+    asyncio.run(run())
+
+
+def test_chat_stream_read_only_action_request_emits_post_answer_rca_context(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for read-only action requests")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "team-a 네임스페이스의 web-api 파드 3개로 올려줘",
+                    "pageContext": {"aiopsExecutionMode": "read-only"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        read_only_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_plan"
+        ]
+        rca_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        assert read_only_results
+        assert read_only_results[0]["status"] == "skipped"
+        assert rca_events
+        assert rca_events[-1]["context"]["metadata"]["phase"] == "post_answer"
+        assert rca_events[-1]["context"]["safety"]["mode"] == "read_only"
+        assert rca_events[-1]["context"]["evidence"]["summary"]["collectedCount"] == 0
+        assert "읽기 전용 모드" in response.text
         assert "lightspeed_stream" not in response.text
 
     asyncio.run(run())

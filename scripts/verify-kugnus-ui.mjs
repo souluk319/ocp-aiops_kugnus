@@ -83,6 +83,26 @@ const assertCheck = (name, condition, evidence = {}) => {
   }
 };
 
+const counterAfterLabel = (text, label) => {
+  const match = String(text || '').match(new RegExp(`${label}\\s*([0-9]+)`, 'i'));
+  return match ? Number(match[1]) : -1;
+};
+
+const rcaContextTextHasTraceFields = (text) => {
+  const body = String(text || '');
+  return (
+    /"kind"\s*:\s*"RcaContext"/.test(body) &&
+    /"metadata"\s*:/.test(body) &&
+    /"digest"\s*:/.test(body) &&
+    /"contextId"\s*:/.test(body) &&
+    /"evidence"\s*:/.test(body) &&
+    /"collectedRefs"\s*:/.test(body) &&
+    /"failedRefs"\s*:/.test(body) &&
+    /"missing"\s*:/.test(body) &&
+    /"evidence_refs"\s*:/.test(body)
+  );
+};
+
 const cssPx = (value) => Number.parseFloat(String(value || '0')) || 0;
 
 const parseRgb = (value) => {
@@ -599,6 +619,7 @@ const getUiState = async (cdp) =>
         title: title?.textContent?.trim() || '',
         languageText: language?.textContent?.trim() || '',
         headerStatusText: headerStatus?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        railText: rail?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         quickMenuTriggerExists: Boolean(quickMenuTrigger),
         quickMenuExpanded: quickMenuTrigger?.getAttribute('aria-expanded') || '',
         quickMenuItemCount: quickMenuItems.length,
@@ -685,6 +706,11 @@ const getDashboardState = async (cdp) =>
           height: r.height,
         };
       };
+      const panelText = (heading) => {
+        const title = [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')]
+          .find((node) => node.textContent?.trim() === heading);
+        return title?.closest('section')?.textContent?.trim() || '';
+      };
 
       return {
         title: document.querySelector('.komsco-ai-page h1')?.textContent?.trim() || '',
@@ -715,6 +741,8 @@ const getDashboardState = async (cdp) =>
         panelHeadings: [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')].map((node) =>
           node.textContent?.trim(),
         ),
+        evidencePanelText: panelText('Evidence posture'),
+        rcaContextText: panelText('RCA Context JSON'),
         horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
     })()`,
@@ -764,7 +792,7 @@ const run = async () => {
 
     await waitFor(cdp, 'assistant surface', "!!document.querySelector('.komsco-ai__surface')");
 
-    const dashboardState = await getDashboardState(cdp);
+    let dashboardState = await getDashboardState(cdp);
     assertCheck('dashboard page is Cywell AI', dashboardState.pageExists && dashboardState.title.includes('Cywell AI'), {
       title: dashboardState.title,
     });
@@ -820,13 +848,18 @@ const run = async () => {
         metricLabels: dashboardState.metricLabels,
       });
     });
-    ['Evidence posture', 'Lightspeed link', 'Tool Plan JSON', 'OS-aware adapters', 'Safety contract'].forEach(
-      (heading) => {
-        assertCheck(`dashboard panel present: ${heading}`, dashboardState.panelHeadings.includes(heading), {
-          panelHeadings: dashboardState.panelHeadings,
-        });
-      },
-    );
+    [
+      'Evidence posture',
+      'Lightspeed link',
+      'Tool Plan JSON',
+      'RCA Context JSON',
+      'OS-aware adapters',
+      'Safety contract',
+    ].forEach((heading) => {
+      assertCheck(`dashboard panel present: ${heading}`, dashboardState.panelHeadings.includes(heading), {
+        panelHeadings: dashboardState.panelHeadings,
+      });
+    });
     assertCheck('dashboard has no horizontal overflow', dashboardState.horizontalOverflow <= 1, {
       horizontalOverflow: dashboardState.horizontalOverflow,
     });
@@ -1332,6 +1365,100 @@ const run = async () => {
         contentLeft: Math.round(latestAssistantMessage?.content?.left || 0),
         contentTop: Math.round(latestAssistantMessage?.content?.top || 0),
         messageLeft: Math.round(latestAssistantMessage?.message?.left || 0),
+      },
+    );
+
+    await setComposerText(cdp, 'aiops-two-pod-exec 파드 몇개 띄었어?');
+    await waitFor(
+      cdp,
+      'composer send enables for RCA semantic check',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const send = surface?.querySelector('.komsco-ai__send');
+        return send && !send.disabled && send.getAttribute('aria-disabled') !== 'true';
+      })()`,
+      5000,
+    );
+    await click(cdp, '.komsco-ai__send');
+    await waitFor(
+      cdp,
+      'RCA semantic check finishes streaming',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const send = surface?.querySelector('.komsco-ai__send');
+        return send?.getAttribute('aria-label') === '질문 전송';
+      })()`,
+      60000,
+    );
+    await waitFor(
+      cdp,
+      'assistant rail exposes RCA Context collected evidence counters',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const railText = surface?.querySelector('.komsco-ai__insight-rail')?.textContent || '';
+        const collected = Number((railText.match(/Collected\\s*([0-9]+)/i) || [])[1] || 0);
+        return railText.includes('RCA Context')
+          && collected > 0
+          && /Missing\\s*[0-9]+/i.test(railText);
+      })()`,
+      15000,
+    );
+    state = await getUiState(cdp);
+    const railCollectedCount = counterAfterLabel(state.railText, 'Collected');
+    const railMissingCount = counterAfterLabel(state.railText, 'Missing');
+    assertCheck(
+      'assistant rail exposes RCA Context collected evidence counters',
+      state.railText.includes('RCA Context') &&
+        railCollectedCount > 0 &&
+        railMissingCount >= 0,
+      {
+        railCollectedCount,
+        railMissingCount,
+        railTextPreview: state.railText.slice(0, 360),
+      },
+    );
+    const dashboardRefreshClicked = await evaluate(
+      cdp,
+      `(() => {
+        const button = [...document.querySelectorAll('button')]
+          .find((node) => node.textContent?.includes('새로고침'));
+        if (!button || button.disabled) return false;
+        button.click();
+        return true;
+      })()`,
+    );
+    assertCheck('dashboard refresh button updates status after RCA chat event', dashboardRefreshClicked);
+    await waitFor(
+      cdp,
+      'dashboard RCA Context JSON exposes collected evidence trace fields',
+      `(() => {
+        const title = [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')]
+          .find((node) => node.textContent?.trim() === 'RCA Context JSON');
+        const text = title?.closest('section')?.textContent || '';
+        return /"kind"\\s*:\\s*"RcaContext"/.test(text)
+          && /"digest"\\s*:/.test(text)
+          && /"contextId"\\s*:/.test(text)
+          && /"evidence_refs"\\s*:/.test(text)
+          && /"collectedRefs"\\s*:\\s*\\[\\s*\\{/.test(text)
+          && /"failedRefs"\\s*:/.test(text)
+          && /"missing"\\s*:/.test(text);
+      })()`,
+      15000,
+    );
+    dashboardState = await getDashboardState(cdp);
+    assertCheck(
+      'dashboard RCA Context JSON keeps real trace fields for collected, failed, and missing evidence',
+      rcaContextTextHasTraceFields(dashboardState.rcaContextText) &&
+        /"collectedRefs"\s*:\s*\[\s*\{/.test(dashboardState.rcaContextText),
+      {
+        rcaContextTextPreview: dashboardState.rcaContextText.slice(0, 720),
+      },
+    );
+    assertCheck(
+      'dashboard Evidence posture exposes positive collected evidence after RCA chat event',
+      /[1-9][0-9]*\s*collected/i.test(dashboardState.evidencePanelText),
+      {
+        evidencePanelText: dashboardState.evidencePanelText,
       },
     );
 

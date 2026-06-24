@@ -28,7 +28,7 @@ from .aiops_core import (
     target_path,
     target_from_plan,
 )
-from .aiops_contracts import build_runtime_safety_contract, build_runtime_tool_plan
+from .aiops_contracts import build_rca_context, build_runtime_safety_contract, build_runtime_tool_plan
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -358,6 +358,7 @@ PREAPPROVED_PATCH_REQUESTS: dict[str, dict[str, Any]] = {}
 BREAK_GLASS_REQUESTS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 LAST_RUNTIME_TOOL_PLAN: dict[str, Any] | None = None
+LAST_RCA_CONTEXT: dict[str, Any] | None = None
 ACTION_REGISTRY_VERSION = "v1"
 ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
     "rollout_restart_deployment": {
@@ -5498,6 +5499,55 @@ def build_evidence_reference_events(
     ]
 
 
+def evidence_refs_for_run(run_id: str) -> list[dict[str, Any]]:
+    refs = [
+        redact_sensitive(dict(record))
+        for record in EVIDENCE_RECORDS.values()
+        if str(record.get("runId") or "") == run_id
+    ]
+    return sorted(
+        refs,
+        key=lambda item: str(item.get("collectedAt") or item.get("evidenceId") or ""),
+    )
+
+
+def build_rca_context_stream_event(
+    *,
+    req: "ChatRequest",
+    runtime_tool_plan: Mapping[str, Any],
+    run_id: str,
+    incident_id: str,
+    phase: str,
+) -> dict[str, Any]:
+    context = redact_sensitive(
+        build_rca_context(
+            message=req.message,
+            tool_plan=runtime_tool_plan,
+            evidence_refs=evidence_refs_for_run(run_id),
+            page_context=normalize_console_page_context(req.pageContext),
+            run_id=run_id,
+            incident_id=incident_id,
+            phase=phase,
+        )
+    )
+    contract = build_runtime_safety_contract(
+        mutations_enabled=MUTATIONS_ENABLED,
+        unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
+        diagnostics_enabled=DIAGNOSTICS_ENABLED,
+        record_store_enabled=RECORD_STORE_ENABLED,
+        latest_runtime_tool_plan=runtime_tool_plan,
+        latest_rca_context=context,
+    )
+    return {
+        "type": "rca_context",
+        "context": context,
+        "evidenceStatus": contract["evidenceStatus"],
+        "phase": phase,
+        "runId": run_id,
+        "status": "success",
+    }
+
+
 def build_product_access_review_request() -> dict[str, Any]:
     resource_attributes: dict[str, Any] = {
         "resource": PRODUCT_ACCESS_REVIEW_RESOURCE,
@@ -6978,6 +7028,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 diagnostics_enabled=DIAGNOSTICS_ENABLED,
                 record_store_enabled=RECORD_STORE_ENABLED,
                 latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
+                latest_rca_context=LAST_RCA_CONTEXT,
             ),
             "productAccessReview": redact_sensitive(product_access_review),
             "subject": redact_sensitive(dict(subject)),
@@ -7438,7 +7489,7 @@ async def chat_stream(
         raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
 
     async def generate() -> AsyncIterator[str]:
-        global LAST_RUNTIME_TOOL_PLAN
+        global LAST_RCA_CONTEXT, LAST_RUNTIME_TOOL_PLAN
 
         run_id = req.runId or f"run-{uuid.uuid4()}"
         request_id = f"req-{uuid.uuid4()}"
@@ -7452,6 +7503,7 @@ async def chat_stream(
             filter_low_signal_references=should_filter_low_signal_references(req.message),
             normalize_restart_language=should_collect_pod_status_evidence(req.message),
         )
+        runtime_tool_plan: dict[str, Any] | None = None
         increment_metric("aiops_chat_requests_total")
         record_workflow(
             run_id=run_id,
@@ -7592,6 +7644,15 @@ async def chat_stream(
                 execution_mode=page_context_aiops_execution_mode(req),
             )
             LAST_RUNTIME_TOOL_PLAN = runtime_tool_plan
+            def current_rca_context_event(phase: str) -> dict[str, Any]:
+                return build_rca_context_stream_event(
+                    req=req,
+                    runtime_tool_plan=runtime_tool_plan or {},
+                    run_id=run_id,
+                    incident_id=incident_id,
+                    phase=phase,
+                )
+
             yield sse(
                 {
                     "type": "tool_call",
@@ -7631,6 +7692,9 @@ async def chat_stream(
                     "summary": "read-only Tool Plan 검증 완료",
                 }
             )
+            rca_context_event = current_rca_context_event("plan_ready")
+            LAST_RCA_CONTEXT = rca_context_event["context"]
+            yield sse(rca_context_event)
             accepted_audit_record = build_trace_record(
                 action="chat_request_accepted",
                 incident_id=incident_id,
@@ -7689,6 +7753,9 @@ async def chat_stream(
                         "summary": f"명령 종료 코드 {spec.get('exitCode')}",
                     }
                 )
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
                 yield sse({"type": "text", "content": unrestricted_command_response(command_result)})
                 yield sse(
                     {
@@ -7923,17 +7990,27 @@ async def chat_stream(
                 }
                 pod_count_text = pod_count_investigation_response(pod_count_result)
                 result_status = str(pod_count_result.get("status") or "")
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": pod_count_text,
-                        "id": f"{request_id}-pod-count-investigation",
-                        "name": "pod_count_investigation",
-                        "result": pod_count_result,
-                        "status": "success" if result_status == "found" else "skipped",
-                        "summary": "Pod 개수 직접 조회 완료",
-                    }
-                )
+                pod_count_event = {
+                    "type": "tool_result",
+                    "detail": pod_count_text,
+                    "id": f"{request_id}-pod-count-investigation",
+                    "name": "pod_count_investigation",
+                    "result": pod_count_result,
+                    "status": "success" if result_status == "found" else "skipped",
+                    "summary": "Pod 개수 직접 조회 완료",
+                }
+                yield sse(pod_count_event)
+                for evidence_event in build_evidence_reference_events(
+                    event=pod_count_event,
+                    incident_id=incident_id,
+                    run_id=run_id,
+                    source_type="gateway-direct-evidence",
+                    subject=subject,
+                ):
+                    yield sse(evidence_event)
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
                 yield sse({"type": "text", "content": pod_count_text})
                 yield sse(
                     {
@@ -8011,6 +8088,9 @@ async def chat_stream(
                                         "message": "Gateway 최근 맥락 조치 실행 완료",
                                     }
                                 )
+                                rca_context_event = current_rca_context_event("post_answer")
+                                LAST_RCA_CONTEXT = rca_context_event["context"]
+                                yield sse(rca_context_event)
                                 yield sse("[DONE]")
                                 return
 
@@ -8035,6 +8115,9 @@ async def chat_stream(
                                     "content": natural_action_plan_response(contextual_plan_result),
                                 }
                             )
+                            rca_context_event = current_rca_context_event("post_answer")
+                            LAST_RCA_CONTEXT = rca_context_event["context"]
+                            yield sse(rca_context_event)
                             yield sse(
                                 {
                                     "type": "run_status",
@@ -8062,6 +8145,9 @@ async def chat_stream(
                         }
                     )
                     yield sse({"type": "text", "content": no_pending_action_plan_response()})
+                    rca_context_event = current_rca_context_event("post_answer")
+                    LAST_RCA_CONTEXT = rca_context_event["context"]
+                    yield sse(rca_context_event)
                     yield sse(
                         {
                             "type": "run_status",
@@ -8119,6 +8205,9 @@ async def chat_stream(
                         "message": "Gateway 후속 조치 실행 완료",
                     }
                 )
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
                 yield sse("[DONE]")
                 return
 
@@ -8146,6 +8235,9 @@ async def chat_stream(
                         }
                     )
                     yield sse({"type": "text", "content": unresolved_natural_action_response(req)})
+                    rca_context_event = current_rca_context_event("post_answer")
+                    LAST_RCA_CONTEXT = rca_context_event["context"]
+                    yield sse(rca_context_event)
                     yield sse(
                         {
                             "type": "run_status",
@@ -8184,6 +8276,9 @@ async def chat_stream(
                         }
                     )
                     yield sse({"type": "text", "content": natural_action_read_only_response(natural_action_intent)})
+                    rca_context_event = current_rca_context_event("post_answer")
+                    LAST_RCA_CONTEXT = rca_context_event["context"]
+                    yield sse(rca_context_event)
                     yield sse(
                         {
                             "type": "run_status",
@@ -8192,6 +8287,7 @@ async def chat_stream(
                             "message": "Gateway 읽기 전용 모드 안내 완료",
                         }
                     )
+                    yield sse("[DONE]")
                     return
 
                 natural_action_result = await create_natural_action_plan(
@@ -8271,6 +8367,9 @@ async def chat_stream(
                                 "message": "Gateway 자연어 조치 실행 완료",
                             }
                         )
+                        rca_context_event = current_rca_context_event("post_answer")
+                        LAST_RCA_CONTEXT = rca_context_event["context"]
+                        yield sse(rca_context_event)
                         yield sse("[DONE]")
                         return
 
@@ -8283,6 +8382,10 @@ async def chat_stream(
                             "message": "Gateway 자연어 조치 계획 생성 완료",
                         }
                     )
+                    rca_context_event = current_rca_context_event("post_answer")
+                    LAST_RCA_CONTEXT = rca_context_event["context"]
+                    yield sse(rca_context_event)
+                    yield sse("[DONE]")
                     return
 
             if req.attachments:
@@ -8433,6 +8536,10 @@ async def chat_stream(
                     ):
                         yield sse(evidence_event)
 
+            rca_context_event = current_rca_context_event("pre_answer")
+            LAST_RCA_CONTEXT = rca_context_event["context"]
+            yield sse(rca_context_event)
+
             yield sse(
                 {
                     "type": "run_status",
@@ -8514,6 +8621,10 @@ async def chat_stream(
                     }
                 )
 
+            rca_context_event = current_rca_context_event("post_answer")
+            LAST_RCA_CONTEXT = rca_context_event["context"]
+            yield sse(rca_context_event)
+
             yield sse(
                 {
                     "type": "run_status",
@@ -8544,6 +8655,20 @@ async def chat_stream(
             yield sse("[DONE]")
         except HTTPException as exc:
             error_message = http_exception_message(exc)
+            error_tool_plan = runtime_tool_plan or build_runtime_tool_plan(
+                req.message,
+                page_context=normalize_console_page_context(req.pageContext),
+                execution_mode=page_context_aiops_execution_mode(req),
+            )
+            rca_context_event = build_rca_context_stream_event(
+                req=req,
+                runtime_tool_plan=error_tool_plan,
+                run_id=run_id,
+                incident_id=incident_id,
+                phase="failed",
+            )
+            LAST_RCA_CONTEXT = rca_context_event["context"]
+            yield sse(rca_context_event)
             log_audit_record(
                 build_trace_record(
                     action="chat_request_failed",
@@ -8602,6 +8727,20 @@ async def chat_stream(
             yield sse({"type": "error", "message": error_message})
             yield sse("[DONE]")
         except Exception as exc:
+            error_tool_plan = runtime_tool_plan or build_runtime_tool_plan(
+                req.message,
+                page_context=normalize_console_page_context(req.pageContext),
+                execution_mode=page_context_aiops_execution_mode(req),
+            )
+            rca_context_event = build_rca_context_stream_event(
+                req=req,
+                runtime_tool_plan=error_tool_plan,
+                run_id=run_id,
+                incident_id=incident_id,
+                phase="failed",
+            )
+            LAST_RCA_CONTEXT = rca_context_event["context"]
+            yield sse(rca_context_event)
             log_audit_record(
                 build_trace_record(
                     action="chat_request_failed",

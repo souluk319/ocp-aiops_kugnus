@@ -214,6 +214,48 @@ const TOOL_LABELS: Record<string, string> = {
   subject_review: '사용자 주체 확인',
   vision_analysis: '이미지 분석',
 };
+const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
+  spec: {
+    capabilities: {
+      actionExecutorConfigured: false,
+      diagnosticsControllerConfigured: false,
+      diagnosticsEnabled: false,
+      mutationsEnabled: false,
+      recordStoreEnabled: false,
+      unrestrictedCommandsEnabled: false,
+    },
+    safetyContract: {
+      adapterStatus: [],
+      allowedReadOnlyVerbs: ['get', 'list', 'watch'],
+      capabilityGates: {},
+      evidenceStatus: [],
+      forbiddenActions: ['create', 'update', 'patch', 'delete', 'exec', 'portforward', 'restart', 'scale', 'rollout'],
+      mode: 'read_only',
+      product: {
+        mission: 'Evidence-first OpenShift operations assistant',
+        mode: 'read_only_first',
+        name: 'Cywell AI',
+      },
+      rcaContextStatus: {
+        latestContext: null,
+        source: 'chat_stream',
+        status: 'waiting_for_first_question',
+      },
+      toolPlanStatus: {
+        latestRuntimePlan: null,
+        source: 'deterministic_gateway_planner',
+        status: 'waiting_for_first_question',
+      },
+    },
+    records: {
+      actionProposals: [],
+      approvalDecisions: [],
+      diagnosticRequests: [],
+      executionRecords: [],
+      sealedActionPlans: [],
+    },
+  },
+});
 const PREP_SUBTASKS = [
   {
     detail: 'Console UserToken과 요청 본문을 확인한 뒤 Lightspeed로 전달합니다.',
@@ -1962,6 +2004,42 @@ const renderInsightRail = (
 
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
+        <strong>RCA Context</strong>
+        <span>{aiopsStatus?.spec.safetyContract?.rcaContextStatus?.status ?? '대기'}</span>
+      </div>
+      <div className="komsco-ai__scope-list">
+        {renderStatusTag(
+          `Collected ${
+            aiopsStatus?.spec.safetyContract?.evidenceStatus
+              ?.filter((item) => item.status === 'collected')
+              .reduce((total, item) => total + item.count, 0) ?? 0
+          }`,
+          'ok',
+        )}
+        {renderStatusTag(
+          `Missing ${
+            aiopsStatus?.spec.safetyContract?.evidenceStatus
+              ?.filter((item) => item.status === 'missing')
+              .length ?? 0
+          }`,
+          'warn',
+        )}
+      </div>
+      <div className="komsco-ai__rail-command">
+        <code>
+          {aiopsStatus?.spec.safetyContract?.rcaContextStatus?.digest ??
+            'waiting_for_first_question'}
+        </code>
+        <p>
+          {aiopsStatus?.spec.safetyContract?.rcaContextStatus?.latestContext
+            ? 'RCA Context JSON is linked to the latest chat run.'
+            : '질문 실행 후 evidence/missing evidence context가 연결됩니다.'}
+        </p>
+      </div>
+    </div>
+
+    <div className="komsco-ai__rail-section">
+      <div className="komsco-ai__rail-section-head">
         <strong>최근 진단</strong>
         <span>{aiopsStatus ? `${aiopsStatus.spec.records.diagnosticRequests.length}건` : '대기'}</span>
       </div>
@@ -3085,24 +3163,56 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
 
           if (event.type === 'tool_plan') {
-            setAiopsStatus((prev) =>
-              prev?.spec.safetyContract
-                ? {
-                    ...prev,
-                    spec: {
-                      ...prev.spec,
-                      safetyContract: {
-                        ...prev.spec.safetyContract,
-                        toolPlanStatus: {
-                          latestRuntimePlan: event.plan,
-                          source: 'chat_stream',
-                          status: event.status === 'success' ? 'runtime_generated' : 'runtime_failed',
-                        },
-                      },
+            setAiopsStatus((prev) => {
+              const base = prev ?? createPendingAiopsStatus();
+              const safetyContract =
+                base.spec.safetyContract ?? createPendingAiopsStatus().spec.safetyContract!;
+              return {
+                ...base,
+                spec: {
+                  ...base.spec,
+                  safetyContract: {
+                    ...safetyContract,
+                    toolPlanStatus: {
+                      latestRuntimePlan: event.plan,
+                      source: 'chat_stream',
+                      status: event.status === 'success' ? 'runtime_generated' : 'runtime_failed',
                     },
-                  }
-                : prev,
-            );
+                  },
+                },
+              };
+            });
+          }
+
+          if (event.type === 'rca_context') {
+            setAiopsStatus((prev) => {
+              const base = prev ?? createPendingAiopsStatus();
+              const safetyContract =
+                base.spec.safetyContract ?? createPendingAiopsStatus().spec.safetyContract!;
+              return {
+                ...base,
+                spec: {
+                  ...base.spec,
+                  safetyContract: {
+                    ...safetyContract,
+                    evidenceStatus: event.evidenceStatus ?? safetyContract.evidenceStatus,
+                    rcaContextStatus: {
+                      digest:
+                        event.context && typeof event.context === 'object'
+                          ? String(
+                              ((event.context as Record<string, unknown>).metadata as
+                                | Record<string, unknown>
+                                | undefined)?.digest ?? '',
+                            )
+                          : '',
+                      latestContext: event.context,
+                      source: 'chat_stream',
+                      status: event.status === 'success' ? 'available' : 'failed',
+                    },
+                  },
+                },
+              };
+            });
           }
 
           if (event.type === 'text') {

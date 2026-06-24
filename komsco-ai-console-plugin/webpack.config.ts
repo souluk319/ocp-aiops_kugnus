@@ -74,7 +74,11 @@ const config: Configuration = {
     },
   },
   plugins: [
-    new ConsoleRemotePlugin(),
+    new ConsoleRemotePlugin({
+      sharedDynamicModuleSettings: {
+        transformImports: () => false,
+      },
+    }),
     new CopyWebpackPlugin({
       patterns: [{ from: path.resolve(__dirname, 'locales'), to: 'locales' }],
     }),

@@ -399,6 +399,29 @@ const ToolPlanPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status
   );
 };
 
+const RcaContextPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status }) => {
+  const contextStatus = status?.spec.safetyContract?.rcaContextStatus;
+
+  if (!contextStatus) {
+    return <EmptyState label="RCA Context 상태를 아직 가져오지 못했습니다." />;
+  }
+
+  const context =
+    contextStatus.latestContext && typeof contextStatus.latestContext === 'object'
+      ? contextStatus.latestContext
+      : {
+          digest: contextStatus.digest ?? 'waiting_for_first_question',
+          source: contextStatus.source,
+          status: contextStatus.status,
+        };
+
+  return (
+    <div className="komsco-ai-page__tool-plan">
+      <pre>{JSON.stringify(context, null, 2)}</pre>
+    </div>
+  );
+};
+
 const AdapterBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status }) => {
   const contractAdapters = status?.spec.safetyContract?.adapterStatus;
   if (!contractAdapters || contractAdapters.length === 0) {
@@ -605,6 +628,13 @@ export const AiopsDashboardPage: React.FC = () => {
             <h2>Tool Plan JSON</h2>
           </div>
           <ToolPlanPanel status={data.status} />
+        </section>
+        <section className="komsco-ai-page__panel">
+          <div className="komsco-ai-page__panel-heading">
+            <ClipboardCheckIcon />
+            <h2>RCA Context JSON</h2>
+          </div>
+          <RcaContextPanel status={data.status} />
         </section>
         <section className="komsco-ai-page__panel">
           <div className="komsco-ai-page__panel-heading">

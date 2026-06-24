@@ -1,5 +1,7 @@
 from collections.abc import Mapping
 from datetime import UTC, datetime
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -37,7 +39,9 @@ EVIDENCE_GROUPS = (
                 "event",
                 "clusterversion",
                 "clusteroperator",
+                "cronjob",
                 "deployment",
+                "openshift",
             }
         ),
     },
@@ -49,13 +53,18 @@ EVIDENCE_GROUPS = (
 NAMESPACE_MENTION_RE = re.compile(r"\b(?P<namespace>[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?)\s*네임스페이스")
 
 
+def _canonical_digest(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
 def create_evidence_status(collection: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     collection = collection or {}
-    evidence = _as_list(collection.get("evidence"))
+    evidence = _as_list(collection.get("evidence")) or _as_list(collection.get("collectedRefs"))
     missing = _as_list(collection.get("missing"))
 
     status = []
@@ -95,6 +104,151 @@ def create_evidence_status(collection: Mapping[str, Any] | None = None) -> list[
             )
 
     return status
+
+
+def _evidence_type_from_ref(ref: Mapping[str, Any]) -> str:
+    explicit_type = str(ref.get("type") or "").strip().lower()
+    if explicit_type:
+        return explicit_type
+
+    event_name = str(ref.get("eventName") or ref.get("name") or "").lower()
+    source_type = str(ref.get("sourceType") or "").lower()
+    summary = str(ref.get("summary") or "").lower()
+    detail = str(ref.get("detail") or "").lower()
+    combined = " ".join([event_name, source_type, summary, detail])
+
+    if "cluster_operator" in combined or "clusteroperator" in combined:
+        return "clusteroperator"
+    if "pod_count" in combined or "pod count" in combined or "pod inventory" in combined:
+        return "pod_status"
+    if "pod_status" in combined or "pod status" in combined:
+        return "pod_status"
+    if "cronjob" in combined:
+        return "cronjob"
+    if "deployment" in combined:
+        return "deployment"
+    if "metric" in combined or "prometheus" in combined:
+        return "metric"
+    if "runbook" in combined or "rag" in combined:
+        return "runbook"
+    if "audit" in combined:
+        return "audit"
+    if "ols-tool-result" in source_type or "lightspeed" in combined:
+        return "openshift"
+    return "openshift"
+
+
+def _normalize_evidence_ref(ref: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = {
+        "collectedAt": ref.get("collectedAt"),
+        "contentDigest": ref.get("contentDigest"),
+        "evidenceId": ref.get("evidenceId"),
+        "freshnessTtl": ref.get("freshnessTtl"),
+        "sourceType": ref.get("sourceType"),
+        "status": ref.get("eventStatus") or ref.get("status") or "recorded",
+        "summary": ref.get("summary") or ref.get("eventName") or "evidence",
+        "type": _evidence_type_from_ref(ref),
+    }
+    return {key: value for key, value in normalized.items() if value not in {None, ""}}
+
+
+def _is_collected_evidence_ref(ref: Mapping[str, Any]) -> bool:
+    status = str(ref.get("status") or "").lower()
+    return status in {"recorded", "success", "succeeded", "ok", "completed"}
+
+
+def build_rca_context(
+    *,
+    message: str,
+    tool_plan: Mapping[str, Any] | None,
+    evidence_refs: list[Mapping[str, Any]] | None = None,
+    page_context: Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+    incident_id: str | None = None,
+    phase: str = "pre_answer",
+) -> dict[str, Any]:
+    plan = tool_plan or {}
+    refs = [_normalize_evidence_ref(ref) for ref in evidence_refs or []]
+    collected_refs = [ref for ref in refs if _is_collected_evidence_ref(ref)]
+    failed_refs = [ref for ref in refs if not _is_collected_evidence_ref(ref)]
+    missing_evidence = [
+        dict(item)
+        for item in _as_list(plan.get("missing_evidence"))
+        if isinstance(item, Mapping)
+    ]
+    for ref in failed_refs:
+        missing_evidence.append(
+            {
+                "contentDigest": ref.get("contentDigest"),
+                "evidenceId": ref.get("evidenceId"),
+                "reason": f"{ref.get('summary', 'evidence')} returned status {ref.get('status')}",
+                "type": ref.get("type", "openshift"),
+            }
+        )
+    if not collected_refs:
+        missing_evidence.append(
+            {
+                "type": "openshift",
+                "reason": "no runtime evidence reference has been recorded for this chat run yet",
+            }
+        )
+
+    page_context = page_context or {}
+    target = plan.get("target") if isinstance(plan.get("target"), Mapping) else {}
+    generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    context: dict[str, Any] = {
+        "apiVersion": "aiops.komsco/v1alpha1",
+        "kind": "RcaContext",
+        "metadata": {
+            "generatedAt": generated_at,
+            "incidentId": incident_id,
+            "phase": phase,
+            "planner": str(plan.get("metadata", {}).get("planner", "deterministic_gateway_planner"))
+            if isinstance(plan.get("metadata"), Mapping)
+            else "deterministic_gateway_planner",
+            "runId": run_id,
+            "version": "0.1.1",
+        },
+        "question": {
+            "digest": _canonical_digest({"message": message}),
+            "pageContext": {
+                key: page_context.get(key)
+                for key in ("namespace", "resourceKind", "resourceName", "route", "pathname")
+                if page_context.get(key)
+            },
+            "taskType": plan.get("task_type", "generic_openshift_question"),
+            "target": dict(target),
+        },
+        "evidence": {
+            "collectedRefs": collected_refs,
+            "failedRefs": failed_refs,
+            "missing": missing_evidence,
+            "summary": {
+                "collectedCount": len(collected_refs),
+                "failedCount": len(failed_refs),
+                "missingCount": len(missing_evidence),
+            },
+        },
+        "evidence_refs": refs,
+        "safety": {
+            "mode": plan.get("execution_policy", {}).get("mode", "read_only")
+            if isinstance(plan.get("execution_policy"), Mapping)
+            else "read_only",
+            "validation": plan.get("validation", {"ok": False, "violations": ["tool plan missing"]}),
+        },
+        "confidence": {
+            "level": "evidence_based" if collected_refs else "insufficient_evidence",
+            "reason": (
+                "runtime evidence references are attached"
+                if collected_refs
+                else "missing runtime evidence prevents confirmation"
+            ),
+        },
+    }
+    digest = _canonical_digest(context)
+    context["metadata"]["digest"] = digest
+    context["metadata"]["contextId"] = f"rca-{digest.removeprefix('sha256:')[:16]}"
+    return context
 
 
 def assert_read_only_tool_plan(tool_plan: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -348,19 +502,28 @@ def build_runtime_safety_contract(
     diagnostics_enabled: bool,
     record_store_enabled: bool,
     latest_runtime_tool_plan: Mapping[str, Any] | None = None,
+    latest_rca_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     mode = "controlled_execution" if mutations_enabled else "read_only"
+    latest_context = dict(latest_rca_context) if latest_rca_context else None
     tool_plan_status = {
         "source": "deterministic_gateway_planner",
         "status": "runtime_ready" if latest_runtime_tool_plan else "waiting_for_first_question",
         "latestRuntimePlan": dict(latest_runtime_tool_plan) if latest_runtime_tool_plan else None,
+    }
+    context_evidence = latest_context.get("evidence", {}) if latest_context else {}
+    rca_context_status = {
+        "digest": latest_context.get("metadata", {}).get("digest") if latest_context else None,
+        "latestContext": latest_context,
+        "source": "chat_stream",
+        "status": "available" if latest_context else "waiting_for_first_question",
     }
     return {
         "product": PRODUCT_CONTRACT,
         "mode": mode,
         "allowedReadOnlyVerbs": sorted(READ_ONLY_VERBS),
         "forbiddenActions": list(FORBIDDEN_ACTIONS),
-        "evidenceStatus": create_evidence_status(),
+        "evidenceStatus": create_evidence_status(context_evidence),
         "capabilityGates": {
             "mutationsEnabled": mutations_enabled,
             "unrestrictedCommandsEnabled": unrestricted_commands_enabled,
@@ -368,6 +531,7 @@ def build_runtime_safety_contract(
             "recordStoreEnabled": record_store_enabled,
         },
         "toolPlanStatus": tool_plan_status,
+        "rcaContextStatus": rca_context_status,
         "adapterStatus": [
             {
                 "name": "OpenShift",

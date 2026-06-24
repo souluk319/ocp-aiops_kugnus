@@ -96,6 +96,13 @@ export type AiopsRecord = {
   spec?: Record<string, unknown>;
 };
 
+export type EvidenceStatusItem = {
+  count: number;
+  reason?: string;
+  status: 'collected' | 'missing' | string;
+  type: string;
+};
+
 export type AiopsRuntimeStatus = {
   spec: {
     capabilities: {
@@ -115,12 +122,7 @@ export type AiopsRuntimeStatus = {
       }>;
       allowedReadOnlyVerbs: string[];
       capabilityGates: Record<string, boolean>;
-      evidenceStatus: Array<{
-        count: number;
-        reason?: string;
-        status: 'collected' | 'missing' | string;
-        type: string;
-      }>;
+      evidenceStatus: EvidenceStatusItem[];
       forbiddenActions: string[];
       lightspeedStatus?: {
         baseService?: string;
@@ -135,6 +137,12 @@ export type AiopsRuntimeStatus = {
       };
       toolPlanStatus?: {
         latestRuntimePlan?: unknown;
+        source?: string;
+        status?: string;
+      };
+      rcaContextStatus?: {
+        digest?: string;
+        latestContext?: unknown;
         source?: string;
         status?: string;
       };
@@ -154,6 +162,14 @@ export type AiopsRuntimeStatus = {
 type StreamEvent =
   | { type: 'text'; content: string }
   | { type: 'tool_plan'; plan: unknown; runId?: string; status?: string }
+  | {
+      type: 'rca_context';
+      context: unknown;
+      evidenceStatus?: EvidenceStatusItem[];
+      phase?: string;
+      runId?: string;
+      status?: string;
+    }
   | {
       type: 'run_status';
       elapsedMs?: number;
