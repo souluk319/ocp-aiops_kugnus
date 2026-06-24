@@ -1960,6 +1960,66 @@
   color: var(--komsco-ink-900);
 }
 
+.komsco-ai__connection-card {
+  padding: 11px 12px;
+  margin-block-end: 12px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #dce5ef;
+  border-radius: 10px;
+}
+
+.komsco-ai__connection-card--connected {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.komsco-ai__connection-card--danger {
+  color: #7f1d1d;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__connection-main {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__connection-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+.komsco-ai__connection-dot--connected {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+
+.komsco-ai__connection-target,
+.komsco-ai__connection-metrics {
+  margin-block-start: 5px;
+  overflow: hidden;
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__connection-target {
+  color: #64748b;
+}
+
+.komsco-ai__connection-metrics {
+  color: #334155;
+}
+
 .komsco-ai__health-card {
   padding: 14px;
   background: var(--komsco-surface-2);

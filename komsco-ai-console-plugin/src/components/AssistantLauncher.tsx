@@ -1559,6 +1559,106 @@ const formatMemoryUsage = (value?: string): string | null => {
   return `${Math.round(bytes / 1024)} KiB`;
 };
 
+const cpuCoresFromUsage = (value?: string): number | null => {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const unit = match[2];
+  if (unit === 'n') {
+    return amount / 1_000_000_000;
+  }
+  if (unit === 'u') {
+    return amount / 1_000_000;
+  }
+  if (unit === 'm') {
+    return amount / 1_000;
+  }
+
+  return amount;
+};
+
+const memoryBytesFromUsage = (value?: string): number | null => {
+  if (!value) {
+    return null;
+  }
+
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const unitMultipliers: Record<string, number> = {
+    Ki: 1024,
+    Mi: 1024 ** 2,
+    Gi: 1024 ** 3,
+    Ti: 1024 ** 4,
+    K: 1000,
+    M: 1000 ** 2,
+    G: 1000 ** 3,
+    T: 1000 ** 4,
+    '': 1,
+  };
+  const multiplier = unitMultipliers[match[2]];
+
+  return multiplier ? amount * multiplier : null;
+};
+
+const formatCpuCores = (cores: number): string =>
+  cores >= 1 ? `${cores.toFixed(cores >= 10 ? 0 : 1)} cores` : `${Math.max(1, Math.round(cores * 1000))} m`;
+
+const formatMemoryBytes = (bytes: number): string => {
+  const gib = bytes / 1024 ** 3;
+  if (gib >= 1) {
+    return `${gib.toFixed(gib >= 10 ? 1 : 2)} GiB`;
+  }
+
+  const mib = bytes / 1024 ** 2;
+  if (mib >= 1) {
+    return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
+  }
+
+  return `${Math.round(bytes / 1024)} KiB`;
+};
+
+const getClusterUsageSummary = (summary: ClusterSummary): string => {
+  const cpuTotal = summary.nodes.items.reduce((total, node) => {
+    const cores = cpuCoresFromUsage(node.usage.cpu);
+    return cores === null ? total : total + cores;
+  }, 0);
+  const memoryTotal = summary.nodes.items.reduce((total, node) => {
+    const bytes = memoryBytesFromUsage(node.usage.memory);
+    return bytes === null ? total : total + bytes;
+  }, 0);
+
+  if (!summary.nodes.metricsAvailable) {
+    return 'Metrics API unavailable';
+  }
+
+  if (cpuTotal <= 0 && memoryTotal <= 0) {
+    return 'Metrics connected, usage pending';
+  }
+
+  return `CPU ${cpuTotal > 0 ? formatCpuCores(cpuTotal) : '-'} · 메모리 ${
+    memoryTotal > 0 ? formatMemoryBytes(memoryTotal) : '-'
+  }`;
+};
+
 const formatNodeUsage = (node: ClusterSummary['nodes']['items'][number]): string => {
   const cpu = formatCpuUsage(node.usage.cpu);
   const memory = formatMemoryUsage(node.usage.memory);
@@ -2240,6 +2340,42 @@ const renderInsightRail = (
 ) => (
   <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
     <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
+    <div
+      className={`komsco-ai__connection-card${
+        summary
+          ? ' komsco-ai__connection-card--connected'
+          : error || aiopsStatusError
+            ? ' komsco-ai__connection-card--danger'
+            : ''
+      }`}
+    >
+      <div className="komsco-ai__connection-main">
+        <span
+          className={`komsco-ai__connection-dot${
+            summary && aiopsStatus ? ' komsco-ai__connection-dot--connected' : ''
+          }`}
+        />
+        <strong>
+          {summary && aiopsStatus
+            ? '회사 OCP 연결됨'
+            : error || aiopsStatusError
+              ? '연결 확인 필요'
+              : loading
+                ? '연결 확인 중'
+                : '연결 대기'}
+        </strong>
+      </div>
+      <div className="komsco-ai__connection-target">
+        {summary?.apiUrl || 'console proxy / gateway'}
+      </div>
+      <div className="komsco-ai__connection-metrics">
+        {summary
+          ? `${summary.nodes.ready}/${summary.nodes.total} Ready · ${getClusterUsageSummary(summary)}`
+          : error || aiopsStatusError
+            ? error || aiopsStatusError
+            : 'Gateway와 cluster summary를 가져오는 중입니다.'}
+      </div>
+    </div>
     <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
       <div className="komsco-ai__health-head">
         <span>Cluster health score</span>
@@ -2264,7 +2400,13 @@ const renderInsightRail = (
 
     {error && (
       <div className="komsco-ai__rail-error">
-        클러스터 요약을 가져오지 못했습니다. 대화 기능은 계속 사용할 수 있습니다.
+        클러스터 요약을 가져오지 못했습니다. {error}
+      </div>
+    )}
+
+    {aiopsStatusError && (
+      <div className="komsco-ai__rail-error">
+        AIOps 상태를 가져오지 못했습니다. {aiopsStatusError}
       </div>
     )}
 
