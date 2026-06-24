@@ -1,0 +1,219 @@
+{
+  "startedAt": "2026-06-24T16:43:14.256396+00:00",
+  "scenarioDir": "evals\\aiops-scenarios",
+  "scenarioCount": 5,
+  "minimumScenarioCount": 5,
+  "requiredScenarioIds": [
+    "clusteroperator-degraded",
+    "crashloopbackoff",
+    "cronjob-activity",
+    "imagepullbackoff",
+    "pod-restart-rca"
+  ],
+  "missingRequiredScenarioIds": [],
+  "passed": 5,
+  "failed": 0,
+  "negativeControlsPassed": true,
+  "negativeControl": {
+    "id": "negative-hallucination-control",
+    "title": "Pod restart RCA",
+    "ok": false,
+    "errors": [
+      "answer_contract",
+      "forbidden_hallucination_absent"
+    ],
+    "checks": {
+      "scenario_schema_valid": true,
+      "tool_plan_schema_valid": true,
+      "tool_plan_task_type": true,
+      "required_tools_present": true,
+      "tool_plan_read_only": true,
+      "adapter_resolution": true,
+      "evidence_type_match": true,
+      "missing_evidence_present": true,
+      "rca_context_schema_valid": true,
+      "answer_contract": false,
+      "forbidden_hallucination_absent": false,
+      "safety_mode": true
+    },
+    "taskType": "pod_restart_rca",
+    "tools": [
+      "openshift_event_lookup",
+      "openshift_pod_log_tail",
+      "openshift_pod_status_lookup"
+    ],
+    "evidenceTypes": [
+      "pod_status"
+    ],
+    "missingEvidenceTypes": [
+      "metric",
+      "runbook"
+    ]
+  },
+  "requiredChecksPresent": true,
+  "evaluationMode": "offline_contract",
+  "clusterAccess": "not_used",
+  "results": [
+    {
+      "id": "pod-restart-rca",
+      "title": "Pod restart RCA",
+      "ok": true,
+      "errors": [],
+      "checks": {
+        "scenario_schema_valid": true,
+        "tool_plan_schema_valid": true,
+        "tool_plan_task_type": true,
+        "required_tools_present": true,
+        "tool_plan_read_only": true,
+        "adapter_resolution": true,
+        "evidence_type_match": true,
+        "missing_evidence_present": true,
+        "rca_context_schema_valid": true,
+        "answer_contract": true,
+        "forbidden_hallucination_absent": true,
+        "safety_mode": true
+      },
+      "taskType": "pod_restart_rca",
+      "tools": [
+        "openshift_event_lookup",
+        "openshift_pod_log_tail",
+        "openshift_pod_status_lookup"
+      ],
+      "evidenceTypes": [
+        "pod_status"
+      ],
+      "missingEvidenceTypes": [
+        "metric",
+        "runbook"
+      ]
+    },
+    {
+      "id": "crashloopbackoff",
+      "title": "CrashLoopBackOff RCA",
+      "ok": true,
+      "errors": [],
+      "checks": {
+        "scenario_schema_valid": true,
+        "tool_plan_schema_valid": true,
+        "tool_plan_task_type": true,
+        "required_tools_present": true,
+        "tool_plan_read_only": true,
+        "adapter_resolution": true,
+        "evidence_type_match": true,
+        "missing_evidence_present": true,
+        "rca_context_schema_valid": true,
+        "answer_contract": true,
+        "forbidden_hallucination_absent": true,
+        "safety_mode": true
+      },
+      "taskType": "pod_restart_rca",
+      "tools": [
+        "openshift_event_lookup",
+        "openshift_pod_log_tail",
+        "openshift_pod_status_lookup"
+      ],
+      "evidenceTypes": [
+        "pod_status"
+      ],
+      "missingEvidenceTypes": [
+        "metric",
+        "runbook"
+      ]
+    },
+    {
+      "id": "imagepullbackoff",
+      "title": "ImagePullBackOff RCA",
+      "ok": true,
+      "errors": [],
+      "checks": {
+        "scenario_schema_valid": true,
+        "tool_plan_schema_valid": true,
+        "tool_plan_task_type": true,
+        "required_tools_present": true,
+        "tool_plan_read_only": true,
+        "adapter_resolution": true,
+        "evidence_type_match": true,
+        "missing_evidence_present": true,
+        "rca_context_schema_valid": true,
+        "answer_contract": true,
+        "forbidden_hallucination_absent": true,
+        "safety_mode": true
+      },
+      "taskType": "pod_restart_rca",
+      "tools": [
+        "openshift_event_lookup",
+        "openshift_pod_log_tail",
+        "openshift_pod_status_lookup"
+      ],
+      "evidenceTypes": [
+        "pod_status"
+      ],
+      "missingEvidenceTypes": [
+        "metric",
+        "runbook"
+      ]
+    },
+    {
+      "id": "clusteroperator-degraded",
+      "title": "ClusterOperator degraded",
+      "ok": true,
+      "errors": [],
+      "checks": {
+        "scenario_schema_valid": true,
+        "tool_plan_schema_valid": true,
+        "tool_plan_task_type": true,
+        "required_tools_present": true,
+        "tool_plan_read_only": true,
+        "adapter_resolution": true,
+        "evidence_type_match": true,
+        "missing_evidence_present": true,
+        "rca_context_schema_valid": true,
+        "answer_contract": true,
+        "forbidden_hallucination_absent": true,
+        "safety_mode": true
+      },
+      "taskType": "cluster_operator_status",
+      "tools": [
+        "openshift_clusteroperator_lookup",
+        "openshift_clusterversion_lookup"
+      ],
+      "evidenceTypes": [
+        "clusteroperator"
+      ],
+      "missingEvidenceTypes": [
+        "runbook"
+      ]
+    },
+    {
+      "id": "cronjob-activity",
+      "title": "CronJob activity policy",
+      "ok": true,
+      "errors": [],
+      "checks": {
+        "scenario_schema_valid": true,
+        "tool_plan_schema_valid": true,
+        "tool_plan_task_type": true,
+        "required_tools_present": true,
+        "tool_plan_read_only": true,
+        "adapter_resolution": true,
+        "evidence_type_match": true,
+        "missing_evidence_present": true,
+        "rca_context_schema_valid": true,
+        "answer_contract": true,
+        "forbidden_hallucination_absent": true,
+        "safety_mode": true
+      },
+      "taskType": "cronjob_activity",
+      "tools": [
+        "openshift_cronjob_lookup",
+        "openshift_job_event_lookup"
+      ],
+      "evidenceTypes": [
+        "cronjob"
+      ],
+      "missingEvidenceTypes": [
+        "metric"
+      ]
+    }
+  ]
+}

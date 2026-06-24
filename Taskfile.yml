@@ -134,6 +134,11 @@ tasks:
     cmds:
       - ./scripts/kugnus-olm.sh status
 
+  kugnus:evaluate:
+    desc: Run local offline AIOps scenario evaluator and write a pass/fail report
+    cmds:
+      - python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json || python scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json
+
   kugnus:ui:verify:
     desc: Verify local Cywell AI chat UI layout, header, sidebar, fullscreen, and resize controls
     cmds:

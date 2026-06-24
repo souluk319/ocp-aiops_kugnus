@@ -74,6 +74,13 @@ OPENSHIFT_ADAPTER_TOOLS = (
         "evidenceTypes": ["cronjob"],
         "description": "Read CronJob schedule, suspend, and recent job state.",
     },
+    {
+        "tool": "openshift_job_event_lookup",
+        "status": "available",
+        "verbs": ["list"],
+        "evidenceTypes": ["event"],
+        "description": "Read recent Job events related to CronJob activity.",
+    },
 )
 
 LINUX_ADAPTER_TOOLS = (

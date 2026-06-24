@@ -234,6 +234,19 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
     assert "Windows node agent" in windows["requirements"]
 
 
+def test_adapter_registry_resolves_cronjob_event_lookup() -> None:
+    plan = build_runtime_tool_plan("batch 네임스페이스의 CronJob report-cleaner가 15분마다 실행되는지 확인해줘")
+    resolutions = resolve_tool_plan_adapters(plan)
+
+    assert plan["task_type"] == "cronjob_activity"
+    assert {item["tool"] for item in resolutions} >= {
+        "openshift_cronjob_lookup",
+        "openshift_job_event_lookup",
+    }
+    assert all(item["status"] == "resolved" for item in resolutions)
+    assert all(item["adapter"] == "OpenShift" for item in resolutions)
+
+
 def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
     plan = build_runtime_tool_plan(
         "어제 새벽 default 네임스페이스 pod가 왜 재시작됐어?",
