@@ -118,6 +118,11 @@ RECORD_STORE_TOKEN_FILE = os.getenv(
     "/var/run/secrets/kubernetes.io/serviceaccount/token",
 )
 RECORD_STORE_NAMESPACE = os.getenv("KOMSCO_AI_RECORD_STORE_NAMESPACE", "")
+RAG_BACKEND_URL = os.getenv("KOMSCO_AI_RAG_BACKEND_URL", "").rstrip("/")
+RAG_BACKEND_TYPE = os.getenv("KOMSCO_AI_RAG_BACKEND_TYPE", "pgvector")
+RAG_COLLECTION = os.getenv("KOMSCO_AI_RAG_COLLECTION", "komsco-aiops-runbooks")
+RAG_EMBEDDING_MODEL = os.getenv("KOMSCO_AI_RAG_EMBEDDING_MODEL", "")
+RAG_VECTOR_DIMENSIONS = int(os.getenv("KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "0") or "0")
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
@@ -337,6 +342,7 @@ METRICS: dict[str, int] = {
     "aiops_execution_mutation_failed_total": 0,
     "aiops_evidence_freshness_failures_total": 0,
     "aiops_runbook_plans_total": 0,
+    "aiops_rag_search_requests_total": 0,
     "aiops_preapproved_patch_requests_total": 0,
     "aiops_break_glass_requests_total": 0,
     "aiops_product_access_reviews_total": 0,
@@ -1993,6 +1999,24 @@ class RunbookPlanCreate(StrictBaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class RagSearchFilters(StrictBaseModel):
+    sourceTypes: list[str] = Field(default_factory=list, max_length=20)
+    namespaces: list[str] = Field(default_factory=list, max_length=20)
+    customers: list[str] = Field(default_factory=list, max_length=20)
+    aclGroups: list[str] = Field(default_factory=list, max_length=40)
+    runbookIds: list[str] = Field(default_factory=list, max_length=40)
+    versions: list[str] = Field(default_factory=list, max_length=20)
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
+class RagSearchCreate(StrictBaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    topK: int = Field(default=5, ge=1, le=20)
+    filters: RagSearchFilters = Field(default_factory=RagSearchFilters)
+    includeContent: bool = False
+    runId: str | None = Field(default=None, max_length=120)
 
 
 class PatchPreapprovedFieldCreate(StrictBaseModel):
@@ -6999,6 +7023,35 @@ def latest_readable_audit_records(
     ]
 
 
+def build_rag_backend_status() -> dict[str, Any]:
+    backend_configured = bool(RAG_BACKEND_URL)
+    return {
+        "status": "configured_skeleton" if backend_configured else "not_configured",
+        "backendType": RAG_BACKEND_TYPE,
+        "collection": RAG_COLLECTION,
+        "endpointConfigured": backend_configured,
+        "embeddingModel": RAG_EMBEDDING_MODEL if backend_configured else "not_configured",
+        "vectorDimensions": RAG_VECTOR_DIMENSIONS,
+        "accessPath": "gateway-only",
+        "directDatabaseAccess": False,
+        "aclRequired": True,
+        "requiredMetadata": [
+            "documentId",
+            "sourceUri",
+            "sourceType",
+            "customer",
+            "namespace",
+            "checksum",
+            "version",
+            "aclGroups",
+            "ingestedAt",
+        ],
+        "reason": ""
+        if backend_configured
+        else "KOMSCO_AI_RAG_BACKEND_URL is not configured; search returns no retrieved runbook evidence.",
+    }
+
+
 @app.get("/v1/aiops/status")
 async def get_aiops_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -7021,6 +7074,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
                 "recordStoreEnabled": RECORD_STORE_ENABLED,
                 "recordStoreConfigMap": RECORD_STORE_CONFIGMAP if RECORD_STORE_ENABLED else "",
+                "rag": build_rag_backend_status(),
             },
             "safetyContract": build_runtime_safety_contract(
                 mutations_enabled=MUTATIONS_ENABLED,
@@ -7303,6 +7357,61 @@ async def get_runbook_registry(authorization: str | None = Header(default=None))
             "entries": list(RUNBOOK_REGISTRY_ENTRIES.values()),
             "preapprovedPatchFieldDigest": PREAPPROVED_PATCH_FIELD_DIGEST,
             "preapprovedPatchFieldSchemas": list(PREAPPROVED_PATCH_FIELD_SCHEMAS.values()),
+        },
+    }
+
+
+@app.post("/v1/rag/search")
+async def search_rag_runbooks(
+    req: RagSearchCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    await fetch_self_subject_review(user_auth_header)
+    backend = build_rag_backend_status()
+    request_id = f"rag-search-{uuid.uuid4()}"
+    increment_metric("aiops_rag_search_requests_total")
+    if backend["status"] == "not_configured":
+        search_status = "not_configured"
+        reason = str(backend["reason"])
+    else:
+        search_status = "configured_skeleton"
+        reason = "RAG backend endpoint is configured, but Stage 3 only exposes the retrieval contract skeleton."
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RagSearchResult",
+        "metadata": {
+            "name": request_id,
+            "generatedAt": now_rfc3339(),
+        },
+        "spec": {
+            "query": req.query,
+            "topK": req.topK,
+            "filters": req.filters.model_dump(),
+            "includeContent": req.includeContent,
+            "runId": req.runId or request_id,
+            "status": search_status,
+            "reason": reason,
+            "backend": backend,
+            "results": [],
+            "evidence": {
+                "type": "runbook",
+                "status": "missing" if search_status == "not_configured" else "pending",
+                "reason": reason,
+                "collectedRefs": [],
+                "missing": [
+                    {
+                        "type": "runbook",
+                        "reason": reason,
+                    }
+                ],
+            },
+            "safety": {
+                "gatewayOnly": True,
+                "directDatabaseAccessAllowed": False,
+                "aclRequired": True,
+                "mockResultsAreProductionEvidence": False,
+            },
         },
     }
 

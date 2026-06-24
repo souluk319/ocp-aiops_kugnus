@@ -3434,11 +3434,54 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
             "",
             "komsco-ai-gateway-ledger",
         }
+        rag_status = payload["spec"]["capabilities"]["rag"]
+        assert rag_status["status"] == "not_configured"
+        assert rag_status["accessPath"] == "gateway-only"
+        assert rag_status["directDatabaseAccess"] is False
+        assert rag_status["aclRequired"] is True
         assert payload["spec"]["records"]["diagnosticRequests"][0]["metadata"]["name"] == "diag-runtime"
         assert payload["spec"]["records"]["executionRecords"][0]["metadata"]["name"] == "execution-runtime"
         audit_record = payload["spec"]["records"]["auditRecords"][0]
         assert audit_record["metadata"]["name"] == "audit-runtime"
         assert audit_record["spec"]["action"] == "chat_request_accepted"
+        assert "Bearer" not in json.dumps(payload)
+
+    asyncio.run(run())
+
+
+def test_rag_search_returns_not_configured_contract_without_backend() -> None:
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/rag/search",
+                headers=headers,
+                json={
+                    "query": "최근 OpenShift 경고 조치 절차",
+                    "topK": 3,
+                    "filters": {
+                        "sourceTypes": ["runbook"],
+                        "namespaces": ["openshift-monitoring"],
+                        "customers": ["komsco"],
+                        "aclGroups": ["aiops-admins"],
+                    },
+                },
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "RagSearchResult"
+        assert payload["spec"]["status"] == "not_configured"
+        assert payload["spec"]["backend"]["status"] == "not_configured"
+        assert payload["spec"]["backend"]["accessPath"] == "gateway-only"
+        assert payload["spec"]["results"] == []
+        assert payload["spec"]["evidence"]["status"] == "missing"
+        assert payload["spec"]["evidence"]["missing"][0]["type"] == "runbook"
+        assert payload["spec"]["filters"]["aclGroups"] == ["aiops-admins"]
+        assert payload["spec"]["safety"]["directDatabaseAccessAllowed"] is False
+        assert payload["spec"]["safety"]["aclRequired"] is True
+        assert payload["spec"]["safety"]["mockResultsAreProductionEvidence"] is False
         assert "Bearer" not in json.dumps(payload)
 
     asyncio.run(run())

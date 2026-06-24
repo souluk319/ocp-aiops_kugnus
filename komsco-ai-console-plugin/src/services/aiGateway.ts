@@ -110,6 +110,19 @@ export type AiopsRuntimeStatus = {
       diagnosticsControllerConfigured: boolean;
       diagnosticsEnabled: boolean;
       mutationsEnabled: boolean;
+      rag?: {
+        accessPath?: string;
+        aclRequired?: boolean;
+        backendType?: string;
+        collection?: string;
+        directDatabaseAccess?: boolean;
+        embeddingModel?: string;
+        endpointConfigured?: boolean;
+        reason?: string;
+        requiredMetadata?: string[];
+        status?: string;
+        vectorDimensions?: number;
+      };
       recordStoreConfigMap?: string;
       recordStoreEnabled: boolean;
       unrestrictedCommandsEnabled?: boolean;

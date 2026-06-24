@@ -253,6 +253,19 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
       diagnosticsControllerConfigured: false,
       diagnosticsEnabled: false,
       mutationsEnabled: false,
+      rag: {
+        accessPath: 'gateway-only',
+        aclRequired: true,
+        backendType: 'pgvector',
+        collection: 'komsco-aiops-runbooks',
+        directDatabaseAccess: false,
+        embeddingModel: 'not_configured',
+        endpointConfigured: false,
+        reason: 'RAG status is pending until the gateway status call completes.',
+        requiredMetadata: ['documentId', 'sourceUri', 'sourceType', 'checksum', 'version', 'aclGroups'],
+        status: 'pending',
+        vectorDimensions: 0,
+      },
       recordStoreEnabled: false,
       unrestrictedCommandsEnabled: false,
     },
@@ -2190,6 +2203,20 @@ const renderInsightRail = (
             ? aiopsStatus.spec.capabilities.recordStoreEnabled
               ? 'ok'
               : 'warn'
+            : 'neutral',
+        )}
+        {renderStatusTag(
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.rag?.status === 'not_configured'
+              ? 'RAG not configured'
+              : aiopsStatus.spec.capabilities.rag?.status === 'configured_skeleton'
+                ? 'RAG skeleton'
+                : `RAG ${aiopsStatus.spec.capabilities.rag?.status ?? 'unknown'}`
+            : 'RAG pending',
+          aiopsStatus
+            ? aiopsStatus.spec.capabilities.rag?.status === 'not_configured'
+              ? 'warn'
+              : 'neutral'
             : 'neutral',
         )}
       </div>

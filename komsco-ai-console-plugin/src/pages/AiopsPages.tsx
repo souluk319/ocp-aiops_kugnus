@@ -319,6 +319,11 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
       value: statusLoaded ? (capabilities?.recordStoreEnabled ? 'on' : 'memory') : 'status pending',
       tone: statusLoaded && capabilities?.recordStoreEnabled ? 'success' : 'warning',
     },
+    {
+      label: 'Runbook RAG',
+      value: statusLoaded ? (capabilities?.rag?.status ?? 'not reported') : 'status pending',
+      tone: statusLoaded && capabilities?.rag?.status !== 'not_configured' ? 'info' : 'warning',
+    },
   ] as const;
 
   return (
