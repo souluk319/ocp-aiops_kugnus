@@ -5,15 +5,15 @@ export const redactSensitiveText = (value: unknown, fallback = ''): string => {
   }
 
   return raw
-    .replace(
-      /\b((?:client-key-data|client-certificate-data|certificate-authority-data)\s*:\s*(?:\|\s*)?\n)(?:\s+[A-Za-z0-9+/=]{16,}\s*\n?)+/gi,
-      '$1[redacted-secret]',
-    )
-    .replace(
-      /\b((?:x[-_]?api[-_]?key|api[-_]?key|apikey|apiKey|token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd|authorization|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*)(["']?)[^\s,"'`<>]+(?:\2)?/gi,
-      '$1[redacted-secret]',
-    )
     .replace(/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi, 'Bearer [redacted]')
+    .replace(
+      /\b((?:client-key-data|client-certificate-data|certificate-authority-data)[ \t]*:[ \t]*(?:\|[ \t]*)?\r?\n)(?:[ \t]+[A-Za-z0-9+/=]{8,}[ \t]*(?:\r?\n|$))+/gi,
+      '$1[redacted-secret]',
+    )
+    .replace(
+      /\b((?:x[-_]?api[-_]?key|api[-_]?key|apikey|apiKey|token|access[-_]?token|refresh[-_]?token|client[-_]?secret|secret|password|passwd|authorization|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*)(["']?)[^\s,"'`<>|]+(?:\2)?/gi,
+      '$1[redacted-secret]',
+    )
     .replace(/sha256~[A-Za-z0-9._~-]+/gi, '[redacted-token]')
     .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '[redacted-token]')
     .replace(/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}(?:\.[A-Za-z0-9_-]{8,})?\b/g, '[redacted-token]')

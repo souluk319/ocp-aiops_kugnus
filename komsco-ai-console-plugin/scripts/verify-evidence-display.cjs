@@ -10,6 +10,7 @@ const {
 
 const sensitiveInputs = [
   'Bearer sha256~abcDEF_1234567890',
+  'Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456',
   'sha256~eu4NmzgyGdszEPdrSy7L_NG4CsHhFfdB_I_L4Qjce7I',
   'subject admin kubeadmin operator@example.com',
   'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbiIsImlhdCI6MTIzNDU2Nzg5MH0.signaturePart',
@@ -38,7 +39,7 @@ const forbiddenPatterns = [
   /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}/,
   /\b(?:github_pat|gh[pousr]|glpat|sk|xox[baprs])-?[A-Za-z0-9_=-]{16,}\b/i,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
-  /\b(?:x[-_]?api[-_]?key|api[-_]?key|apiKey|token|client[-_]?secret|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*(?!\[redacted-secret\])["']?[^\s,"'`<>]+/i,
+  /\b(?:x[-_]?api[-_]?key|api[-_]?key|apiKey|token|client[-_]?secret|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*(?!(?:\[redacted-secret\]|\|\s*\n\[redacted-secret\]))["']?[^\s,"'`<>]+/i,
   /\bLS0tLS1CRUdJTiB(?:QUklWQVRFIEtFWS|Q0VSVElGSUNBVEU)[A-Za-z0-9+/=]*\b/,
   /\b(?=[A-Za-z0-9._~+\/=-]{40,}\b)(?=.*[._~+\/=-])[A-Za-z0-9._~+\/=-]+\b/,
 ];
@@ -58,6 +59,7 @@ const sensitiveClipboardBody = [
   '정리 결과입니다.',
   '```bash',
   'export TOKEN=shortsecret',
+  'Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456',
   'curl -H "Authorization: Bearer sha256~abcDEF_1234567890" https://api.example.invalid',
   'x-api-key: shortsecret',
   'client-key-data: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t',
@@ -78,6 +80,7 @@ for (const pattern of forbiddenPatterns) {
     `clipboard redaction missed ${pattern} for output: ${redactedClipboardBody}`,
   );
 }
+assert.equal(redactedClipboardBody.includes('UHJpdmF0ZUtleUJvZHk'), false);
 assert.ok(redactedClipboardBody.includes('마지막 안전 문장은 보존되어야 합니다.'));
 
 assert.equal(safeEvidenceText('Pod 개수 직접 조회 완료'), 'Pod 개수 직접 조회 완료');
