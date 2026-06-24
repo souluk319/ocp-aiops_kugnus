@@ -118,9 +118,9 @@ Reviewer A/B/C 검수는 이 파일, 코드 diff, 빌드 결과, UI verifier 결
 
 | Reviewer | 관점 | 결과 | 메모 |
 | :--- | :--- | :--- | :--- |
-| A | Product/Requirements | PASS | screenshot inspection 및 evidence 없음/있음 UI 차이 문서화 반영 완료 |
-| B | Backend/Safety | 2차 수정 후 재검수 대기 | key-value/API key/token redaction 누락과 message/code clipboard raw copy 누출 수정, 주입 테스트 PASS |
-| C | Frontend/UX | 수정 후 재검수 대기 | 초기 FAIL 원인인 `/dashboards` CDP stale target 재현성 문제 수정, UI verifier PASS |
+| A | Product/Requirements | PASS | 최종 HEAD `5e5df1d` 기준 clipboard redaction, kubeconfig hardening, Authorization/Bearer ordering까지 제품 수용 기준 PASS |
+| B | Backend/Safety | PASS | 최종 HEAD `5e5df1d` 기준 message/code clipboard, token/API key/email/admin/kubeconfig/Bearer redaction PASS |
+| C | Frontend/UX | PASS | 최종 HEAD `5e5df1d` 기준 evidence footer compactness, `[Evidence]` copy block, `/dashboards` verifier evidence PASS |
 
 ## 다음 Stage
 
