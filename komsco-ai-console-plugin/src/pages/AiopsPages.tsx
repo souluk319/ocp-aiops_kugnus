@@ -78,6 +78,14 @@ const textValue = (value: unknown, fallback = '-'): string => {
   return JSON.stringify(value);
 };
 
+const compactDigest = (value?: string): string => {
+  if (!value) {
+    return '';
+  }
+
+  return value.length > 28 ? `${value.slice(0, 24)}...` : value;
+};
+
 const clampScore = (value?: number): number => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
     return 0;
@@ -352,18 +360,40 @@ const LightspeedLink: React.FC<{ data: AiopsPageData }> = ({ data }) => {
   const lightspeedStatus = data.status?.spec.safetyContract?.lightspeedStatus;
   const gatewayStatusLoaded = Boolean(data.status) && !data.error;
   const baseService = lightspeedStatus?.baseService ?? 'openshift-lightspeed/lightspeed-app-server:8443';
+  const streamProbe = lightspeedStatus?.streamProbe ?? 'probe pending';
+  const fallbackActive = Boolean(lightspeedStatus?.fallbackActive);
+  const contextDigest = compactDigest(lightspeedStatus?.lastContextDigest);
 
   return (
     <div className="komsco-ai-page__signal-stack">
-      <div className={`komsco-ai-page__signal is-${gatewayStatusLoaded ? 'info' : 'warning'}`}>
-        <span className={`komsco-ai-page__status-dot ${gatewayStatusLoaded ? 'is-info' : 'is-warn'}`} />
+      <div className={`komsco-ai-page__signal is-${fallbackActive || !gatewayStatusLoaded ? 'warning' : 'info'}`}>
+        <span className={`komsco-ai-page__status-dot ${fallbackActive || !gatewayStatusLoaded ? 'is-warn' : 'is-info'}`} />
         <div>
-          <strong>{gatewayStatusLoaded ? 'Gateway status loaded' : 'Gateway status pending'}</strong>
+          <strong>
+            {fallbackActive
+              ? 'Gateway fallback active'
+              : gatewayStatusLoaded
+                ? 'Gateway status loaded'
+                : 'Gateway status pending'}
+          </strong>
           <span>
-            {lightspeedStatus?.streamProbe ?? 'Lightspeed stream probe not completed by status endpoint'}
+            {streamProbe}
+            {lightspeedStatus?.lastStatus ? ` / ${lightspeedStatus.lastStatus}` : ''}
           </span>
         </div>
       </div>
+      {contextDigest && (
+        <div className="komsco-ai-page__endpoint-line">
+          <span>Gateway context</span>
+          <code>{contextDigest}</code>
+        </div>
+      )}
+      {lightspeedStatus?.lastError && (
+        <div className="komsco-ai-page__endpoint-line">
+          <span>Last fallback reason</span>
+          <code>{lightspeedStatus.lastError}</code>
+        </div>
+      )}
       <div className="komsco-ai-page__endpoint-line">
         <span>Lightspeed service</span>
         <code>{baseService}</code>

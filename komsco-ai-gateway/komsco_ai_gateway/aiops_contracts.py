@@ -737,6 +737,7 @@ def build_runtime_safety_contract(
     diagnostics_enabled: bool,
     record_store_enabled: bool,
     diagnostics_controller_configured: bool = False,
+    lightspeed_status: Mapping[str, Any] | None = None,
     latest_runtime_tool_plan: Mapping[str, Any] | None = None,
     latest_rca_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -781,7 +782,7 @@ def build_runtime_safety_contract(
         "adapterStatus": adapter_registry,
         "lightspeedStatus": {
             "status": "configured",
-            "streamProbe": "not_probed_by_status_endpoint",
             "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+            **(dict(lightspeed_status) if lightspeed_status else {"streamProbe": "not_started"}),
         },
     }

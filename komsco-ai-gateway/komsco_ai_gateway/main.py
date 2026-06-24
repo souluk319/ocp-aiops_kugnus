@@ -365,6 +365,15 @@ BREAK_GLASS_REQUESTS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 LAST_RUNTIME_TOOL_PLAN: dict[str, Any] | None = None
 LAST_RCA_CONTEXT: dict[str, Any] | None = None
+OLS_STREAM_STATUS: dict[str, Any] = {
+    "streamProbe": "not_started",
+    "lastStatus": "not_started",
+    "lastContextDigest": "",
+    "lastStartedAt": "",
+    "lastCompletedAt": "",
+    "lastError": "",
+    "fallbackActive": False,
+}
 ACTION_REGISTRY_VERSION = "v1"
 ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
     "rollout_restart_deployment": {
@@ -2873,7 +2882,25 @@ def sse(data: Mapping[str, Any] | str) -> str:
     if isinstance(data, str):
         return f"data: {data}\n\n"
 
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"data: {json.dumps(redact_sensitive(data), ensure_ascii=False)}\n\n"
+
+
+def safe_error_text(value: Any, *, limit: int = 500) -> str:
+    redacted = redact_sensitive(value)
+    if isinstance(redacted, str):
+        text = redacted
+    else:
+        text = json.dumps(redacted, ensure_ascii=False, sort_keys=True)
+    text = text.replace("\x00", "").strip()
+    if len(text) > limit:
+        return f"{text[:limit]}..."
+    return text
+
+
+def safe_exception_text(exc: Exception, *, limit: int = 500) -> str:
+    if isinstance(exc, HTTPException):
+        return safe_error_text(f"HTTP {exc.status_code}: {exc.detail}", limit=limit)
+    return safe_error_text(f"{type(exc).__name__}: {exc}", limit=limit)
 
 
 @app.get("/healthz")
@@ -3206,16 +3233,53 @@ def build_ols_attachments(attachments: list[ImageAttachment]) -> list[dict[str, 
     ]
 
 
+def build_ols_gateway_context(
+    *,
+    tool_plan: Mapping[str, Any],
+    rca_context: Mapping[str, Any],
+    safety_contract: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    gateway_evidence: str | None = None,
+) -> dict[str, Any]:
+    rca_evidence = rca_context.get("evidence", {}) if isinstance(rca_context.get("evidence"), Mapping) else {}
+    missing_evidence = rca_evidence.get("missing", []) if isinstance(rca_evidence, Mapping) else []
+    context = {
+        "apiVersion": "aiops.komsco/v1alpha1",
+        "kind": "GatewayContext",
+        "metadata": {
+            "generatedAt": now_rfc3339(),
+            "source": "komsco-ai-gateway",
+            "version": "0.1.1",
+            "rcaContextDigest": rca_context.get("metadata", {}).get("digest")
+            if isinstance(rca_context.get("metadata"), Mapping)
+            else "",
+        },
+        "toolPlan": redact_sensitive(dict(tool_plan)),
+        "evidenceSummary": redact_sensitive(rca_evidence.get("summary", {}) if isinstance(rca_evidence, Mapping) else {}),
+        "missingEvidence": redact_sensitive(missing_evidence if isinstance(missing_evidence, list) else []),
+        "rcaContext": redact_sensitive(dict(rca_context)),
+        "safetyContract": redact_sensitive(dict(safety_contract)),
+        "policy": redact_sensitive(dict(policy)),
+        "gatewayEvidenceDigest": canonical_digest(redact_sensitive(gateway_evidence or "")) if gateway_evidence else "",
+    }
+    context["metadata"]["digest"] = canonical_digest(redact_sensitive(context))
+    return context
+
+
 def build_ols_payload(
     query: str,
     conversation_id: str | None,
     attachments: list[ImageAttachment],
     *,
     forward_image_attachments: bool = False,
+    gateway_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"query": query}
     if conversation_id:
         payload["conversation_id"] = conversation_id
+
+    if gateway_context:
+        payload["gateway_context"] = redact_sensitive(dict(gateway_context))
 
     ols_attachments = build_ols_attachments(attachments) if forward_image_attachments else []
     if ols_attachments:
@@ -5103,18 +5167,65 @@ async def stream_with_heartbeats(
             producer.cancel()
 
 
+def update_ols_stream_status(
+    status: str,
+    *,
+    context_digest: str = "",
+    fallback_active: bool = False,
+    reason: str = "",
+) -> None:
+    global OLS_STREAM_STATUS
+    now = now_rfc3339()
+    previous_started_at = str(OLS_STREAM_STATUS.get("lastStartedAt") or "")
+    safe_reason = safe_error_text(reason, limit=500) if reason else ""
+    OLS_STREAM_STATUS = {
+        "streamProbe": status,
+        "lastStatus": status,
+        "lastContextDigest": context_digest,
+        "lastStartedAt": now if status == "started" else previous_started_at,
+        "lastCompletedAt": now if status in {"succeeded", "failed", "dev_echo", "not_configured"} else "",
+        "lastError": safe_reason if status in {"failed", "not_configured", "dev_echo"} else "",
+        "fallbackActive": fallback_active,
+    }
+
+
 async def call_ols_stream(
     user_auth_header: str,
     query: str,
     conversation_id: str | None,
     attachments: list[ImageAttachment],
+    gateway_context: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
+    context_digest = (
+        str(gateway_context.get("metadata", {}).get("digest") or "")
+        if isinstance(gateway_context, Mapping) and isinstance(gateway_context.get("metadata"), Mapping)
+        else ""
+    )
     if DEV_ECHO or not OLS_BASE_URL:
+        fallback_status = "dev_echo" if DEV_ECHO else "not_configured"
+        fallback_reason = "DEV_ECHO enabled" if DEV_ECHO else "OLS_BASE_URL is not configured"
+        update_ols_stream_status(
+            fallback_status,
+            context_digest=context_digest,
+            fallback_active=True,
+            reason=fallback_reason,
+        )
         yield {
             "type": "text",
             "content": "DEV_ECHO: Gateway is running. Configure OLS_BASE_URL for Lightspeed streaming.\n\n",
+            "source": "gateway_fallback",
+            "fallbackAnswer": True,
+            "gatewayContextDigest": context_digest,
+            "streamProbe": fallback_status,
         }
-        yield {"type": "text", "content": query[:1200]}
+        yield {
+            "type": "text",
+            "content": query[:1200],
+            "source": "gateway_fallback",
+            "fallbackAnswer": True,
+            "gatewayContextDigest": context_digest,
+            "streamProbe": fallback_status,
+        }
         yield {"type": "end", "conversationId": conversation_id}
         return
 
@@ -5123,85 +5234,108 @@ async def call_ols_stream(
         conversation_id,
         attachments,
         forward_image_attachments=should_forward_image_attachments_to_ols(),
+        gateway_context=gateway_context,
     )
+    update_ols_stream_status("started", context_digest=context_digest)
 
-    async with httpx.AsyncClient(
-        verify=OLS_CA_FILE,
-        timeout=httpx.Timeout(300.0, connect=10.0),
-    ) as client:
-        async with client.stream(
-            "POST",
-            f"{OLS_BASE_URL}/v1/streaming_query",
-            headers={
-                "Accept": "text/event-stream",
-                "Authorization": user_auth_header,
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        ) as response:
-            if response.status_code >= 400:
-                body = await response.aread()
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=body.decode("utf-8", errors="replace"),
-                )
+    try:
+        async with httpx.AsyncClient(
+            verify=OLS_CA_FILE,
+            timeout=httpx.Timeout(300.0, connect=10.0),
+        ) as client:
+            async with client.stream(
+                "POST",
+                f"{OLS_BASE_URL}/v1/streaming_query",
+                headers={
+                    "Accept": "text/event-stream",
+                    "Authorization": user_auth_header,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            ) as response:
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    detail = body.decode("utf-8", errors="replace")
+                    safe_detail = safe_error_text(detail, limit=1000)
+                    update_ols_stream_status(
+                        "failed",
+                        context_digest=context_digest,
+                        fallback_active=True,
+                        reason=f"HTTP {response.status_code}: {safe_detail}",
+                    )
+                    raise HTTPException(status_code=response.status_code, detail=safe_detail)
 
-            content_type = response.headers.get("content-type", "")
-            if "text/event-stream" not in content_type:
-                async for event in split_plain_text_events(response.aiter_text()):
-                    yield event
-                return
+                content_type = response.headers.get("content-type", "")
+                if "text/event-stream" not in content_type:
+                    async for event in split_plain_text_events(response.aiter_text()):
+                        yield event
+                    update_ols_stream_status("succeeded", context_digest=context_digest)
+                    return
 
-            buffer = ""
-            async for chunk in response.aiter_text():
-                if not chunk:
-                    continue
-
-                buffer += chunk
-                frames = buffer.split("\n\n")
-                buffer = frames.pop() or ""
-
-                for frame in frames:
-                    data_lines = [
-                        line[len("data:") :].strip()
-                        for line in frame.splitlines()
-                        if line.startswith("data:")
-                    ]
-                    if not data_lines:
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    if not chunk:
                         continue
 
-                    raw = "\n".join(data_lines)
-                    if not raw or raw == "[DONE]":
-                        continue
+                    buffer += chunk
+                    frames = buffer.split("\n\n")
+                    buffer = frames.pop() or ""
 
-                    try:
-                        event = json.loads(raw)
-                    except json.JSONDecodeError:
-                        tool_event = parse_tool_text_line(raw)
-                        if tool_event:
-                            yield tool_event
-                        else:
-                            yield {"type": "text", "content": raw}
-                        continue
+                    for frame in frames:
+                        data_lines = [
+                            line[len("data:") :].strip()
+                            for line in frame.splitlines()
+                            if line.startswith("data:")
+                        ]
+                        if not data_lines:
+                            continue
 
-                    yield event
+                        raw = "\n".join(data_lines)
+                        if not raw or raw == "[DONE]":
+                            continue
 
-            if buffer.strip() and not buffer.lstrip().startswith("data:"):
-                async def iter_buffer() -> AsyncIterator[str]:
-                    yield buffer
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError:
+                            tool_event = parse_tool_text_line(raw)
+                            if tool_event:
+                                yield tool_event
+                            else:
+                                yield {"type": "text", "content": raw}
+                            continue
 
-                async for event in split_plain_text_events(iter_buffer()):
-                    yield event
+                        yield event
+
+                if buffer.strip() and not buffer.lstrip().startswith("data:"):
+                    async def iter_buffer() -> AsyncIterator[str]:
+                        yield buffer
+
+                    async for event in split_plain_text_events(iter_buffer()):
+                        yield event
+                update_ols_stream_status("succeeded", context_digest=context_digest)
+    except Exception as exc:
+        if OLS_STREAM_STATUS.get("lastStatus") != "failed":
+            update_ols_stream_status(
+                "failed",
+                context_digest=context_digest,
+                fallback_active=True,
+                reason=safe_exception_text(exc),
+            )
+        raise
 
 
 def normalize_ols_event(event: dict[str, Any]) -> dict[str, Any]:
     event_type = event.get("event") or event.get("type")
 
     if event_type == "text":
-        return {
+        normalized = {
             "type": "text",
             "content": event.get("data") or event.get("content") or "",
         }
+        for key in ("fallbackAnswer", "gatewayContextDigest", "source", "streamProbe"):
+            if key in event:
+                normalized[key] = event[key]
+        return normalized
 
     if event_type == "end":
         return {"type": "end", "conversationId": event.get("conversation_id")}
@@ -5560,6 +5694,7 @@ def build_rca_context_stream_event(
         diagnostics_enabled=DIAGNOSTICS_ENABLED,
         record_store_enabled=RECORD_STORE_ENABLED,
         diagnostics_controller_configured=bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
+        lightspeed_status=redact_sensitive(dict(OLS_STREAM_STATUS)),
         latest_runtime_tool_plan=runtime_tool_plan,
         latest_rca_context=context,
     )
@@ -7083,6 +7218,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 diagnostics_enabled=DIAGNOSTICS_ENABLED,
                 record_store_enabled=RECORD_STORE_ENABLED,
                 diagnostics_controller_configured=bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
+                lightspeed_status=redact_sensitive(dict(OLS_STREAM_STATUS)),
                 latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
                 latest_rca_context=LAST_RCA_CONTEXT,
             ),
@@ -8650,6 +8786,23 @@ async def chat_stream(
             rca_context_event = current_rca_context_event("pre_answer")
             LAST_RCA_CONTEXT = rca_context_event["context"]
             yield sse(rca_context_event)
+            pre_ols_safety_contract = build_runtime_safety_contract(
+                mutations_enabled=MUTATIONS_ENABLED,
+                unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
+                diagnostics_enabled=DIAGNOSTICS_ENABLED,
+                record_store_enabled=RECORD_STORE_ENABLED,
+                diagnostics_controller_configured=bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
+                lightspeed_status=redact_sensitive(dict(OLS_STREAM_STATUS)),
+                latest_runtime_tool_plan=runtime_tool_plan,
+                latest_rca_context=rca_context_event["context"],
+            )
+            ols_gateway_context = build_ols_gateway_context(
+                tool_plan=runtime_tool_plan,
+                rca_context=rca_context_event["context"],
+                safety_contract=pre_ols_safety_contract,
+                policy=policy,
+                gateway_evidence=gateway_evidence,
+            )
 
             yield sse(
                 {
@@ -8657,6 +8810,8 @@ async def chat_stream(
                     "runId": run_id,
                     "stage": "lightspeed",
                     "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
+                    "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                    "rcaContextDigest": rca_context_event["context"]["metadata"]["digest"],
                 }
             )
             ols_query = build_ols_query(
@@ -8675,6 +8830,7 @@ async def chat_stream(
                         ols_query,
                         req.conversationId,
                         req.attachments,
+                        ols_gateway_context,
                     ),
                     run_id,
                 ):
@@ -8686,7 +8842,16 @@ async def chat_stream(
                         if filtered_content:
                             if filtered_content.strip():
                                 emitted_answer_text = True
-                            yield sse({"type": "text", "content": filtered_content})
+                            text_event: dict[str, Any] = {"type": "text", "content": filtered_content}
+                            for key in (
+                                "fallbackAnswer",
+                                "gatewayContextDigest",
+                                "source",
+                                "streamProbe",
+                            ):
+                                if key in normalized_event:
+                                    text_event[key] = normalized_event[key]
+                            yield sse(text_event)
                         continue
 
                     if normalized_event.get("type") == "end":
@@ -8708,18 +8873,33 @@ async def chat_stream(
                         ):
                             yield sse(evidence_event)
             except Exception as exc:
+                safe_detail = safe_exception_text(exc)
+                update_ols_stream_status(
+                    "failed",
+                    context_digest=ols_gateway_context["metadata"]["digest"],
+                    fallback_active=True,
+                    reason=safe_detail,
+                )
                 ols_error_event = {
                     "type": "tool_result",
-                    "detail": f"{type(exc).__name__}: {exc}",
+                    "detail": safe_detail,
                     "id": f"{request_id}-lightspeed-stream",
                     "name": "lightspeed_stream",
                     "status": "error",
                     "summary": "OpenShift Lightspeed stream failed; Gateway fallback will answer from collected evidence",
+                    "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                    "fallbackAnswer": True,
                 }
                 ols_tool_results.append(ols_error_event)
                 yield sse(ols_error_event)
 
             if not emitted_answer_text:
+                update_ols_stream_status(
+                    "failed",
+                    context_digest=ols_gateway_context["metadata"]["digest"],
+                    fallback_active=True,
+                    reason="OLS stream ended without answer text; Gateway fallback emitted",
+                )
                 yield sse(
                     {
                         "type": "text",
@@ -8729,6 +8909,10 @@ async def chat_stream(
                             ols_tool_results,
                             gateway_evidence,
                         ),
+                        "source": "gateway_fallback",
+                        "fallbackAnswer": True,
+                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                        "streamProbe": "failed",
                     }
                 )
 

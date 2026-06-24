@@ -52,6 +52,7 @@ from komsco_ai_gateway.main import (
     build_diagnostic_request_record,
     build_empty_answer_fallback,
     build_evidence_reference_events,
+    build_ols_gateway_context,
     build_ols_payload,
     build_ols_query,
     build_product_access_review_request,
@@ -194,7 +195,7 @@ def test_runtime_safety_contract_defaults_to_read_only() -> None:
     assert "patch" in contract["forbiddenActions"]
     assert contract["capabilityGates"]["mutationsEnabled"] is False
     assert contract["toolPlanStatus"]["status"] == "waiting_for_first_question"
-    assert contract["lightspeedStatus"]["streamProbe"] == "not_probed_by_status_endpoint"
+    assert contract["lightspeedStatus"]["streamProbe"] == "not_started"
     assert {adapter["name"]: adapter["status"] for adapter in contract["adapterStatus"]} == {
         "Linux": "disabled",
         "OpenShift": "available",
@@ -1198,6 +1199,50 @@ def test_build_ols_payload_forwards_image_attachments_when_enabled() -> None:
     }
 
 
+def test_build_ols_payload_includes_schema_gateway_context_without_secrets() -> None:
+    plan = build_runtime_tool_plan("default 네임스페이스 pod가 왜 재시작됐어?")
+    rca_context = build_rca_context(
+        message="default 네임스페이스 pod가 왜 재시작됐어?",
+        tool_plan=plan,
+        evidence_refs=[],
+        run_id="run-ols-context",
+        incident_id="inc-ols-context",
+    )
+    safety_contract = build_runtime_safety_contract(
+        mutations_enabled=False,
+        unrestricted_commands_enabled=False,
+        diagnostics_enabled=False,
+        record_store_enabled=False,
+        latest_runtime_tool_plan=plan,
+        latest_rca_context=rca_context,
+    )
+    gateway_context = build_ols_gateway_context(
+        tool_plan=plan,
+        rca_context=rca_context,
+        safety_contract=safety_contract,
+        policy={"decision": "allow_read_only_evidence", "token": "secret-token-value-1234567890"},
+        gateway_evidence="safe line\nAuthorization: Bearer secret-token-value-1234567890",
+    )
+
+    payload = build_ols_payload(
+        "질문",
+        "conversation-1",
+        [],
+        gateway_context=gateway_context,
+    )
+    rendered = json.dumps(payload, ensure_ascii=False)
+
+    assert payload["gateway_context"]["kind"] == "GatewayContext"
+    assert payload["gateway_context"]["toolPlan"]["kind"] == "ToolPlan"
+    assert payload["gateway_context"]["rcaContext"]["kind"] == "RcaContext"
+    assert payload["gateway_context"]["safetyContract"]["mode"] == "read_only"
+    assert payload["gateway_context"]["missingEvidence"]
+    assert payload["gateway_context"]["metadata"]["digest"].startswith("sha256:")
+    assert payload["gateway_context"]["metadata"]["rcaContextDigest"] == rca_context["metadata"]["digest"]
+    assert "secret-token-value" not in rendered
+    assert "Bearer secret" not in rendered
+
+
 def test_validate_image_attachments_rejects_unsupported_type() -> None:
     attachment = ImageAttachment(
         data="aGVsbG8=",
@@ -1389,6 +1434,230 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "Gateway가 수집한 증거 기준" in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
+
+
+def test_chat_stream_marks_lightspeed_context_digest_on_gateway_fallback(monkeypatch) -> None:
+    gateway_main.OLS_STREAM_STATUS = {
+        "streamProbe": "not_started",
+        "lastStatus": "not_started",
+        "lastContextDigest": "",
+        "lastStartedAt": "",
+        "lastCompletedAt": "",
+        "lastError": "",
+        "fallbackActive": False,
+    }
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    captured_context: dict[str, object] = {}
+
+    async def fail_call_ols_stream(
+        _user_auth_header: str,
+        _query: str,
+        _conversation_id: str | None,
+        _attachments: list[ImageAttachment],
+        gateway_context: Mapping[str, object] | None = None,
+    ):
+        assert gateway_context is not None
+        assert gateway_context["kind"] == "GatewayContext"
+        metadata = gateway_context["metadata"]
+        assert isinstance(metadata, Mapping)
+        context_digest = str(metadata.get("digest") or "")
+        assert context_digest.startswith("sha256:")
+        captured_context["digest"] = context_digest
+        if False:
+            yield {}
+        raise RuntimeError("synthetic OLS outage")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "최근 OpenShift 경고와 우선 확인할 항목을 정리해줘."},
+            )
+            status_response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        assert status_response.status_code == 200
+        events = parse_sse_events(response.text)
+        context_digest = str(captured_context["digest"])
+        lightspeed_run_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "run_status"
+            and event.get("stage") == "lightspeed"
+        ]
+        fallback_error_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "lightspeed_stream"
+        ]
+        fallback_text_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and event.get("fallbackAnswer") is True
+        ]
+
+        assert lightspeed_run_events[-1]["gatewayContextDigest"] == context_digest
+        assert fallback_error_events[-1]["gatewayContextDigest"] == context_digest
+        assert fallback_error_events[-1]["fallbackAnswer"] is True
+        assert fallback_text_events[-1]["gatewayContextDigest"] == context_digest
+        assert fallback_text_events[-1]["source"] == "gateway_fallback"
+        assert gateway_main.OLS_STREAM_STATUS["streamProbe"] == "failed"
+        assert gateway_main.OLS_STREAM_STATUS["fallbackActive"] is True
+        assert gateway_main.OLS_STREAM_STATUS["lastContextDigest"] == context_digest
+
+        lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
+        assert lightspeed_status["streamProbe"] == "failed"
+        assert lightspeed_status["fallbackActive"] is True
+        assert lightspeed_status["lastContextDigest"] == context_digest
+
+    asyncio.run(run())
+
+
+def test_chat_stream_redacts_secret_bearing_ols_errors(monkeypatch) -> None:
+    gateway_main.OLS_STREAM_STATUS = {
+        "streamProbe": "not_started",
+        "lastStatus": "not_started",
+        "lastContextDigest": "",
+        "lastStartedAt": "",
+        "lastCompletedAt": "",
+        "lastError": "",
+        "fallbackActive": False,
+    }
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        if False:
+            yield {}
+        raise HTTPException(
+            status_code=502,
+            detail="OLS upstream failed Authorization: Bearer abcdefghijklmnopqrstuvwxyz token=supersecret",
+        )
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "최근 OpenShift 경고와 우선 확인할 항목을 정리해줘."},
+            )
+            status_response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        assert status_response.status_code == 200
+        assert "supersecret" not in response.text
+        assert "abcdefghijklmnopqrstuvwxyz" not in response.text
+        assert "Bearer abc" not in response.text
+        assert "supersecret" not in json.dumps(status_response.json(), ensure_ascii=False)
+        assert "[REDACTED]" in response.text
+        lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
+        assert lightspeed_status["fallbackActive"] is True
+        assert "supersecret" not in lightspeed_status["lastError"]
+
+    asyncio.run(run())
+
+
+def test_chat_stream_marks_empty_ols_success_as_fallback_status(monkeypatch) -> None:
+    gateway_main.OLS_STREAM_STATUS = {
+        "streamProbe": "not_started",
+        "lastStatus": "not_started",
+        "lastContextDigest": "",
+        "lastStartedAt": "",
+        "lastCompletedAt": "",
+        "lastError": "",
+        "fallbackActive": False,
+    }
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def empty_call_ols_stream(*_args, **_kwargs):
+        yield {"type": "end", "conversationId": "conversation-empty"}
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", empty_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "최근 OpenShift 경고와 우선 확인할 항목을 정리해줘."},
+            )
+            status_response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        assert status_response.status_code == 200
+        events = parse_sse_events(response.text)
+        fallback_text_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and event.get("fallbackAnswer") is True
+        ]
+        assert fallback_text_events
+        lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
+        assert lightspeed_status["streamProbe"] == "failed"
+        assert lightspeed_status["fallbackActive"] is True
+        assert lightspeed_status["lastContextDigest"] == fallback_text_events[-1]["gatewayContextDigest"]
+
+    asyncio.run(run())
 
 
 def test_chat_stream_handles_openshift_user_auth_401_without_raw_status(monkeypatch) -> None:

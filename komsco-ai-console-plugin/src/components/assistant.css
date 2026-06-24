@@ -1355,6 +1355,22 @@
   content: "· OLS 기반 분석";
 }
 
+.komsco-ai__message-fallback {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  margin-inline-start: auto;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #8a5a00;
+  white-space: nowrap;
+  background: #fff7db;
+  border: 1px solid #f0c96c;
+  border-radius: 999px;
+}
+
 .komsco-ai__message-copy {
   display: inline-flex;
   flex: 0 0 auto;

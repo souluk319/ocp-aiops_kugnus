@@ -102,6 +102,8 @@ type Message = {
   attachments?: ImageAttachment[];
   content: string;
   evidenceFooter?: EvidenceFooter;
+  fallbackAnswer?: boolean;
+  gatewayContextDigest?: string;
   progressSteps?: ProgressStep[];
 };
 
@@ -168,6 +170,8 @@ type ToolStreamEvent = {
   id?: string;
   args?: unknown;
   detail?: string;
+  fallbackAnswer?: boolean;
+  gatewayContextDigest?: string;
   result?: unknown;
   serverName?: string;
   status?: string;
@@ -177,9 +181,19 @@ type ToolStreamEvent = {
 type RunStatusEvent = {
   type: 'run_status';
   elapsedMs?: number;
+  gatewayContextDigest?: string;
   message: string;
+  rcaContextDigest?: string;
   runId?: string;
   stage: string;
+};
+
+type LightspeedStatusUpdate = {
+  fallbackActive?: boolean;
+  lastContextDigest?: string | undefined;
+  lastError?: string | undefined;
+  lastStatus?: string | undefined;
+  streamProbe?: string | undefined;
 };
 
 const URL_PATTERN = /(https?:\/\/[^\s]+)/g;
@@ -746,6 +760,25 @@ const attachEvidenceFooterToLastAssistant = (
   next[assistantIndex] = {
     ...next[assistantIndex],
     evidenceFooter,
+  };
+
+  return next;
+};
+
+const markLastAssistantFallback = (
+  messages: Message[],
+  gatewayContextDigest?: string,
+): Message[] => {
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    fallbackAnswer: true,
+    gatewayContextDigest: gatewayContextDigest || next[assistantIndex].gatewayContextDigest,
   };
 
   return next;
@@ -2388,10 +2421,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     aiopsStatus,
     aiopsStatusError,
   );
+  const lightspeedStatus = aiopsStatus?.spec.safetyContract?.lightspeedStatus;
   const headerConnectionLabel = [
     assistantConnection.label,
-    `Lightspeed stream: ${
-      aiopsStatus?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'status pending'
+    `Lightspeed stream: ${lightspeedStatus?.streamProbe ?? 'status pending'}${
+      lightspeedStatus?.fallbackActive ? ' (Gateway fallback active)' : ''
     }`,
     `Safety mode: ${aiopsStatus?.spec.safetyContract?.mode ?? 'status pending'}`,
   ].join(' · ');
@@ -2855,6 +2889,29 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     }
   }, []);
 
+  const updateLightspeedStatus = React.useCallback((updates: LightspeedStatusUpdate) => {
+    setAiopsStatus((prev) => {
+      const base = prev ?? createPendingAiopsStatus();
+      const safetyContract =
+        base.spec.safetyContract ?? createPendingAiopsStatus().spec.safetyContract!;
+      const currentStatus = safetyContract.lightspeedStatus ?? {};
+
+      return {
+        ...base,
+        spec: {
+          ...base.spec,
+          safetyContract: {
+            ...safetyContract,
+            lightspeedStatus: {
+              ...currentStatus,
+              ...updates,
+            },
+          },
+        },
+      };
+    });
+  }, []);
+
   const handleAiopsAction = React.useCallback(
     async (record: AiopsRecordView, action: AiopsRecordAction) => {
       if (action.disabledReason) {
@@ -3183,6 +3240,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         let responseWaitSequence = 0;
         let answerStreamStartedAt: number | undefined;
         let runLoopStartedAt: number | undefined;
+        let fallbackAnswerSeen = false;
+        let lightspeedStageSeen = false;
         let stepSequence = 0;
 
         const upsertGatewayPrepStep = (status: ProgressStatus) => {
@@ -3384,6 +3443,22 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         }, { signal: abortController.signal })) {
           if (event.type === 'run_status') {
             handleRunStatusEvent(event);
+            if (event.stage === 'lightspeed') {
+              lightspeedStageSeen = true;
+              updateLightspeedStatus({
+                fallbackActive: false,
+                lastContextDigest: event.gatewayContextDigest,
+                lastStatus: 'started',
+                streamProbe: 'started',
+              });
+            }
+            if (event.stage === 'completed' && !lightspeedStageSeen && !fallbackAnswerSeen) {
+              updateLightspeedStatus({
+                fallbackActive: false,
+                lastStatus: 'gateway_direct',
+                streamProbe: 'not_used',
+              });
+            }
           }
 
           if (event.type === 'tool_plan') {
@@ -3446,6 +3521,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
 
           if (event.type === 'text') {
+            if (event.fallbackAnswer || event.source === 'gateway_fallback') {
+              fallbackAnswerSeen = true;
+              setMessages((prev) => markLastAssistantFallback(prev, event.gatewayContextDigest));
+              updateLightspeedStatus({
+                fallbackActive: true,
+                lastContextDigest: event.gatewayContextDigest,
+                lastStatus: event.streamProbe ?? 'failed',
+                streamProbe: event.streamProbe ?? 'failed',
+              });
+            }
             if (event.content.trim()) {
               finishResponseWaitStep('본문 스트리밍 시작');
               startAnswerStreamStep();
@@ -3467,6 +3552,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             if (GATEWAY_PREP_TOOLS.has(normalizeToolName(event.name))) {
               handleGatewayPrepEvent(event);
               continue;
+            }
+
+            if (normalizeToolName(event.name) === 'lightspeed_stream' && event.fallbackAnswer) {
+              fallbackAnswerSeen = true;
+              updateLightspeedStatus({
+                fallbackActive: true,
+                lastContextDigest: event.gatewayContextDigest,
+                lastError: event.detail ?? event.summary ?? '',
+                lastStatus: 'failed',
+                streamProbe: 'failed',
+              });
             }
 
             finishResponseWaitStep(`${formatToolTitle(event.name)} 완료`);
@@ -3534,6 +3630,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       messages,
       pendingAttachments,
       selectedTaskMode.label,
+      updateLightspeedStatus,
       upsertProgressStep,
       waitForAssistantTextQueue,
     ],
@@ -3778,6 +3875,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                             <div className="komsco-ai__message-label">
                               {getMessageLabel(message.role)}
                             </div>
+                            {message.role === 'assistant' && message.fallbackAnswer && (
+                              <span
+                                className="komsco-ai__message-fallback"
+                                title={
+                                  message.gatewayContextDigest
+                                    ? `Gateway context ${message.gatewayContextDigest}`
+                                    : 'Gateway fallback answer'
+                                }
+                              >
+                                Gateway fallback
+                              </span>
+                            )}
                             {message.role === 'assistant' && hasContent && (
                               <button
                                 aria-label="답변 복사"

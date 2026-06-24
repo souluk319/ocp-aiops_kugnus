@@ -523,6 +523,7 @@ const getChatInteractionState = async (cdp) =>
         const content = node.querySelector('.komsco-ai__message-content');
         const evidenceFooter = node.querySelector('.komsco-ai__evidence-footer');
         const evidenceText = evidenceFooter?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '';
+        const fallbackBadge = node.querySelector('.komsco-ai__message-fallback');
         const label = node.querySelector('.komsco-ai__message-label');
         return {
           avatar: rect(avatar),
@@ -542,6 +543,7 @@ const getChatInteractionState = async (cdp) =>
                 refCount: evidenceFooter.querySelectorAll('.komsco-ai__evidence-ref').length,
               }
             : null,
+          fallbackBadgeText: fallbackBadge?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           labelText: label?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           message: rect(node),
           text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
@@ -813,6 +815,7 @@ const getDashboardState = async (cdp) =>
         ),
         adapterPanelText: panelText('OS-aware adapters'),
         evidencePanelText: panelText('Evidence posture'),
+        lightspeedPanelText: panelText('Lightspeed link'),
         rcaContextText: panelText('RCA Context JSON'),
         horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
@@ -957,6 +960,15 @@ const run = async () => {
           dashboardState.adapterPanelText.includes('network path from Gateway'),
         {
           adapterPanelText: dashboardState.adapterPanelText,
+        },
+      );
+      assertCheck(
+        'dashboard Lightspeed panel exposes stream status without stale not-probed placeholder',
+        dashboardState.lightspeedPanelText.includes('Lightspeed service') &&
+          dashboardState.lightspeedPanelText.includes('komsco-ai-console-plugin-kugnus') &&
+          !dashboardState.lightspeedPanelText.includes('not_probed_by_status_endpoint'),
+        {
+          lightspeedPanelText: dashboardState.lightspeedPanelText,
         },
       );
     } else {
@@ -1543,6 +1555,16 @@ const run = async () => {
         footerText: evidenceFooter?.text?.slice(0, 420),
       },
     );
+    state = await getUiState(cdp);
+    assertCheck(
+      'direct Gateway RCA answer is not labelled as Lightspeed fallback',
+      rcaAssistantMessage?.fallbackBadgeText !== 'Gateway fallback' &&
+        !state.headerStatusLabel.includes('Gateway fallback active'),
+      {
+        fallbackBadgeText: rcaAssistantMessage?.fallbackBadgeText,
+        headerStatusLabel: state.headerStatusLabel,
+      },
+    );
     assertCheck(
       'assistant evidence footer separates collected and missing evidence without crowding answer',
       Boolean(evidenceFooter) &&
@@ -1696,6 +1718,45 @@ const run = async () => {
         url: uiUrl,
       });
     }
+
+    await setComposerText(cdp, '최근 OpenShift 경고와 우선 확인할 항목을 정리해줘.');
+    await waitFor(
+      cdp,
+      'composer send enables for Lightspeed fallback check',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const send = surface?.querySelector('.komsco-ai__send');
+        return send && !send.disabled && send.getAttribute('aria-disabled') !== 'true';
+      })()`,
+      5000,
+    );
+    await click(cdp, '.komsco-ai__send');
+    await waitFor(
+      cdp,
+      'Lightspeed fallback check finishes streaming',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const send = surface?.querySelector('.komsco-ai__send');
+        return send?.getAttribute('aria-label') === '질문 전송';
+      })()`,
+      60000,
+    );
+    state = await getUiState(cdp);
+    chatState = await getChatInteractionState(cdp);
+    const fallbackAssistantMessage = [...chatState.messages]
+      .reverse()
+      .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant'));
+    assertCheck(
+      'Lightspeed fallback is visibly labelled when Gateway answers from local evidence',
+      fallbackAssistantMessage?.fallbackBadgeText === 'Gateway fallback' &&
+        state.headerStatusLabel.includes('Gateway fallback active') &&
+        state.headerStatusLabel.includes('Lightspeed stream'),
+      {
+        fallbackBadgeText: fallbackAssistantMessage?.fallbackBadgeText,
+        headerStatusLabel: state.headerStatusLabel,
+        latestAssistantText: fallbackAssistantMessage?.text?.slice(0, 360),
+      },
+    );
 
     await makeConversationScrollableAndScrollUp(cdp);
     await waitFor(

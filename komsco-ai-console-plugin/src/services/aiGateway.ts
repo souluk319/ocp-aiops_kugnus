@@ -152,6 +152,12 @@ export type AiopsRuntimeStatus = {
       forbiddenActions: string[];
       lightspeedStatus?: {
         baseService?: string;
+        fallbackActive?: boolean;
+        lastCompletedAt?: string;
+        lastContextDigest?: string;
+        lastError?: string;
+        lastStartedAt?: string;
+        lastStatus?: string;
         status?: string;
         streamProbe?: string;
       };
@@ -197,7 +203,6 @@ export type AiopsRuntimeStatus = {
 };
 
 type StreamEvent =
-  | { type: 'text'; content: string }
   | { type: 'tool_plan'; plan: unknown; runId?: string; status?: string }
   | {
       type: 'rca_context';
@@ -210,7 +215,9 @@ type StreamEvent =
   | {
       type: 'run_status';
       elapsedMs?: number;
+      gatewayContextDigest?: string;
       message: string;
+      rcaContextDigest?: string;
       runId?: string;
       stage: 'started' | 'lightspeed' | 'waiting' | 'completed' | 'failed' | string;
     }
@@ -228,10 +235,20 @@ type StreamEvent =
       name: string;
       id?: string;
       detail?: string;
+      fallbackAnswer?: boolean;
+      gatewayContextDigest?: string;
       result?: unknown;
       serverName?: string;
       status?: string;
       summary?: string;
+    }
+  | {
+      type: 'text';
+      content: string;
+      fallbackAnswer?: boolean;
+      gatewayContextDigest?: string;
+      source?: string;
+      streamProbe?: string;
     }
   | { type: 'end'; conversationId?: string }
   | { type: 'error'; message: string };
