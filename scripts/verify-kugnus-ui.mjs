@@ -83,6 +83,13 @@ const assertCheck = (name, condition, evidence = {}) => {
   }
 };
 
+const cssPx = (value) => Number.parseFloat(String(value || '0')) || 0;
+
+const parseRgb = (value) => {
+  const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  return match ? match.slice(1, 4).map((part) => Number(part)) : null;
+};
+
 const fetchJsonFromHost = async (host, pathname, options = {}) => {
   const response = await fetch(`http://${host}:${chromePort}${pathname}`, options);
   if (!response.ok) {
@@ -530,8 +537,23 @@ const getUiState = async (cdp) =>
           bottom: r.bottom,
           width: r.width,
           height: r.height,
+          borderBottomWidth: style.borderBottomWidth,
+          borderBottomColor: style.borderBottomColor,
+          borderBottomLeftRadius: style.borderBottomLeftRadius,
+          borderBottomRightRadius: style.borderBottomRightRadius,
+          borderLeftWidth: style.borderLeftWidth,
+          borderLeftColor: style.borderLeftColor,
           borderRadius: style.borderRadius,
+          borderRightWidth: style.borderRightWidth,
+          borderRightColor: style.borderRightColor,
+          borderTopWidth: style.borderTopWidth,
+          borderTopColor: style.borderTopColor,
+          borderTopLeftRadius: style.borderTopLeftRadius,
+          borderTopRightRadius: style.borderTopRightRadius,
+          boxShadow: style.boxShadow,
           display: style.display,
+          outlineStyle: style.outlineStyle,
+          outlineWidth: style.outlineWidth,
           paddingBottom: style.paddingBottom,
           paddingLeft: style.paddingLeft,
           paddingRight: style.paddingRight,
@@ -877,6 +899,19 @@ const run = async () => {
       await waitFor(cdp, 'history sidebar closed', `!(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--history-open')`);
     }
     const historyClosedState = await getUiState(cdp);
+    assertCheck(
+      'history closed keeps the main panel softly rounded',
+      cssPx(historyClosedState.panel.borderTopLeftRadius) >= 6 &&
+        cssPx(historyClosedState.panel.borderTopRightRadius) >= 6 &&
+        cssPx(historyClosedState.panel.borderBottomRightRadius) >= 6 &&
+        cssPx(historyClosedState.panel.borderBottomLeftRadius) >= 6,
+      {
+        bottomLeft: historyClosedState.panel.borderBottomLeftRadius,
+        bottomRight: historyClosedState.panel.borderBottomRightRadius,
+        topLeft: historyClosedState.panel.borderTopLeftRadius,
+        topRight: historyClosedState.panel.borderTopRightRadius,
+      },
+    );
     await click(cdp, '.komsco-ai__sidebar-toggle');
     await waitFor(cdp, 'history sidebar open', `(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--history-open')`);
     await waitFor(
@@ -933,6 +968,27 @@ const run = async () => {
     assertCheck('history open does not split chat workspace', !state.hasWorkspaceHistoryClass, {
       workspaceGrid: state.workspaceGrid,
     });
+    assertCheck(
+      'history open keeps only the visible outer corners rounded',
+      cssPx(state.history.borderTopLeftRadius) >= 6 &&
+        cssPx(state.history.borderBottomLeftRadius) >= 6 &&
+        cssPx(state.history.borderTopRightRadius) <= 1 &&
+        cssPx(state.history.borderBottomRightRadius) <= 1 &&
+        cssPx(state.panel.borderTopLeftRadius) <= 1 &&
+        cssPx(state.panel.borderBottomLeftRadius) <= 1 &&
+        cssPx(state.panel.borderTopRightRadius) >= 6 &&
+        cssPx(state.panel.borderBottomRightRadius) >= 6,
+      {
+        historyBottomLeft: state.history.borderBottomLeftRadius,
+        historyBottomRight: state.history.borderBottomRightRadius,
+        historyTopLeft: state.history.borderTopLeftRadius,
+        historyTopRight: state.history.borderTopRightRadius,
+        panelBottomLeft: state.panel.borderBottomLeftRadius,
+        panelBottomRight: state.panel.borderBottomRightRadius,
+        panelTopLeft: state.panel.borderTopLeftRadius,
+        panelTopRight: state.panel.borderTopRightRadius,
+      },
+    );
 
     await click(cdp, 'button[aria-label="Open full screen"]');
     await waitFor(cdp, 'fullscreen surface', "!!document.querySelector('.komsco-ai__surface--fullscreen')");
@@ -1032,16 +1088,31 @@ const run = async () => {
       resize: state.surface.resize,
     });
 
+    const composerGaps = {
+      bottom: state.composerWrap.bottom - state.inputBox.bottom,
+      left: state.inputBox.left - state.composerWrap.left,
+      right: state.composerWrap.right - state.inputBox.right,
+      top: state.inputBox.top - state.composerWrap.top,
+    };
+    const composerGapValues = Object.values(composerGaps);
     assertCheck(
-      'composer border is square and close to the panel edges',
-      Number.parseFloat(state.inputBox.borderRadius) <= 1 &&
-        state.inputBox.left - state.composerWrap.left <= 8 &&
-        state.composerWrap.right - state.inputBox.right <= 8,
+      'composer spacing is balanced around one visible input box',
+      composerGapValues.every((gap) => gap >= 6 && gap <= 12) &&
+        Math.max(...composerGapValues) - Math.min(...composerGapValues) <= 4,
       {
-        composerPaddingLeft: state.composerWrap.paddingLeft,
-        inputBorderRadius: state.inputBox.borderRadius,
-        inputLeftGap: Math.round(state.inputBox.left - state.composerWrap.left),
-        inputRightGap: Math.round(state.composerWrap.right - state.inputBox.right),
+        bottomGap: Math.round(composerGaps.bottom),
+        leftGap: Math.round(composerGaps.left),
+        rightGap: Math.round(composerGaps.right),
+        topGap: Math.round(composerGaps.top),
+      },
+    );
+    const inputBorderRgb = parseRgb(state.inputBox.borderTopColor);
+    const inputBorderIsBlackish = inputBorderRgb && inputBorderRgb.every((channel) => channel <= 65);
+    assertCheck(
+      'composer border uses neutral UI color instead of black',
+      Boolean(inputBorderRgb) && !inputBorderIsBlackish,
+      {
+        inputBorderColor: state.inputBox.borderTopColor,
       },
     );
     assertCheck(
@@ -1051,6 +1122,24 @@ const run = async () => {
       {
         textareaPaddingLeft: state.textarea.paddingLeft,
         textareaPaddingTop: state.textarea.paddingTop,
+      },
+    );
+    assertCheck(
+      'composer uses a single visible input border',
+      Number.parseFloat(state.textarea.borderTopWidth) === 0 &&
+        Number.parseFloat(state.textarea.borderRightWidth) === 0 &&
+        Number.parseFloat(state.textarea.borderBottomWidth) === 0 &&
+        Number.parseFloat(state.textarea.borderLeftWidth) === 0 &&
+        (state.textarea.boxShadow === 'none' || state.textarea.boxShadow === '') &&
+        (state.textarea.outlineStyle === 'none' || Number.parseFloat(state.textarea.outlineWidth) === 0),
+      {
+        boxShadow: state.textarea.boxShadow,
+        borderBottomWidth: state.textarea.borderBottomWidth,
+        borderLeftWidth: state.textarea.borderLeftWidth,
+        borderRightWidth: state.textarea.borderRightWidth,
+        borderTopWidth: state.textarea.borderTopWidth,
+        outlineStyle: state.textarea.outlineStyle,
+        outlineWidth: state.textarea.outlineWidth,
       },
     );
 
