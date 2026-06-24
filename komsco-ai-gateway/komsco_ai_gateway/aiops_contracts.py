@@ -62,27 +62,24 @@ OPENSHIFT_ADAPTER_TOOLS = (
     },
     {
         "tool": "openshift_node_status_lookup",
-        "status": "planned",
+        "status": "available",
         "verbs": ["list"],
         "evidenceTypes": ["node"],
         "description": "Read Node Ready and pressure conditions for RCA correlation.",
-        "disabledReason": "Node RCA preflight is planned after the Stage 3 RCA contract hardening slice.",
     },
     {
         "tool": "openshift_alert_lookup",
-        "status": "planned",
+        "status": "available",
         "verbs": ["list"],
         "evidenceTypes": ["alert"],
         "description": "Read active alerts for RCA correlation through the monitoring path.",
-        "disabledReason": "Alert RCA preflight is planned after the Stage 3 RCA contract hardening slice.",
     },
     {
         "tool": "openshift_metric_query",
-        "status": "planned",
+        "status": "available",
         "verbs": ["get"],
         "evidenceTypes": ["metric"],
         "description": "Read Prometheus/Thanos metrics for RCA correlation.",
-        "disabledReason": "Metric RCA preflight is planned after the Stage 3 RCA contract hardening slice.",
     },
     {
         "tool": "openshift_clusterversion_lookup",
@@ -128,6 +125,7 @@ EVIDENCE_GROUPS = (
             {
                 "openshift_api",
                 "target_resource",
+                "alert",
                 "namespace",
                 "node",
                 "pod",
@@ -330,6 +328,7 @@ def _as_list(value: Any) -> list[Any]:
 def create_evidence_status(collection: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     collection = collection or {}
     evidence = _as_list(collection.get("evidence")) or _as_list(collection.get("collectedRefs"))
+    partial = _as_list(collection.get("partialRefs"))
     missing = _as_list(collection.get("missing"))
 
     status = []
@@ -339,6 +338,11 @@ def create_evidence_status(collection: Mapping[str, Any] | None = None) -> list[
         count = sum(
             1
             for item in evidence
+            if isinstance(item, Mapping) and str(item.get("type", "")).lower() in matches
+        )
+        partial_count = sum(
+            1
+            for item in partial
             if isinstance(item, Mapping) and str(item.get("type", "")).lower() in matches
         )
         missing_reasons = [
@@ -352,7 +356,24 @@ def create_evidence_status(collection: Mapping[str, Any] | None = None) -> list[
         ]
 
         if count > 0:
-            status.append({"type": group_type, "status": "collected", "count": count})
+            status.append(
+                {
+                    "type": group_type,
+                    "status": "collected",
+                    "count": count,
+                    "partialCount": partial_count,
+                }
+            )
+        elif partial_count > 0:
+            status.append(
+                {
+                    "type": group_type,
+                    "status": "partial",
+                    "count": 0,
+                    "partialCount": partial_count,
+                    "reason": "one or more evidence sources returned partial data",
+                }
+            )
         else:
             reason = (
                 str(missing_reasons[0].get("reason"))
@@ -372,8 +393,10 @@ def create_evidence_status(collection: Mapping[str, Any] | None = None) -> list[
 
 
 def _evidence_type_from_ref(ref: Mapping[str, Any]) -> str:
-    explicit_type = str(ref.get("type") or "").strip().lower()
-    if explicit_type:
+    explicit_type = str(
+        ref.get("evidenceType") or ref.get("evidence_type") or ref.get("type") or ""
+    ).strip().lower()
+    if explicit_type and explicit_type not in {"tool_call", "tool_result", "text"}:
         return explicit_type
 
     event_name = str(ref.get("eventName") or ref.get("name") or "").lower()
@@ -384,6 +407,22 @@ def _evidence_type_from_ref(ref: Mapping[str, Any]) -> str:
 
     if "cluster_operator" in combined or "clusteroperator" in combined:
         return "clusteroperator"
+    if (
+        "node_status" in combined
+        or "node status" in combined
+        or "node pressure" in combined
+        or "/api/v1/nodes" in combined
+        or "node rca" in combined
+    ):
+        return "node"
+    if (
+        "active_alert" in combined
+        or "active alert" in combined
+        or "alertname" in combined
+        or "alerts{" in combined
+        or "alert evidence" in combined
+    ):
+        return "alert"
     if "pod_count" in combined or "pod count" in combined or "pod inventory" in combined:
         return "pod_status"
     if "pod_status" in combined or "pod status" in combined:
@@ -408,7 +447,10 @@ def _normalize_evidence_ref(ref: Mapping[str, Any]) -> dict[str, Any]:
         "collectedAt": ref.get("collectedAt"),
         "contentDigest": ref.get("contentDigest"),
         "evidenceId": ref.get("evidenceId"),
+        "evidenceType": ref.get("evidenceType") or ref.get("evidence_type"),
         "freshnessTtl": ref.get("freshnessTtl"),
+        "missingReason": ref.get("missingReason") or ref.get("reason"),
+        "sourcePath": ref.get("sourcePath"),
         "sourceType": ref.get("sourceType"),
         "status": ref.get("eventStatus") or ref.get("status") or "recorded",
         "summary": ref.get("summary") or ref.get("eventName") or "evidence",
@@ -417,9 +459,13 @@ def _normalize_evidence_ref(ref: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in normalized.items() if value not in {None, ""}}
 
 
-def _is_collected_evidence_ref(ref: Mapping[str, Any]) -> bool:
+def _evidence_ref_status_bucket(ref: Mapping[str, Any]) -> str:
     status = str(ref.get("status") or "").lower()
-    return status in {"recorded", "success", "succeeded", "ok", "completed"}
+    if status in {"recorded", "success", "succeeded", "ok", "completed", "collected"}:
+        return "collected"
+    if status == "partial":
+        return "partial"
+    return "failed"
 
 
 def build_rca_context(
@@ -434,23 +480,34 @@ def build_rca_context(
 ) -> dict[str, Any]:
     plan = tool_plan or {}
     refs = [_normalize_evidence_ref(ref) for ref in evidence_refs or []]
-    collected_refs = [ref for ref in refs if _is_collected_evidence_ref(ref)]
-    failed_refs = [ref for ref in refs if not _is_collected_evidence_ref(ref)]
+    collected_refs = [ref for ref in refs if _evidence_ref_status_bucket(ref) == "collected"]
+    partial_refs = [ref for ref in refs if _evidence_ref_status_bucket(ref) == "partial"]
+    failed_refs = [ref for ref in refs if _evidence_ref_status_bucket(ref) == "failed"]
+    covered_types = {
+        str(ref.get("type") or "").lower()
+        for ref in [*collected_refs, *partial_refs]
+        if ref.get("type")
+    }
     missing_evidence = [
         dict(item)
         for item in _as_list(plan.get("missing_evidence"))
         if isinstance(item, Mapping)
+        and str(item.get("type") or "").lower() not in covered_types
     ]
     for ref in failed_refs:
+        ref_type = str(ref.get("type") or "openshift").lower()
+        if ref_type in covered_types:
+            continue
         missing_evidence.append(
             {
                 "contentDigest": ref.get("contentDigest"),
                 "evidenceId": ref.get("evidenceId"),
-                "reason": f"{ref.get('summary', 'evidence')} returned status {ref.get('status')}",
-                "type": ref.get("type", "openshift"),
+                "reason": ref.get("missingReason")
+                or f"{ref.get('summary', 'evidence')} returned status {ref.get('status')}",
+                "type": ref_type,
             }
         )
-    if not collected_refs:
+    if not collected_refs and not partial_refs:
         missing_evidence.append(
             {
                 "type": "openshift",
@@ -470,7 +527,19 @@ def build_rca_context(
                 "status": "collected",
                 "evidenceId": collected.get("evidenceId"),
                 "contentDigest": collected.get("contentDigest"),
-                "sourcePath": collected.get("sourceType"),
+                "sourcePath": collected.get("sourcePath") or collected.get("sourceType"),
+            }
+
+        partial = next((ref for ref in partial_refs if ref.get("type") == evidence_type), None)
+        if partial:
+            return {
+                "status": "partial",
+                "evidenceId": partial.get("evidenceId"),
+                "contentDigest": partial.get("contentDigest"),
+                "missingReason": partial.get("missingReason")
+                or partial.get("summary")
+                or "evidence source returned partial data",
+                "sourcePath": partial.get("sourcePath") or partial.get("sourceType"),
             }
 
         failed = next((ref for ref in failed_refs if ref.get("type") == evidence_type), None)
@@ -479,8 +548,10 @@ def build_rca_context(
                 "status": "failed",
                 "evidenceId": failed.get("evidenceId"),
                 "contentDigest": failed.get("contentDigest"),
-                "missingReason": failed.get("summary") or failed.get("status"),
-                "sourcePath": failed.get("sourceType"),
+                "missingReason": failed.get("missingReason")
+                or failed.get("summary")
+                or failed.get("status"),
+                "sourcePath": failed.get("sourcePath") or failed.get("sourceType"),
             }
 
         missing = next(
@@ -527,7 +598,7 @@ def build_rca_context(
             if isinstance(plan.get("metadata"), Mapping)
             else "deterministic_gateway_planner",
             "runId": run_id,
-            "version": "0.1.1",
+            "version": "0.1.2",
         },
         "question": {
             "digest": _canonical_digest({"message": message}),
@@ -564,10 +635,12 @@ def build_rca_context(
         },
         "evidence": {
             "collectedRefs": collected_refs,
+            "partialRefs": partial_refs,
             "failedRefs": failed_refs,
             "missing": missing_evidence,
             "summary": {
                 "collectedCount": len(collected_refs),
+                "partialCount": len(partial_refs),
                 "failedCount": len(failed_refs),
                 "missingCount": len(missing_evidence),
             },
@@ -580,10 +653,16 @@ def build_rca_context(
             "validation": plan.get("validation", {"ok": False, "violations": ["tool plan missing"]}),
         },
         "confidence": {
-            "level": "evidence_based" if collected_refs else "insufficient_evidence",
+            "level": "evidence_based"
+            if collected_refs
+            else "partial_evidence"
+            if partial_refs
+            else "insufficient_evidence",
             "reason": (
                 "runtime evidence references are attached"
                 if collected_refs
+                else "partial runtime evidence references are attached"
+                if partial_refs
                 else "missing runtime evidence prevents confirmation"
             ),
         },
@@ -762,9 +841,6 @@ def build_runtime_tool_plan(
                 "type": "clusteroperator",
                 "reason": "ClusterOperator evidence may be included in pod status evidence, but is not a separate RCA evidence ref yet",
             },
-            {"type": "node", "reason": "Node RCA preflight is planned after the Stage 3 contract hardening slice"},
-            {"type": "alert", "reason": "Alert RCA preflight is planned after the Stage 3 contract hardening slice"},
-            {"type": "metric", "reason": "Prometheus metric query is not wired into chat RCA preflight yet"},
             {"type": "runbook", "reason": "RAG/runbook retrieval is planned for a later RCA slice"},
         ]
     elif asks_pod and asks_count:
@@ -858,7 +934,7 @@ def build_runtime_tool_plan(
         "metadata": {
             "generatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "planner": "deterministic_gateway_planner",
-            "version": "0.1.1",
+            "version": "0.1.2",
         },
         "task_type": task_type,
         "target": {

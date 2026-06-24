@@ -46,6 +46,7 @@ from komsco_ai_gateway.main import (
     build_action_access_review_request,
     build_aiops_anomaly_summary,
     build_aiops_overview,
+    build_active_alerts_rca_evidence,
     build_cluster_summary,
     build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
@@ -57,12 +58,14 @@ from komsco_ai_gateway.main import (
     build_ols_gateway_context,
     build_ols_payload,
     build_ols_query,
+    build_node_status_rca_evidence,
     build_product_access_review_request,
     build_pod_count_investigation,
     build_break_glass_request_record,
     build_preapproved_patch_record,
     build_runbook_plan_record,
     build_sealed_action_plan_record,
+    build_restart_metric_rca_evidence,
     candidate_action_request_digest,
     can_subject_read_record,
     compact_controller_submission,
@@ -96,6 +99,7 @@ from komsco_ai_gateway.main import (
     validate_execution_evidence_freshness,
     should_collect_cronjob_activity_evidence,
     should_collect_pod_status_evidence,
+    should_collect_rca_signal_evidence,
     should_filter_gateway_api_references,
     should_filter_low_signal_references,
     split_plain_text_events,
@@ -232,9 +236,9 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
     assert resolution_by_tool["openshift_event_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_pod_status_lookup"]["resolved"] is True
     assert resolution_by_tool["openshift_pod_log_tail"]["resolved"] is True
-    assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "planned"
-    assert resolution_by_tool["openshift_alert_lookup"]["status"] == "planned"
-    assert resolution_by_tool["openshift_metric_query"]["status"] == "planned"
+    assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "resolved"
+    assert resolution_by_tool["openshift_alert_lookup"]["status"] == "resolved"
+    assert resolution_by_tool["openshift_metric_query"]["status"] == "resolved"
     assert all(item["adapter"] == "OpenShift" for item in resolutions)
     linux = next(adapter for adapter in registry if adapter["name"] == "Linux")
     windows = next(adapter for adapter in registry if adapter["name"] == "Windows")
@@ -272,13 +276,14 @@ def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
     resolution_by_tool = {item["tool"]: item for item in plan["adapter_resolution"]}
     assert resolution_by_tool["openshift_pod_status_lookup"]["resolved"] is True
     assert resolution_by_tool["openshift_event_lookup"]["resolved"] is True
-    assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "planned"
-    assert resolution_by_tool["openshift_alert_lookup"]["status"] == "planned"
-    assert resolution_by_tool["openshift_metric_query"]["status"] == "planned"
+    assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "resolved"
+    assert resolution_by_tool["openshift_alert_lookup"]["status"] == "resolved"
+    assert resolution_by_tool["openshift_metric_query"]["status"] == "resolved"
     assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift"}
     assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
     missing_types = {item["type"] for item in plan["missing_evidence"]}
-    assert {"event", "pod_log", "clusteroperator", "node", "alert", "metric", "runbook"} <= missing_types
+    assert {"event", "pod_log", "clusteroperator", "runbook"} <= missing_types
+    assert {"node", "alert", "metric"}.isdisjoint(missing_types)
 
 
 def test_runtime_safety_contract_exposes_latest_tool_plan() -> None:
@@ -330,7 +335,7 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     assert context["question"]["pageContext"] == {"namespace": "default", "resourceKind": "Pod"}
     assert context["evidence"]["summary"]["collectedCount"] == 1
     assert context["evidence"]["collectedRefs"][0]["type"] == "pod_status"
-    assert any(item["type"] == "metric" for item in context["evidence"]["missing"])
+    assert any(item["type"] == "runbook" for item in context["evidence"]["missing"])
     assert context["confidence"]["level"] == "evidence_based"
     assert context["analysisPlan"]["mode"] == "evidence_first"
     assert context["analysisPlan"]["answerContract"]["format"] == "operations_rca_report"
@@ -344,9 +349,9 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     assert step_status["pod_status"]["evidenceId"] == "ev-abc"
     assert step_status["event"]["status"] == "missing"
     assert step_status["pod_log"]["status"] == "missing"
-    assert step_status["node"]["status"] == "missing"
-    assert step_status["alert"]["status"] == "missing"
-    assert step_status["metric"]["status"] == "missing"
+    assert step_status["node"]["status"] == "not_attempted"
+    assert step_status["alert"]["status"] == "not_attempted"
+    assert step_status["metric"]["status"] == "not_attempted"
 
 
 def test_rca_context_without_evidence_marks_uncertainty() -> None:
@@ -389,6 +394,70 @@ def test_rca_context_treats_skipped_or_failed_refs_as_missing_not_collected() ->
     assert context["evidence"]["failedRefs"][0]["evidenceId"] == "ev-skipped"
     assert any(item.get("evidenceId") == "ev-skipped" for item in context["evidence"]["missing"])
     assert context["confidence"]["level"] == "insufficient_evidence"
+
+
+def test_rca_context_tracks_node_alert_metric_status_without_stale_missing() -> None:
+    plan = build_runtime_tool_plan("default 네임스페이스 pod가 왜 재시작됐어?")
+    context = build_rca_context(
+        message="default 네임스페이스 pod가 왜 재시작됐어?",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "collectedAt": "2026-06-24T00:00:00Z",
+                "contentDigest": "sha256:node",
+                "evidenceId": "ev-node",
+                "evidenceType": "node",
+                "eventName": "node_status_evidence",
+                "eventStatus": "success",
+                "sourcePath": "/api/v1/nodes",
+                "sourceType": "gateway-preflight-evidence",
+                "summary": "Node 상태 RCA 증거 수집 완료",
+            },
+            {
+                "collectedAt": "2026-06-24T00:00:01Z",
+                "contentDigest": "sha256:alert",
+                "evidenceId": "ev-alert",
+                "evidenceType": "alert",
+                "eventName": "active_alerts_evidence",
+                "eventStatus": "partial",
+                "missingReason": "Thanos vector result was capped",
+                "sourcePath": "/api/v1/query?query=ALERTS",
+                "sourceType": "gateway-preflight-evidence",
+                "summary": "Active Alert RCA 증거 부분 수집",
+            },
+            {
+                "collectedAt": "2026-06-24T00:00:02Z",
+                "contentDigest": "sha256:metric",
+                "evidenceId": "ev-metric",
+                "evidenceType": "metric",
+                "eventName": "restart_metric_evidence",
+                "eventStatus": "error",
+                "missingReason": "Prometheus query failed",
+                "sourcePath": "/api/v1/query?query=increase",
+                "sourceType": "gateway-preflight-evidence",
+                "summary": "Restart metric RCA 증거 수집 불가",
+            },
+        ],
+        run_id="run-rca-status",
+        incident_id="inc-rca-status",
+    )
+
+    step_status = {
+        item["evidenceType"]: item
+        for item in context["analysisPlan"]["evidenceCollectionSteps"]
+    }
+    missing_types = {item["type"] for item in context["evidence"]["missing"]}
+
+    assert context["evidence"]["summary"]["collectedCount"] == 1
+    assert context["evidence"]["summary"]["partialCount"] == 1
+    assert context["evidence"]["summary"]["failedCount"] == 1
+    assert step_status["node"]["status"] == "collected"
+    assert step_status["alert"]["status"] == "partial"
+    assert step_status["metric"]["status"] == "failed"
+    assert "node" not in missing_types
+    assert "alert" not in missing_types
+    assert "metric" in missing_types
+    assert context["evidence"]["partialRefs"][0]["evidenceId"] == "ev-alert"
 
 
 def test_rca_context_classifies_clusteroperator_detail_before_pod_status_name() -> None:
@@ -969,6 +1038,114 @@ def test_chat_stream_emits_rca_context_event(monkeypatch) -> None:
     asyncio.run(run())
 
 
+def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(monkeypatch) -> None:
+    EVIDENCE_RECORDS.clear()
+    gateway_main.LAST_RCA_CONTEXT = None
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_pod_evidence(*_args, **_kwargs) -> str:
+        return "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`."
+
+    async def fake_node_evidence(_authorization: str) -> dict:
+        return {
+            "detail": "Gateway-collected Node status evidence from Kubernetes API `/api/v1/nodes`.",
+            "evidenceType": "node",
+            "sourcePath": "/api/v1/nodes",
+            "status": "success",
+            "summary": "Node 상태 RCA 증거 수집 완료",
+        }
+
+    async def fake_alert_evidence(_authorization: str) -> dict:
+        return {
+            "detail": 'Gateway-collected Active alert evidence from Thanos query `ALERTS{alertstate="firing"}`.',
+            "evidenceType": "alert",
+            "missingReason": "Thanos vector result was capped",
+            "sourcePath": "/api/v1/query?query=ALERTS",
+            "status": "partial",
+            "summary": "Active Alert RCA 증거 부분 수집",
+        }
+
+    async def fake_metric_evidence(_authorization: str) -> dict:
+        return {
+            "detail": "Metric RCA evidence unavailable: status=error, reason=Prometheus query failed",
+            "evidenceType": "metric",
+            "missingReason": "Prometheus query failed",
+            "sourcePath": "/api/v1/query?query=increase",
+            "status": "error",
+            "summary": "Restart metric RCA 증거 수집 불가",
+        }
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "collect_pod_status_evidence", fake_pod_evidence)
+    monkeypatch.setattr(gateway_main, "collect_node_status_rca_evidence", fake_node_evidence)
+    monkeypatch.setattr(gateway_main, "collect_active_alerts_rca_evidence", fake_alert_evidence)
+    monkeypatch.setattr(gateway_main, "collect_restart_metric_rca_evidence", fake_metric_evidence)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "default 네임스페이스 pod가 왜 재시작됐어?",
+                    "runId": "run-stage3-preflight",
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        tool_results = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "tool_result"
+        ]
+        result_by_name = {event.get("name"): event for event in tool_results}
+        rca_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        pre_answer = next(
+            event["context"]
+            for event in rca_events
+            if event.get("phase") == "pre_answer"
+        )
+        step_status = {
+            item["evidenceType"]: item
+            for item in pre_answer["analysisPlan"]["evidenceCollectionSteps"]
+        }
+        evidence_ref_results = [
+            event["result"]
+            for event in tool_results
+            if event.get("name") == "evidence_ref"
+        ]
+        evidence_ref_types = {item.get("evidenceType") for item in evidence_ref_results}
+
+        assert result_by_name["node_status_evidence"]["status"] == "success"
+        assert result_by_name["active_alerts_evidence"]["status"] == "partial"
+        assert result_by_name["restart_metric_evidence"]["status"] == "error"
+        assert {"node", "alert", "metric"} <= evidence_ref_types
+        assert step_status["node"]["status"] == "collected"
+        assert step_status["alert"]["status"] == "partial"
+        assert step_status["metric"]["status"] == "failed"
+        assert pre_answer["evidence"]["summary"]["partialCount"] == 1
+        assert "test-token" not in response.text
+
+    asyncio.run(run())
+
+
 def test_chat_stream_unexpected_exception_emits_failed_rca_context_before_done(monkeypatch) -> None:
     EVIDENCE_RECORDS.clear()
     gateway_main.LAST_RCA_CONTEXT = None
@@ -1270,6 +1447,8 @@ def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> Non
     assert should_collect_pod_status_evidence("aiops-two-pod-exec 파드 몇개 띄었어?")
     assert should_collect_pod_status_evidence("ClusterOperator authentication 상태를 확인해줘")
     assert not should_collect_pod_status_evidence("openshift-monitoring pod 재시작해줘")
+    assert should_collect_rca_signal_evidence("최근 경고와 원인을 근거 기준으로 정리해줘")
+    assert should_collect_rca_signal_evidence("노드 pressure와 CPU metric도 같이 봐줘")
 
 
 def test_classify_request_policy_allows_read_only_investigation() -> None:
@@ -3980,6 +4159,86 @@ def test_data_source_status_marks_paginated_lists_as_partial() -> None:
     assert status["status"] == "partial"
     assert status["continueTokenPresent"] is True
     assert "paginated" in status["reason"]
+
+
+def test_build_node_alert_metric_rca_evidence_summarizes_real_sources() -> None:
+    node_evidence = build_node_status_rca_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "labels": {"node-role.kubernetes.io/worker": ""},
+                        "name": "worker-a",
+                    },
+                    "status": {
+                        "conditions": [
+                            {"type": "Ready", "status": "True"},
+                            {"type": "DiskPressure", "status": "False"},
+                            {"type": "MemoryPressure", "status": "True"},
+                            {"type": "PIDPressure", "status": "False"},
+                        ],
+                        "nodeInfo": {"kubeletVersion": "v1.33.1"},
+                    },
+                }
+            ]
+        },
+        {"items": [{"metadata": {"name": "worker-a"}, "usage": {"cpu": "120m", "memory": "512Mi"}}]},
+        metrics_status={"status": "available"},
+    )
+    alert_evidence = build_active_alerts_rca_evidence(
+        {
+            "result": [
+                {"metric": {"alertname": "Watchdog"}},
+                {
+                    "metric": {
+                        "alertname": "KubePodCrashLooping",
+                        "namespace": "prod",
+                        "pod": "api-1",
+                        "severity": "warning",
+                    }
+                },
+            ],
+            "resultCount": 2,
+            "status": "available",
+        }
+    )
+    metric_evidence = build_restart_metric_rca_evidence(
+        {
+            "result": [
+                {
+                    "metric": {"container": "api", "namespace": "prod", "pod": "api-1"},
+                    "value": [1, "5"],
+                }
+            ],
+            "resultCount": 1,
+            "status": "available",
+        }
+    )
+
+    assert "EvidenceType: node" in node_evidence
+    assert "memory" in node_evidence
+    assert "120m" in node_evidence
+    assert "EvidenceType: alert" in alert_evidence
+    assert "KubePodCrashLooping" in alert_evidence
+    assert "excludedWatchdog=1" in alert_evidence
+    assert "EvidenceType: metric" in metric_evidence
+    assert "Restart increase 1h" in metric_evidence
+    assert "| prod | `api-1` | `api` | 5 |" in metric_evidence
+
+
+def test_build_alert_and_metric_rca_evidence_reports_unavailable_sources() -> None:
+    alert_evidence = build_active_alerts_rca_evidence(
+        {"status": "unavailable", "reason": "thanosPublicURL is not published"}
+    )
+    metric_evidence = build_restart_metric_rca_evidence(
+        {"status": "error", "reason": "Authorization: Bearer secret-token-value token=raw-secret"}
+    )
+
+    assert "Active alert evidence unavailable" in alert_evidence
+    assert "thanosPublicURL" in alert_evidence
+    assert "Metric RCA evidence unavailable" in metric_evidence
+    assert "secret-token-value" not in metric_evidence
+    assert "raw-secret" not in metric_evidence
 
 
 def test_query_thanos_instant_surfaces_prometheus_error_and_partial_results(monkeypatch) -> None:

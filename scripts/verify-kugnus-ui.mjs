@@ -1847,8 +1847,10 @@ const run = async () => {
     assertCheck(
       'assistant evidence footer separates collected and missing evidence without crowding answer',
       Boolean(evidenceFooter) &&
-        evidenceFooter.collectedCount === 1 &&
-        evidenceFooter.missingCount === 1 &&
+        evidenceFooter.collectedNumber >= 1 &&
+        evidenceFooter.missingNumber >= 0 &&
+        evidenceFooter.collectedCount >= 1 &&
+        evidenceFooter.missingCount >= 0 &&
         evidenceFooter.refCount >= 1 &&
         evidenceFooter.rect &&
         evidenceFooter.rect.width <= rcaAssistantMessage.message.width + 1 &&

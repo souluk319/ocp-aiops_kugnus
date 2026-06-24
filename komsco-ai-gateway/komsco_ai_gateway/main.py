@@ -213,6 +213,12 @@ CRONJOB_ACTIVITY_ANALYSIS_RE = re.compile(
     r"\d+\s*(분|minute|min)|\*/\d+|0/\d+|"
     r"반복\s*(실행|활동)|주기|activity|활동|이벤트)"
 )
+RCA_SIGNAL_ANALYSIS_RE = re.compile(
+    r"(?i)(rca|root\s*cause|원인|왜|장애|이상|anomaly|anomalies|"
+    r"alert|alerts|알림|경고|node|nodes|노드|pressure|압력|"
+    r"metric|metrics|메트릭|prometheus|thanos|cpu|memory|메모리|restart|재시작|"
+    r"crashloop|crashloopbackoff|backoff)"
+)
 CRONJOB_POLICY_ENV_RE = re.compile(
     r"(?i)(workspace|notebook|sandbox|hibernate|suspend|sleep|idle|delete|ttl|"
     r"expire|expiration|cleanup|retention|prune|archive|max[_-]?age|timeout|gc)"
@@ -3732,6 +3738,207 @@ def restart_metric_findings(restart_probe: Mapping[str, Any] | None) -> list[dic
     return findings
 
 
+def _prometheus_probe_reason(probe: Mapping[str, Any] | None) -> str:
+    if not isinstance(probe, Mapping):
+        return "probe payload was empty or invalid"
+    return safe_error_text(probe.get("reason") or probe.get("error") or "", limit=240)
+
+
+def rca_probe_event_status(probe: Mapping[str, Any] | None) -> str:
+    status = str((probe or {}).get("status") or "unavailable").lower()
+    if status == "available":
+        return "success"
+    if status == "partial":
+        return "partial"
+    if status == "error":
+        return "error"
+    return "skipped"
+
+
+def build_node_status_rca_evidence(
+    nodes_payload: Mapping[str, Any] | None,
+    node_metrics_payload: Mapping[str, Any] | None,
+    *,
+    metrics_status: Mapping[str, Any] | None = None,
+) -> str:
+    node_items = resource_items(nodes_payload)
+    if not node_items:
+        return "Node status evidence unavailable: Kubernetes API `/api/v1/nodes` returned no node items."
+
+    metrics_by_name = node_metric_map(node_metrics_payload)
+    rows = []
+    for node in node_items:
+        metadata = node.get("metadata", {}) if isinstance(node.get("metadata"), Mapping) else {}
+        summary = summarize_node(node, metrics_by_name.get(str(metadata.get("name"))))
+        pressure_labels = [
+            label
+            for label, active in summary.get("pressures", {}).items()
+            if active
+        ]
+        rows.append(
+            {
+                "cpu": summary.get("usage", {}).get("cpu") or "-",
+                "memory": summary.get("usage", {}).get("memory") or "-",
+                "name": summary.get("name") or "unknown-node",
+                "pressures": ", ".join(pressure_labels) if pressure_labels else "-",
+                "ready": "Ready" if summary.get("ready") else "NotReady",
+                "roles": ",".join(summary.get("roles") or ["worker"]),
+            }
+        )
+
+    ready_count = len([row for row in rows if row["ready"] == "Ready"])
+    pressure_count = len([row for row in rows if row["pressures"] != "-"])
+    metrics_state = str((metrics_status or {}).get("status") or "")
+    metrics_reason = safe_error_text((metrics_status or {}).get("reason") or "", limit=240)
+    lines = [
+        "Gateway-collected Node status evidence from Kubernetes API `/api/v1/nodes` and metrics.k8s.io.",
+        "EvidenceType: node",
+        (
+            f"Summary: total={len(rows)}, ready={ready_count}, "
+            f"notReady={len(rows) - ready_count}, pressureNodes={pressure_count}, "
+            f"metricsAvailable={bool(metrics_by_name)}"
+        ),
+    ]
+    if metrics_state and metrics_state != "available":
+        lines.append(
+            f"Node metrics are partial/unavailable: status=`{metrics_state}`, reason={metrics_reason or '-'}"
+        )
+    lines.extend(
+        [
+            "",
+            "| Node | Roles | Ready | Pressures | CPU | Memory |",
+            "| :--- | :--- | :---: | :--- | :--- | :--- |",
+        ]
+    )
+    for row in rows[:20]:
+        lines.append(
+            "| `{name}` | {roles} | {ready} | {pressures} | {cpu} | {memory} |".format(
+                **{
+                    key: markdown_table_cell(value)
+                    for key, value in row.items()
+                }
+            )
+        )
+    if len(rows) > 20:
+        lines.append(f"| ... | ... | ... | ... | ... | ... |")
+        lines.append(f"Rows capped at 20 of {len(rows)} nodes for RCA prompt compactness.")
+    return "\n".join(lines)
+
+
+def build_active_alerts_rca_evidence(alerts_probe: Mapping[str, Any] | None) -> str:
+    status = str((alerts_probe or {}).get("status") or "unavailable").lower()
+    if status not in {"available", "partial"}:
+        return (
+            "Active alert evidence unavailable: "
+            f"status={status}, reason={_prometheus_probe_reason(alerts_probe) or '-'}"
+        )
+
+    results = prometheus_vector_results(alerts_probe)
+    active_rows: list[dict[str, str]] = []
+    excluded_watchdog = 0
+    for item in results:
+        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
+        alertname = str(metric.get("alertname") or "unknown-alert")
+        if alertname == "Watchdog":
+            excluded_watchdog += 1
+            continue
+        active_rows.append(
+            {
+                "alert": alertname,
+                "severity": str(metric.get("severity") or metric.get("alert_severity") or "-"),
+                "namespace": str(metric.get("namespace") or "-"),
+                "pod": str(metric.get("pod") or metric.get("pod_name") or "-"),
+                "instance": str(metric.get("instance") or "-"),
+            }
+        )
+
+    reason = _prometheus_probe_reason(alerts_probe)
+    lines = [
+        'Gateway-collected Active alert evidence from Thanos query `ALERTS{alertstate="firing"}`.',
+        "EvidenceType: alert",
+        (
+            f"Query status: `{status}`. resultCount={alerts_probe.get('resultCount', len(results))}, "
+            f"nonWatchdogActiveAlerts={len(active_rows)}, excludedWatchdog={excluded_watchdog}"
+        ),
+    ]
+    if status == "partial" or reason:
+        lines.append(f"Probe note: {reason or 'partial vector result'}")
+    lines.extend(
+        [
+            "",
+            "| Alert | Severity | Namespace | Pod | Instance |",
+            "| :--- | :--- | :--- | :--- | :--- |",
+        ]
+    )
+    if active_rows:
+        for row in active_rows[:20]:
+            lines.append(
+                "| `{alert}` | {severity} | {namespace} | {pod} | {instance} |".format(
+                    **{key: markdown_table_cell(value) for key, value in row.items()}
+                )
+            )
+    else:
+        lines.append("| - | - | - | - | 관련 active alert 없음. Watchdog은 pipeline health alert로 제외. |")
+    if len(active_rows) > 20:
+        lines.append(f"Rows capped at 20 of {len(active_rows)} non-Watchdog active alerts.")
+    return "\n".join(lines)
+
+
+def build_restart_metric_rca_evidence(restart_probe: Mapping[str, Any] | None) -> str:
+    status = str((restart_probe or {}).get("status") or "unavailable").lower()
+    query = "increase(kube_pod_container_status_restarts_total[1h]) > 0"
+    if status not in {"available", "partial"}:
+        return (
+            "Metric RCA evidence unavailable: "
+            f"status={status}, query=`{query}`, reason={_prometheus_probe_reason(restart_probe) or '-'}"
+        )
+
+    results = prometheus_vector_results(restart_probe)
+    rows = []
+    for item in results:
+        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
+        value = item.get("value")
+        restart_delta = "-"
+        if isinstance(value, list) and len(value) >= 2:
+            restart_delta = str(value[1])
+        rows.append(
+            {
+                "container": str(metric.get("container") or "-"),
+                "namespace": str(metric.get("namespace") or "-"),
+                "pod": str(metric.get("pod") or "-"),
+                "restartDelta": restart_delta,
+            }
+        )
+
+    reason = _prometheus_probe_reason(restart_probe)
+    lines = [
+        f"Gateway-collected Metric RCA evidence from Thanos query `{query}`.",
+        "EvidenceType: metric",
+        f"Query status: `{status}`. resultCount={restart_probe.get('resultCount', len(results))}, window=1h",
+    ]
+    if status == "partial" or reason:
+        lines.append(f"Probe note: {reason or 'partial vector result'}")
+    lines.extend(
+        [
+            "",
+            "| Namespace | Pod | Container | Restart increase 1h |",
+            "| :--- | :--- | :--- | ---: |",
+        ]
+    )
+    if rows:
+        for row in rows[:20]:
+            lines.append(
+                "| {namespace} | `{pod}` | `{container}` | {restartDelta} |".format(
+                    **{key: markdown_table_cell(value) for key, value in row.items()}
+                )
+            )
+    else:
+        lines.append("| - | - | - | 0 |")
+    if len(rows) > 20:
+        lines.append(f"Rows capped at 20 of {len(rows)} restart metric series.")
+    return "\n".join(lines)
+
+
 def build_aiops_anomaly_summary(
     cluster_summary_payload: Mapping[str, Any],
     pods_payload: Mapping[str, Any] | None,
@@ -4339,6 +4546,14 @@ def should_collect_cronjob_activity_evidence(
 ) -> bool:
     combined = f"{message}\n{image_analysis or ''}".strip()
     return bool(combined and CRONJOB_ACTIVITY_ANALYSIS_RE.search(combined))
+
+
+def should_collect_rca_signal_evidence(message: str) -> bool:
+    return bool(
+        should_collect_pod_status_evidence(message)
+        or CLUSTER_OPERATOR_ANALYSIS_RE.search(message)
+        or RCA_SIGNAL_ANALYSIS_RE.search(message)
+    )
 
 
 def append_gateway_evidence(current: str | None, new_evidence: str) -> str:
@@ -6332,6 +6547,160 @@ async def collect_cronjob_activity_evidence(user_auth_header: str, context_text:
     )
 
 
+def _data_source_event_status(source: Mapping[str, Any] | None) -> str:
+    status = str((source or {}).get("status") or "unavailable").lower()
+    if status == "available":
+        return "success"
+    if status == "partial":
+        return "partial"
+    if status == "error":
+        return "error"
+    return "skipped"
+
+
+def _evidence_summary(label: str, status: str) -> str:
+    if status == "success":
+        return f"{label} 수집 완료"
+    if status == "partial":
+        return f"{label} 부분 수집"
+    return f"{label} 수집 불가"
+
+
+async def _monitoring_urls_for_rca(user_auth_header: str) -> tuple[dict[str, str], dict[str, Any]]:
+    if not OPENSHIFT_API_URL:
+        return {}, data_source_status(
+            label="Monitoring public URLs",
+            name="monitoring-shared-config",
+            path="/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
+            reason="OPENSHIFT_API_URL is not configured.",
+            status="unavailable",
+        )
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        monitoring_config_payload, monitoring_config_status = await fetch_ocp_json_observed(
+            client,
+            "/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
+            user_auth_header,
+            label="Monitoring public URLs",
+            name="monitoring-shared-config",
+        )
+
+    return monitoring_urls_from_config(monitoring_config_payload), monitoring_config_status
+
+
+async def collect_node_status_rca_evidence(user_auth_header: str) -> dict[str, Any]:
+    source_path = "/api/v1/nodes"
+    metrics_path = "/apis/metrics.k8s.io/v1beta1/nodes"
+    if not OPENSHIFT_API_URL:
+        reason = "OPENSHIFT_API_URL is not configured."
+        return {
+            "detail": f"Node status evidence unavailable: {reason}",
+            "evidenceType": "node",
+            "missingReason": reason,
+            "sourcePath": source_path,
+            "status": "skipped",
+            "summary": _evidence_summary("Node 상태 RCA 증거", "skipped"),
+        }
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        nodes_payload, nodes_status = await fetch_ocp_json_observed(
+            client,
+            source_path,
+            user_auth_header,
+            label="RCA Node status",
+            name="nodes",
+            required=True,
+        )
+        node_metrics_payload, metrics_status = await fetch_ocp_json_observed(
+            client,
+            metrics_path,
+            user_auth_header,
+            label="RCA Node metrics",
+            name="metrics.k8s.io",
+        )
+
+    if not nodes_payload:
+        reason = safe_error_text(nodes_status.get("reason") or "Kubernetes API node list was not returned.")
+        status = _data_source_event_status(nodes_status)
+        return {
+            "detail": f"Node status evidence unavailable: {reason}",
+            "evidenceType": "node",
+            "missingReason": reason,
+            "sourcePath": source_path,
+            "status": status,
+            "summary": _evidence_summary("Node 상태 RCA 증거", status),
+        }
+
+    metrics_event_status = _data_source_event_status(metrics_status)
+    status = "partial" if metrics_event_status != "success" else "success"
+    detail = build_node_status_rca_evidence(
+        nodes_payload,
+        node_metrics_payload,
+        metrics_status=metrics_status,
+    )
+    return {
+        "detail": detail,
+        "evidenceType": "node",
+        "missingReason": safe_error_text(metrics_status.get("reason") or "", limit=240)
+        if status == "partial"
+        else "",
+        "sourcePath": f"{source_path},{metrics_path}",
+        "status": status,
+        "summary": _evidence_summary("Node 상태 RCA 증거", status),
+    }
+
+
+async def collect_active_alerts_rca_evidence(user_auth_header: str) -> dict[str, Any]:
+    monitoring_urls, monitoring_status = await _monitoring_urls_for_rca(user_auth_header)
+    alerts_probe = await query_thanos_instant(
+        monitoring_urls.get("thanos", ""),
+        user_auth_header,
+        'ALERTS{alertstate="firing"}',
+    )
+    status = rca_probe_event_status(alerts_probe)
+    detail = build_active_alerts_rca_evidence(alerts_probe)
+    if status == "skipped" and _data_source_event_status(monitoring_status) == "error":
+        status = "error"
+    reason = _prometheus_probe_reason(alerts_probe)
+    return {
+        "detail": detail,
+        "evidenceType": "alert",
+        "missingReason": reason if status != "success" else "",
+        "sourcePath": '/api/v1/query?query=ALERTS{alertstate="firing"}',
+        "status": status,
+        "summary": _evidence_summary("Active Alert RCA 증거", status),
+    }
+
+
+async def collect_restart_metric_rca_evidence(user_auth_header: str) -> dict[str, Any]:
+    query = "increase(kube_pod_container_status_restarts_total[1h]) > 0"
+    monitoring_urls, monitoring_status = await _monitoring_urls_for_rca(user_auth_header)
+    restart_probe = await query_thanos_instant(
+        monitoring_urls.get("thanos", ""),
+        user_auth_header,
+        query,
+    )
+    status = rca_probe_event_status(restart_probe)
+    detail = build_restart_metric_rca_evidence(restart_probe)
+    if status == "skipped" and _data_source_event_status(monitoring_status) == "error":
+        status = "error"
+    reason = _prometheus_probe_reason(restart_probe)
+    return {
+        "detail": detail,
+        "evidenceType": "metric",
+        "missingReason": reason if status != "success" else "",
+        "sourcePath": f"/api/v1/query?query={query}",
+        "status": status,
+        "summary": _evidence_summary("Restart metric RCA 증거", status),
+    }
+
+
 def log_audit_record(record: Mapping[str, Any]) -> None:
     safe_record = redact_sensitive(dict(record))
     audit_id = str(safe_record.get("auditId") or f"audit-{uuid.uuid4().hex[:16]}")
@@ -6365,11 +6734,24 @@ def build_evidence_reference_events(
         source_type=source_type,
         subject=subject,
     )
-    evidence_record = {
+    event_status = str(event.get("status") or "unknown")
+    evidence_type = event.get("evidenceType") or event.get("evidence_type")
+    enriched_ref = {
         **evidence_ref,
-        "detail": redact_sensitive(event.get("detail") or event.get("result") or ""),
         "eventName": event.get("name"),
-        "eventStatus": event.get("status"),
+        "eventStatus": event_status,
+        "evidenceType": evidence_type,
+        "missingReason": event.get("missingReason"),
+        "sourcePath": event.get("sourcePath"),
+    }
+    enriched_ref = {
+        key: value
+        for key, value in enriched_ref.items()
+        if value is not None and value != ""
+    }
+    evidence_record = {
+        **enriched_ref,
+        "detail": redact_sensitive(event.get("detail") or event.get("result") or ""),
     }
     bounded_put(
         EVIDENCE_RECORDS,
@@ -6381,18 +6763,18 @@ def build_evidence_reference_events(
     return [
         {
             "type": "tool_call",
-            "id": evidence_ref["evidenceId"],
+            "id": enriched_ref["evidenceId"],
             "name": "evidence_ref",
             "summary": "증거 참조 생성",
         },
         {
             "type": "tool_result",
-            "detail": json.dumps(redact_sensitive(evidence_ref), ensure_ascii=False, indent=2),
-            "id": evidence_ref["evidenceId"],
+            "detail": json.dumps(redact_sensitive(enriched_ref), ensure_ascii=False, indent=2),
+            "id": enriched_ref["evidenceId"],
             "name": "evidence_ref",
-            "result": evidence_ref,
+            "result": enriched_ref,
             "status": "success",
-            "summary": f"{evidence_ref['evidenceId']} 기록",
+            "summary": f"{enriched_ref['evidenceId']} 기록",
         },
     ]
 
@@ -9690,10 +10072,18 @@ async def chat_stream(
                     cronjob_event = {
                         "type": "tool_result",
                         "detail": cronjob_evidence,
+                        "evidenceType": "cronjob",
                         "id": f"{request_id}-cronjob-activity-evidence",
+                        "missingReason": cronjob_evidence
+                        if evidence_status != "success"
+                        else "",
                         "name": "cronjob_activity_evidence",
+                        "sourcePath": "/apis/batch/v1/cronjobs,/apis/batch/v1/jobs?limit=500",
                         "status": evidence_status,
-                        "summary": "CronJob/Activity 주기 증거 수집 완료",
+                        "summary": _evidence_summary(
+                            "CronJob/Activity 주기 증거",
+                            evidence_status,
+                        ),
                     }
                     yield sse(cronjob_event)
                     for evidence_event in build_evidence_reference_events(
@@ -9705,15 +10095,15 @@ async def chat_stream(
                     ):
                         yield sse(evidence_event)
                 except Exception as exc:
-                    cronjob_evidence = (
-                        f"CronJob activity evidence unavailable: {type(exc).__name__}: {exc}"
-                    )
+                    cronjob_evidence = f"CronJob activity evidence unavailable: {safe_exception_text(exc)}"
                     gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
                     cronjob_event = {
                         "type": "tool_result",
                         "detail": cronjob_evidence,
                         "id": f"{request_id}-cronjob-activity-evidence",
                         "name": "cronjob_activity_evidence",
+                        "evidenceType": "cronjob",
+                        "missingReason": safe_exception_text(exc),
                         "status": "error",
                         "summary": "CronJob/Activity 주기 증거 수집 실패",
                     }
@@ -9752,10 +10142,13 @@ async def chat_stream(
                     pod_event = {
                         "type": "tool_result",
                         "detail": pod_evidence,
+                        "evidenceType": "pod_status",
                         "id": f"{request_id}-pod-status-evidence",
+                        "missingReason": pod_evidence if evidence_status != "success" else "",
                         "name": "pod_status_evidence",
+                        "sourcePath": "/api/v1/pods,/apis/apps/v1/deployments,/apis/config.openshift.io/v1/clusteroperators",
                         "status": evidence_status,
-                        "summary": "Pod 상태/재시작 증거 수집 완료",
+                        "summary": _evidence_summary("Pod 상태/재시작 증거", evidence_status),
                     }
                     yield sse(pod_event)
                     for evidence_event in build_evidence_reference_events(
@@ -9767,13 +10160,15 @@ async def chat_stream(
                     ):
                         yield sse(evidence_event)
                 except Exception as exc:
-                    pod_evidence = f"Pod status evidence unavailable: {type(exc).__name__}: {exc}"
+                    pod_evidence = f"Pod status evidence unavailable: {safe_exception_text(exc)}"
                     gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
                     pod_event = {
                         "type": "tool_result",
                         "detail": pod_evidence,
                         "id": f"{request_id}-pod-status-evidence",
                         "name": "pod_status_evidence",
+                        "evidenceType": "pod_status",
+                        "missingReason": safe_exception_text(exc),
                         "status": "error",
                         "summary": "Pod 상태/재시작 증거 수집 실패",
                     }
@@ -9786,6 +10181,87 @@ async def chat_stream(
                         subject=subject,
                     ):
                         yield sse(evidence_event)
+
+            if (
+                str(policy.get("decision") or "") == "allow_read_only_evidence"
+                and should_collect_rca_signal_evidence(req.message)
+            ):
+                rca_preflight_collectors = [
+                    (
+                        "node-status-rca-evidence",
+                        "node_status_evidence",
+                        "Node 상태 RCA 증거 수집",
+                        collect_node_status_rca_evidence,
+                    ),
+                    (
+                        "active-alerts-rca-evidence",
+                        "active_alerts_evidence",
+                        "Active Alert RCA 증거 수집",
+                        collect_active_alerts_rca_evidence,
+                    ),
+                    (
+                        "restart-metric-rca-evidence",
+                        "restart_metric_evidence",
+                        "Restart metric RCA 증거 수집",
+                        collect_restart_metric_rca_evidence,
+                    ),
+                ]
+                for suffix, event_name, call_summary, collector in rca_preflight_collectors:
+                    event_id = f"{request_id}-{suffix}"
+                    yield sse(
+                        {
+                            "type": "tool_call",
+                            "id": event_id,
+                            "name": event_name,
+                            "summary": call_summary,
+                        }
+                    )
+                    try:
+                        evidence_result = await collector(authorization)
+                        evidence_detail = str(evidence_result.get("detail") or "")
+                        gateway_evidence = append_gateway_evidence(gateway_evidence, evidence_detail)
+                        evidence_event = {
+                            "type": "tool_result",
+                            "detail": evidence_detail,
+                            "evidenceType": evidence_result.get("evidenceType"),
+                            "id": event_id,
+                            "missingReason": evidence_result.get("missingReason"),
+                            "name": event_name,
+                            "sourcePath": evidence_result.get("sourcePath"),
+                            "status": evidence_result.get("status") or "error",
+                            "summary": evidence_result.get("summary") or f"{call_summary} 완료",
+                        }
+                    except Exception as exc:
+                        safe_detail = safe_exception_text(exc)
+                        evidence_type = (
+                            "node"
+                            if event_name == "node_status_evidence"
+                            else "alert"
+                            if event_name == "active_alerts_evidence"
+                            else "metric"
+                        )
+                        evidence_detail = f"{call_summary} unavailable: {safe_detail}"
+                        gateway_evidence = append_gateway_evidence(gateway_evidence, evidence_detail)
+                        evidence_event = {
+                            "type": "tool_result",
+                            "detail": evidence_detail,
+                            "evidenceType": evidence_type,
+                            "id": event_id,
+                            "missingReason": safe_detail,
+                            "name": event_name,
+                            "status": "error",
+                            "summary": f"{call_summary} 실패",
+                        }
+
+                    yield sse(evidence_event)
+                    for evidence_ref_event in build_evidence_reference_events(
+                        event=evidence_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_ref_event)
 
             rca_context_event = current_rca_context_event("pre_answer")
             LAST_RCA_CONTEXT = rca_context_event["context"]
