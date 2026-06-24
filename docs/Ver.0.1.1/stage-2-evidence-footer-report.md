@@ -108,6 +108,7 @@
 | Backend/Safety FAIL | `api_key=shortsecret`, `x-api-key: shortsecret`, `token=shortsecret`, `AKIA...` 형태가 redaction helper를 통과할 수 있었다. | key-value secret/API key/token/password redaction과 AWS access key redaction을 추가했다. | `node scripts/verify-evidence-display.cjs` PASS |
 | Frontend/UX FAIL | CDP에 stale `/dashboards` tab이 쌓여 새 verifier target이 `.komsco-ai` root 없는 콘솔 초기화 실패 상태를 잡을 수 있었다. | loaded Cywell AI tab recovery, refresh recovery, resize drag wait 안정화를 추가했다. | `/dashboards` UI verifier `64 checked, 0 failed` |
 | Backend/Safety 재FAIL | message copy와 code-block copy가 raw answer/code text를 clipboard에 쓸 수 있었다. | `redactSensitiveText`를 추가하고 message copy/code-block copy 모두 clipboard write 전에 적용했다. | `node scripts/verify-evidence-display.cjs` PASS, `corepack yarn build` PASS |
+| Backend/Safety 2차 재FAIL | kubeconfig-shaped `client-key-data`, `client-certificate-data`, `certificate-authority-data` base64 값이 clipboard redaction을 통과할 수 있었다. | kubeconfig credential key redaction과 base64 certificate/private-key probe를 추가했다. | `node scripts/verify-evidence-display.cjs` PASS, `corepack yarn build` PASS |
 
 ## Reviewer Gate 기록
 

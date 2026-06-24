@@ -21,6 +21,9 @@ const sensitiveInputs = [
   'x-api-key: shortsecret',
   'token=shortsecret',
   'client_secret=\"shortsecret\"',
+  'client-key-data: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t',
+  'client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t',
+  'certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t',
   'AKIAIOSFODNN7EXAMPLE',
   'opaque_token abcdefghijklmnop.qrstuvwxyzABCDEFGHIJKLMN/OPQRSTUVWXYZ1234567890',
 ];
@@ -33,7 +36,8 @@ const forbiddenPatterns = [
   /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}/,
   /\b(?:github_pat|gh[pousr]|glpat|sk|xox[baprs])-?[A-Za-z0-9_=-]{16,}\b/i,
   /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
-  /\b(?:x[-_]?api[-_]?key|api[-_]?key|apiKey|token|client[-_]?secret)\s*[:=]\s*(?!\[redacted-secret\])["']?[^\s,"'`<>]+/i,
+  /\b(?:x[-_]?api[-_]?key|api[-_]?key|apiKey|token|client[-_]?secret|client[-_]?key[-_]?data|client[-_]?certificate[-_]?data|certificate[-_]?authority[-_]?data)\s*[:=]\s*(?!\[redacted-secret\])["']?[^\s,"'`<>]+/i,
+  /\bLS0tLS1CRUdJTiB(?:QUklWQVRFIEtFWS|Q0VSVElGSUNBVEU)[A-Za-z0-9+/=]*\b/,
   /\b(?=[A-Za-z0-9._~+\/=-]{40,}\b)(?=.*[._~+\/=-])[A-Za-z0-9._~+\/=-]+\b/,
 ];
 
@@ -54,6 +58,8 @@ const sensitiveClipboardBody = [
   'export TOKEN=shortsecret',
   'curl -H "Authorization: Bearer sha256~abcDEF_1234567890" https://api.example.invalid',
   'x-api-key: shortsecret',
+  'client-key-data: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t',
+  'client-certificate-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t',
   'user admin kubeadmin operator@example.com',
   'aws_access_key_id=AKIAIOSFODNN7EXAMPLE',
   '```',
