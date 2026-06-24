@@ -27,6 +27,9 @@ BRIDGE_K8S_MODE_OFF_CLUSTER_SKIP_VERIFY_TLS=true
 BRIDGE_K8S_MODE_OFF_CLUSTER_ENDPOINT=$(oc whoami --show-server)
 # The monitoring operator is not always installed (e.g. for local OpenShift). Tolerate missing config maps.
 set +e
+BRIDGE_PROMETHEUS_PUBLIC_URL=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.prometheusPublicURL}' 2>/dev/null)
+BRIDGE_THANOS_PUBLIC_URL=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null)
+BRIDGE_ALERMANAGER_PUBLIC_URL=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.alertmanagerPublicURL}' 2>/dev/null)
 BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null)
 BRIDGE_K8S_MODE_OFF_CLUSTER_ALERTMANAGER=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.alertmanagerPublicURL}' 2>/dev/null)
 set -e
@@ -42,6 +45,9 @@ export \
     BRIDGE_K8S_AUTH \
     BRIDGE_K8S_MODE_OFF_CLUSTER_SKIP_VERIFY_TLS \
     BRIDGE_K8S_MODE_OFF_CLUSTER_ENDPOINT \
+    BRIDGE_PROMETHEUS_PUBLIC_URL \
+    BRIDGE_THANOS_PUBLIC_URL \
+    BRIDGE_ALERMANAGER_PUBLIC_URL \
     BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS \
     BRIDGE_K8S_MODE_OFF_CLUSTER_ALERTMANAGER \
     BRIDGE_K8S_AUTH_BEARER_TOKEN \
