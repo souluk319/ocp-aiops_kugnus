@@ -139,6 +139,21 @@ tasks:
     cmds:
       - python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json || python scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json
 
+  kugnus:stage6:verify:
+    desc: Run Ver.0.1.2 Stage 6 local verification without OCP install/deploy/mutation
+    cmds:
+      - ./scripts/kugnus-stage6-verify.sh
+
+  kugnus:dev:be:
+    desc: Run read-only Gateway on 0.0.0.0 so the Docker local console can reach it from WSL
+    cmds:
+      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=read-only ./scripts/dev-gateway-lightspeed.sh
+
+  kugnus:dev:fe:
+    desc: Run local console bridge using the current WSL IP as Gateway endpoint
+    cmds:
+      - GATEWAY_ENDPOINT="http://$(hostname -I | awk '{print $1}'):18080" ./scripts/dev-console-plugin.sh
+
   kugnus:stage1:verify:
     desc: Verify local Stage 1 evidence/RCA context events and write a JSON evidence report
     cmds:

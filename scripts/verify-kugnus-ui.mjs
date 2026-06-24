@@ -129,7 +129,13 @@ const parseRgb = (value) => {
 };
 
 const fetchJsonFromHost = async (host, pathname, options = {}) => {
-  const response = await fetch(`http://${host}:${chromePort}${pathname}`, options);
+  const url = `http://${host}:${chromePort}${pathname}`;
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    throw new Error(`Chrome CDP fetch failed for ${host}:${chromePort}${pathname}: ${error.message}`);
+  }
   if (!response.ok) {
     throw new Error(`Chrome CDP HTTP ${response.status} for ${host}:${chromePort}${pathname}`);
   }
@@ -185,7 +191,7 @@ Start-Process -FilePath $chrome -WindowStyle Hidden -ArgumentList @(
   '--disable-gpu',
   '--no-first-run',
   '--no-default-browser-check',
-  '--remote-debugging-address=0.0.0.0',
+  '--remote-debugging-address=127.0.0.1',
   '--remote-debugging-port=${chromePort}',
   '--window-size=1440,1000',
   "--user-data-dir=$profile",
@@ -2504,7 +2510,10 @@ const run = async () => {
 };
 
 run().catch((error) => {
-  record('kugnus ui verifier crashed', false, { message: error.message });
+  record('kugnus ui verifier crashed', false, {
+    message: error.message,
+    stack: error.stack ? String(error.stack).split('\n').slice(0, 4).join(' | ') : '',
+  });
   console.log(
     JSON.stringify(
       {

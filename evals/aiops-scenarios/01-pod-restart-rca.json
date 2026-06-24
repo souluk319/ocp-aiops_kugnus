@@ -19,7 +19,7 @@
       "summary": "Pod 상태, restartCount, lastState, Event 증거 수집 완료"
     }
   ],
-  "answer": "수집된 Pod 상태 evidence 기준으로 checkout-api-7d9f의 restartCount와 lastState를 먼저 확인해야 합니다. 현재 답변은 Event와 Pod 상태 근거에 기반한 RCA 초안이며, metric과 runbook evidence는 추가 확인 필요로 남깁니다.",
+  "answer": "수집된 Pod 상태 evidence 기준으로 checkout-api-7d9f의 restartCount와 lastState를 먼저 확인해야 합니다. Event, pod log, ClusterOperator, runbook evidence는 아직 수집되지 않았으므로 추가 확인 필요로 남기고 원인을 확정하지 않습니다.",
   "expected": {
     "taskType": "pod_restart_rca",
     "requiredTools": [
@@ -31,7 +31,9 @@
       "pod_status"
     ],
     "requiredMissingEvidenceTypes": [
-      "metric",
+      "event",
+      "pod_log",
+      "clusteroperator",
       "runbook"
     ],
     "requiredAnswerRegex": [

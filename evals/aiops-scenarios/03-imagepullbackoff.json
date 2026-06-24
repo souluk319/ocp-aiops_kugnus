@@ -19,7 +19,7 @@
       "summary": "Pod 상태/이벤트 증거 수집 완료: waiting reason ImagePullBackOff"
     }
   ],
-  "answer": "ImagePullBackOff는 Pod Event의 pull 실패 메시지, image 이름, pull secret, registry 접근성, catalog 또는 image stream 참조를 분리해서 확인해야 합니다. 현재 evidence는 Pod 상태와 이벤트 근거이며 registry 인증과 runbook 근거는 추가 확인 필요입니다.",
+  "answer": "ImagePullBackOff는 Pod Event의 pull 실패 메시지, image 이름, pull secret, registry 접근성, catalog 또는 image stream 참조를 분리해서 확인해야 합니다. 현재 evidence는 Pod 상태 근거이며 Event, pod log, ClusterOperator, runbook 근거는 추가 확인 필요입니다.",
   "expected": {
     "taskType": "pod_restart_rca",
     "requiredTools": [
@@ -31,7 +31,9 @@
       "pod_status"
     ],
     "requiredMissingEvidenceTypes": [
-      "metric",
+      "event",
+      "pod_log",
+      "clusteroperator",
       "runbook"
     ],
     "requiredAnswerRegex": [
