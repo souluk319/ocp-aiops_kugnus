@@ -17,9 +17,11 @@ import {
   TachometerAltIcon,
 } from '@patternfly/react-icons';
 import {
+  type AiopsOverview,
   type AiopsRecord,
   type AiopsRuntimeStatus,
   type ClusterSummary,
+  fetchAiopsOverview,
   fetchAiopsStatus,
   fetchClusterSummary,
 } from '../services/aiGateway';
@@ -30,6 +32,7 @@ import './aiops-pages.css';
 type AiopsPageData = {
   error: string;
   loading: boolean;
+  overview: AiopsOverview | null;
   refresh: () => Promise<void>;
   status: AiopsRuntimeStatus | null;
   summary: ClusterSummary | null;
@@ -157,26 +160,35 @@ const actionRecords = (status: AiopsRuntimeStatus | null): AiopsRecord[] => {
 
 const useAiopsPageData = (): AiopsPageData => {
   const [summary, setSummary] = React.useState<ClusterSummary | null>(null);
+  const [overview, setOverview] = React.useState<AiopsOverview | null>(null);
   const [status, setStatus] = React.useState<AiopsRuntimeStatus | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
 
   const refresh = React.useCallback(async () => {
     setLoading(true);
-    const [summaryResult, statusResult] = await Promise.allSettled([
-      fetchClusterSummary(),
+    const [overviewResult, statusResult] = await Promise.allSettled([
+      fetchAiopsOverview(),
       fetchAiopsStatus(),
     ]);
 
-    if (summaryResult.status === 'fulfilled') {
-      setSummary(summaryResult.value);
+    if (overviewResult.status === 'fulfilled') {
+      setOverview(overviewResult.value);
+      setSummary(overviewResult.value.spec.clusterSummary);
+    } else {
+      setOverview(null);
+      try {
+        setSummary(await fetchClusterSummary());
+      } catch {
+        setSummary(null);
+      }
     }
 
     if (statusResult.status === 'fulfilled') {
       setStatus(statusResult.value);
     }
 
-    const errors = [summaryResult, statusResult]
+    const errors = [overviewResult, statusResult]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
 
@@ -188,7 +200,7 @@ const useAiopsPageData = (): AiopsPageData => {
     void refresh();
   }, [refresh]);
 
-  return { error, loading, refresh, status, summary };
+  return { error, loading, overview, refresh, status, summary };
 };
 
 const PageShell: React.FC<{
@@ -240,6 +252,68 @@ const MetricTile: React.FC<{
     {detail && <span className="komsco-ai-page__metric-detail">{detail}</span>}
   </div>
 );
+
+const dataSourceTone = (status?: string): Tone => {
+  if (status === 'available') {
+    return 'success';
+  }
+  if (status === 'error') {
+    return 'danger';
+  }
+  return 'warning';
+};
+
+const DataSourceBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
+  const dataSources = overview?.spec.dataSources ?? [];
+  const controlTower = overview?.spec.controlTower;
+  const monitoringProbe = overview?.spec.monitoring?.probe;
+
+  if (!overview) {
+    return (
+      <section className="komsco-ai-page__source-board komsco-ai-page__source-board--pending">
+        <div>
+          <span>Cywell AI 관제탑</span>
+          <strong>overview 수집 중</strong>
+        </div>
+        <p>회사 OCP의 실제 데이터 소스 상태를 확인하는 중입니다.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="komsco-ai-page__source-board" aria-label="Cywell AI data source status">
+      <div className="komsco-ai-page__source-board-head">
+        <div>
+          <span>Cywell AI 관제탑</span>
+          <strong>{controlTower?.statusLabel ?? '상태 확인 중'}</strong>
+        </div>
+        <code>{controlTower?.mode ?? 'read-only'}</code>
+      </div>
+      <div className="komsco-ai-page__source-grid">
+        {dataSources.map((source) => {
+          const tone = dataSourceTone(source.status);
+          const reason = source.reason || (source.httpStatus ? `HTTP ${source.httpStatus}` : '');
+          return (
+            <div className={`komsco-ai-page__source is-${tone}`} key={source.name}>
+              <span className={`komsco-ai-page__status-dot is-${tone === 'success' ? 'ok' : tone === 'danger' ? 'danger' : 'warn'}`} />
+              <div className="komsco-ai-page__source-main">
+                <strong>{source.label}</strong>
+                <span>{source.status}</span>
+                {reason && <p>{reason}</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="komsco-ai-page__monitoring-line">
+        <span>Thanos probe</span>
+        <strong>{monitoringProbe?.status ?? 'unknown'}</strong>
+        <code>{monitoringProbe?.query ?? 'up'}</code>
+        {typeof monitoringProbe?.resultCount === 'number' && <em>{monitoringProbe.resultCount} series</em>}
+      </div>
+    </section>
+  );
+};
 
 const HealthDial: React.FC<{ score?: number }> = ({ score }) => {
   if (score === undefined) {
@@ -585,6 +659,7 @@ export const AiopsDashboardPage: React.FC = () => {
   const safetyMode = data.status?.spec.safetyContract?.mode ?? 'status pending';
   const lightspeedProbe =
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe pending';
+  const controlTower = data.overview?.spec.controlTower;
   const focusAssistant = React.useCallback(() => {
     assistantStageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => {
@@ -610,14 +685,16 @@ export const AiopsDashboardPage: React.FC = () => {
           <HealthDial score={data.summary?.healthScore} />
           <div>
             <span className="komsco-ai-page__section-kicker">Cluster signal</span>
-            <h2>증거 기반 OpenShift 관제 대시보드</h2>
+            <h2>Cywell AI 관제탑</h2>
             <p>
-              현재 화면은 로컬 콘솔에서 회사 OCP API와 Gateway를 읽기전용 우선 계약으로 연결해
-              상태, 근거, 감사 흐름을 확인합니다.
+              {controlTower?.statusLabel ??
+                '로컬 콘솔에서 회사 OCP API와 Gateway를 읽기전용 우선 계약으로 연결합니다.'}
             </p>
           </div>
         </div>
         <div className="komsco-ai-page__overview-side">
+          <span>View</span>
+          <strong>Cywell AI 관제탑 / OpenShift 기본 대시보드와 분리</strong>
           <span>API</span>
           <strong>{data.summary?.apiUrl ?? '상태 확인 중'}</strong>
           <span>Version</span>
@@ -659,6 +736,8 @@ export const AiopsDashboardPage: React.FC = () => {
           value={actionCountValue}
         />
       </div>
+
+      <DataSourceBoard overview={data.overview} />
 
       <section
         ref={assistantStageRef}

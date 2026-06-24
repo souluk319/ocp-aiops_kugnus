@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Button, Card, CardBody, TextArea } from '@patternfly/react-core';
-import { createPortal } from 'react-dom';
+import * as ReactDOM from 'react-dom';
 import {
   ArrowDownIcon,
   BarsIcon,
@@ -208,12 +208,24 @@ const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
 const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
 const HISTORY_DRAWER_WIDTH = 236;
+const MIN_STOP_BUTTON_VISIBLE_MS = 750;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
 const RESPONSE_WAIT_STEP_ID = 'assistant-response-wait';
 const ANSWER_STREAM_STEP_ID = 'assistant-answer-stream';
+const flushReactSync = (callback: () => void) => {
+  const flushSync = (ReactDOM as unknown as { flushSync?: (syncCallback: () => void) => void })
+    .flushSync;
+
+  if (flushSync) {
+    flushSync(callback);
+    return;
+  }
+
+  callback();
+};
 const TOOL_LABELS: Record<string, string> = {
   access_check: '접근 권한 확인',
   audit_record: '감사 기록',
@@ -2689,7 +2701,7 @@ const FullscreenPortal: React.FC<{ active: boolean; children: React.ReactNode }>
   children,
 }) => {
   if (active && typeof document !== 'undefined') {
-    return createPortal(children, document.body);
+    return ReactDOM.createPortal(children, document.body);
   }
 
   return <>{children}</>;
@@ -3550,7 +3562,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setAttachmentError('');
       setQuickPromptMenuOpen(false);
       setTaskModeMenuOpen(false);
-      setLoading(true);
+      flushReactSync(() => setLoading(true));
+      const loadingStartedAt = Date.now();
       flushAssistantTextQueueNow();
       window.setTimeout(() => scrollToBottom('auto'), 0);
       const recentMessages = buildRecentContextMessages(messages);
@@ -3565,6 +3578,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       stopRequestedRef.current = false;
 
       try {
+        await new Promise((resolve) => window.setTimeout(resolve, 0));
         const runId = createRunId();
         const pageContext = {
           ...buildConsolePageContext(),
@@ -3953,6 +3967,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           ]);
         }
       } finally {
+        const loadingElapsedMs = Date.now() - loadingStartedAt;
+        if (loadingElapsedMs < MIN_STOP_BUTTON_VISIBLE_MS) {
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, MIN_STOP_BUTTON_VISIBLE_MS - loadingElapsedMs),
+          );
+        }
         chatAbortControllerRef.current = null;
         stopRequestedRef.current = false;
         setLoading(false);
@@ -3985,6 +4005,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     stopRequestedRef.current = true;
     chatAbortControllerRef.current.abort();
     flushAssistantTextQueueNow();
+    setLoading(false);
   }, [flushAssistantTextQueueNow, loading]);
 
   const closeAssistant = React.useCallback(() => {
@@ -4046,7 +4067,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   ) : null;
   const historySidebarPortal =
     historySidebar && !fullScreen && typeof document !== 'undefined'
-      ? createPortal(historySidebar, document.body)
+      ? ReactDOM.createPortal(historySidebar, document.body)
       : null;
 
   return (

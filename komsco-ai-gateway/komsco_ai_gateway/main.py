@@ -3189,6 +3189,211 @@ def build_cluster_summary(
     }
 
 
+def data_source_status(
+    *,
+    label: str,
+    name: str,
+    path: str,
+    payload: Mapping[str, Any] | None,
+    required: bool = False,
+    reason: str = "",
+    status: str | None = None,
+    http_status: int | None = None,
+) -> dict[str, Any]:
+    resolved_status = status or ("available" if payload is not None else "unavailable")
+    item: dict[str, Any] = {
+        "label": label,
+        "name": name,
+        "path": path,
+        "required": required,
+        "status": resolved_status,
+    }
+    if reason:
+        item["reason"] = reason
+    if http_status is not None:
+        item["httpStatus"] = http_status
+    return item
+
+
+async def fetch_ocp_json_observed(
+    client: httpx.AsyncClient,
+    path: str,
+    authorization: str,
+    *,
+    label: str,
+    name: str,
+    required: bool = False,
+) -> tuple[Mapping[str, Any] | None, dict[str, Any]]:
+    try:
+        response = await client.get(
+            f"{OPENSHIFT_API_URL}{path}",
+            headers={
+                "Accept": "application/json",
+                "Authorization": authorization,
+            },
+        )
+    except httpx.HTTPError as exc:
+        return None, data_source_status(
+            label=label,
+            name=name,
+            path=path,
+            required=required,
+            reason=str(exc),
+            status="error",
+        )
+
+    if response.status_code >= 400:
+        return None, data_source_status(
+            label=label,
+            name=name,
+            path=path,
+            required=required,
+            reason=response.text[:240],
+            status="error",
+            http_status=response.status_code,
+        )
+
+    payload = response.json()
+    if isinstance(payload, Mapping):
+        return payload, data_source_status(
+            label=label,
+            name=name,
+            path=path,
+            payload=payload,
+            required=required,
+        )
+
+    return None, data_source_status(
+        label=label,
+        name=name,
+        path=path,
+        required=required,
+        reason="OpenShift API response was not a JSON object.",
+        status="error",
+    )
+
+
+def monitoring_urls_from_config(configmap_payload: Mapping[str, Any] | None) -> dict[str, str]:
+    data = configmap_payload.get("data", {}) if isinstance(configmap_payload, Mapping) else {}
+    if not isinstance(data, Mapping):
+        data = {}
+    return {
+        "alertmanager": str(data.get("alertmanagerPublicURL") or ""),
+        "prometheus": str(data.get("prometheusPublicURL") or ""),
+        "thanos": str(data.get("thanosPublicURL") or ""),
+    }
+
+
+async def probe_thanos_query(thanos_url: str, authorization: str) -> dict[str, Any]:
+    if not thanos_url:
+        return {
+            "query": "up",
+            "status": "unavailable",
+            "reason": "thanosPublicURL is not published in monitoring-shared-config.",
+        }
+
+    try:
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        ) as client:
+            response = await client.get(
+                f"{thanos_url.rstrip('/')}/api/v1/query",
+                headers={"Accept": "application/json", "Authorization": authorization},
+                params={"query": "up"},
+            )
+    except httpx.HTTPError as exc:
+        return {"query": "up", "status": "error", "reason": str(exc)}
+
+    if response.status_code >= 400:
+        return {
+            "httpStatus": response.status_code,
+            "query": "up",
+            "reason": response.text[:240],
+            "status": "error",
+        }
+
+    payload = response.json()
+    data = payload.get("data", {}) if isinstance(payload, Mapping) else {}
+    result = data.get("result", []) if isinstance(data, Mapping) else []
+    return {
+        "query": "up",
+        "resultCount": len(result) if isinstance(result, list) else 0,
+        "status": "available" if isinstance(result, list) else "error",
+    }
+
+
+def build_aiops_overview(
+    cluster_summary_payload: Mapping[str, Any],
+    data_sources: list[Mapping[str, Any]],
+    monitoring_urls: Mapping[str, str],
+    monitoring_probe: Mapping[str, Any],
+) -> dict[str, Any]:
+    health_score = int(cluster_summary_payload.get("healthScore") or 0)
+    nodes = cluster_summary_payload.get("nodes", {}) if isinstance(cluster_summary_payload.get("nodes"), Mapping) else {}
+    operators = (
+        cluster_summary_payload.get("operators", {})
+        if isinstance(cluster_summary_payload.get("operators"), Mapping)
+        else {}
+    )
+    required_errors = [
+        item
+        for item in data_sources
+        if item.get("required") and item.get("status") != "available"
+    ]
+    attention_count = (
+        int(nodes.get("notReady") or 0)
+        + int(nodes.get("pressureCount") or 0)
+        + int(operators.get("degraded") or 0)
+        + int(operators.get("unavailable") or 0)
+        + int(operators.get("progressing") or 0)
+    )
+    if required_errors:
+        tower_status = "error"
+        tower_label = "필수 데이터 소스 확인 실패"
+    elif health_score >= 90 and attention_count == 0:
+        tower_status = "healthy"
+        tower_label = "회사 OCP 읽기 전용 관제 정상"
+    elif health_score >= 65:
+        tower_status = "attention"
+        tower_label = "운영 확인 필요"
+    else:
+        tower_status = "risk"
+        tower_label = "즉시 확인 필요"
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "AIOpsOverview",
+        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-control-tower"},
+        "spec": {
+            "clusterSummary": cluster_summary_payload,
+            "controlTower": {
+                "name": "Cywell AI 관제탑",
+                "mode": "read-only",
+                "status": tower_status,
+                "statusLabel": tower_label,
+                "attentionCount": attention_count,
+                "healthScore": health_score,
+                "target": cluster_summary_payload.get("apiUrl") or OPENSHIFT_API_URL,
+            },
+            "dataSources": list(data_sources),
+            "monitoring": {
+                "probe": dict(monitoring_probe),
+                "urls": {
+                    "alertmanagerConfigured": bool(monitoring_urls.get("alertmanager")),
+                    "prometheusConfigured": bool(monitoring_urls.get("prometheus")),
+                    "thanosConfigured": bool(monitoring_urls.get("thanos")),
+                },
+            },
+            "safety": {
+                "mutationsEnabled": MUTATIONS_ENABLED,
+                "readOnlyDefault": not MUTATIONS_ENABLED,
+                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
+            },
+        },
+    }
+
+
 def build_attachment_context(
     attachments: list[ImageAttachment],
     image_analysis: str | None = None,
@@ -6969,6 +7174,89 @@ async def cluster_summary(authorization: str | None = Header(default=None)) -> d
         node_metrics_payload,
         cluster_version_payload,
         cluster_operators_payload,
+    )
+
+
+@app.get("/v1/aiops/overview")
+async def aiops_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    if not OPENSHIFT_API_URL:
+        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        nodes_payload, nodes_status = await fetch_ocp_json_observed(
+            client,
+            "/api/v1/nodes",
+            user_auth_header,
+            label="Node inventory",
+            name="nodes",
+            required=True,
+        )
+        node_metrics_payload, metrics_status = await fetch_ocp_json_observed(
+            client,
+            "/apis/metrics.k8s.io/v1beta1/nodes",
+            user_auth_header,
+            label="Node metrics",
+            name="metrics.k8s.io",
+        )
+        cluster_version_payload, version_status = await fetch_ocp_json_observed(
+            client,
+            "/apis/config.openshift.io/v1/clusterversions/version",
+            user_auth_header,
+            label="Cluster version",
+            name="clusterversion",
+        )
+        cluster_operators_payload, operators_status = await fetch_ocp_json_observed(
+            client,
+            "/apis/config.openshift.io/v1/clusteroperators",
+            user_auth_header,
+            label="Cluster operators",
+            name="clusteroperators",
+        )
+        monitoring_config_payload, monitoring_config_status = await fetch_ocp_json_observed(
+            client,
+            "/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
+            user_auth_header,
+            label="Monitoring public URLs",
+            name="monitoring-shared-config",
+        )
+
+    monitoring_urls = monitoring_urls_from_config(monitoring_config_payload)
+    monitoring_probe = await probe_thanos_query(monitoring_urls.get("thanos", ""), user_auth_header)
+    monitoring_probe_status = data_source_status(
+        label="Thanos query probe",
+        name="thanos-query",
+        path="/api/v1/query?query=up",
+        payload=monitoring_probe if monitoring_probe.get("status") == "available" else None,
+        reason=str(monitoring_probe.get("reason") or ""),
+        status=str(monitoring_probe.get("status") or "unavailable"),
+        http_status=monitoring_probe.get("httpStatus")
+        if isinstance(monitoring_probe.get("httpStatus"), int)
+        else None,
+    )
+
+    summary = build_cluster_summary(
+        nodes_payload or {"items": []},
+        node_metrics_payload,
+        cluster_version_payload,
+        cluster_operators_payload,
+    )
+
+    return build_aiops_overview(
+        summary,
+        [
+            nodes_status,
+            metrics_status,
+            version_status,
+            operators_status,
+            monitoring_config_status,
+            monitoring_probe_status,
+        ],
+        monitoring_urls,
+        monitoring_probe,
     )
 
 

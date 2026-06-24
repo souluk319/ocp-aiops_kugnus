@@ -79,6 +79,57 @@ export type ClusterSummary = {
   };
 };
 
+export type AiopsDataSourceStatus = {
+  httpStatus?: number;
+  label: string;
+  name: string;
+  path: string;
+  reason?: string;
+  required?: boolean;
+  status: 'available' | 'unavailable' | 'error' | string;
+};
+
+export type AiopsOverview = {
+  apiVersion?: string;
+  kind?: 'AIOpsOverview' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    clusterSummary: ClusterSummary;
+    controlTower: {
+      attentionCount: number;
+      healthScore: number;
+      mode: 'read-only' | string;
+      name: string;
+      status: 'healthy' | 'attention' | 'risk' | 'error' | string;
+      statusLabel: string;
+      target?: string;
+    };
+    dataSources: AiopsDataSourceStatus[];
+    monitoring?: {
+      probe?: {
+        httpStatus?: number;
+        query?: string;
+        reason?: string;
+        resultCount?: number;
+        status?: string;
+      };
+      urls?: {
+        alertmanagerConfigured?: boolean;
+        prometheusConfigured?: boolean;
+        thanosConfigured?: boolean;
+      };
+    };
+    safety?: {
+      mutationsEnabled?: boolean;
+      readOnlyDefault?: boolean;
+      unrestrictedCommandsEnabled?: boolean;
+    };
+  };
+};
+
 export type AuthSubject = {
   authenticatedByCluster?: boolean;
   groups?: string[];
@@ -256,6 +307,8 @@ type StreamEvent =
 const GATEWAY_STREAM_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/chat/stream';
 const GATEWAY_CLUSTER_SUMMARY_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/cluster/summary';
+const GATEWAY_AIOPS_OVERVIEW_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/overview';
 const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
 const GATEWAY_AUTH_SUBJECT_URL =
@@ -323,6 +376,25 @@ export async function fetchClusterSummary(): Promise<ClusterSummary> {
   }
 
   return (await response.json()) as ClusterSummary;
+}
+
+export async function fetchAiopsOverview(): Promise<AiopsOverview> {
+  const response = await consoleFetch(
+    GATEWAY_AIOPS_OVERVIEW_URL,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'GET',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'AIOps overview request failed'));
+  }
+
+  return (await response.json()) as AiopsOverview;
 }
 
 export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {

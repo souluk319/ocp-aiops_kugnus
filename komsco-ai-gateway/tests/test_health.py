@@ -44,6 +44,7 @@ from komsco_ai_gateway.main import (
     build_action_proposal_record,
     build_action_proposal_fallback,
     build_action_access_review_request,
+    build_aiops_overview,
     build_cluster_summary,
     build_cluster_operator_status_evidence,
     build_cronjob_activity_evidence,
@@ -3724,6 +3725,146 @@ def test_build_cluster_summary_returns_real_operational_counts() -> None:
     assert summary["version"]["updateAvailable"] is True
     assert summary["version"]["upgradeable"] is False
     assert summary["healthScore"] < 100
+
+
+def test_build_aiops_overview_exposes_control_tower_and_data_sources() -> None:
+    cluster_summary = {
+        "apiUrl": "https://api.test:6443",
+        "healthScore": 96,
+        "nodes": {"notReady": 0, "pressureCount": 0},
+        "operators": {"degraded": 0, "progressing": 0, "unavailable": 0},
+    }
+    overview = build_aiops_overview(
+        cluster_summary,
+        [
+            {
+                "label": "Node inventory",
+                "name": "nodes",
+                "path": "/api/v1/nodes",
+                "required": True,
+                "status": "available",
+            },
+            {
+                "label": "Thanos query probe",
+                "name": "thanos-query",
+                "path": "/api/v1/query?query=up",
+                "required": False,
+                "status": "available",
+            },
+        ],
+        {"alertmanager": "https://alertmanager.test", "prometheus": "", "thanos": "https://thanos.test"},
+        {"query": "up", "resultCount": 7, "status": "available"},
+    )
+
+    assert overview["kind"] == "AIOpsOverview"
+    assert overview["spec"]["clusterSummary"] == cluster_summary
+    assert overview["spec"]["controlTower"]["status"] == "healthy"
+    assert overview["spec"]["controlTower"]["statusLabel"] == "회사 OCP 읽기 전용 관제 정상"
+    assert overview["spec"]["dataSources"][0]["name"] == "nodes"
+    assert overview["spec"]["monitoring"]["probe"]["resultCount"] == 7
+    assert overview["spec"]["monitoring"]["urls"]["thanosConfigured"] is True
+    assert overview["spec"]["safety"]["readOnlyDefault"] is True
+
+
+def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch) -> None:
+    nodes_payload = {
+        "items": [
+            {
+                "metadata": {"name": "node-1", "labels": {"node-role.kubernetes.io/worker": ""}},
+                "status": {
+                    "conditions": [
+                        {"type": "Ready", "status": "True"},
+                        {"type": "DiskPressure", "status": "False"},
+                        {"type": "MemoryPressure", "status": "False"},
+                        {"type": "PIDPressure", "status": "False"},
+                    ],
+                    "nodeInfo": {"kubeletVersion": "v1.33.1", "osImage": "RHEL CoreOS 9.6"},
+                },
+            }
+        ]
+    }
+    payloads = {
+        "/api/v1/nodes": nodes_payload,
+        "/apis/metrics.k8s.io/v1beta1/nodes": {
+            "items": [{"metadata": {"name": "node-1"}, "usage": {"cpu": "42m", "memory": "128Mi"}}]
+        },
+        "/apis/config.openshift.io/v1/clusterversions/version": {
+            "status": {"desired": {"version": "4.20.23"}, "channel": "stable-4.20"}
+        },
+        "/apis/config.openshift.io/v1/clusteroperators": {
+            "items": [
+                {
+                    "metadata": {"name": "console"},
+                    "status": {
+                        "conditions": [
+                            {"type": "Available", "status": "True"},
+                            {"type": "Degraded", "status": "False"},
+                            {"type": "Progressing", "status": "False"},
+                        ]
+                    },
+                }
+            ]
+        },
+        "/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config": {
+            "data": {
+                "alertmanagerPublicURL": "https://alertmanager.test",
+                "prometheusPublicURL": "https://prometheus.test",
+                "thanosPublicURL": "https://thanos.test",
+            }
+        },
+    }
+
+    async def fake_fetch_ocp_json_observed(
+        _client,
+        path: str,
+        _authorization: str,
+        *,
+        label: str,
+        name: str,
+        required: bool = False,
+    ):
+        payload = payloads.get(path)
+        return payload, gateway_main.data_source_status(
+            label=label,
+            name=name,
+            path=path,
+            payload=payload,
+            required=required,
+        )
+
+    async def fake_probe_thanos_query(thanos_url: str, _authorization: str) -> dict:
+        assert thanos_url == "https://thanos.test"
+        return {"query": "up", "resultCount": 3, "status": "available"}
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json_observed", fake_fetch_ocp_json_observed)
+    monkeypatch.setattr(gateway_main, "probe_thanos_query", fake_probe_thanos_query)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/v1/aiops/overview",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "AIOpsOverview"
+        assert payload["spec"]["clusterSummary"]["nodes"]["ready"] == 1
+        assert payload["spec"]["clusterSummary"]["nodes"]["items"][0]["usage"]["cpu"] == "42m"
+        assert payload["spec"]["controlTower"]["mode"] == "read-only"
+        assert payload["spec"]["monitoring"]["probe"]["resultCount"] == 3
+        assert {source["name"] for source in payload["spec"]["dataSources"]} == {
+            "nodes",
+            "metrics.k8s.io",
+            "clusterversion",
+            "clusteroperators",
+            "monitoring-shared-config",
+            "thanos-query",
+        }
+
+    asyncio.run(run())
 
 
 def test_split_plain_text_events_extracts_tool_lines() -> None:

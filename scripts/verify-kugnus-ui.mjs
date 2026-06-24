@@ -58,6 +58,14 @@ let activeChromeHost = '127.0.0.1';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const withTimeout = (promise, timeoutMs, label) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs),
+    ),
+  ]);
+
 const isWsl = () => os.release().toLowerCase().includes('microsoft');
 
 const detectWindowsHostFromWsl = async () => {
@@ -399,7 +407,44 @@ const click = async (cdp, selector) => {
       const el = activeSurface?.querySelector(${JSON.stringify(selector)})
         || document.querySelector(${JSON.stringify(selector)});
       if (!el) return false;
-      el.click();
+      const originalScrollX = window.scrollX;
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      if (window.scrollX !== originalScrollX) {
+        window.scrollTo(originalScrollX, window.scrollY);
+      }
+      const rect = el.getBoundingClientRect();
+      const clientX = rect.left + rect.width / 2;
+      const clientY = rect.top + rect.height / 2;
+      const pointerEvent = typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+      el.dispatchEvent(
+        new pointerEvent('pointerdown', {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }),
+      );
+      el.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX, clientY }),
+      );
+      el.dispatchEvent(
+        new pointerEvent('pointerup', {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+          pointerId: 1,
+          pointerType: 'mouse',
+        }),
+      );
+      el.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX, clientY }),
+      );
+      el.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, clientX, clientY }),
+      );
       return true;
     })()`,
   );
@@ -602,10 +647,27 @@ const makeConversationScrollableAndScrollUp = async (cdp) => {
 
 const screenshot = async (cdp, filename) => {
   const outputPath = path.join(screenshotDir, filename);
-  const shot = await cdp.send('Page.captureScreenshot', {
-    format: 'png',
-    captureBeyondViewport: false,
-  });
+  let shot;
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      shot = await withTimeout(
+        cdp.send('Page.captureScreenshot', {
+          format: 'png',
+          captureBeyondViewport: false,
+        }),
+        10000,
+        `Page.captureScreenshot ${filename} attempt ${attempt}`,
+      );
+      break;
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+      await sleep(500);
+    }
+  }
+
   await fs.writeFile(outputPath, Buffer.from(shot.data, 'base64'));
   return outputPath;
 };
@@ -863,9 +925,16 @@ const run = async () => {
         document
           .querySelectorAll('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface button[aria-label="Close Cywell AI"]')
           .forEach((button) => button.click());
+        document
+          .querySelectorAll('.komsco-ai__surface--history-open .komsco-ai__sidebar-toggle')
+          .forEach((button) => button.click());
       })()`,
     );
-    await waitFor(cdp, 'fullscreen cleanup', "!document.querySelector('.komsco-ai__surface--fullscreen')");
+    await waitFor(
+      cdp,
+      'fullscreen and history cleanup',
+      "!document.querySelector('.komsco-ai__surface--fullscreen') && !document.querySelector('.komsco-ai__surface--history-open')",
+    );
 
     try {
       await waitFor(
