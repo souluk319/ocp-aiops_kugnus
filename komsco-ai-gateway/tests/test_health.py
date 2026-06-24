@@ -493,6 +493,201 @@ def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:
     assert ("ServiceAccount", "komsco-ai-host-diagnostics-controller") not in names
 
 
+def _ready_olm_resource(
+    api_version: str,
+    kind: str,
+    name: str,
+    resource_namespace: str | None = None,
+) -> dict:
+    if kind == "Deployment":
+        return {
+            "metadata": {"name": name, "namespace": resource_namespace},
+            "spec": {"replicas": 1},
+            "status": {"availableReplicas": 1, "readyReplicas": 1, "updatedReplicas": 1},
+        }
+    if kind == "ConfigMap" and name == "komsco-ai-service-ca":
+        return {
+            "metadata": {"name": name, "namespace": resource_namespace},
+            "data": {"service-ca.crt": "test-ca"},
+        }
+    if kind == "ConsolePlugin":
+        return {
+            "metadata": {"name": name},
+            "spec": {
+                "backend": {
+                    "service": {
+                        "name": "komsco-ai-console-plugin",
+                        "namespace": "komsco-ai-kugnus",
+                    }
+                },
+                "proxy": [
+                    {
+                        "alias": "ai-gateway",
+                        "endpoint": {
+                            "service": {
+                                "name": "komsco-ai-gateway",
+                                "namespace": "komsco-ai-kugnus",
+                            }
+                        },
+                    }
+                ],
+            },
+        }
+    return {"apiVersion": api_version, "kind": kind, "metadata": {"name": name, "namespace": resource_namespace}}
+
+
+def test_olm_operator_status_payload_exposes_v011_readiness_conditions(monkeypatch) -> None:
+    monkeypatch.setattr(olm_operator, "get_resource", _ready_olm_resource)
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus", "generation": 7},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "pluginReplicas": 1,
+                "gatewayReplicas": 1,
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "capabilities": {
+                    "diagnostics": False,
+                    "mutations": False,
+                    "unrestrictedCommands": False,
+                },
+            },
+        }
+    )
+
+    payload = olm_operator.build_status_payload(
+        {"metadata": {"name": "komsco-aiops-kugnus", "namespace": "komsco-ai-kugnus", "generation": 7}},
+        "Ready",
+        "KOMSCO AIOps runtime reconciled",
+        config,
+    )
+    by_type = {item["type"]: item for item in payload["conditions"]}
+
+    assert payload["phase"] == "Ready"
+    assert payload["versionScope"] == "Ver.0.1.1"
+    assert set(olm_operator.DEFAULT_READINESS_CONDITION_TYPES) <= set(by_type)
+    assert by_type["ActionExecutorReady"]["reason"] == "DisabledByReadOnly"
+    assert by_type["HostDiagnosticsReady"]["reason"] == "DisabledByPolicy"
+    assert payload["components"]["gateway"]["ready"] is True
+    assert payload["components"]["consolePlugin"]["ready"] is True
+    assert payload["components"]["serviceCA"]["ready"] is True
+    assert payload["components"]["rbac"]["ready"] is True
+    assert payload["components"]["safetyMode"]["reason"] == "ReadOnlyLocked"
+
+
+def test_olm_operator_status_payload_reports_progressing_when_gateway_unavailable(monkeypatch) -> None:
+    def fake_resource(
+        api_version: str,
+        kind: str,
+        name: str,
+        resource_namespace: str | None = None,
+    ) -> dict:
+        resource = _ready_olm_resource(api_version, kind, name, resource_namespace)
+        if kind == "Deployment" and name == "komsco-ai-gateway":
+            resource["status"] = {"availableReplicas": 0, "readyReplicas": 0, "updatedReplicas": 1}
+        return resource
+
+    monkeypatch.setattr(olm_operator, "get_resource", fake_resource)
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus", "generation": 8},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "pluginReplicas": 1,
+                "gatewayReplicas": 1,
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "capabilities": {
+                    "diagnostics": False,
+                    "mutations": False,
+                    "unrestrictedCommands": False,
+                },
+            },
+        }
+    )
+
+    payload = olm_operator.build_status_payload(
+        {"metadata": {"name": "komsco-aiops-kugnus", "namespace": "komsco-ai-kugnus", "generation": 8}},
+        "Ready",
+        "KOMSCO AIOps runtime reconciled",
+        config,
+    )
+    by_type = {item["type"]: item for item in payload["conditions"]}
+
+    assert payload["phase"] == "Progressing"
+    assert "GatewayReady" in payload["message"]
+    assert by_type["GatewayReady"]["status"] == "False"
+    assert by_type["GatewayReady"]["reason"] == "WaitingForRollout"
+    assert payload["components"]["gateway"]["ready"] is False
+
+
+def test_olm_operator_status_rejects_execute_mode_without_mutations(monkeypatch) -> None:
+    monkeypatch.setattr(olm_operator, "get_resource", _ready_olm_resource)
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus", "generation": 9},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "mode": "execute",
+                "pluginReplicas": 1,
+                "gatewayReplicas": 1,
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "capabilities": {
+                    "diagnostics": False,
+                    "mutations": False,
+                    "unrestrictedCommands": False,
+                },
+            },
+        }
+    )
+
+    payload = olm_operator.build_status_payload(
+        {"metadata": {"name": "komsco-aiops-kugnus", "namespace": "komsco-ai-kugnus", "generation": 9}},
+        "Ready",
+        "KOMSCO AIOps runtime reconciled",
+        config,
+    )
+    by_type = {item["type"]: item for item in payload["conditions"]}
+
+    assert payload["phase"] == "Progressing"
+    assert by_type["ActionExecutorReady"]["status"] == "False"
+    assert by_type["ActionExecutorReady"]["reason"] == "MutationCapabilityMismatch"
+    assert by_type["SafetyModeReady"]["status"] == "False"
+    assert by_type["SafetyModeReady"]["reason"] == "ExecuteCapabilityMismatch"
+
+
+def test_olm_operator_status_rejects_read_only_mode_with_mutations(monkeypatch) -> None:
+    monkeypatch.setattr(olm_operator, "get_resource", _ready_olm_resource)
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus", "generation": 10},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "mode": "read-only",
+                "pluginReplicas": 1,
+                "gatewayReplicas": 1,
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "capabilities": {
+                    "diagnostics": False,
+                    "mutations": True,
+                    "unrestrictedCommands": False,
+                },
+            },
+        }
+    )
+
+    payload = olm_operator.build_status_payload(
+        {"metadata": {"name": "komsco-aiops-kugnus", "namespace": "komsco-ai-kugnus", "generation": 10}},
+        "Ready",
+        "KOMSCO AIOps runtime reconciled",
+        config,
+    )
+    by_type = {item["type"]: item for item in payload["conditions"]}
+
+    assert payload["phase"] == "Progressing"
+    assert by_type["SafetyModeReady"]["status"] == "False"
+    assert by_type["SafetyModeReady"]["reason"] == "ReadOnlyCapabilityMismatch"
+
+
 def parse_sse_events(body: str) -> list[dict | str]:
     events: list[dict | str] = []
     for frame in body.split("\n\n"):

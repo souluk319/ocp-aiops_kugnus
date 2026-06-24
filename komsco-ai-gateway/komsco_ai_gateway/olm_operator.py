@@ -13,7 +13,7 @@ FIELD_MANAGER = os.getenv("KOMSCO_AI_FIELD_MANAGER", "komsco-aiops-operator")
 GROUP = "aiops.komsco.io"
 VERSION = "v1alpha1"
 PLURAL = "aiopsinstallations"
-DEFAULT_NAME = os.getenv("KOMSCO_AI_DEFAULT_INSTALLATION_NAME", "komsco-aiops")
+DEFAULT_NAME = os.getenv("KOMSCO_AI_DEFAULT_INSTALLATION_NAME", "komsco-aiops-kugnus")
 DEFAULT_TARGET_NAMESPACE = os.getenv("KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "komsco-ai-kugnus")
 DEFAULT_PLUGIN_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_PLUGIN_IMAGE",
@@ -31,6 +31,7 @@ DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
     "Cywell AI",
 )
+ALLOW_PROTECTED_CONSOLE_PLUGIN = os.getenv("KOMSCO_AI_ALLOW_PROTECTED_CONSOLE_PLUGIN", "false").lower() == "true"
 BOOTSTRAP_INSTALLATION = os.getenv("KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION", "false").lower() == "true"
 PROTECTED_CONSOLE_PLUGIN_NAMES = {
     name.strip()
@@ -43,6 +44,27 @@ PROTECTED_CONSOLE_PLUGIN_NAMES = {
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 SERVICEACCOUNT_TOKEN_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SERVICEACCOUNT_CA_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+VERSION_SCOPE = os.getenv("KOMSCO_AI_OPERATOR_VERSION_SCOPE", "Ver.0.1.1")
+DEFAULT_READINESS_CONDITION_TYPES = [
+    "TargetNamespaceReady",
+    "GatewayServiceReady",
+    "GatewayReady",
+    "ConsolePluginDeploymentReady",
+    "ConsolePluginConfigured",
+    "ServiceCABundleReady",
+    "RBACReady",
+    "ActionExecutorReady",
+    "HostDiagnosticsReady",
+    "SafetyModeReady",
+]
+READINESS_CONDITION_TYPES = [
+    item.strip()
+    for item in os.getenv(
+        "KOMSCO_AI_OPERATOR_READINESS_CONDITIONS",
+        ",".join(DEFAULT_READINESS_CONDITION_TYPES),
+    ).split(",")
+    if item.strip()
+]
 
 
 def namespace() -> str:
@@ -110,7 +132,7 @@ def get_resource(api_version: str, kind: str, name: str, resource_namespace: str
 
 
 def validate_console_plugin_name(name: str) -> None:
-    if name in PROTECTED_CONSOLE_PLUGIN_NAMES and name != DEFAULT_CONSOLE_PLUGIN_NAME:
+    if name in PROTECTED_CONSOLE_PLUGIN_NAMES and not ALLOW_PROTECTED_CONSOLE_PLUGIN:
         raise RuntimeError(f"refusing protected ConsolePlugin name: {name}")
 
 
@@ -255,18 +277,494 @@ def bootstrap_installation_if_needed() -> list[dict[str, Any]]:
     return list_installations()
 
 
-def update_status(custom_resource: Mapping[str, Any], phase: str, message: str) -> None:
+def now_timestamp() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def condition(
+    condition_type: str,
+    status: str,
+    reason: str,
+    message: str,
+    generation: int,
+) -> dict[str, Any]:
+    return {
+        "type": condition_type,
+        "status": status,
+        "reason": reason,
+        "message": message,
+        "lastTransitionTime": now_timestamp(),
+        "observedGeneration": generation,
+    }
+
+
+def lookup_condition(
+    condition_type: str,
+    api_version: str,
+    kind: str,
+    name: str,
+    resource_namespace: str | None,
+    generation: int,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    try:
+        resource = get_resource(api_version, kind, name, resource_namespace)
+    except Exception as exc:
+        return condition(condition_type, "Unknown", "LookupFailed", str(exc), generation), None
+    if resource is None:
+        scope = f"{resource_namespace}/{name}" if resource_namespace else name
+        return condition(condition_type, "False", "Missing", f"{kind} {scope} was not found.", generation), None
+    return condition(condition_type, "True", "Found", f"{kind} {name} exists.", generation), resource
+
+
+def service_condition(condition_type: str, name: str, target_namespace: str, generation: int) -> dict[str, Any]:
+    result, _ = lookup_condition(condition_type, "v1", "Service", name, target_namespace, generation)
+    if result["status"] == "True":
+        result["reason"] = "ServiceFound"
+        result["message"] = f"Service {target_namespace}/{name} is present."
+    return result
+
+
+def deployment_condition(condition_type: str, name: str, target_namespace: str, generation: int) -> dict[str, Any]:
+    result, deployment_resource = lookup_condition(
+        condition_type,
+        "apps/v1",
+        "Deployment",
+        name,
+        target_namespace,
+        generation,
+    )
+    if result["status"] != "True" or deployment_resource is None:
+        return result
+
+    spec = deployment_resource.get("spec") if isinstance(deployment_resource.get("spec"), Mapping) else {}
+    status = deployment_resource.get("status") if isinstance(deployment_resource.get("status"), Mapping) else {}
+    desired = int(spec.get("replicas") or 1)
+    available = int(status.get("availableReplicas") or 0)
+    ready = int(status.get("readyReplicas") or 0)
+    updated = int(status.get("updatedReplicas") or 0)
+    if available >= desired and ready >= desired and updated >= desired:
+        return condition(
+            condition_type,
+            "True",
+            "DeploymentAvailable",
+            f"Deployment {target_namespace}/{name} has {available}/{desired} available replicas.",
+            generation,
+        )
+    return condition(
+        condition_type,
+        "False",
+        "WaitingForRollout",
+        f"Deployment {target_namespace}/{name} has available={available}, ready={ready}, updated={updated}, desired={desired}.",
+        generation,
+    )
+
+
+def service_ca_condition(target_namespace: str, generation: int) -> dict[str, Any]:
+    result, configmap_resource = lookup_condition(
+        "ServiceCABundleReady",
+        "v1",
+        "ConfigMap",
+        "komsco-ai-service-ca",
+        target_namespace,
+        generation,
+    )
+    if result["status"] != "True" or configmap_resource is None:
+        return result
+
+    data = configmap_resource.get("data") if isinstance(configmap_resource.get("data"), Mapping) else {}
+    if data.get("service-ca.crt"):
+        return condition(
+            "ServiceCABundleReady",
+            "True",
+            "CABundleInjected",
+            "OpenShift service-ca bundle is present.",
+            generation,
+        )
+    return condition(
+        "ServiceCABundleReady",
+        "False",
+        "CABundlePending",
+        "OpenShift service-ca ConfigMap exists but service-ca.crt has not been injected yet.",
+        generation,
+    )
+
+
+def console_plugin_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
+    target_namespace = str(config["namespace"])
+    console_plugin_name = str(config["consolePluginName"])
+    result, plugin_resource = lookup_condition(
+        "ConsolePluginConfigured",
+        "console.openshift.io/v1",
+        "ConsolePlugin",
+        console_plugin_name,
+        None,
+        generation,
+    )
+    if result["status"] != "True" or plugin_resource is None:
+        return result
+
+    spec = plugin_resource.get("spec") if isinstance(plugin_resource.get("spec"), Mapping) else {}
+    backend = spec.get("backend") if isinstance(spec.get("backend"), Mapping) else {}
+    backend_service = backend.get("service") if isinstance(backend.get("service"), Mapping) else {}
+    proxies = spec.get("proxy") if isinstance(spec.get("proxy"), list) else []
+    gateway_proxy = next(
+        (
+            proxy
+            for proxy in proxies
+            if isinstance(proxy, Mapping)
+            and proxy.get("alias") == "ai-gateway"
+            and isinstance(proxy.get("endpoint"), Mapping)
+        ),
+        None,
+    )
+    gateway_service = (
+        gateway_proxy.get("endpoint", {}).get("service")
+        if isinstance(gateway_proxy, Mapping) and isinstance(gateway_proxy.get("endpoint"), Mapping)
+        else {}
+    )
+    backend_matches = (
+        backend_service.get("name") == "komsco-ai-console-plugin"
+        and backend_service.get("namespace") == target_namespace
+    )
+    proxy_matches = (
+        isinstance(gateway_service, Mapping)
+        and gateway_service.get("name") == "komsco-ai-gateway"
+        and gateway_service.get("namespace") == target_namespace
+    )
+    if backend_matches and proxy_matches:
+        return condition(
+            "ConsolePluginConfigured",
+            "True",
+            "PluginTargetsKugnusServices",
+            f"ConsolePlugin {console_plugin_name} points to Kugnus services in {target_namespace}.",
+            generation,
+        )
+    return condition(
+        "ConsolePluginConfigured",
+        "False",
+        "BackendMismatch",
+        f"ConsolePlugin {console_plugin_name} does not point to the expected Kugnus plugin/gateway services.",
+        generation,
+    )
+
+
+def rbac_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
+    target_namespace = str(config["namespace"])
+    console_plugin_name = str(config["consolePluginName"])
+    cluster_names = cluster_resource_names(console_plugin_name)
+    required_resources: list[tuple[str, str, str, str | None]] = [
+        ("rbac.authorization.k8s.io/v1", "Role", "komsco-ai-gateway-ledger", target_namespace),
+        ("rbac.authorization.k8s.io/v1", "RoleBinding", "komsco-ai-gateway-ledger", target_namespace),
+        (
+            "rbac.authorization.k8s.io/v1",
+            "ClusterRoleBinding",
+            cluster_names["gatewayAuthDelegatorClusterRoleBinding"],
+            None,
+        ),
+    ]
+    if bool(config["mutationsEnabled"]):
+        required_resources.extend(
+            [
+                (
+                    "rbac.authorization.k8s.io/v1",
+                    "ClusterRole",
+                    cluster_names["actionExecutorClusterRole"],
+                    None,
+                ),
+                (
+                    "rbac.authorization.k8s.io/v1",
+                    "ClusterRoleBinding",
+                    cluster_names["actionExecutorClusterRoleBinding"],
+                    None,
+                ),
+            ]
+        )
+    if bool(config["diagnosticsEnabled"]):
+        required_resources.extend(
+            [
+                (
+                    "rbac.authorization.k8s.io/v1",
+                    "Role",
+                    "komsco-ai-host-diagnostics-controller",
+                    target_namespace,
+                ),
+                (
+                    "rbac.authorization.k8s.io/v1",
+                    "RoleBinding",
+                    "komsco-ai-host-diagnostics-controller",
+                    target_namespace,
+                ),
+                (
+                    "rbac.authorization.k8s.io/v1",
+                    "RoleBinding",
+                    "komsco-ai-host-diagnostics-runner-scc",
+                    target_namespace,
+                ),
+            ]
+        )
+
+    missing: list[str] = []
+    unknown: list[str] = []
+    for api_version, kind, name, resource_namespace in required_resources:
+        item_condition, _ = lookup_condition("RBACReady", api_version, kind, name, resource_namespace, generation)
+        if item_condition["status"] == "False":
+            missing.append(f"{kind}/{name}")
+        elif item_condition["status"] == "Unknown":
+            unknown.append(f"{kind}/{name}: {item_condition['message']}")
+
+    if unknown:
+        return condition(
+            "RBACReady",
+            "Unknown",
+            "LookupFailed",
+            "; ".join(unknown),
+            generation,
+        )
+    if missing:
+        return condition(
+            "RBACReady",
+            "False",
+            "MissingRBAC",
+            "Missing RBAC resources: " + ", ".join(missing),
+            generation,
+        )
+    return condition(
+        "RBACReady",
+        "True",
+        "RBACPresent",
+        "Required Kugnus RBAC resources are present.",
+        generation,
+    )
+
+
+def action_executor_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
+    mode = str(config["mode"])
+    if mode == "read-only" and not bool(config["mutationsEnabled"]):
+        return condition(
+            "ActionExecutorReady",
+            "True",
+            "DisabledByReadOnly",
+            "Action executor is intentionally disabled because mutations are false.",
+            generation,
+        )
+    if not bool(config["mutationsEnabled"]):
+        return condition(
+            "ActionExecutorReady",
+            "False",
+            "MutationCapabilityMismatch",
+            f"Action executor cannot be ready because mode={mode} but capabilities.mutations=false.",
+            generation,
+        )
+    target_namespace = str(config["namespace"])
+    deployment = deployment_condition("ActionExecutorReady", "komsco-ai-action-executor", target_namespace, generation)
+    if deployment["status"] != "True":
+        return deployment
+    service_ready = service_condition("ActionExecutorReady", "komsco-ai-action-executor", target_namespace, generation)
+    if service_ready["status"] != "True":
+        return service_ready
+    return condition(
+        "ActionExecutorReady",
+        "True",
+        "ExecutorAvailable",
+        f"Action executor deployment and service are ready in {target_namespace}.",
+        generation,
+    )
+
+
+def host_diagnostics_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
+    if not bool(config["diagnosticsEnabled"]):
+        return condition(
+            "HostDiagnosticsReady",
+            "True",
+            "DisabledByPolicy",
+            "Host diagnostics is intentionally disabled by capabilities.diagnostics=false.",
+            generation,
+        )
+    target_namespace = str(config["namespace"])
+    deployment = deployment_condition(
+        "HostDiagnosticsReady",
+        "komsco-ai-host-diagnostics-controller",
+        target_namespace,
+        generation,
+    )
+    if deployment["status"] != "True":
+        return deployment
+    service_ready = service_condition(
+        "HostDiagnosticsReady",
+        "komsco-ai-host-diagnostics-controller",
+        target_namespace,
+        generation,
+    )
+    if service_ready["status"] != "True":
+        return service_ready
+    return condition(
+        "HostDiagnosticsReady",
+        "True",
+        "DiagnosticsAvailable",
+        f"Host diagnostics controller deployment and service are ready in {target_namespace}.",
+        generation,
+    )
+
+
+def safety_mode_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
+    mode = str(config["mode"])
+    mutations_enabled = bool(config["mutationsEnabled"])
+    unrestricted_enabled = bool(config["unrestrictedEnabled"])
+    if mode == "read-only" and (mutations_enabled or unrestricted_enabled):
+        return condition(
+            "SafetyModeReady",
+            "False",
+            "ReadOnlyCapabilityMismatch",
+            "mode=read-only requires mutations=false and unrestrictedCommands=false.",
+            generation,
+        )
+    if mode == "execute" and not mutations_enabled:
+        return condition(
+            "SafetyModeReady",
+            "False",
+            "ExecuteCapabilityMismatch",
+            "mode=execute requires capabilities.mutations=true.",
+            generation,
+        )
+    if mode == "unrestricted" and (not mutations_enabled or not unrestricted_enabled):
+        return condition(
+            "SafetyModeReady",
+            "False",
+            "UnrestrictedCapabilityMismatch",
+            "mode=unrestricted requires mutations=true and unrestrictedCommands=true.",
+            generation,
+        )
+    if mode == "read-only" and not mutations_enabled and not unrestricted_enabled:
+        return condition(
+            "SafetyModeReady",
+            "True",
+            "ReadOnlyLocked",
+            "Default read-only safety mode is active.",
+            generation,
+        )
+    if unrestricted_enabled or mode == "unrestricted":
+        return condition(
+            "SafetyModeReady",
+            "False",
+            "UnrestrictedCommandsEnabled",
+            "Unrestricted command mode is not part of the 0.1.1 default install readiness contract.",
+            generation,
+        )
+    return condition(
+        "SafetyModeReady",
+        "True",
+        "ActionExecutionEnabled",
+        "Action execution mode is enabled by explicit AIOpsInstallation spec.",
+        generation,
+    )
+
+
+def runtime_conditions(config: Mapping[str, Any], generation: int) -> list[dict[str, Any]]:
+    target_namespace = str(config["namespace"])
+    conditions_by_type = {
+        "TargetNamespaceReady": lookup_condition(
+            "TargetNamespaceReady",
+            "v1",
+            "Namespace",
+            target_namespace,
+            None,
+            generation,
+        )[0],
+        "GatewayServiceReady": service_condition(
+            "GatewayServiceReady",
+            "komsco-ai-gateway",
+            target_namespace,
+            generation,
+        ),
+        "GatewayReady": deployment_condition(
+            "GatewayReady",
+            "komsco-ai-gateway",
+            target_namespace,
+            generation,
+        ),
+        "ConsolePluginDeploymentReady": deployment_condition(
+            "ConsolePluginDeploymentReady",
+            "komsco-ai-console-plugin",
+            target_namespace,
+            generation,
+        ),
+        "ConsolePluginConfigured": console_plugin_condition(config, generation),
+        "ServiceCABundleReady": service_ca_condition(target_namespace, generation),
+        "RBACReady": rbac_condition(config, generation),
+        "ActionExecutorReady": action_executor_condition(config, generation),
+        "HostDiagnosticsReady": host_diagnostics_condition(config, generation),
+        "SafetyModeReady": safety_mode_condition(config, generation),
+    }
+    return [conditions_by_type[item] for item in READINESS_CONDITION_TYPES if item in conditions_by_type]
+
+
+def components_from_conditions(conditions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    component_names = {
+        "TargetNamespaceReady": "targetNamespace",
+        "GatewayServiceReady": "gatewayService",
+        "GatewayReady": "gateway",
+        "ConsolePluginDeploymentReady": "consolePluginDeployment",
+        "ConsolePluginConfigured": "consolePlugin",
+        "ServiceCABundleReady": "serviceCA",
+        "RBACReady": "rbac",
+        "ActionExecutorReady": "actionExecutor",
+        "HostDiagnosticsReady": "hostDiagnostics",
+        "SafetyModeReady": "safetyMode",
+    }
+    return {
+        component_names[item["type"]]: {
+            "ready": item["status"] == "True",
+            "reason": item.get("reason", ""),
+            "message": item.get("message", ""),
+        }
+        for item in conditions
+        if item["type"] in component_names
+    }
+
+
+def status_phase(phase: str, conditions: list[dict[str, Any]]) -> str:
+    if phase == "Failed":
+        return "Failed"
+    if conditions and all(item["status"] == "True" for item in conditions):
+        return "Ready"
+    return "Progressing"
+
+
+def build_status_payload(
+    custom_resource: Mapping[str, Any],
+    phase: str,
+    message: str,
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
+    generation = int(metadata.get("generation") or 0)
+    conditions = runtime_conditions(config, generation) if config is not None else []
+    resolved_phase = status_phase(phase, conditions)
+    resolved_message = message
+    if phase != "Failed" and resolved_phase == "Progressing":
+        waiting = [item["type"] for item in conditions if item["status"] != "True"]
+        resolved_message = "Waiting for readiness conditions: " + ", ".join(waiting)
+    return {
+        "observedGeneration": generation,
+        "phase": resolved_phase,
+        "message": resolved_message,
+        "lastTransitionTime": now_timestamp(),
+        "versionScope": VERSION_SCOPE,
+        "conditions": conditions,
+        "components": components_from_conditions(conditions),
+    }
+
+
+def update_status(
+    custom_resource: Mapping[str, Any],
+    phase: str,
+    message: str,
+    config: Mapping[str, Any] | None = None,
+) -> None:
     metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
     name = str(metadata.get("name") or DEFAULT_NAME)
     cr_namespace = str(metadata.get("namespace") or namespace())
-    status = {
-        "status": {
-            "observedGeneration": metadata.get("generation", 0),
-            "phase": phase,
-            "message": message,
-            "lastTransitionTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
-    }
+    status = {"status": build_status_payload(custom_resource, phase, message, config)}
     try:
         request(
             "PATCH",
@@ -830,6 +1328,7 @@ def network_policies(
 def reconcile(custom_resource: Mapping[str, Any]) -> None:
     metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
     name = str(metadata.get("name") or DEFAULT_NAME)
+    config: dict[str, Any] | None = None
     try:
         config = installation_config(custom_resource)
         print(f"reconciling {name} into namespace {config['namespace']}", flush=True)
@@ -837,10 +1336,10 @@ def reconcile(custom_resource: Mapping[str, Any]) -> None:
             apply_resource(resource)
         if config["enableConsolePlugin"]:
             patch_console_plugin_enabled(str(config["consolePluginName"]))
-        update_status(custom_resource, "Ready", "KOMSCO AIOps runtime reconciled")
+        update_status(custom_resource, "Ready", "KOMSCO AIOps runtime reconciled", config=config)
     except Exception as exc:
         print(f"reconcile failed for {name}: {exc}", flush=True)
-        update_status(custom_resource, "Failed", str(exc))
+        update_status(custom_resource, "Failed", str(exc), config=config)
 
 
 def main() -> None:

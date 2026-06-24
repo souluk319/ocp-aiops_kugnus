@@ -13,16 +13,16 @@ BUNDLE_DIR = GENERATED_DIR / "bundle"
 CATALOG_DIR = GENERATED_DIR / "catalog"
 INSTALL_DIR = GENERATED_DIR / "install"
 
-PACKAGE_NAME = os.getenv("KOMSCO_AIOPS_PACKAGE_NAME", "komsco-aiops")
-OPERATOR_NAME = os.getenv("KOMSCO_AIOPS_OPERATOR_NAME", "komsco-aiops-operator")
-INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "komsco-aiops")
-CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "komsco-aiops-catalog")
+PACKAGE_NAME = os.getenv("KOMSCO_AIOPS_PACKAGE_NAME", "komsco-aiops-kugnus")
+OPERATOR_NAME = os.getenv("KOMSCO_AIOPS_OPERATOR_NAME", "komsco-aiops-kugnus-operator")
+INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "komsco-aiops-kugnus")
+CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "komsco-aiops-catalog-kugnus")
 CATALOG_NAMESPACE = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE", "openshift-marketplace")
 CHANNEL = os.getenv("KOMSCO_AIOPS_CHANNEL", "stable")
 VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.3")
 CSV_NAME = f"{OPERATOR_NAME}.v{VERSION}"
 SKIPS_CSV = os.getenv("KOMSCO_AIOPS_SKIPS_CSV", "")
-INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "komsco-ai")
+INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "komsco-ai-kugnus")
 TARGET_NAMESPACE = os.getenv("KOMSCO_AIOPS_NAMESPACE", INSTALL_NAMESPACE)
 PLUGIN_IMAGE = os.getenv(
     "KOMSCO_AIOPS_PLUGIN_IMAGE",
@@ -33,9 +33,9 @@ GATEWAY_IMAGE = os.getenv(
     f"image-registry.openshift-image-registry.svc:5000/{TARGET_NAMESPACE}/komsco-ai-gateway:{VERSION}",
 )
 OPERATOR_IMAGE = os.getenv("KOMSCO_AIOPS_OPERATOR_IMAGE", GATEWAY_IMAGE)
-DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "KOMSCO AIOps")
-CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "komsco-ai-console-plugin")
-CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", "KOMSCO AI Assistant")
+DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "Cywell AI")
+CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "komsco-ai-console-plugin-kugnus")
+CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", "Cywell AI")
 PROVIDER_NAME = os.getenv("KOMSCO_AIOPS_PROVIDER_NAME", "Cywell")
 CATALOG_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CATALOG_DISPLAY_NAME", f"{DISPLAY_NAME} Catalog")
 CATALOG_PUBLISHER = os.getenv("KOMSCO_AIOPS_CATALOG_PUBLISHER", PROVIDER_NAME)
@@ -47,7 +47,7 @@ DESCRIPTION = os.getenv(
 )
 SHORT_DESCRIPTION = os.getenv(
     "KOMSCO_AIOPS_SHORT_DESCRIPTION",
-    f"{DISPLAY_NAME} (komsco-aiops) installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
+    f"{DISPLAY_NAME} ({PACKAGE_NAME}) installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
 )
 CATEGORIES = os.getenv("KOMSCO_AIOPS_CATEGORIES", "OpenShift Optional, Monitoring")
 KEYWORDS = [
@@ -59,6 +59,18 @@ KEYWORDS = [
     if item.strip()
 ]
 DEFAULT_ICON_FILE = ROOT / "docs" / "Ver.0.1.0" / "design-assets" / "K_icon.png"
+READINESS_CONDITION_TYPES = [
+    "TargetNamespaceReady",
+    "GatewayServiceReady",
+    "GatewayReady",
+    "ConsolePluginDeploymentReady",
+    "ConsolePluginConfigured",
+    "ServiceCABundleReady",
+    "RBACReady",
+    "ActionExecutorReady",
+    "HostDiagnosticsReady",
+    "SafetyModeReady",
+]
 
 
 def default_skips_csv() -> list[str]:
@@ -204,6 +216,36 @@ def crd() -> dict[str, Any]:
                                         "phase": {"type": "string"},
                                         "message": {"type": "string"},
                                         "lastTransitionTime": {"type": "string"},
+                                        "versionScope": {"type": "string"},
+                                        "conditions": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "required": ["type", "status"],
+                                                "properties": {
+                                                    "type": {"type": "string"},
+                                                    "status": {
+                                                        "type": "string",
+                                                        "enum": ["True", "False", "Unknown"],
+                                                    },
+                                                    "reason": {"type": "string"},
+                                                    "message": {"type": "string"},
+                                                    "lastTransitionTime": {"type": "string"},
+                                                    "observedGeneration": {"type": "integer"},
+                                                },
+                                            },
+                                        },
+                                        "components": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "ready": {"type": "boolean"},
+                                                    "reason": {"type": "string"},
+                                                    "message": {"type": "string"},
+                                                },
+                                            },
+                                        },
                                     },
                                 },
                             },
@@ -248,6 +290,8 @@ def csv() -> dict[str, Any]:
             "name": CSV_NAME,
             "annotations": {
                 "alm-examples": json.dumps([aiops_installation()], ensure_ascii=False),
+                "aiops.komsco.io/version-scope": "Ver.0.1.1",
+                "aiops.komsco.io/readiness-conditions": ",".join(READINESS_CONDITION_TYPES),
                 "capabilities": "Full Lifecycle",
                 "categories": CATEGORIES,
                 "containerImage": OPERATOR_IMAGE,
@@ -335,6 +379,11 @@ def csv() -> dict[str, Any]:
                                                     {
                                                         "name": "KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS",
                                                         "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false"),
+                                                    },
+                                                    {"name": "KOMSCO_AI_OPERATOR_VERSION_SCOPE", "value": "Ver.0.1.1"},
+                                                    {
+                                                        "name": "KOMSCO_AI_OPERATOR_READINESS_CONDITIONS",
+                                                        "value": ",".join(READINESS_CONDITION_TYPES),
                                                     },
                                                     {"name": "KOMSCO_AI_OPERATOR_RECONCILE_SECONDS", "value": "30"},
                                                 ],

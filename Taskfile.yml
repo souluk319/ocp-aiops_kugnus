@@ -110,12 +110,12 @@ tasks:
       - ./scripts/kugnus-olm.sh package
 
   kugnus:images:
-    desc: Build and push Kugnus gateway/operator and console plugin images
+    desc: Build and push Kugnus gateway/operator and console plugin images only when KOMSCO_AIOPS_APPROVE_IMAGES=komsco-ai-kugnus
     cmds:
       - ./scripts/kugnus-olm.sh images
 
   kugnus:publish:
-    desc: Build Kugnus images with OpenShift binary builds and register only the Kugnus OLM CatalogSource
+    desc: Build Kugnus images and register only the Kugnus OLM CatalogSource only when KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus
     cmds:
       - ./scripts/kugnus-olm.sh publish
 
@@ -130,7 +130,7 @@ tasks:
       - ./scripts/kugnus-olm.sh uninstall
 
   kugnus:status:
-    desc: Show Kugnus catalog, install, operand, and console plugin status
+    desc: Show local Kugnus package readiness by default; set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads
     cmds:
       - ./scripts/kugnus-olm.sh status
 
