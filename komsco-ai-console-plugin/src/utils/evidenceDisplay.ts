@@ -1,4 +1,4 @@
-export const safeEvidenceText = (value: unknown, fallback = ''): string => {
+export const redactSensitiveText = (value: unknown, fallback = ''): string => {
   const raw = String(value ?? fallback).trim();
   if (!raw) {
     return fallback;
@@ -16,8 +16,12 @@ export const safeEvidenceText = (value: unknown, fallback = ''): string => {
     .replace(/\b(?:github_pat|gh[pousr]|glpat|sk|xox[baprs])-?[A-Za-z0-9_=-]{16,}\b/gi, '[redacted-token]')
     .replace(/\b(?=[A-Za-z0-9._~+\/=-]{40,}\b)(?=.*[._~+\/=-])[A-Za-z0-9._~+\/=-]+\b/g, '[redacted-token]')
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
-    .replace(/\b(kubeadmin|admin)\b/gi, '[redacted-user]')
-    .slice(0, 96);
+    .replace(/\b(kubeadmin|admin)\b/gi, '[redacted-user]');
+};
+
+export const safeEvidenceText = (value: unknown, fallback = ''): string => {
+  const redacted = redactSensitiveText(value, fallback);
+  return redacted ? redacted.slice(0, 96) : fallback;
 };
 
 export const shortDigest = (value: unknown): string => {

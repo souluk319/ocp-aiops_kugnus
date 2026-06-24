@@ -3,6 +3,7 @@ require('ts-node/register/transpile-only');
 const assert = require('node:assert/strict');
 const {
   evidenceCount,
+  redactSensitiveText,
   safeEvidenceText,
   shortDigest,
 } = require('../src/utils/evidenceDisplay.ts');
@@ -47,7 +48,29 @@ for (const input of sensitiveInputs) {
   }
 }
 
+const sensitiveClipboardBody = [
+  '정리 결과입니다.',
+  '```bash',
+  'export TOKEN=shortsecret',
+  'curl -H "Authorization: Bearer sha256~abcDEF_1234567890" https://api.example.invalid',
+  'x-api-key: shortsecret',
+  'user admin kubeadmin operator@example.com',
+  'aws_access_key_id=AKIAIOSFODNN7EXAMPLE',
+  '```',
+  '마지막 안전 문장은 보존되어야 합니다.',
+].join('\n');
+const redactedClipboardBody = redactSensitiveText(sensitiveClipboardBody);
+for (const pattern of forbiddenPatterns) {
+  assert.equal(
+    pattern.test(redactedClipboardBody),
+    false,
+    `clipboard redaction missed ${pattern} for output: ${redactedClipboardBody}`,
+  );
+}
+assert.ok(redactedClipboardBody.includes('마지막 안전 문장은 보존되어야 합니다.'));
+
 assert.equal(safeEvidenceText('Pod 개수 직접 조회 완료'), 'Pod 개수 직접 조회 완료');
+assert.equal(redactSensitiveText('Pod 개수 직접 조회 완료'), 'Pod 개수 직접 조회 완료');
 assert.equal(shortDigest('sha256:1234567890abcdef9999'), 'sha256:1234567890ab');
 assert.equal(evidenceCount(0, 2, 1), 2);
 assert.equal(evidenceCount(3, 0, 0), 3);

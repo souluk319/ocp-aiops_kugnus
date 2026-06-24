@@ -24,6 +24,7 @@
 - `evidenceDisplay.ts`
   - evidence footer/copy text에 들어가는 문자열 redaction 규칙을 별도 util로 분리했다.
   - `admin`, `kubeadmin`, email, `Bearer`, OpenShift `sha256~` token, JWT, AWS access key, key-value API key/token/secret/password, 일반 token-like/API key prefix를 표시 전 제거한다.
+  - footer용 `safeEvidenceText`는 96자 제한을 유지하고, clipboard용 `redactSensitiveText`는 본문 길이를 유지한 채 민감정보만 제거한다.
 
 - `assistant.css`
   - 답변 하단에 작은 evidence footer를 추가했다.
@@ -41,6 +42,7 @@
 
 - `verify-evidence-display.cjs`
   - redaction helper에 악성/민감 문자열을 직접 주입해 표시 전 제거 여부를 검증한다.
+  - 답변 본문/코드블록 복사처럼 긴 clipboard payload도 직접 주입해 민감정보 제거와 정상 문장 보존을 함께 검증한다.
 
 ## 하지 않은 것
 
@@ -105,6 +107,7 @@
 | :--- | :--- | :--- | :--- |
 | Backend/Safety FAIL | `api_key=shortsecret`, `x-api-key: shortsecret`, `token=shortsecret`, `AKIA...` 형태가 redaction helper를 통과할 수 있었다. | key-value secret/API key/token/password redaction과 AWS access key redaction을 추가했다. | `node scripts/verify-evidence-display.cjs` PASS |
 | Frontend/UX FAIL | CDP에 stale `/dashboards` tab이 쌓여 새 verifier target이 `.komsco-ai` root 없는 콘솔 초기화 실패 상태를 잡을 수 있었다. | loaded Cywell AI tab recovery, refresh recovery, resize drag wait 안정화를 추가했다. | `/dashboards` UI verifier `64 checked, 0 failed` |
+| Backend/Safety 재FAIL | message copy와 code-block copy가 raw answer/code text를 clipboard에 쓸 수 있었다. | `redactSensitiveText`를 추가하고 message copy/code-block copy 모두 clipboard write 전에 적용했다. | `node scripts/verify-evidence-display.cjs` PASS, `corepack yarn build` PASS |
 
 ## Reviewer Gate 기록
 
@@ -113,7 +116,7 @@ Reviewer A/B/C 검수는 이 파일, 코드 diff, 빌드 결과, UI verifier 결
 | Reviewer | 관점 | 결과 | 메모 |
 | :--- | :--- | :--- | :--- |
 | A | Product/Requirements | PASS | screenshot inspection 및 evidence 없음/있음 UI 차이 문서화 반영 완료 |
-| B | Backend/Safety | 수정 후 재검수 대기 | 초기 FAIL 원인인 key-value/API key/token redaction 누락 수정, 주입 테스트 PASS |
+| B | Backend/Safety | 2차 수정 후 재검수 대기 | key-value/API key/token redaction 누락과 message/code clipboard raw copy 누출 수정, 주입 테스트 PASS |
 | C | Frontend/UX | 수정 후 재검수 대기 | 초기 FAIL 원인인 `/dashboards` CDP stale target 재현성 문제 수정, UI verifier PASS |
 
 ## 다음 Stage

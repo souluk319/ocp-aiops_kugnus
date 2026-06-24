@@ -42,7 +42,7 @@ import {
   fetchConsoleUserSubject,
   streamChat,
 } from '../services/aiGateway';
-import { evidenceCount, safeEvidenceText, shortDigest } from '../utils/evidenceDisplay';
+import { evidenceCount, redactSensitiveText, safeEvidenceText, shortDigest } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
 import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
@@ -830,7 +830,7 @@ const renderCodeBlock = (lines: string[], key: string, language?: string): React
         className="komsco-ai__code-copy"
         onClick={() => {
           if (navigator.clipboard) {
-            void navigator.clipboard.writeText(code);
+            void navigator.clipboard.writeText(redactSensitiveText(code));
           }
         }}
         type="button"
@@ -2944,7 +2944,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   );
 
   const copyMessage = React.useCallback((message: Message, index: number) => {
-    const text = `${message.content.trim()}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
+    const redactedContent = redactSensitiveText(message.content.trim());
+    const text = `${redactedContent}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
     if (!text || !navigator.clipboard) {
       return;
     }
