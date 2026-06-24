@@ -379,16 +379,18 @@ const ToolPlanPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status
     return <EmptyState label="Tool Plan 상태를 아직 가져오지 못했습니다." />;
   }
 
-  const plan = {
-    source: toolPlanStatus.source,
-    status: toolPlanStatus.status,
-    latest_runtime_plan: toolPlanStatus.latestRuntimePlan ?? 'not_available',
-    task_type: 'openshift_rca',
-    target: { platform: 'openshift' },
-    execution_policy: { mode: contract.mode },
-    allowed_verbs: contract.allowedReadOnlyVerbs,
-    forbidden_actions: contract.forbiddenActions,
-  };
+  const plan =
+    toolPlanStatus.latestRuntimePlan &&
+    typeof toolPlanStatus.latestRuntimePlan === 'object'
+      ? toolPlanStatus.latestRuntimePlan
+      : {
+          source: toolPlanStatus.source,
+          status: toolPlanStatus.status,
+          latest_runtime_plan: toolPlanStatus.latestRuntimePlan ?? 'waiting_for_first_question',
+          execution_policy: { mode: contract.mode },
+          allowed_verbs: contract.allowedReadOnlyVerbs,
+          forbidden_actions: contract.forbiddenActions,
+        };
 
   return (
     <div className="komsco-ai-page__tool-plan">

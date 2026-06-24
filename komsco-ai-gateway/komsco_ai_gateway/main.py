@@ -28,7 +28,7 @@ from .aiops_core import (
     target_path,
     target_from_plan,
 )
-from .aiops_contracts import build_runtime_safety_contract
+from .aiops_contracts import build_runtime_safety_contract, build_runtime_tool_plan
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -357,6 +357,7 @@ RUNBOOK_PLANS: dict[str, dict[str, Any]] = {}
 PREAPPROVED_PATCH_REQUESTS: dict[str, dict[str, Any]] = {}
 BREAK_GLASS_REQUESTS: dict[str, dict[str, Any]] = {}
 RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
+LAST_RUNTIME_TOOL_PLAN: dict[str, Any] | None = None
 ACTION_REGISTRY_VERSION = "v1"
 ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
     "rollout_restart_deployment": {
@@ -6976,6 +6977,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
                 diagnostics_enabled=DIAGNOSTICS_ENABLED,
                 record_store_enabled=RECORD_STORE_ENABLED,
+                latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
             ),
             "productAccessReview": redact_sensitive(product_access_review),
             "subject": redact_sensitive(dict(subject)),
@@ -7436,6 +7438,8 @@ async def chat_stream(
         raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
 
     async def generate() -> AsyncIterator[str]:
+        global LAST_RUNTIME_TOOL_PLAN
+
         run_id = req.runId or f"run-{uuid.uuid4()}"
         request_id = f"req-{uuid.uuid4()}"
         incident_id = req.conversationId or f"inc-{uuid.uuid4()}"
@@ -7580,6 +7584,51 @@ async def chat_stream(
                     "result": policy,
                     "status": "success",
                     "summary": policy_check_summary(policy),
+                }
+            )
+            runtime_tool_plan = build_runtime_tool_plan(
+                req.message,
+                page_context=normalize_console_page_context(req.pageContext),
+                execution_mode=page_context_aiops_execution_mode(req),
+            )
+            LAST_RUNTIME_TOOL_PLAN = runtime_tool_plan
+            yield sse(
+                {
+                    "type": "tool_call",
+                    "id": f"{request_id}-runtime-tool-plan",
+                    "name": "runtime_tool_plan",
+                    "summary": f"질문별 Tool Plan 생성: {runtime_tool_plan.get('task_type')}",
+                }
+            )
+            yield sse(
+                {
+                    "type": "tool_plan",
+                    "plan": redact_sensitive(runtime_tool_plan),
+                    "runId": run_id,
+                    "status": (
+                        "success"
+                        if runtime_tool_plan.get("validation", {}).get("ok")
+                        else "failed"
+                    ),
+                }
+            )
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "detail": json.dumps(
+                        redact_sensitive(runtime_tool_plan),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    "id": f"{request_id}-runtime-tool-plan",
+                    "name": "runtime_tool_plan",
+                    "result": redact_sensitive(runtime_tool_plan),
+                    "status": (
+                        "success"
+                        if runtime_tool_plan.get("validation", {}).get("ok")
+                        else "failed"
+                    ),
+                    "summary": "read-only Tool Plan 검증 완료",
                 }
             )
             accepted_audit_record = build_trace_record(

@@ -577,6 +577,7 @@ const getUiState = async (cdp) =>
       const taskModeOptions = [...(surface?.querySelectorAll('.komsco-ai__task-mode-option') || [])];
       const headerStatus = surface?.querySelector('.komsco-ai__header-status');
       const headerActions = surface?.querySelector('.komsco-ai__header-actions');
+      const headerModeButtons = [...(headerStatus?.querySelectorAll('.komsco-ai__mode-toggle-button') || [])];
       const resizeHandles = [...(surface?.querySelectorAll('.komsco-ai__resize-handle') || [])];
       const titleStyle = title ? window.getComputedStyle(title) : null;
       const brandCopy = surface?.querySelector('.komsco-ai__brand-copy');
@@ -617,7 +618,15 @@ const getUiState = async (cdp) =>
         historyTopElementText: historyTopElement?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim().slice(0, 80) || '',
         historyItemCount: historyItems.length,
         historyItemMaxHeight: historyItemHeights.length ? Math.max(...historyItemHeights) : 0,
-        headerModeButtonCount: headerStatus?.querySelectorAll('.komsco-ai__mode-toggle-button').length || 0,
+        headerModeButtonCount: headerModeButtons.length,
+        headerModeButtons: headerModeButtons.map((button) => ({
+          ariaLabel: button.getAttribute('aria-label') || '',
+          disabled: button.hasAttribute('disabled'),
+          disabledReason: button.getAttribute('data-disabled-reason') || '',
+          title: button.getAttribute('title') || '',
+        })),
+        headerStatusLabel: headerStatus?.querySelector('.komsco-ai__status-chip')?.getAttribute('aria-label') || '',
+        headerStatusTitle: headerStatus?.querySelector('.komsco-ai__status-chip')?.getAttribute('title') || '',
         hasHeaderStatusChip: Boolean(headerStatus?.querySelector('.komsco-ai__status-chip')),
         hasHeaderModeChip: Boolean(headerStatus?.querySelector('.komsco-ai__mode-chip')),
         headerTitleClipped: title ? title.scrollWidth > title.clientWidth + 1 : false,
@@ -876,6 +885,20 @@ const run = async () => {
         headerStatusText: state.headerStatusText,
         hasHeaderModeChip: state.hasHeaderModeChip,
         hasHeaderStatusChip: state.hasHeaderStatusChip,
+      },
+    );
+    assertCheck(
+      'header status controls expose labels and disabled reasons',
+      state.headerStatusLabel.includes('Lightspeed stream') &&
+        state.headerStatusLabel.includes('Safety mode') &&
+        state.headerModeButtons.length === 3 &&
+        state.headerModeButtons
+          .filter((button) => button.disabled)
+          .every((button) => button.disabledReason && button.title.includes(button.disabledReason)),
+      {
+        headerModeButtons: state.headerModeButtons,
+        headerStatusLabel: state.headerStatusLabel,
+        headerStatusTitle: state.headerStatusTitle,
       },
     );
 

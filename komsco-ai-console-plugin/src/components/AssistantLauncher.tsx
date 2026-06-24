@@ -1333,6 +1333,32 @@ const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolean =>
 const canUseUnrestrictedCommands = (status: AiopsRuntimeStatus | null): boolean =>
   Boolean(status?.spec.capabilities.unrestrictedCommandsEnabled);
 
+const getActionExecutionDisabledReason = (status: AiopsRuntimeStatus | null): string => {
+  if (!status) {
+    return 'AIOps runtime status has not been loaded yet.';
+  }
+
+  const reasons = [];
+  if (!status.spec.capabilities.mutationsEnabled) {
+    reasons.push('mutation gate disabled');
+  }
+  if (!status.spec.capabilities.actionExecutorConfigured) {
+    reasons.push('Action Executor URL not configured');
+  }
+
+  return reasons.join('; ');
+};
+
+const getUnrestrictedDisabledReason = (status: AiopsRuntimeStatus | null): string => {
+  if (!status) {
+    return 'AIOps runtime status has not been loaded yet.';
+  }
+
+  return status.spec.capabilities.unrestrictedCommandsEnabled
+    ? ''
+    : 'unrestricted command gate disabled';
+};
+
 const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
   mode === 'execute' || mode === 'unrestricted';
 
@@ -1381,7 +1407,9 @@ const getClusterHost = (apiUrl?: string): string => {
 const renderExecutionModeToggle = (
   executionMode: AiopsExecutionMode,
   actionExecutionAvailable: boolean,
+  actionExecutionDisabledReason: string,
   unrestrictedAvailable: boolean,
+  unrestrictedDisabledReason: string,
   onExecutionModeChange: (mode: AiopsExecutionMode) => void,
 ) => (
   <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
@@ -1404,12 +1432,13 @@ const renderExecutionModeToggle = (
       className={`komsco-ai__mode-toggle-button${
         executionMode === 'execute' ? ' komsco-ai__mode-toggle-button--active-execute' : ''
       }`}
+      data-disabled-reason={!actionExecutionAvailable ? actionExecutionDisabledReason : undefined}
       disabled={!actionExecutionAvailable}
       onClick={() => onExecutionModeChange('execute')}
       title={
         actionExecutionAvailable
           ? '승인 후 실행 모드'
-          : 'Gateway 실행 기능이 구성되어야 사용할 수 있습니다'
+          : `승인 후 실행 비활성: ${actionExecutionDisabledReason}`
       }
       type="button"
     >
@@ -1422,12 +1451,13 @@ const renderExecutionModeToggle = (
       className={`komsco-ai__mode-toggle-button${
         executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
       }`}
+      data-disabled-reason={!unrestrictedAvailable ? unrestrictedDisabledReason : undefined}
       disabled={!unrestrictedAvailable}
       onClick={() => onExecutionModeChange('unrestricted')}
       title={
         unrestrictedAvailable
           ? '실험 무제한 모드'
-          : '실험 무제한 명령 기능이 구성되어야 사용할 수 있습니다'
+          : `실험 무제한 비활성: ${unrestrictedDisabledReason}`
       }
       type="button"
     >
@@ -2048,6 +2078,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const stopRequestedRef = React.useRef(false);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
   const unrestrictedAvailable = canUseUnrestrictedCommands(aiopsStatus);
+  const actionExecutionDisabledReason = getActionExecutionDisabledReason(aiopsStatus);
+  const unrestrictedDisabledReason = getUnrestrictedDisabledReason(aiopsStatus);
   const assistantConnection = getAssistantConnectionState(
     clusterSummary,
     clusterSummaryLoading,
@@ -2055,6 +2087,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     aiopsStatus,
     aiopsStatusError,
   );
+  const headerConnectionLabel = [
+    assistantConnection.label,
+    `Lightspeed stream: ${
+      aiopsStatus?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'status pending'
+    }`,
+    `Safety mode: ${aiopsStatus?.spec.safetyContract?.mode ?? 'status pending'}`,
+  ].join(' · ');
   const copy = UI_COPY[uiLanguage];
   const selectedTaskMode =
     ASSISTANT_TASK_MODES.find((item) => item.value === assistantTaskMode) ||
@@ -3045,6 +3084,27 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             handleRunStatusEvent(event);
           }
 
+          if (event.type === 'tool_plan') {
+            setAiopsStatus((prev) =>
+              prev?.spec.safetyContract
+                ? {
+                    ...prev,
+                    spec: {
+                      ...prev.spec,
+                      safetyContract: {
+                        ...prev.spec.safetyContract,
+                        toolPlanStatus: {
+                          latestRuntimePlan: event.plan,
+                          source: 'chat_stream',
+                          status: event.status === 'success' ? 'runtime_generated' : 'runtime_failed',
+                        },
+                      },
+                    },
+                  }
+                : prev,
+            );
+          }
+
           if (event.type === 'text') {
             if (event.content.trim()) {
               finishResponseWaitStep('본문 스트리밍 시작');
@@ -3262,8 +3322,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             </div>
             <div className="komsco-ai__header-status" aria-label="AIOps 상태 및 실행 모드">
               <span
+                aria-label={headerConnectionLabel}
                 className={`komsco-ai__status-chip komsco-ai__status-chip--${assistantConnection.tone}`}
-                title={assistantConnection.label}
+                title={headerConnectionLabel}
               >
                 <span className="komsco-ai__status-chip-dot" />
                 <span>
@@ -3283,7 +3344,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               {renderExecutionModeToggle(
                 executionMode,
                 actionExecutionAvailable,
+                actionExecutionDisabledReason,
                 unrestrictedAvailable,
+                unrestrictedDisabledReason,
                 handleExecutionModeChange,
               )}
             </div>

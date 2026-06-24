@@ -107,6 +107,7 @@ from komsco_ai_gateway.aiops_core import (
 from komsco_ai_gateway.aiops_contracts import (
     assert_read_only_tool_plan,
     build_runtime_safety_contract,
+    build_runtime_tool_plan,
     create_evidence_status,
 )
 from komsco_ai_gateway.security import (
@@ -188,13 +189,43 @@ def test_runtime_safety_contract_defaults_to_read_only() -> None:
     assert contract["mode"] == "read_only"
     assert "patch" in contract["forbiddenActions"]
     assert contract["capabilityGates"]["mutationsEnabled"] is False
-    assert contract["toolPlanStatus"]["status"] == "contract_only"
+    assert contract["toolPlanStatus"]["status"] == "waiting_for_first_question"
     assert contract["lightspeedStatus"]["streamProbe"] == "not_probed_by_status_endpoint"
     assert {adapter["name"]: adapter["status"] for adapter in contract["adapterStatus"]} == {
         "Linux": "planned",
         "OpenShift": "available",
         "Windows": "planned",
     }
+
+
+def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
+    plan = build_runtime_tool_plan(
+        "어제 새벽 default 네임스페이스 pod가 왜 재시작됐어?",
+        execution_mode="read-only",
+    )
+
+    assert plan["kind"] == "ToolPlan"
+    assert plan["task_type"] == "pod_restart_rca"
+    assert plan["target"]["namespace"] == "default"
+    assert plan["execution_policy"]["mode"] == "read_only"
+    assert plan["validation"]["ok"] is True
+    assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift"}
+    assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
+    assert any(item["type"] == "metric" for item in plan["missing_evidence"])
+
+
+def test_runtime_safety_contract_exposes_latest_tool_plan() -> None:
+    plan = build_runtime_tool_plan("clusteroperator 상태 확인해줘")
+    contract = build_runtime_safety_contract(
+        mutations_enabled=False,
+        unrestricted_commands_enabled=False,
+        diagnostics_enabled=False,
+        record_store_enabled=False,
+        latest_runtime_tool_plan=plan,
+    )
+
+    assert contract["toolPlanStatus"]["status"] == "runtime_ready"
+    assert contract["toolPlanStatus"]["latestRuntimePlan"]["task_type"] == "cluster_operator_status"
 
 
 def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:

@@ -134,7 +134,7 @@ export type AiopsRuntimeStatus = {
         name?: string;
       };
       toolPlanStatus?: {
-        latestRuntimePlan?: string;
+        latestRuntimePlan?: unknown;
         source?: string;
         status?: string;
       };
@@ -153,6 +153,7 @@ export type AiopsRuntimeStatus = {
 
 type StreamEvent =
   | { type: 'text'; content: string }
+  | { type: 'tool_plan'; plan: unknown; runId?: string; status?: string }
   | {
       type: 'run_status';
       elapsedMs?: number;
