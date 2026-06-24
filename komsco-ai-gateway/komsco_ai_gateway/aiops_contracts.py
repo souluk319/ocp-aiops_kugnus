@@ -61,6 +61,30 @@ OPENSHIFT_ADAPTER_TOOLS = (
         "description": "Read ClusterOperator Available/Progressing/Degraded conditions.",
     },
     {
+        "tool": "openshift_node_status_lookup",
+        "status": "planned",
+        "verbs": ["list"],
+        "evidenceTypes": ["node"],
+        "description": "Read Node Ready and pressure conditions for RCA correlation.",
+        "disabledReason": "Node RCA preflight is planned after the Stage 3 RCA contract hardening slice.",
+    },
+    {
+        "tool": "openshift_alert_lookup",
+        "status": "planned",
+        "verbs": ["list"],
+        "evidenceTypes": ["alert"],
+        "description": "Read active alerts for RCA correlation through the monitoring path.",
+        "disabledReason": "Alert RCA preflight is planned after the Stage 3 RCA contract hardening slice.",
+    },
+    {
+        "tool": "openshift_metric_query",
+        "status": "planned",
+        "verbs": ["get"],
+        "evidenceTypes": ["metric"],
+        "description": "Read Prometheus/Thanos metrics for RCA correlation.",
+        "disabledReason": "Metric RCA preflight is planned after the Stage 3 RCA contract hardening slice.",
+    },
+    {
         "tool": "openshift_clusterversion_lookup",
         "status": "available",
         "verbs": ["get"],
@@ -436,6 +460,61 @@ def build_rca_context(
 
     page_context = page_context or {}
     target = plan.get("target") if isinstance(plan.get("target"), Mapping) else {}
+    tool_steps = [dict(item) for item in _as_list(plan.get("tool_plan")) if isinstance(item, Mapping)]
+
+    def step_execution_status(step: Mapping[str, Any]) -> dict[str, Any]:
+        evidence_type = str(step.get("evidence_type") or "openshift")
+        collected = next((ref for ref in collected_refs if ref.get("type") == evidence_type), None)
+        if collected:
+            return {
+                "status": "collected",
+                "evidenceId": collected.get("evidenceId"),
+                "contentDigest": collected.get("contentDigest"),
+                "sourcePath": collected.get("sourceType"),
+            }
+
+        failed = next((ref for ref in failed_refs if ref.get("type") == evidence_type), None)
+        if failed:
+            return {
+                "status": "failed",
+                "evidenceId": failed.get("evidenceId"),
+                "contentDigest": failed.get("contentDigest"),
+                "missingReason": failed.get("summary") or failed.get("status"),
+                "sourcePath": failed.get("sourceType"),
+            }
+
+        missing = next(
+            (
+                item
+                for item in missing_evidence
+                if str(item.get("type") or "").lower() == evidence_type.lower()
+            ),
+            None,
+        )
+        if missing:
+            return {
+                "status": "missing",
+                "evidenceId": missing.get("evidenceId"),
+                "contentDigest": missing.get("contentDigest"),
+                "missingReason": missing.get("reason"),
+            }
+
+        return {
+            "status": "not_attempted",
+            "missingReason": f"{evidence_type} evidence was planned but not collected yet",
+        }
+
+    evidence_collection_steps = [
+        {
+            "step": step.get("step"),
+            "tool": step.get("tool"),
+            "adapter": step.get("adapter"),
+            "evidenceType": step.get("evidence_type"),
+            "reason": step.get("reason"),
+            **step_execution_status(step),
+        }
+        for step in tool_steps
+    ]
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     context: dict[str, Any] = {
         "apiVersion": "aiops.komsco/v1alpha1",
@@ -459,6 +538,29 @@ def build_rca_context(
             },
             "taskType": plan.get("task_type", "generic_openshift_question"),
             "target": dict(target),
+        },
+        "analysisPlan": {
+            "mode": "evidence_first",
+            "evidenceCollectionSteps": evidence_collection_steps,
+            "answerContract": {
+                "format": "operations_rca_report",
+                "requiredSections": [
+                    "우선 판단",
+                    "수집 근거",
+                    "원인 후보",
+                    "확인 불가",
+                    "다음 확인 명령",
+                    "우선순위",
+                ],
+                "mustNotInventEvidence": True,
+                "mustSeparateUnknowns": True,
+                "mustRemainReadOnly": True,
+            },
+            "stopConditions": [
+                "required evidence source failed",
+                "user token lacks requested read permission",
+                "target resource is not identified",
+            ],
         },
         "evidence": {
             "collectedRefs": collected_refs,
@@ -620,10 +722,50 @@ def build_runtime_tool_plan(
                 "evidence_type": "pod_log",
                 "reason": "Event만으로 부족한 애플리케이션 종료 원인 확인",
             },
+            {
+                "step": 4,
+                "tool": "openshift_clusteroperator_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "clusteroperator",
+                "reason": "관리 namespace 또는 platform component 영향 여부 확인",
+            },
+            {
+                "step": 5,
+                "tool": "openshift_node_status_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "node",
+                "reason": "Node Ready/Pressure 상태가 Pod 이상에 영향을 주는지 확인",
+            },
+            {
+                "step": 6,
+                "tool": "openshift_alert_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "alert",
+                "reason": "관련 active alert가 RCA 우선순위에 영향을 주는지 확인",
+            },
+            {
+                "step": 7,
+                "tool": "openshift_metric_query",
+                "adapter": "OpenShift",
+                "verb": "get",
+                "evidence_type": "metric",
+                "reason": "최근 restart 증가량, CPU/Memory 압력 같은 metric 근거 확인",
+            },
         ]
         missing = [
-            {"type": "metric", "reason": "Prometheus metric query is not wired in ver.0.1.1 slice 1"},
-            {"type": "runbook", "reason": "RAG/runbook retrieval is planned for a later 0.1.1 slice"},
+            {"type": "event", "reason": "Event evidence is planned for Stage 3 RCA preflight expansion"},
+            {"type": "pod_log", "reason": "Pod log evidence is not fetched by the read-only preflight collector yet"},
+            {
+                "type": "clusteroperator",
+                "reason": "ClusterOperator evidence may be included in pod status evidence, but is not a separate RCA evidence ref yet",
+            },
+            {"type": "node", "reason": "Node RCA preflight is planned after the Stage 3 contract hardening slice"},
+            {"type": "alert", "reason": "Alert RCA preflight is planned after the Stage 3 contract hardening slice"},
+            {"type": "metric", "reason": "Prometheus metric query is not wired into chat RCA preflight yet"},
+            {"type": "runbook", "reason": "RAG/runbook retrieval is planned for a later RCA slice"},
         ]
     elif asks_pod and asks_count:
         task_type = "pod_inventory"

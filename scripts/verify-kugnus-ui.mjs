@@ -589,6 +589,10 @@ const getChatInteractionState = async (cdp) =>
               }
             : null,
           fallbackBadgeText: fallbackBadge?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+          formattedCodeBlockCount: node.querySelectorAll('.komsco-ai__formatted-code-block').length,
+          formattedHeadingCount: node.querySelectorAll('.komsco-ai__formatted-heading').length,
+          formattedListCount: node.querySelectorAll('.komsco-ai__formatted-list').length,
+          formattedTableCount: node.querySelectorAll('.komsco-ai__table').length,
           labelText: label?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           message: rect(node),
           text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
@@ -1781,6 +1785,42 @@ const run = async () => {
       .reverse()
       .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant'));
     const evidenceFooter = rcaAssistantMessage?.evidenceFooter;
+    const rcaText = rcaAssistantMessage?.text || '';
+    const requiredRcaSections = [
+      'RCA 보고서',
+      '우선 판단',
+      '수집 근거',
+      '원인 후보',
+      '확인 불가',
+      '다음 확인',
+      '우선순위',
+    ];
+    assertCheck(
+      'assistant RCA answer is structured as an operations report',
+      requiredRcaSections.every((section) => rcaText.includes(section)) &&
+        (
+          (rcaAssistantMessage?.formattedHeadingCount || 0) +
+          (rcaAssistantMessage?.formattedListCount || 0) +
+          (rcaAssistantMessage?.formattedCodeBlockCount || 0) +
+          (rcaAssistantMessage?.formattedTableCount || 0)
+        ) >= 3,
+      {
+        codeBlocks: rcaAssistantMessage?.formattedCodeBlockCount,
+        headings: rcaAssistantMessage?.formattedHeadingCount,
+        lists: rcaAssistantMessage?.formattedListCount,
+        missingSections: requiredRcaSections.filter((section) => !rcaText.includes(section)),
+        tables: rcaAssistantMessage?.formattedTableCount,
+        textPreview: rcaText.slice(0, 420),
+      },
+    );
+    assertCheck(
+      'assistant RCA answer keeps mutation commands out of read-only guidance',
+      !/oc\\s+(apply|delete|patch|scale|exec)\\b/i.test(rcaText) &&
+        !/실행\\s*(완료|했습니다)|적용\\s*(완료|했습니다)|삭제\\s*(완료|했습니다)/.test(rcaText),
+      {
+        textPreview: rcaText.slice(0, 520),
+      },
+    );
     assertCheck(
       'assistant answer exposes compact evidence footer with trace id',
       Boolean(evidenceFooter) &&

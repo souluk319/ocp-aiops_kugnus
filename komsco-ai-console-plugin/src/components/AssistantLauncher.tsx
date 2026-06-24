@@ -212,6 +212,8 @@ const MIN_STOP_BUTTON_VISIBLE_MS = 750;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
+const RCA_PLAN_STEP_ID = 'assistant-rca-plan';
+const RCA_CONTEXT_STEP_ID = 'assistant-rca-context';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
 const RESPONSE_WAIT_STEP_ID = 'assistant-response-wait';
 const ANSWER_STREAM_STEP_ID = 'assistant-answer-stream';
@@ -267,6 +269,7 @@ const TOOL_LABELS: Record<string, string> = {
   resources_list: '리소스 목록 조회',
   policy_check: '정책 확인',
   product_access_review: '제품 접근 권한 확인',
+  runtime_tool_plan: '증거 수집 계획',
   security_boundary: '보안 경계 확인',
   show_timeseries: '시계열 차트 준비',
   subject_review: '사용자 주체 확인',
@@ -3817,6 +3820,21 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
 
           if (event.type === 'tool_plan') {
+            const now = Date.now();
+            upsertProgressStep({
+              detail:
+                event.status === 'success'
+                  ? '질문을 read-only Tool Plan으로 분해하고 필요한 증거 수집 순서를 고정했습니다.'
+                  : '질문별 Tool Plan 검증에 실패했습니다. 답변은 부족한 근거를 명시해야 합니다.',
+              elapsedMs: 0,
+              endedAt: now,
+              id: RCA_PLAN_STEP_ID,
+              name: 'runtime_tool_plan',
+              startedAt: now,
+              status: event.status === 'success' ? 'completed' : 'failed',
+              summary: event.status === 'success' ? '증거 수집 계획 생성' : '증거 수집 계획 실패',
+              title: '증거 수집 계획',
+            });
             setAiopsStatus((prev) => {
               const base = prev ?? createPendingAiopsStatus();
               const safetyContract =
@@ -3839,11 +3857,29 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
 
           if (event.type === 'rca_context') {
+            const now = Date.now();
             const evidenceFooter = buildEvidenceFooter(
               event.context,
               event.evidenceStatus,
               event.status,
             );
+            upsertProgressStep({
+              detail:
+                event.phase === 'post_answer'
+                  ? '최종 답변과 연결되는 RCA Context digest와 evidence refs를 갱신했습니다.'
+                  : '답변 전에 수집/누락/실패 근거를 RCA Context로 연결했습니다.',
+              elapsedMs: 0,
+              endedAt: now,
+              id: `${RCA_CONTEXT_STEP_ID}-${event.phase || 'unknown'}`,
+              name: 'rca_context',
+              startedAt: now,
+              status: event.status === 'success' ? 'completed' : 'failed',
+              summary:
+                event.status === 'success'
+                  ? `RCA 문맥 연결: ${event.phase || 'phase unknown'}`
+                  : 'RCA 문맥 연결 실패',
+              title: 'RCA 근거 문맥',
+            });
             setMessages((prev) => attachEvidenceFooterToLastAssistant(prev, evidenceFooter));
             setAiopsStatus((prev) => {
               const base = prev ?? createPendingAiopsStatus();

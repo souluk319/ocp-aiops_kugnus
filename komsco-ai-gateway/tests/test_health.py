@@ -224,9 +224,17 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
         "openshift_event_lookup",
         "openshift_pod_status_lookup",
         "openshift_pod_log_tail",
+        "openshift_node_status_lookup",
+        "openshift_alert_lookup",
+        "openshift_metric_query",
     }
-    assert all(item["status"] == "resolved" for item in resolutions)
-    assert all(item["resolved"] is True for item in resolutions)
+    resolution_by_tool = {item["tool"]: item for item in resolutions}
+    assert resolution_by_tool["openshift_event_lookup"]["status"] == "resolved"
+    assert resolution_by_tool["openshift_pod_status_lookup"]["resolved"] is True
+    assert resolution_by_tool["openshift_pod_log_tail"]["resolved"] is True
+    assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "planned"
+    assert resolution_by_tool["openshift_alert_lookup"]["status"] == "planned"
+    assert resolution_by_tool["openshift_metric_query"]["status"] == "planned"
     assert all(item["adapter"] == "OpenShift" for item in resolutions)
     linux = next(adapter for adapter in registry if adapter["name"] == "Linux")
     windows = next(adapter for adapter in registry if adapter["name"] == "Windows")
@@ -261,10 +269,16 @@ def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
     assert plan["execution_policy"]["mode"] == "read_only"
     assert plan["validation"]["ok"] is True
     assert len(plan["adapter_resolution"]) >= 3
-    assert all(item["resolved"] for item in plan["adapter_resolution"])
+    resolution_by_tool = {item["tool"]: item for item in plan["adapter_resolution"]}
+    assert resolution_by_tool["openshift_pod_status_lookup"]["resolved"] is True
+    assert resolution_by_tool["openshift_event_lookup"]["resolved"] is True
+    assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "planned"
+    assert resolution_by_tool["openshift_alert_lookup"]["status"] == "planned"
+    assert resolution_by_tool["openshift_metric_query"]["status"] == "planned"
     assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift"}
     assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
-    assert any(item["type"] == "metric" for item in plan["missing_evidence"])
+    missing_types = {item["type"] for item in plan["missing_evidence"]}
+    assert {"event", "pod_log", "clusteroperator", "node", "alert", "metric", "runbook"} <= missing_types
 
 
 def test_runtime_safety_contract_exposes_latest_tool_plan() -> None:
@@ -318,6 +332,21 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     assert context["evidence"]["collectedRefs"][0]["type"] == "pod_status"
     assert any(item["type"] == "metric" for item in context["evidence"]["missing"])
     assert context["confidence"]["level"] == "evidence_based"
+    assert context["analysisPlan"]["mode"] == "evidence_first"
+    assert context["analysisPlan"]["answerContract"]["format"] == "operations_rca_report"
+    assert context["analysisPlan"]["answerContract"]["mustNotInventEvidence"] is True
+    assert "확인 불가" in context["analysisPlan"]["answerContract"]["requiredSections"]
+    step_status = {
+        item["evidenceType"]: item
+        for item in context["analysisPlan"]["evidenceCollectionSteps"]
+    }
+    assert step_status["pod_status"]["status"] == "collected"
+    assert step_status["pod_status"]["evidenceId"] == "ev-abc"
+    assert step_status["event"]["status"] == "missing"
+    assert step_status["pod_log"]["status"] == "missing"
+    assert step_status["node"]["status"] == "missing"
+    assert step_status["alert"]["status"] == "missing"
+    assert step_status["metric"]["status"] == "missing"
 
 
 def test_rca_context_without_evidence_marks_uncertainty() -> None:
@@ -948,7 +977,9 @@ def test_chat_stream_unexpected_exception_emits_failed_rca_context_before_done(m
         return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
 
     async def fake_product_access_review(_user_auth_header: str) -> dict:
-        raise RuntimeError("synthetic product access failure")
+        raise RuntimeError(
+            "synthetic product access failure Authorization: Bearer super-secret-token token=raw-secret"
+        )
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
@@ -963,6 +994,10 @@ def test_chat_stream_unexpected_exception_emits_failed_rca_context_before_done(m
             )
 
         assert response.status_code == 200
+        assert "super-secret-token" not in response.text
+        assert "raw-secret" not in response.text
+        assert "Authorization: [REDACTED]" in response.text
+        assert "token=[REDACTED]" in response.text
         events = parse_sse_events(response.text)
         assert events[-1] == "[DONE]"
         rca_events = [
@@ -1589,6 +1624,10 @@ def test_build_ols_query_includes_gateway_evidence() -> None:
 
     assert "[Gateway 선조회 증거]" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
+    assert "## RCA 보고서" in query
+    assert "### 우선 판단" in query
+    assert "### 수집 근거" in query
+    assert "### 확인 불가" in query
 
 
 def test_action_proposal_fallback_is_non_empty_and_requests_target() -> None:
@@ -1615,6 +1654,12 @@ def test_empty_answer_fallback_includes_question_and_tool_summary() -> None:
         ],
     )
 
+    assert "## RCA 보고서" in fallback
+    assert "### 우선 판단" in fallback
+    assert "### 수집 근거" in fallback
+    assert "### 원인 후보" in fallback
+    assert "### 확인 불가" in fallback
+    assert "### 다음 확인 명령" in fallback
     assert "authentication" in fallback
     assert "resources_list" in fallback
     assert "조회 완료" in fallback
@@ -1641,6 +1686,9 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "lightspeed_stream" in fallback
     assert "startTime" in fallback
     assert "ClusterOperator" in fallback
+    assert "## RCA 보고서" in fallback
+    assert "### 원인 후보" in fallback
+    assert "### 확인 불가" in fallback
     assert "Gateway가 수집한 증거 기준" in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
