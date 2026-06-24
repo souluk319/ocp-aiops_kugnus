@@ -437,11 +437,37 @@ const AdapterBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status 
     <div className="komsco-ai-page__adapter-board">
       {contractAdapters.map((adapter) => (
         <div className="komsco-ai-page__adapter" key={adapter.name}>
-          <div>
-            <strong>{adapter.name}</strong>
-            <span>{adapter.detail}</span>
+          <div className="komsco-ai-page__adapter-main">
+            <div className="komsco-ai-page__adapter-head">
+              <strong>{adapter.name}</strong>
+              <code>{adapter.status}</code>
+            </div>
+            <span>{adapter.detail || adapter.reason}</span>
+            {(adapter.disabledReason || adapter.reason) && (
+              <p>{adapter.disabledReason || adapter.reason}</p>
+            )}
+            {adapter.nextAction && <em>{adapter.nextAction}</em>}
+            {adapter.requirements && adapter.requirements.length > 0 && (
+              <div className="komsco-ai-page__adapter-requirements">
+                <span>requirements</span>
+                <ul>
+                  {adapter.requirements.map((requirement) => (
+                    <li key={requirement}>{requirement}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {adapter.supportedTools && adapter.supportedTools.length > 0 && (
+              <div className="komsco-ai-page__adapter-tools">
+                {adapter.supportedTools.slice(0, 3).map((tool) => (
+                  <span key={tool.tool}>
+                    {tool.tool}
+                    {tool.status && tool.status !== 'available' ? ` · ${tool.status}` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <code>{adapter.status}</code>
         </div>
       ))}
     </div>

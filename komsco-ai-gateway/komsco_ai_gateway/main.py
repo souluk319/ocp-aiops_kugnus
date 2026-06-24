@@ -5559,6 +5559,7 @@ def build_rca_context_stream_event(
         unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
         diagnostics_enabled=DIAGNOSTICS_ENABLED,
         record_store_enabled=RECORD_STORE_ENABLED,
+        diagnostics_controller_configured=bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
         latest_runtime_tool_plan=runtime_tool_plan,
         latest_rca_context=context,
     )
@@ -7081,6 +7082,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
                 diagnostics_enabled=DIAGNOSTICS_ENABLED,
                 record_store_enabled=RECORD_STORE_ENABLED,
+                diagnostics_controller_configured=bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
                 latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
                 latest_rca_context=LAST_RCA_CONTEXT,
             ),

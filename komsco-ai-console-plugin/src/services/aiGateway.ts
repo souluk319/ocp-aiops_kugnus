@@ -129,9 +129,22 @@ export type AiopsRuntimeStatus = {
     };
     safetyContract?: {
       adapterStatus?: Array<{
+        disabledReason?: string;
         detail?: string;
         name: string;
+        nextAction?: string;
+        reason?: string;
+        requirements?: string[];
         status: string;
+        supportedTools?: Array<{
+          description?: string;
+          disabledReason?: string;
+          evidenceTypes?: string[];
+          status?: string;
+          tool: string;
+          verbs?: string[];
+        }>;
+        type?: string;
       }>;
       allowedReadOnlyVerbs: string[];
       capabilityGates: Record<string, boolean>;
@@ -149,6 +162,17 @@ export type AiopsRuntimeStatus = {
         name?: string;
       };
       toolPlanStatus?: {
+        adapterResolution?: Array<{
+          adapter?: string;
+          capability?: string;
+          evidenceType?: string;
+          reason?: string;
+          resolved?: boolean;
+          status?: string;
+          step?: number;
+          tool?: string;
+          verb?: string;
+        }>;
         latestRuntimePlan?: unknown;
         source?: string;
         status?: string;

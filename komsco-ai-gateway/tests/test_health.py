@@ -107,10 +107,12 @@ from komsco_ai_gateway.aiops_core import (
 )
 from komsco_ai_gateway.aiops_contracts import (
     assert_read_only_tool_plan,
+    build_adapter_registry,
     build_rca_context,
     build_runtime_safety_contract,
     build_runtime_tool_plan,
     create_evidence_status,
+    resolve_tool_plan_adapters,
 )
 from komsco_ai_gateway.security import (
     build_evidence_reference,
@@ -194,10 +196,41 @@ def test_runtime_safety_contract_defaults_to_read_only() -> None:
     assert contract["toolPlanStatus"]["status"] == "waiting_for_first_question"
     assert contract["lightspeedStatus"]["streamProbe"] == "not_probed_by_status_endpoint"
     assert {adapter["name"]: adapter["status"] for adapter in contract["adapterStatus"]} == {
-        "Linux": "planned",
+        "Linux": "disabled",
         "OpenShift": "available",
         "Windows": "planned",
     }
+    linux = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "Linux")
+    windows = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "Windows")
+    openshift = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "OpenShift")
+    assert len(openshift["supportedTools"]) >= 3
+    assert "KOMSCO_AI_DIAGNOSTICS_ENABLED" in linux["disabledReason"]
+    assert "runtime collector" in windows["disabledReason"]
+
+
+def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_adapters() -> None:
+    plan = build_runtime_tool_plan("default 네임스페이스 pod가 왜 재시작됐어?")
+    registry = build_adapter_registry(
+        diagnostics_enabled=False,
+        diagnostics_controller_configured=False,
+    )
+    resolutions = resolve_tool_plan_adapters(plan, adapter_registry=registry)
+
+    assert len(resolutions) >= 3
+    assert {item["tool"] for item in resolutions} >= {
+        "openshift_event_lookup",
+        "openshift_pod_status_lookup",
+        "openshift_pod_log_tail",
+    }
+    assert all(item["status"] == "resolved" for item in resolutions)
+    assert all(item["resolved"] is True for item in resolutions)
+    assert all(item["adapter"] == "OpenShift" for item in resolutions)
+    linux = next(adapter for adapter in registry if adapter["name"] == "Linux")
+    windows = next(adapter for adapter in registry if adapter["name"] == "Windows")
+    assert linux["status"] == "disabled"
+    assert linux["nextAction"].startswith("Enable diagnostics")
+    assert windows["status"] == "planned"
+    assert "Windows node agent" in windows["requirements"]
 
 
 def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
@@ -211,6 +244,8 @@ def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
     assert plan["target"]["namespace"] == "default"
     assert plan["execution_policy"]["mode"] == "read_only"
     assert plan["validation"]["ok"] is True
+    assert len(plan["adapter_resolution"]) >= 3
+    assert all(item["resolved"] for item in plan["adapter_resolution"])
     assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift"}
     assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
     assert any(item["type"] == "metric" for item in plan["missing_evidence"])
@@ -228,6 +263,11 @@ def test_runtime_safety_contract_exposes_latest_tool_plan() -> None:
 
     assert contract["toolPlanStatus"]["status"] == "runtime_ready"
     assert contract["toolPlanStatus"]["latestRuntimePlan"]["task_type"] == "cluster_operator_status"
+    assert contract["toolPlanStatus"]["adapterResolution"]
+    assert all(
+        item["status"] == "resolved"
+        for item in contract["toolPlanStatus"]["adapterResolution"]
+    )
 
 
 def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
@@ -3439,6 +3479,17 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
         assert rag_status["accessPath"] == "gateway-only"
         assert rag_status["directDatabaseAccess"] is False
         assert rag_status["aclRequired"] is True
+        adapters = {
+            adapter["name"]: adapter
+            for adapter in payload["spec"]["safetyContract"]["adapterStatus"]
+        }
+        assert adapters["OpenShift"]["status"] == "available"
+        assert len(adapters["OpenShift"]["supportedTools"]) >= 3
+        assert adapters["Linux"]["status"] == "disabled"
+        assert adapters["Linux"]["disabledReason"]
+        assert adapters["Linux"]["nextAction"]
+        assert adapters["Windows"]["status"] == "planned"
+        assert "Windows node agent" in adapters["Windows"]["requirements"]
         assert payload["spec"]["records"]["diagnosticRequests"][0]["metadata"]["name"] == "diag-runtime"
         assert payload["spec"]["records"]["executionRecords"][0]["metadata"]["name"] == "execution-runtime"
         audit_record = payload["spec"]["records"]["auditRecords"][0]

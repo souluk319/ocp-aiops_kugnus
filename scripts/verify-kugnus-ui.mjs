@@ -811,6 +811,7 @@ const getDashboardState = async (cdp) =>
         panelHeadings: [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')].map((node) =>
           node.textContent?.trim(),
         ),
+        adapterPanelText: panelText('OS-aware adapters'),
         evidencePanelText: panelText('Evidence posture'),
         rcaContextText: panelText('RCA Context JSON'),
         horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -942,6 +943,22 @@ const run = async () => {
           panelHeadings: dashboardState.panelHeadings,
         });
       });
+      assertCheck(
+        'dashboard adapter panel explains OpenShift Linux and Windows states',
+        dashboardState.adapterPanelText.includes('OpenShift') &&
+          dashboardState.adapterPanelText.includes('Linux') &&
+          dashboardState.adapterPanelText.includes('Windows') &&
+          dashboardState.adapterPanelText.includes('openshift_event_lookup') &&
+          dashboardState.adapterPanelText.includes('disabled') &&
+          dashboardState.adapterPanelText.includes('planned') &&
+          dashboardState.adapterPanelText.includes('Enable diagnostics') &&
+          dashboardState.adapterPanelText.includes('Windows node agent') &&
+          dashboardState.adapterPanelText.includes('read-only event log credential') &&
+          dashboardState.adapterPanelText.includes('network path from Gateway'),
+        {
+          adapterPanelText: dashboardState.adapterPanelText,
+        },
+      );
     } else {
       assertCheck('console dashboards route hosts K assistant surface', Boolean(currentHasSurface || currentHasEmbeddedSurface), {
         hasEmbeddedSurface: currentHasEmbeddedSurface,

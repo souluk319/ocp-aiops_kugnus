@@ -24,6 +24,72 @@ FORBIDDEN_ACTIONS = (
     "rollout",
 )
 
+OPENSHIFT_ADAPTER_TOOLS = (
+    {
+        "tool": "openshift_event_lookup",
+        "status": "available",
+        "verbs": ["list"],
+        "evidenceTypes": ["event"],
+        "description": "Read namespaced OpenShift Events through the user-scoped API token.",
+    },
+    {
+        "tool": "openshift_pod_status_lookup",
+        "status": "available",
+        "verbs": ["list"],
+        "evidenceTypes": ["pod_status"],
+        "description": "Read Pod phase, container readiness, restart counts, and last state.",
+    },
+    {
+        "tool": "openshift_pod_log_tail",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["pod_log"],
+        "description": "Read Pod logs when the user token has log access.",
+    },
+    {
+        "tool": "openshift_deployment_lookup",
+        "status": "available",
+        "verbs": ["list", "get"],
+        "evidenceTypes": ["deployment"],
+        "description": "Read Deployment selectors and rollout status.",
+    },
+    {
+        "tool": "openshift_clusteroperator_lookup",
+        "status": "available",
+        "verbs": ["list"],
+        "evidenceTypes": ["clusteroperator"],
+        "description": "Read ClusterOperator Available/Progressing/Degraded conditions.",
+    },
+    {
+        "tool": "openshift_clusterversion_lookup",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["clusterversion"],
+        "description": "Read ClusterVersion update and upgrade-blocking state.",
+    },
+    {
+        "tool": "openshift_cronjob_lookup",
+        "status": "available",
+        "verbs": ["list"],
+        "evidenceTypes": ["cronjob"],
+        "description": "Read CronJob schedule, suspend, and recent job state.",
+    },
+)
+
+LINUX_ADAPTER_TOOLS = (
+    "journalctl_readonly_tail",
+    "systemctl_status_readonly",
+    "dmesg_readonly_tail",
+    "df_readonly",
+    "free_readonly",
+)
+
+WINDOWS_ADAPTER_TOOLS = (
+    "get_winevent_readonly",
+    "get_service_readonly",
+    "get_counter_readonly",
+)
+
 EVIDENCE_GROUPS = (
     {
         "type": "openshift",
@@ -51,6 +117,174 @@ EVIDENCE_GROUPS = (
 )
 
 NAMESPACE_MENTION_RE = re.compile(r"\b(?P<namespace>[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?)\s*네임스페이스")
+
+
+def build_adapter_registry(
+    *,
+    diagnostics_enabled: bool,
+    diagnostics_controller_configured: bool = False,
+) -> list[dict[str, Any]]:
+    linux_status = "diagnostics_ready" if diagnostics_enabled and diagnostics_controller_configured else "disabled"
+    linux_reason = (
+        "Linux host diagnostics controller is configured and diagnostics gate is enabled."
+        if linux_status == "diagnostics_ready"
+        else (
+            "Diagnostics gate is enabled, but host diagnostics controller URL is not configured."
+            if diagnostics_enabled
+            else "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled."
+        )
+    )
+    linux_next_action = (
+        "Submit diagnostics requests through the approved collector API."
+        if linux_status == "diagnostics_ready"
+        else "Enable diagnostics and configure KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL before Linux collectors can run."
+    )
+
+    return [
+        {
+            "name": "OpenShift",
+            "type": "openshift",
+            "status": "available",
+            "reason": "UserToken-scoped read-only OpenShift API observation is available.",
+            "detail": "UserToken-scoped read-only cluster observation",
+            "nextAction": "Resolve Tool Plan steps to OpenShift read-only API calls.",
+            "supportedTools": [dict(tool) for tool in OPENSHIFT_ADAPTER_TOOLS],
+            "disabledReason": "",
+            "requirements": ["valid OpenShift user token", "read-only RBAC for requested resource"],
+        },
+        {
+            "name": "Linux",
+            "type": "linux",
+            "status": linux_status,
+            "reason": linux_reason,
+            "detail": "host diagnostics adapter remains approval-gated",
+            "nextAction": linux_next_action,
+            "supportedTools": [
+                {
+                    "tool": tool,
+                    "status": linux_status,
+                    "verbs": ["get"],
+                    "evidenceTypes": ["host_diagnostics"],
+                    "description": "Linux host read-only diagnostics collector capability.",
+                    "disabledReason": "" if linux_status == "diagnostics_ready" else linux_reason,
+                }
+                for tool in LINUX_ADAPTER_TOOLS
+            ],
+            "disabledReason": "" if linux_status == "diagnostics_ready" else linux_reason,
+            "requirements": [
+                "diagnostics gate enabled",
+                "host diagnostics controller URL configured",
+                "approved collector profile",
+            ],
+        },
+        {
+            "name": "Windows",
+            "type": "windows",
+            "status": "planned",
+            "reason": "Windows event/service adapter is design scope only in Ver.0.1.1.",
+            "detail": "Windows event adapter is design scope, not runtime-ready",
+            "nextAction": "Define a Windows node agent or remote event bridge before exposing runtime results.",
+            "supportedTools": [
+                {
+                    "tool": tool,
+                    "status": "planned",
+                    "verbs": ["get"],
+                    "evidenceTypes": ["windows_event", "windows_service"],
+                    "description": "Planned Windows read-only observation capability.",
+                    "disabledReason": "Windows adapter has no runtime collector or credential bridge yet.",
+                }
+                for tool in WINDOWS_ADAPTER_TOOLS
+            ],
+            "disabledReason": "Windows adapter has no runtime collector or credential bridge yet.",
+            "requirements": ["Windows node agent", "read-only event log credential", "network path from Gateway"],
+        },
+    ]
+
+
+def _adapter_key(value: Any) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    if normalized in {"openshift", "ocp"}:
+        return "openshift"
+    if normalized in {"linux", "hostlinux"}:
+        return "linux"
+    if normalized in {"windows", "win"}:
+        return "windows"
+    return normalized
+
+
+def resolve_tool_plan_adapters(
+    tool_plan: Mapping[str, Any] | None,
+    *,
+    adapter_registry: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    registry = adapter_registry or build_adapter_registry(
+        diagnostics_enabled=False,
+        diagnostics_controller_configured=False,
+    )
+    adapters = {_adapter_key(adapter.get("name")): adapter for adapter in registry}
+    resolutions: list[dict[str, Any]] = []
+
+    for step in _as_list((tool_plan or {}).get("tool_plan")):
+        if not isinstance(step, Mapping):
+            continue
+        adapter_name = str(step.get("adapter") or "")
+        adapter_key = _adapter_key(adapter_name)
+        tool = str(step.get("tool") or "")
+        base = {
+            "step": step.get("step"),
+            "tool": tool,
+            "adapter": adapter_name,
+            "verb": step.get("verb"),
+            "evidenceType": step.get("evidence_type"),
+        }
+        adapter = adapters.get(adapter_key)
+        if not adapter:
+            resolutions.append(
+                {
+                    **base,
+                    "status": "not_os_adapter",
+                    "resolved": False,
+                    "reason": f"{adapter_name or 'unknown'} is not part of the OS-aware adapter registry.",
+                }
+            )
+            continue
+
+        capability = next(
+            (
+                item
+                for item in _as_list(adapter.get("supportedTools"))
+                if isinstance(item, Mapping) and item.get("tool") == tool
+            ),
+            None,
+        )
+        if not capability:
+            resolutions.append(
+                {
+                    **base,
+                    "status": "unsupported_tool",
+                    "resolved": False,
+                    "reason": f"{tool} is not listed under {adapter.get('name')} supported tools.",
+                }
+            )
+            continue
+
+        capability_status = str(capability.get("status") or adapter.get("status") or "unknown")
+        resolved = capability_status in {"available", "diagnostics_ready"}
+        resolutions.append(
+            {
+                **base,
+                "status": "resolved" if resolved else capability_status,
+                "resolved": resolved,
+                "capability": capability.get("tool"),
+                "reason": (
+                    f"{tool} resolves to {adapter.get('name')} adapter capability."
+                    if resolved
+                    else str(capability.get("disabledReason") or adapter.get("disabledReason") or adapter.get("reason"))
+                ),
+            }
+        )
+
+    return resolutions
 
 
 def _canonical_digest(value: Any) -> str:
@@ -492,6 +726,7 @@ def build_runtime_tool_plan(
         "missing_evidence": missing,
     }
     plan["validation"] = assert_read_only_tool_plan(plan)
+    plan["adapter_resolution"] = resolve_tool_plan_adapters(plan)
     return plan
 
 
@@ -501,15 +736,26 @@ def build_runtime_safety_contract(
     unrestricted_commands_enabled: bool,
     diagnostics_enabled: bool,
     record_store_enabled: bool,
+    diagnostics_controller_configured: bool = False,
     latest_runtime_tool_plan: Mapping[str, Any] | None = None,
     latest_rca_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     mode = "controlled_execution" if mutations_enabled else "read_only"
+    adapter_registry = build_adapter_registry(
+        diagnostics_enabled=diagnostics_enabled,
+        diagnostics_controller_configured=diagnostics_controller_configured,
+    )
     latest_context = dict(latest_rca_context) if latest_rca_context else None
     tool_plan_status = {
         "source": "deterministic_gateway_planner",
         "status": "runtime_ready" if latest_runtime_tool_plan else "waiting_for_first_question",
         "latestRuntimePlan": dict(latest_runtime_tool_plan) if latest_runtime_tool_plan else None,
+        "adapterResolution": resolve_tool_plan_adapters(
+            latest_runtime_tool_plan,
+            adapter_registry=adapter_registry,
+        )
+        if latest_runtime_tool_plan
+        else [],
     }
     context_evidence = latest_context.get("evidence", {}) if latest_context else {}
     rca_context_status = {
@@ -532,23 +778,7 @@ def build_runtime_safety_contract(
         },
         "toolPlanStatus": tool_plan_status,
         "rcaContextStatus": rca_context_status,
-        "adapterStatus": [
-            {
-                "name": "OpenShift",
-                "status": "available",
-                "detail": "UserToken-scoped read-only cluster observation",
-            },
-            {
-                "name": "Linux",
-                "status": "planned" if not diagnostics_enabled else "diagnostics_ready",
-                "detail": "host diagnostics adapter remains approval-gated",
-            },
-            {
-                "name": "Windows",
-                "status": "planned",
-                "detail": "Windows event adapter is design scope, not runtime-ready",
-            },
-        ],
+        "adapterStatus": adapter_registry,
         "lightspeedStatus": {
             "status": "configured",
             "streamProbe": "not_probed_by_status_endpoint",
