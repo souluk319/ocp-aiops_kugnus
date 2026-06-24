@@ -32,6 +32,25 @@ Ver.0.1.1의 목표는 최종 PDF에서 요구한 AIOps Agent 제품 요구사�
 | E9. Model endpoint/routing | 회사 LLM endpoint 연동 계약과 quick/deep routing skeleton이 있음 |
 | E10. Evaluation | 한국어 AIOps scenario 5개 이상이 자동 pass/fail로 평가됨 |
 
+## 현재 Goal의 8단계와 10 Epic의 관계
+
+현재 진행 중인 Goal의 `1부터 8단계`는 위 10 Epic 전체 목록을 처음부터 다시 세는 것이 아니다.
+UI polish, Header status UX 1차, Runtime Tool Plan 1차는 이미 기준선으로 완료되었고,
+현재 8단계는 남은 기능 고도화 작업을 검수 단위로 다시 묶은 실행 순서다.
+
+현재 실행 순서:
+
+1. Evidence/RCA Context 연결
+2. 답변 하단 Evidence Reference 표시
+3. RAG/Runbook Storage Contract + Search Skeleton
+4. OS-aware Adapter Registry/Status
+5. Lightspeed Context Injection 검증
+6. Action Lifecycle UX 정리
+7. OLM/Operator 0.1.1 Readiness
+8. AIOps Evaluation 자동화
+
+각 단계의 pass/fail과 rework 기준은 `reviewer-gate-protocol.md`를 따른다.
+
 ## 요구사항 매핑
 
 | PDF 요구 | 0.1.1에서 끝낼 것 | 구현 대상 | Evidence |
@@ -287,4 +306,3 @@ Pass:
 10. OLM/Operator condition 정리
 
 이 순서는 사용자가 지금 바로 혼란을 느끼는 UI 문제를 먼저 해결하면서도, 바로 다음 단계에서 PDF의 핵심인 Tool Plan/Evidence/RCA Context로 이어진다.
-

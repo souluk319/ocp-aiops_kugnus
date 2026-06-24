@@ -20,6 +20,33 @@
 
 하지만 최종 PDF 기준으로는 아직 **AIOps 제품 기능이 충분히 닫히지 않은 상태**다.
 
+## 현재 Goal 실행 기준
+
+0.1.1 전체 완료 정의는 `pdf-requirements-completion-plan.md`의 10 Epic이다.
+다만 현재 진행 중인 Goal의 `1부터 8단계`는 아래 기준선 이후 남은 기능 stage를 뜻한다.
+
+완료된 기준선:
+
+- UI polish lock
+- Header status disabled reason 1차
+- Runtime Tool Plan schema/runtime event 1차
+- 0.1.1 요구사항 산출물 작성
+
+따라서 지금부터 단계별 검수로 진행할 8단계는 다음과 같이 고정한다.
+
+| Stage | 작업 단위 | 주요 산출 |
+| :--- | :--- | :--- |
+| 1 | Evidence/RCA Context 연결 | `rca_context` event, evidence/missing evidence 추적 |
+| 2 | 답변 하단 Evidence Reference 표시 | 채팅 답변 evidence footer, digest/ref 표시 |
+| 3 | RAG/Runbook Storage Contract + Search Skeleton | pgvector 계약, ingestion skeleton, `/v1/rag/search` |
+| 4 | OS-aware Adapter Registry/Status | OpenShift/Linux/Windows capability, reason, next action |
+| 5 | Lightspeed Context Injection 검증 | `gateway_context`, digest, fallback 구분 |
+| 6 | Action Lifecycle UX 정리 | proposal/plan/approval/execution 단계와 disabled reason |
+| 7 | OLM/Operator 0.1.1 Readiness | package/status/install 경로의 0.1.1 계약 반영 |
+| 8 | AIOps Evaluation 자동화 | 5개 이상 한국어 운영 시나리오 pass/fail |
+
+각 Stage 완료는 `reviewer-gate-protocol.md` 기준으로 Reviewer A/B/C가 모두 pass해야 한다.
+
 ## 현재 누락 또는 부실한 점
 
 | 영역 | 현재 상태 | 부족한 점 | 우선도 |
@@ -198,7 +225,7 @@ Pass:
 - 최소 5개 scenario가 pass/fail로 기록된다.
 - "증거 없는데 단정" 케이스를 fail 처리한다.
 
-## 0.1.1 작업 순서
+## 원래 0.1.1 작업 순서
 
 1. Header status UX 정리
 2. Tool Plan JSON schema 및 runtime event 추가
@@ -208,6 +235,9 @@ Pass:
 6. OS Adapter contract와 status 확장
 7. Lightspeed context injection 검증
 8. AIOps scenario 평가 자동화
+
+위 목록의 1, 2번은 이미 1차 구현과 검증을 통과했다.
+현재 Goal의 단계 번호는 이 목록을 그대로 다시 세는 것이 아니라, `현재 Goal 실행 기준` 표의 Stage 1-8을 따른다.
 
 ## Acceptance Criteria
 
