@@ -1,0 +1,791 @@
+{
+  "schemaVersion": "stage1-evidence-rca-verification/v1",
+  "ok": true,
+  "checks": [
+    {
+      "name": "evidence_ref_event_name",
+      "ok": true,
+      "detail": "stream event name is evidence_ref"
+    },
+    {
+      "name": "evidence_record_schema",
+      "ok": true,
+      "detail": "EvidenceRecord schemaVersion is v1"
+    },
+    {
+      "name": "evidence_record_id",
+      "ok": true,
+      "detail": "EvidenceRecord has evidenceId"
+    },
+    {
+      "name": "evidence_record_digest",
+      "ok": true,
+      "detail": "EvidenceRecord has contentDigest"
+    },
+    {
+      "name": "rca_context_kind",
+      "ok": true,
+      "detail": "RcaContext kind is present"
+    },
+    {
+      "name": "rca_context_id",
+      "ok": true,
+      "detail": "RcaContext metadata.contextId is present"
+    },
+    {
+      "name": "rca_context_digest",
+      "ok": true,
+      "detail": "RcaContext metadata.digest is present"
+    },
+    {
+      "name": "evidence_ref_linked_to_rca_context",
+      "ok": true,
+      "detail": "evidence_ref evidenceId is linked in rca_context.evidence_refs"
+    },
+    {
+      "name": "collected_ref_digest_linked",
+      "ok": true,
+      "detail": "collectedRefs contentDigest matches evidence_ref contentDigest"
+    },
+    {
+      "name": "evidence_based_confidence",
+      "ok": true,
+      "detail": "collected evidence sets evidence_based confidence"
+    },
+    {
+      "name": "missing_evidence_confidence",
+      "ok": true,
+      "detail": "missing evidence sets insufficient_evidence confidence"
+    },
+    {
+      "name": "missing_evidence_list",
+      "ok": true,
+      "detail": "missing evidence list is populated"
+    },
+    {
+      "name": "safety_contract_collected_status",
+      "ok": true,
+      "detail": "safety contract exposes collected OpenShift evidence"
+    },
+    {
+      "name": "safety_contract_missing_status",
+      "ok": true,
+      "detail": "safety contract separates missing metric evidence"
+    },
+    {
+      "name": "source_wiring:komsco-ai-gateway/komsco_ai_gateway/main.py",
+      "ok": true,
+      "detail": "missing=[]"
+    },
+    {
+      "name": "source_wiring:komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
+      "ok": true,
+      "detail": "missing=[]"
+    },
+    {
+      "name": "source_wiring:komsco-ai-console-plugin/src/components/assistant.css",
+      "ok": true,
+      "detail": "missing=[]"
+    }
+  ],
+  "sampleEvents": {
+    "evidenceRefEvent": {
+      "type": "tool_result",
+      "name": "evidence_ref",
+      "status": "success",
+      "summary": "ev-08e61d1da0fffe6d recorded",
+      "result": {
+        "schemaVersion": "v1",
+        "accessScope": "user-token",
+        "classification": "internal",
+        "collectedAt": "2026-06-24T17:08:31.494719+00:00",
+        "contentDigest": "sha256:08e61d1da0fffe6d43d4b00a6e70d19b308a1f1a6f0c8816d82120de8aed1dd6",
+        "evidenceId": "ev-08e61d1da0fffe6d",
+        "freshnessTtl": "5m",
+        "identityMode": "user-token",
+        "incidentId": "inc-stage1-verification",
+        "modelAccessAllowed": true,
+        "originatingSubject": {
+          "username": "stage1@example.com",
+          "groups": [
+            "stage1-reviewer"
+          ]
+        },
+        "redactionProfile": "gateway-phase0-v1",
+        "runId": "stage1-verification-run",
+        "sourceType": "gateway-preflight-evidence",
+        "summary": "Pod restart evidence collected from Kubernetes API."
+      }
+    },
+    "rcaContextEvent": {
+      "type": "rca_context",
+      "phase": "post_answer",
+      "context": {
+        "apiVersion": "aiops.komsco/v1alpha1",
+        "kind": "RcaContext",
+        "metadata": {
+          "generatedAt": "2026-06-24T17:08:31.494719Z",
+          "incidentId": "inc-stage1-verification",
+          "phase": "post_answer",
+          "planner": "deterministic_gateway_planner",
+          "runId": "stage1-verification-run",
+          "version": "0.1.1",
+          "digest": "sha256:951f151e8986ad72d744562986a5409887fcbd4adda59da5d1b4c1af134a546b",
+          "contextId": "rca-951f151e8986ad72"
+        },
+        "question": {
+          "digest": "sha256:fa44ee22acebd6e7ffc4a1cd5b387f0bb746266227d12360886f5e12b5355069",
+          "pageContext": {},
+          "taskType": "pod_restart_rca",
+          "target": {
+            "platform": "openshift",
+            "namespace": "all-accessible-namespaces"
+          }
+        },
+        "evidence": {
+          "collectedRefs": [
+            {
+              "collectedAt": "2026-06-24T17:08:31.494719+00:00",
+              "contentDigest": "sha256:08e61d1da0fffe6d43d4b00a6e70d19b308a1f1a6f0c8816d82120de8aed1dd6",
+              "evidenceId": "ev-08e61d1da0fffe6d",
+              "freshnessTtl": "5m",
+              "sourceType": "gateway-preflight-evidence",
+              "status": "recorded",
+              "summary": "Pod restart evidence collected from Kubernetes API.",
+              "type": "openshift"
+            }
+          ],
+          "failedRefs": [],
+          "missing": [
+            {
+              "type": "metric",
+              "reason": "Prometheus metric query is not wired in ver.0.1.1 slice 1"
+            },
+            {
+              "type": "runbook",
+              "reason": "RAG/runbook retrieval is planned for a later 0.1.1 slice"
+            }
+          ],
+          "summary": {
+            "collectedCount": 1,
+            "failedCount": 0,
+            "missingCount": 2
+          }
+        },
+        "evidence_refs": [
+          {
+            "collectedAt": "2026-06-24T17:08:31.494719+00:00",
+            "contentDigest": "sha256:08e61d1da0fffe6d43d4b00a6e70d19b308a1f1a6f0c8816d82120de8aed1dd6",
+            "evidenceId": "ev-08e61d1da0fffe6d",
+            "freshnessTtl": "5m",
+            "sourceType": "gateway-preflight-evidence",
+            "status": "recorded",
+            "summary": "Pod restart evidence collected from Kubernetes API.",
+            "type": "openshift"
+          }
+        ],
+        "safety": {
+          "mode": "read_only",
+          "validation": {
+            "ok": true,
+            "violations": []
+          }
+        },
+        "confidence": {
+          "level": "evidence_based",
+          "reason": "runtime evidence references are attached"
+        }
+      },
+      "safetyContract": {
+        "product": {
+          "name": "Cywell AI",
+          "mode": "read_only_first",
+          "mission": "Evidence-first OpenShift operations assistant for catalog registration work."
+        },
+        "mode": "read_only",
+        "allowedReadOnlyVerbs": [
+          "get",
+          "list",
+          "watch"
+        ],
+        "forbiddenActions": [
+          "create",
+          "update",
+          "patch",
+          "delete",
+          "exec",
+          "portforward",
+          "restart",
+          "scale",
+          "rollout"
+        ],
+        "evidenceStatus": [
+          {
+            "type": "openshift",
+            "status": "collected",
+            "count": 1
+          },
+          {
+            "type": "metric",
+            "status": "missing",
+            "count": 0,
+            "reason": "Prometheus metric query is not wired in ver.0.1.1 slice 1"
+          },
+          {
+            "type": "runbook",
+            "status": "missing",
+            "count": 0,
+            "reason": "RAG/runbook retrieval is planned for a later 0.1.1 slice"
+          },
+          {
+            "type": "audit",
+            "status": "missing",
+            "count": 0,
+            "reason": "audit evidence not collected yet"
+          }
+        ],
+        "capabilityGates": {
+          "mutationsEnabled": false,
+          "unrestrictedCommandsEnabled": false,
+          "diagnosticsEnabled": false,
+          "recordStoreEnabled": false
+        },
+        "toolPlanStatus": {
+          "source": "deterministic_gateway_planner",
+          "status": "runtime_ready",
+          "latestRuntimePlan": {
+            "apiVersion": "aiops.komsco/v1alpha1",
+            "kind": "ToolPlan",
+            "metadata": {
+              "generatedAt": "2026-06-24T17:08:31.494151Z",
+              "planner": "deterministic_gateway_planner",
+              "version": "0.1.1"
+            },
+            "task_type": "pod_restart_rca",
+            "target": {
+              "platform": "openshift",
+              "namespace": "all-accessible-namespaces"
+            },
+            "execution_policy": {
+              "mode": "read_only",
+              "requestedUiMode": "read-only",
+              "allowed_verbs": [
+                "get",
+                "list",
+                "watch"
+              ],
+              "forbidden_actions": [
+                "create",
+                "update",
+                "patch",
+                "delete",
+                "exec",
+                "portforward",
+                "restart",
+                "scale",
+                "rollout"
+              ]
+            },
+            "tool_plan": [
+              {
+                "step": 1,
+                "tool": "openshift_event_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "event",
+                "reason": "재시작 시점 주변 Event와 reason을 먼저 확인"
+              },
+              {
+                "step": 2,
+                "tool": "openshift_pod_status_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "pod_status",
+                "reason": "restartCount, lastState, container 상태 확인"
+              },
+              {
+                "step": 3,
+                "tool": "openshift_pod_log_tail",
+                "adapter": "OpenShift",
+                "verb": "get",
+                "evidence_type": "pod_log",
+                "reason": "Event만으로 부족한 애플리케이션 종료 원인 확인"
+              }
+            ],
+            "missing_evidence": [
+              {
+                "type": "metric",
+                "reason": "Prometheus metric query is not wired in ver.0.1.1 slice 1"
+              },
+              {
+                "type": "runbook",
+                "reason": "RAG/runbook retrieval is planned for a later 0.1.1 slice"
+              }
+            ],
+            "validation": {
+              "ok": true,
+              "violations": []
+            },
+            "adapter_resolution": [
+              {
+                "step": 1,
+                "tool": "openshift_event_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidenceType": "event",
+                "status": "resolved",
+                "resolved": true,
+                "capability": "openshift_event_lookup",
+                "reason": "openshift_event_lookup resolves to OpenShift adapter capability."
+              },
+              {
+                "step": 2,
+                "tool": "openshift_pod_status_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidenceType": "pod_status",
+                "status": "resolved",
+                "resolved": true,
+                "capability": "openshift_pod_status_lookup",
+                "reason": "openshift_pod_status_lookup resolves to OpenShift adapter capability."
+              },
+              {
+                "step": 3,
+                "tool": "openshift_pod_log_tail",
+                "adapter": "OpenShift",
+                "verb": "get",
+                "evidenceType": "pod_log",
+                "status": "resolved",
+                "resolved": true,
+                "capability": "openshift_pod_log_tail",
+                "reason": "openshift_pod_log_tail resolves to OpenShift adapter capability."
+              }
+            ]
+          },
+          "adapterResolution": [
+            {
+              "step": 1,
+              "tool": "openshift_event_lookup",
+              "adapter": "OpenShift",
+              "verb": "list",
+              "evidenceType": "event",
+              "status": "resolved",
+              "resolved": true,
+              "capability": "openshift_event_lookup",
+              "reason": "openshift_event_lookup resolves to OpenShift adapter capability."
+            },
+            {
+              "step": 2,
+              "tool": "openshift_pod_status_lookup",
+              "adapter": "OpenShift",
+              "verb": "list",
+              "evidenceType": "pod_status",
+              "status": "resolved",
+              "resolved": true,
+              "capability": "openshift_pod_status_lookup",
+              "reason": "openshift_pod_status_lookup resolves to OpenShift adapter capability."
+            },
+            {
+              "step": 3,
+              "tool": "openshift_pod_log_tail",
+              "adapter": "OpenShift",
+              "verb": "get",
+              "evidenceType": "pod_log",
+              "status": "resolved",
+              "resolved": true,
+              "capability": "openshift_pod_log_tail",
+              "reason": "openshift_pod_log_tail resolves to OpenShift adapter capability."
+            }
+          ]
+        },
+        "rcaContextStatus": {
+          "digest": "sha256:951f151e8986ad72d744562986a5409887fcbd4adda59da5d1b4c1af134a546b",
+          "latestContext": {
+            "apiVersion": "aiops.komsco/v1alpha1",
+            "kind": "RcaContext",
+            "metadata": {
+              "generatedAt": "2026-06-24T17:08:31.494719Z",
+              "incidentId": "inc-stage1-verification",
+              "phase": "post_answer",
+              "planner": "deterministic_gateway_planner",
+              "runId": "stage1-verification-run",
+              "version": "0.1.1",
+              "digest": "sha256:951f151e8986ad72d744562986a5409887fcbd4adda59da5d1b4c1af134a546b",
+              "contextId": "rca-951f151e8986ad72"
+            },
+            "question": {
+              "digest": "sha256:fa44ee22acebd6e7ffc4a1cd5b387f0bb746266227d12360886f5e12b5355069",
+              "pageContext": {},
+              "taskType": "pod_restart_rca",
+              "target": {
+                "platform": "openshift",
+                "namespace": "all-accessible-namespaces"
+              }
+            },
+            "evidence": {
+              "collectedRefs": [
+                {
+                  "collectedAt": "2026-06-24T17:08:31.494719+00:00",
+                  "contentDigest": "sha256:08e61d1da0fffe6d43d4b00a6e70d19b308a1f1a6f0c8816d82120de8aed1dd6",
+                  "evidenceId": "ev-08e61d1da0fffe6d",
+                  "freshnessTtl": "5m",
+                  "sourceType": "gateway-preflight-evidence",
+                  "status": "recorded",
+                  "summary": "Pod restart evidence collected from Kubernetes API.",
+                  "type": "openshift"
+                }
+              ],
+              "failedRefs": [],
+              "missing": [
+                {
+                  "type": "metric",
+                  "reason": "Prometheus metric query is not wired in ver.0.1.1 slice 1"
+                },
+                {
+                  "type": "runbook",
+                  "reason": "RAG/runbook retrieval is planned for a later 0.1.1 slice"
+                }
+              ],
+              "summary": {
+                "collectedCount": 1,
+                "failedCount": 0,
+                "missingCount": 2
+              }
+            },
+            "evidence_refs": [
+              {
+                "collectedAt": "2026-06-24T17:08:31.494719+00:00",
+                "contentDigest": "sha256:08e61d1da0fffe6d43d4b00a6e70d19b308a1f1a6f0c8816d82120de8aed1dd6",
+                "evidenceId": "ev-08e61d1da0fffe6d",
+                "freshnessTtl": "5m",
+                "sourceType": "gateway-preflight-evidence",
+                "status": "recorded",
+                "summary": "Pod restart evidence collected from Kubernetes API.",
+                "type": "openshift"
+              }
+            ],
+            "safety": {
+              "mode": "read_only",
+              "validation": {
+                "ok": true,
+                "violations": []
+              }
+            },
+            "confidence": {
+              "level": "evidence_based",
+              "reason": "runtime evidence references are attached"
+            }
+          },
+          "source": "chat_stream",
+          "status": "available"
+        },
+        "adapterStatus": [
+          {
+            "name": "OpenShift",
+            "type": "openshift",
+            "status": "available",
+            "reason": "UserToken-scoped read-only OpenShift API observation is available.",
+            "detail": "UserToken-scoped read-only cluster observation",
+            "nextAction": "Resolve Tool Plan steps to OpenShift read-only API calls.",
+            "supportedTools": [
+              {
+                "tool": "openshift_event_lookup",
+                "status": "available",
+                "verbs": [
+                  "list"
+                ],
+                "evidenceTypes": [
+                  "event"
+                ],
+                "description": "Read namespaced OpenShift Events through the user-scoped API token."
+              },
+              {
+                "tool": "openshift_pod_status_lookup",
+                "status": "available",
+                "verbs": [
+                  "list"
+                ],
+                "evidenceTypes": [
+                  "pod_status"
+                ],
+                "description": "Read Pod phase, container readiness, restart counts, and last state."
+              },
+              {
+                "tool": "openshift_pod_log_tail",
+                "status": "available",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "pod_log"
+                ],
+                "description": "Read Pod logs when the user token has log access."
+              },
+              {
+                "tool": "openshift_deployment_lookup",
+                "status": "available",
+                "verbs": [
+                  "list",
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "deployment"
+                ],
+                "description": "Read Deployment selectors and rollout status."
+              },
+              {
+                "tool": "openshift_clusteroperator_lookup",
+                "status": "available",
+                "verbs": [
+                  "list"
+                ],
+                "evidenceTypes": [
+                  "clusteroperator"
+                ],
+                "description": "Read ClusterOperator Available/Progressing/Degraded conditions."
+              },
+              {
+                "tool": "openshift_clusterversion_lookup",
+                "status": "available",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "clusterversion"
+                ],
+                "description": "Read ClusterVersion update and upgrade-blocking state."
+              },
+              {
+                "tool": "openshift_cronjob_lookup",
+                "status": "available",
+                "verbs": [
+                  "list"
+                ],
+                "evidenceTypes": [
+                  "cronjob"
+                ],
+                "description": "Read CronJob schedule, suspend, and recent job state."
+              },
+              {
+                "tool": "openshift_job_event_lookup",
+                "status": "available",
+                "verbs": [
+                  "list"
+                ],
+                "evidenceTypes": [
+                  "event"
+                ],
+                "description": "Read recent Job events related to CronJob activity."
+              }
+            ],
+            "disabledReason": "",
+            "requirements": [
+              "valid OpenShift user token",
+              "read-only RBAC for requested resource"
+            ]
+          },
+          {
+            "name": "Linux",
+            "type": "linux",
+            "status": "disabled",
+            "reason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled.",
+            "detail": "host diagnostics adapter remains approval-gated",
+            "nextAction": "Enable diagnostics and configure KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL before Linux collectors can run.",
+            "supportedTools": [
+              {
+                "tool": "journalctl_readonly_tail",
+                "status": "disabled",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "host_diagnostics"
+                ],
+                "description": "Linux host read-only diagnostics collector capability.",
+                "disabledReason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled."
+              },
+              {
+                "tool": "systemctl_status_readonly",
+                "status": "disabled",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "host_diagnostics"
+                ],
+                "description": "Linux host read-only diagnostics collector capability.",
+                "disabledReason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled."
+              },
+              {
+                "tool": "dmesg_readonly_tail",
+                "status": "disabled",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "host_diagnostics"
+                ],
+                "description": "Linux host read-only diagnostics collector capability.",
+                "disabledReason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled."
+              },
+              {
+                "tool": "df_readonly",
+                "status": "disabled",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "host_diagnostics"
+                ],
+                "description": "Linux host read-only diagnostics collector capability.",
+                "disabledReason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled."
+              },
+              {
+                "tool": "free_readonly",
+                "status": "disabled",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "host_diagnostics"
+                ],
+                "description": "Linux host read-only diagnostics collector capability.",
+                "disabledReason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled."
+              }
+            ],
+            "disabledReason": "KOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled.",
+            "requirements": [
+              "diagnostics gate enabled",
+              "host diagnostics controller URL configured",
+              "approved collector profile"
+            ]
+          },
+          {
+            "name": "Windows",
+            "type": "windows",
+            "status": "planned",
+            "reason": "Windows event/service adapter is design scope only in Ver.0.1.1.",
+            "detail": "Windows event adapter is design scope, not runtime-ready",
+            "nextAction": "Define a Windows node agent or remote event bridge before exposing runtime results.",
+            "supportedTools": [
+              {
+                "tool": "get_winevent_readonly",
+                "status": "planned",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "windows_event",
+                  "windows_service"
+                ],
+                "description": "Planned Windows read-only observation capability.",
+                "disabledReason": "Windows adapter has no runtime collector or credential bridge yet."
+              },
+              {
+                "tool": "get_service_readonly",
+                "status": "planned",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "windows_event",
+                  "windows_service"
+                ],
+                "description": "Planned Windows read-only observation capability.",
+                "disabledReason": "Windows adapter has no runtime collector or credential bridge yet."
+              },
+              {
+                "tool": "get_counter_readonly",
+                "status": "planned",
+                "verbs": [
+                  "get"
+                ],
+                "evidenceTypes": [
+                  "windows_event",
+                  "windows_service"
+                ],
+                "description": "Planned Windows read-only observation capability.",
+                "disabledReason": "Windows adapter has no runtime collector or credential bridge yet."
+              }
+            ],
+            "disabledReason": "Windows adapter has no runtime collector or credential bridge yet.",
+            "requirements": [
+              "Windows node agent",
+              "read-only event log credential",
+              "network path from Gateway"
+            ]
+          }
+        ],
+        "lightspeedStatus": {
+          "status": "configured",
+          "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+          "streamProbe": "not_started"
+        }
+      }
+    },
+    "missingRcaContextEvent": {
+      "type": "rca_context",
+      "phase": "pre_answer",
+      "context": {
+        "apiVersion": "aiops.komsco/v1alpha1",
+        "kind": "RcaContext",
+        "metadata": {
+          "generatedAt": "2026-06-24T17:08:31.494719Z",
+          "incidentId": "inc-stage1-missing-verification",
+          "phase": "pre_answer",
+          "planner": "deterministic_gateway_planner",
+          "runId": "stage1-missing-verification-run",
+          "version": "0.1.1",
+          "digest": "sha256:34cb3817b23f275cd4ba0d49062f037524a4482638e92ca49d38c17593195b35",
+          "contextId": "rca-34cb3817b23f275c"
+        },
+        "question": {
+          "digest": "sha256:6c8f57db3320b60dc4680b927e3b4812d49bdf926bf6327cd1d00c7e5a79c4d5",
+          "pageContext": {},
+          "taskType": "cluster_operator_status",
+          "target": {
+            "platform": "openshift",
+            "namespace": "all-accessible-namespaces"
+          }
+        },
+        "evidence": {
+          "collectedRefs": [],
+          "failedRefs": [],
+          "missing": [
+            {
+              "type": "runbook",
+              "reason": "operator별 runbook retrieval is not configured"
+            },
+            {
+              "type": "openshift",
+              "reason": "no runtime evidence reference has been recorded for this chat run yet"
+            }
+          ],
+          "summary": {
+            "collectedCount": 0,
+            "failedCount": 0,
+            "missingCount": 2
+          }
+        },
+        "evidence_refs": [],
+        "safety": {
+          "mode": "read_only",
+          "validation": {
+            "ok": true,
+            "violations": []
+          }
+        },
+        "confidence": {
+          "level": "insufficient_evidence",
+          "reason": "missing runtime evidence prevents confirmation"
+        }
+      }
+    }
+  },
+  "boundaries": {
+    "officialOcpWrites": false,
+    "usesLocalHttpServer": false,
+    "usesLlmEndpoint": false,
+    "usesKubeconfig": false
+  }
+}

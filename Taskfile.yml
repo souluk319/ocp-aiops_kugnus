@@ -139,6 +139,11 @@ tasks:
     cmds:
       - python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json || python scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json
 
+  kugnus:stage1:verify:
+    desc: Verify local Stage 1 evidence/RCA context events and write a JSON evidence report
+    cmds:
+      - python3 scripts/verify-stage1-evidence-rca.py --report docs/Ver.0.1.1/stage-1-evidence-rca-context-verification.json || python scripts/verify-stage1-evidence-rca.py --report docs/Ver.0.1.1/stage-1-evidence-rca-context-verification.json
+
   kugnus:ui:verify:
     desc: Verify local Cywell AI chat UI layout, header, sidebar, fullscreen, and resize controls
     cmds:
