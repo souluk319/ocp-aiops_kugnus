@@ -213,16 +213,16 @@ guards.
 Prepare images that are reachable by the cluster:
 
 ```bash
-export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.2
+export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.3
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai-kugnus
 export KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus
 export KOMSCO_AIOPS_DISPLAY_NAME="Cywell AI"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=komsco-ai-console-plugin-kugnus
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
-export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2
-export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.2
-export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.3
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.3
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.3
 ```
 
 `KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card
@@ -334,7 +334,7 @@ Package a chart version and create the Helm repository index:
 
 ```bash
 export KOMSCO_AIOPS_CATALOG_URL=https://charts.example.internal/komsco-aiops
-export KOMSCO_AIOPS_CHART_VERSION=0.1.0
+export KOMSCO_AIOPS_CHART_VERSION=0.1.3
 export KOMSCO_AIOPS_PACKAGE_VALUES=openshift/helm-values/console-plugin-prod.yaml
 task catalog:package
 ```
@@ -370,7 +370,7 @@ To ship an update, build and push new runtime images, update the values file or
 image tags, publish a new chart version, and refresh the catalog repo:
 
 ```bash
-export KOMSCO_AIOPS_CHART_VERSION=0.1.1
+export KOMSCO_AIOPS_CHART_VERSION=0.1.3
 task catalog:package
 # upload dist/software-catalog/* to KOMSCO_AIOPS_CATALOG_URL
 task catalog:register

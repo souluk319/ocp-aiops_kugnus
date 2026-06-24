@@ -11,7 +11,7 @@ CATALOG_DIR=${KOMSCO_AIOPS_CATALOG_DIR:-"${ROOT_DIR}/dist/software-catalog"}
 CATALOG_URL=${KOMSCO_AIOPS_CATALOG_URL:-}
 CHART_DIR=${KOMSCO_AIOPS_CHART_DIR:-"${ROOT_DIR}/komsco-ai-console-plugin/charts/openshift-console-plugin"}
 CHART_NAME=${KOMSCO_AIOPS_CHART_NAME:-komsco-aiops}
-CHART_VERSION=${KOMSCO_AIOPS_CHART_VERSION:-0.1.0}
+CHART_VERSION=${KOMSCO_AIOPS_CHART_VERSION:-0.1.3}
 APP_VERSION=${KOMSCO_AIOPS_APP_VERSION:-${CHART_VERSION}}
 RELEASE_NAME=${KOMSCO_AIOPS_RELEASE:-komsco-ai-console-plugin}
 NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-komsco-ai}
@@ -34,7 +34,7 @@ Commands:
 
 Key environment variables:
   KOMSCO_AIOPS_CATALOG_URL       Required for register and recommended for package.
-  KOMSCO_AIOPS_CHART_VERSION     Chart version shown as the update version. Default: 0.1.0
+  KOMSCO_AIOPS_CHART_VERSION     Chart version shown as the update version. Default: 0.1.3
   KOMSCO_AIOPS_APP_VERSION       App/image version metadata. Default: chart version
   KOMSCO_AIOPS_NAMESPACE         Target namespace for deploy/status. Default: komsco-ai
   KOMSCO_AIOPS_VALUES            Helm values file. Default: openshift/helm-values/console-plugin-prod.yaml
@@ -43,7 +43,7 @@ Key environment variables:
 Examples:
   KOMSCO_AIOPS_CATALOG_URL=https://repo.example/komsco-aiops task catalog:package
   KOMSCO_AIOPS_CATALOG_URL=https://repo.example/komsco-aiops task catalog:register
-  KOMSCO_AIOPS_CHART_VERSION=0.1.1 task catalog:deploy
+  KOMSCO_AIOPS_CHART_VERSION=0.1.3 task catalog:deploy
 EOF
 }
 

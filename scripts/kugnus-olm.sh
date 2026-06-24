@@ -56,7 +56,7 @@ load_release_image_env() {
 }
 
 set_default_image_env() {
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}
   local pull_registry=${KOMSCO_AIOPS_PULL_REGISTRY:-image-registry.openshift-image-registry.svc:5000}
 
   export KOMSCO_AIOPS_OPERATOR_IMAGE="${KOMSCO_AIOPS_OPERATOR_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-gateway:${version}}"
@@ -112,7 +112,7 @@ import os
 from pathlib import Path
 
 root = Path(os.environ["ROOT_DIR"])
-csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.2')}"
+csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.3')}"
 csv_path = root / "olm" / "generated" / "bundle" / "manifests" / f"{csv_name}.clusterserviceversion.yaml"
 catalog_path = root / "olm" / "generated" / "catalog" / "01-catalogsource.yaml"
 configmap_path = root / "olm" / "generated" / "catalog" / "00-catalog-configmap.yaml"
@@ -180,14 +180,14 @@ grant_image_pull_access() {
 patch_binary_build_output() {
   local name=$1
   oc patch buildconfig "${name}" -n "${KOMSCO_AIOPS_NAMESPACE}" --type=merge \
-    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}\"}}}}"
+    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}\"}}}}"
 }
 
 ensure_binary_build() {
   local name=$1
   local context_dir=$2
   local stage_dir
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}
 
   require_oc
   oc get namespace "${KOMSCO_AIOPS_NAMESPACE}" >/dev/null 2>&1 || oc create namespace "${KOMSCO_AIOPS_NAMESPACE}"
@@ -310,7 +310,7 @@ uninstall() {
   oc delete aiopsinstallation "${KOMSCO_AIOPS_INSTALLATION_NAME}" -n "${KOMSCO_AIOPS_NAMESPACE}" --ignore-not-found=true
   oc delete consoleplugin "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" --ignore-not-found=true
   oc delete subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
-  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
+  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
   oc delete -f "${ROOT_DIR}/olm/generated/install/03-aiopsinstallation.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/02-subscription.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/01-operatorgroup.yaml" --ignore-not-found=true || true

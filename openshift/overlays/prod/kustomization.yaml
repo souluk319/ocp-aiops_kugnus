@@ -7,7 +7,7 @@ resources:
 images:
   - name: komsco-ai-gateway
     newName: image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway
-    newTag: "0.1.0"
+    newTag: "0.1.3"
 patches:
   - target:
       kind: ServiceAccount
@@ -156,7 +156,7 @@ patches:
         value: komsco-ai
       - op: replace
         path: /spec/template/spec/containers/0/env/1/value
-        value: image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.0
+        value: image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-gateway:0.1.3
   - target:
       kind: NetworkPolicy
       name: komsco-ai-host-diagnostics-controller-ingress

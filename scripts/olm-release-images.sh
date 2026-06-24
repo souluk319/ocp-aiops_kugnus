@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.2}
+VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}
 NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai}}
 PUSH_REGISTRY=${KOMSCO_AIOPS_PUSH_REGISTRY:-}
 PULL_REGISTRY=${KOMSCO_AIOPS_PULL_REGISTRY:-}
@@ -21,7 +21,7 @@ Commands:
   env         Print the image references that would be used.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.2
+  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.3
   KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: komsco-ai
   KOMSCO_AIOPS_PUSH_REGISTRY         Registry used by the local machine for push.
   KOMSCO_AIOPS_PULL_REGISTRY         Registry used by cluster workloads for pull.
@@ -30,7 +30,7 @@ Key environment variables:
   KOMSCO_AIOPS_GRANT_IMAGE_PULL      Grant all service accounts image pull access to the image namespace. Default: true
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.1 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.3 \\
   KOMSCO_AIOPS_NAMESPACE=komsco-ai \\
   task olm:release
 EOF

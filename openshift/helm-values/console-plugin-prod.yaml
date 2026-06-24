@@ -2,7 +2,7 @@ plugin:
   name: komsco-ai-console-plugin
   displayName: KOMSCO AI Assistant
   description: KOMSCO AI assistant for OpenShift operations.
-  image: image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.0
+  image: image-registry.openshift-image-registry.svc:5000/komsco-ai/komsco-ai-console-plugin:0.1.3
   imagePullPolicy: IfNotPresent
   replicas: 2
   port: 9443

@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .aiops_core import HOST_DIAGNOSTIC_COLLECTORS, AiopsCoreError, get_host_diagnostic_collector
 from .security import canonical_digest, now_rfc3339, redact_sensitive
 
-app = FastAPI(title="KOMSCO AIOps Host Diagnostics Controller", version="0.1.0")
+app = FastAPI(title="KOMSCO AIOps Host Diagnostics Controller", version="0.1.3")
 
 SERVICEACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount"
 HOST_DIAGNOSTIC_COLLECTOR_VERSION = "v1"

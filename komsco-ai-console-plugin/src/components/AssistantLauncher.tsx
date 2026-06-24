@@ -4,7 +4,9 @@ import { createPortal } from 'react-dom';
 import {
   ArrowDownIcon,
   BarsIcon,
+  CaretDownIcon,
   ClipboardIcon,
+  CommentDotsIcon,
   CompressArrowsAltIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
@@ -22,10 +24,12 @@ import {
   TerminalIcon,
   TimesIcon,
   UserCircleIcon,
+  WrenchIcon,
 } from '@patternfly/react-icons';
 import {
   type AiopsRecord,
   type AiopsRuntimeStatus,
+  type AuthSubject,
   type ChatContextMessage,
   type ClusterSummary,
   type ImageAttachment,
@@ -34,6 +38,7 @@ import {
   executeApprovedAction,
   fetchAiopsStatus,
   fetchClusterSummary,
+  fetchConsoleUserSubject,
   streamChat,
 } from '../services/aiGateway';
 import kIcon from '../assets/k_icon.png';
@@ -65,6 +70,31 @@ const QUICK_PROMPTS = [
   },
 ];
 
+const ASSISTANT_TASK_MODES: Array<{
+  description: string;
+  icon: React.ReactNode;
+  label: string;
+  value: AssistantTaskMode;
+}> = [
+  {
+    description: '일반 질문과 상태 확인',
+    icon: <CommentDotsIcon />,
+    label: 'Ask',
+    value: 'ask',
+  },
+  {
+    description: '원인 분석과 점검 절차',
+    icon: <WrenchIcon />,
+    label: 'Troubleshooting',
+    value: 'troubleshooting',
+  },
+];
+
+const TASK_MODE_PLACEHOLDERS: Record<AssistantTaskMode, string> = {
+  ask: '무엇을 확인할까요?',
+  troubleshooting: '어떤 문제를 점검할까요?',
+};
+
 type Message = {
   role: 'user' | 'assistant' | 'system';
   attachments?: ImageAttachment[];
@@ -73,7 +103,9 @@ type Message = {
 };
 
 type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';
+type AssistantTaskMode = 'ask' | 'troubleshooting';
 type UiLanguage = 'ko' | 'en';
+type PanelResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 
 type ProgressStatus = 'running' | 'completed' | 'failed';
 
@@ -129,6 +161,7 @@ const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
 const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
+const HISTORY_DRAWER_WIDTH = 236;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
@@ -253,7 +286,7 @@ const getMessageLabel = (role: Message['role']): string => {
     return '시스템';
   }
 
-  return 'Cywell AI';
+  return 'KOMSCO AI AGENT';
 };
 
 const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
@@ -1313,6 +1346,16 @@ const getExecutionModeLabel = (mode: AiopsExecutionMode): string => {
   return 'UI 읽기 전용';
 };
 
+const getExecutionModeShortLabel = (mode: AiopsExecutionMode): string => {
+  if (mode === 'unrestricted') {
+    return '무제한';
+  }
+  if (mode === 'execute') {
+    return '실행';
+  }
+  return '읽기';
+};
+
 const getExecutionModeTone = (mode: AiopsExecutionMode): 'ok' | 'review' | 'danger' => {
   if (mode === 'unrestricted') {
     return 'danger';
@@ -1322,6 +1365,77 @@ const getExecutionModeTone = (mode: AiopsExecutionMode): 'ok' | 'review' | 'dang
   }
   return 'ok';
 };
+
+const getClusterHost = (apiUrl?: string): string => {
+  if (!apiUrl) {
+    return 'cluster pending';
+  }
+
+  try {
+    return new URL(apiUrl).host;
+  } catch {
+    return apiUrl;
+  }
+};
+
+const renderExecutionModeToggle = (
+  executionMode: AiopsExecutionMode,
+  actionExecutionAvailable: boolean,
+  unrestrictedAvailable: boolean,
+  onExecutionModeChange: (mode: AiopsExecutionMode) => void,
+) => (
+  <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
+    <button
+      aria-label="읽기 전용 모드"
+      aria-pressed={executionMode === 'read-only'}
+      className={`komsco-ai__mode-toggle-button${
+        executionMode === 'read-only' ? ' komsco-ai__mode-toggle-button--active' : ''
+      }`}
+      onClick={() => onExecutionModeChange('read-only')}
+      title="읽기 전용 모드"
+      type="button"
+    >
+      <ShieldAltIcon />
+      <span>읽기 전용</span>
+    </button>
+    <button
+      aria-label="승인 후 실행 모드"
+      aria-pressed={executionMode === 'execute'}
+      className={`komsco-ai__mode-toggle-button${
+        executionMode === 'execute' ? ' komsco-ai__mode-toggle-button--active-execute' : ''
+      }`}
+      disabled={!actionExecutionAvailable}
+      onClick={() => onExecutionModeChange('execute')}
+      title={
+        actionExecutionAvailable
+          ? '승인 후 실행 모드'
+          : 'Gateway 실행 기능이 구성되어야 사용할 수 있습니다'
+      }
+      type="button"
+    >
+      <TerminalIcon />
+      <span>실행</span>
+    </button>
+    <button
+      aria-label="실험 무제한 모드"
+      aria-pressed={executionMode === 'unrestricted'}
+      className={`komsco-ai__mode-toggle-button${
+        executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
+      }`}
+      disabled={!unrestrictedAvailable}
+      onClick={() => onExecutionModeChange('unrestricted')}
+      title={
+        unrestrictedAvailable
+          ? '실험 무제한 모드'
+          : '실험 무제한 명령 기능이 구성되어야 사용할 수 있습니다'
+      }
+      type="button"
+    >
+      <ExclamationCircleIcon />
+      <span>무제한</span>
+    </button>
+  </div>
+);
 
 const getAssistantConnectionState = (
   summary: ClusterSummary | null,
@@ -1889,6 +2003,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [clusterSummary, setClusterSummary] = React.useState<ClusterSummary | null>(null);
   const [clusterSummaryError, setClusterSummaryError] = React.useState('');
   const [clusterSummaryLoading, setClusterSummaryLoading] = React.useState(false);
+  const [authSubject, setAuthSubject] = React.useState<AuthSubject | null>(null);
+  const [authSubjectError, setAuthSubjectError] = React.useState('');
   const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
   const [aiopsStatusError, setAiopsStatusError] = React.useState('');
   const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
@@ -1902,9 +2018,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [conversationId, setConversationId] = React.useState<string | undefined>();
   const [activeSessionId, setActiveSessionId] = React.useState(() => createRunId());
   const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>([]);
-  const [historySidebarOpen, setHistorySidebarOpen] = React.useState(true);
+  const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
+  const [quickPromptMenuOpen, setQuickPromptMenuOpen] = React.useState(false);
+  const [taskModeMenuOpen, setTaskModeMenuOpen] = React.useState(false);
+  const [assistantTaskMode, setAssistantTaskMode] = React.useState<AssistantTaskMode>('ask');
   const [panelResizeUnlocked, setPanelResizeUnlocked] = React.useState(false);
   const [panelSize, setPanelSize] = React.useState<{ height?: number; width?: number }>({});
+  const [historyDrawerBounds, setHistoryDrawerBounds] = React.useState<{
+    height?: number;
+    left?: number;
+    top?: number;
+  }>({});
   const [stickToBottom, setStickToBottom] = React.useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
   const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>('ko');
@@ -1912,9 +2036,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
   const [, setProgressTick] = React.useState(0);
+  const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const quickPromptMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const taskModeMenuRef = React.useRef<HTMLDivElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
   const assistantTypewriterTimerRef = React.useRef<number | undefined>();
   const chatAbortControllerRef = React.useRef<AbortController | null>(null);
@@ -1929,23 +2056,108 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     aiopsStatusError,
   );
   const copy = UI_COPY[uiLanguage];
+  const selectedTaskMode =
+    ASSISTANT_TASK_MODES.find((item) => item.value === assistantTaskMode) ||
+    ASSISTANT_TASK_MODES[0];
   const surfaceStyle = React.useMemo<React.CSSProperties>(() => {
-    if (!panelResizeUnlocked || fullScreen) {
+    if (fullScreen) {
       return {};
     }
 
-    const style: React.CSSProperties = {};
+    const style = {} as React.CSSProperties & Record<string, string>;
     if (panelSize.height) {
       style.height = `${panelSize.height}px`;
     }
-    if (!embedded && panelSize.width) {
+    if (panelSize.width) {
       style.width = `${panelSize.width}px`;
     }
+    if (
+      historySidebarOpen &&
+      historyDrawerBounds.height &&
+      historyDrawerBounds.left !== undefined &&
+      historyDrawerBounds.top !== undefined
+    ) {
+      style['--komsco-history-height'] = `${historyDrawerBounds.height}px`;
+      style['--komsco-history-left'] = `${historyDrawerBounds.left}px`;
+      style['--komsco-history-top'] = `${historyDrawerBounds.top}px`;
+    }
     return style;
-  }, [embedded, fullScreen, panelResizeUnlocked, panelSize.height, panelSize.width]);
+  }, [
+    fullScreen,
+    historyDrawerBounds.height,
+    historyDrawerBounds.left,
+    historyDrawerBounds.top,
+    historySidebarOpen,
+    panelSize.height,
+    panelSize.width,
+  ]);
+  const historySidebarStyle = React.useMemo<React.CSSProperties>(() => {
+    if (
+      fullScreen ||
+      !historySidebarOpen ||
+      !historyDrawerBounds.height ||
+      historyDrawerBounds.left === undefined ||
+      historyDrawerBounds.top === undefined
+    ) {
+      return {};
+    }
+
+    const style = {} as React.CSSProperties & Record<string, string>;
+    style['--komsco-history-height'] = `${historyDrawerBounds.height}px`;
+    style['--komsco-history-left'] = `${historyDrawerBounds.left}px`;
+    style['--komsco-history-top'] = `${historyDrawerBounds.top}px`;
+    return style;
+  }, [
+    fullScreen,
+    historyDrawerBounds.height,
+    historyDrawerBounds.left,
+    historyDrawerBounds.top,
+    historySidebarOpen,
+  ]);
+
+  const captureCurrentPanelSize = React.useCallback(() => {
+    const surface = surfaceRef.current;
+    if (!surface || fullScreen) {
+      return;
+    }
+
+    const rect = surface.getBoundingClientRect();
+    setPanelSize({
+      height: Math.round(rect.height),
+      width: Math.round(rect.width),
+    });
+  }, [fullScreen]);
+
+  const togglePanelResizeLock = React.useCallback(() => {
+    if (!panelResizeUnlocked) {
+      captureCurrentPanelSize();
+    }
+
+    setPanelResizeUnlocked((value) => !value);
+  }, [captureCurrentPanelSize, panelResizeUnlocked]);
+
+  const updateHistoryDrawerBounds = React.useCallback(() => {
+    const surface = surfaceRef.current;
+    if (!surface || !historySidebarOpen || fullScreen) {
+      return;
+    }
+
+    const rect = surface.getBoundingClientRect();
+    const next = {
+      height: Math.round(rect.height),
+      left: Math.max(8, Math.round(rect.left - HISTORY_DRAWER_WIDTH)),
+      top: Math.round(rect.top),
+    };
+
+    setHistoryDrawerBounds((prev) =>
+      prev.height === next.height && prev.left === next.left && prev.top === next.top
+        ? prev
+        : next,
+    );
+  }, [fullScreen, historySidebarOpen]);
 
   const startPanelResize = React.useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>) => {
+    (event: React.MouseEvent<HTMLElement>, direction: PanelResizeDirection) => {
       if (!panelResizeUnlocked || fullScreen) {
         return;
       }
@@ -1959,24 +2171,38 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       event.stopPropagation();
 
       const initialRect = surface.getBoundingClientRect();
+      const parentRect = surface.parentElement?.getBoundingClientRect();
       const startX = event.clientX;
       const startY = event.clientY;
       const minHeight = 420;
       const maxHeight = Math.max(minHeight, window.innerHeight - 32);
       const minWidth = Math.min(460, Math.max(320, window.innerWidth - 32));
-      const maxWidth = Math.max(minWidth, window.innerWidth - 32);
+      const maxWidth = Math.max(
+        minWidth,
+        embedded
+          ? Math.min(parentRect?.width || window.innerWidth - 32, window.innerWidth - 32)
+          : window.innerWidth - 32,
+      );
       const clamp = (value: number, min: number, max: number) =>
         Math.min(Math.max(value, min), max);
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
-        const nextHeight = clamp(initialRect.height + moveEvent.clientY - startY, minHeight, maxHeight);
-        const nextWidth = embedded
-          ? initialRect.width
-          : clamp(initialRect.width + moveEvent.clientX - startX, minWidth, maxWidth);
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+        const nextHeight = direction.includes('n')
+          ? clamp(initialRect.height - deltaY, minHeight, maxHeight)
+          : direction.includes('s')
+            ? clamp(initialRect.height + deltaY, minHeight, maxHeight)
+            : initialRect.height;
+        const nextWidth = direction.includes('w')
+          ? clamp(initialRect.width - deltaX, minWidth, maxWidth)
+          : direction.includes('e')
+            ? clamp(initialRect.width + deltaX, minWidth, maxWidth)
+            : initialRect.width;
 
         setPanelSize({
           height: Math.round(nextHeight),
-          width: embedded ? undefined : Math.round(nextWidth),
+          width: Math.round(nextWidth),
         });
       };
 
@@ -2002,6 +2228,81 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setExecutionMode('read-only');
     }
   }, [actionExecutionAvailable, aiopsStatus, executionMode, unrestrictedAvailable]);
+
+  React.useLayoutEffect(() => {
+    if (!historySidebarOpen || fullScreen) {
+      setHistoryDrawerBounds({});
+      return undefined;
+    }
+
+    updateHistoryDrawerBounds();
+    window.addEventListener('resize', updateHistoryDrawerBounds);
+    window.addEventListener('scroll', updateHistoryDrawerBounds, true);
+
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateHistoryDrawerBounds);
+    if (surfaceRef.current) {
+      observer?.observe(surfaceRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateHistoryDrawerBounds);
+      window.removeEventListener('scroll', updateHistoryDrawerBounds, true);
+      observer?.disconnect();
+    };
+  }, [fullScreen, historySidebarOpen, updateHistoryDrawerBounds]);
+
+  React.useEffect(() => {
+    if (!quickPromptMenuOpen && !taskModeMenuOpen) {
+      return undefined;
+    }
+
+    const handleDocumentMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (
+        target &&
+        (quickPromptMenuRef.current?.contains(target) ||
+          taskModeMenuRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      setQuickPromptMenuOpen(false);
+      setTaskModeMenuOpen(false);
+    };
+
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      setQuickPromptMenuOpen(false);
+      setTaskModeMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    document.addEventListener('keydown', handleDocumentKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+      document.removeEventListener('keydown', handleDocumentKeyDown);
+    };
+  }, [quickPromptMenuOpen, taskModeMenuOpen]);
+
+  const handleExecutionModeChange = React.useCallback(
+    (mode: AiopsExecutionMode) => {
+      if (mode === 'execute' && !actionExecutionAvailable) {
+        return;
+      }
+      if (mode === 'unrestricted' && !unrestrictedAvailable) {
+        return;
+      }
+
+      setAiopsActionError('');
+      setExecutionMode(mode);
+    },
+    [actionExecutionAvailable, unrestrictedAvailable],
+  );
 
   const saveCurrentConversation = React.useCallback(
     (snapshotMessages = messages, snapshotConversationId = conversationId) => {
@@ -2045,6 +2346,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setAttachmentError('');
     setAiopsActionError('');
     setAiopsActionNotice('');
+    setQuickPromptMenuOpen(false);
+    setTaskModeMenuOpen(false);
   }, [loading, saveCurrentConversation]);
 
   const loadConversation = React.useCallback(
@@ -2060,6 +2363,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setInput('');
       setPendingAttachments([]);
       setAttachmentError('');
+      setQuickPromptMenuOpen(false);
+      setTaskModeMenuOpen(false);
     },
     [loading, saveCurrentConversation],
   );
@@ -2130,9 +2435,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
     const loadSummary = async () => {
       setClusterSummaryLoading(true);
-      const [summaryResult, statusResult] = await Promise.allSettled([
+      const [summaryResult, statusResult, consoleUserResult] = await Promise.allSettled([
         fetchClusterSummary(),
         fetchAiopsStatus(),
+        fetchConsoleUserSubject(),
       ]);
       if (disposed) {
         return;
@@ -2152,12 +2458,34 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       if (statusResult.status === 'fulfilled') {
         setAiopsStatus(statusResult.value);
         setAiopsStatusError('');
+        const subject = statusResult.value.spec.subject;
+        if (subject) {
+          setAuthSubject(subject);
+          setAuthSubjectError('');
+        } else if (consoleUserResult.status === 'fulfilled') {
+          setAuthSubject(consoleUserResult.value);
+          setAuthSubjectError('');
+        } else {
+          setAuthSubject(null);
+          setAuthSubjectError('Subject not returned by status endpoint.');
+        }
       } else {
         setAiopsStatusError(
           statusResult.reason instanceof Error
             ? statusResult.reason.message
             : 'AIOps status request failed.',
         );
+        if (consoleUserResult.status === 'fulfilled') {
+          setAuthSubject(consoleUserResult.value);
+          setAuthSubjectError('');
+        } else {
+          setAuthSubject(null);
+          setAuthSubjectError(
+            statusResult.reason instanceof Error
+              ? statusResult.reason.message
+              : 'Auth subject request failed.',
+          );
+        }
       }
 
       setClusterSummaryLoading(false);
@@ -2481,6 +2809,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setInput('');
       setPendingAttachments([]);
       setAttachmentError('');
+      setQuickPromptMenuOpen(false);
+      setTaskModeMenuOpen(false);
       setLoading(true);
       flushAssistantTextQueueNow();
       window.setTimeout(() => scrollToBottom('auto'), 0);
@@ -2500,6 +2830,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         const pageContext = {
           ...buildConsolePageContext(),
           aiopsExecutionMode: executionMode,
+          aiopsTaskMode: assistantTaskMode,
+          aiopsTaskModeLabel: selectedTaskMode.label,
         };
         const activeStepIdsByName = new Map<string, string>();
         const activeStepStartedAt = new Map<string, number>();
@@ -2791,6 +3123,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     },
     [
       enqueueAssistantText,
+      assistantTaskMode,
       executionMode,
       flushAssistantTextQueueNow,
       input,
@@ -2800,6 +3133,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       conversationId,
       messages,
       pendingAttachments,
+      selectedTaskMode.label,
       upsertProgressStep,
       waitForAssistantTextQueue,
     ],
@@ -2824,7 +3158,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [lockOpen]);
 
   const historySidebar = historySidebarOpen ? (
-    <aside className="komsco-ai__history-sidebar" aria-label={copy.sidebar}>
+    <aside className="komsco-ai__history-sidebar" aria-label={copy.sidebar} style={historySidebarStyle}>
       <Button
         className="komsco-ai__new-chat"
         isDisabled={loading}
@@ -2859,8 +3193,23 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           ))
         )}
       </div>
+      <div className="komsco-ai__history-user" aria-label="현재 OpenShift 사용자">
+        <div className="komsco-ai__history-user-avatar">
+          <UserCircleIcon />
+        </div>
+        <div className="komsco-ai__history-user-main">
+          <strong title={authSubject?.username || authSubjectError || '사용자 확인 중'}>
+            {authSubject?.username || (authSubjectError ? '인증 확인 필요' : '확인 중')}
+          </strong>
+          <small title={clusterSummary?.apiUrl || ''}>{getClusterHost(clusterSummary?.apiUrl)}</small>
+        </div>
+      </div>
     </aside>
   ) : null;
+  const historySidebarPortal =
+    historySidebar && !fullScreen && typeof document !== 'undefined'
+      ? createPortal(historySidebar, document.body)
+      : null;
 
   return (
     <div
@@ -2886,6 +3235,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       {(open || embedded || lockOpen) && (
         <FullscreenPortal active={fullScreen}>
         <div
+          ref={surfaceRef}
           className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
             historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
           }${panelResizeUnlocked ? ' komsco-ai__surface--resize-unlocked' : ''}${
@@ -2893,7 +3243,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }`}
           style={surfaceStyle}
         >
-          {historySidebar}
+          {fullScreen ? historySidebar : null}
           <Card className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}>
           <div className="komsco-ai__header">
             <Button
@@ -2909,9 +3259,33 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               <div className="komsco-ai__brand-mark">
                 <img alt="" className="komsco-ai__brand-logo" src={komscoLogo} />
               </div>
-              <div className="komsco-ai__brand-copy">
-                <strong className="komsco-ai__title">Cywell AI</strong>
-              </div>
+            </div>
+            <div className="komsco-ai__header-status" aria-label="AIOps 상태 및 실행 모드">
+              <span
+                className={`komsco-ai__status-chip komsco-ai__status-chip--${assistantConnection.tone}`}
+                title={assistantConnection.label}
+              >
+                <span className="komsco-ai__status-chip-dot" />
+                <span>
+                  {assistantConnection.tone === 'connected'
+                    ? '연결됨'
+                    : assistantConnection.tone === 'danger'
+                      ? '확인 필요'
+                      : '확인 중'}
+                </span>
+              </span>
+              <span
+                className={`komsco-ai__mode-chip komsco-ai__mode-chip--${executionMode}`}
+                title={getExecutionModeLabel(executionMode)}
+              >
+                {getExecutionModeShortLabel(executionMode)}
+              </span>
+              {renderExecutionModeToggle(
+                executionMode,
+                actionExecutionAvailable,
+                unrestrictedAvailable,
+                handleExecutionModeChange,
+              )}
             </div>
             <div className="komsco-ai__header-actions">
               <Button
@@ -2939,7 +3313,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 className={`komsco-ai__icon-button${
                   panelResizeUnlocked ? ' komsco-ai__icon-button--active' : ''
                 }`}
-                onClick={() => setPanelResizeUnlocked((value) => !value)}
+                onClick={togglePanelResizeLock}
                 title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
                 variant="plain"
               >
@@ -2991,11 +3365,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         className={`komsco-ai__message komsco-ai__message--${message.role}`}
                         key={`${message.role}-${index}`}
                       >
-                        <div className="komsco-ai__message-avatar">
-                          <MessageIcon role={message.role} />
-                        </div>
                         <div className="komsco-ai__message-stack">
                           <div className="komsco-ai__message-head">
+                            {message.role !== 'user' && (
+                              <div className="komsco-ai__message-avatar">
+                                <MessageIcon role={message.role} />
+                              </div>
+                            )}
                             <div className="komsco-ai__message-label">
                               {getMessageLabel(message.role)}
                             </div>
@@ -3065,21 +3441,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     <ArrowDownIcon />
                   </Button>
                 )}
-                <div className="komsco-ai__quick-prompts">
-                  {QUICK_PROMPTS.map((item) => (
-                    <Button
-                      className="komsco-ai__quick-prompt"
-                      isDisabled={loading}
-                      key={item.label}
-                      onClick={() => send(item.prompt)}
-                      variant="secondary"
-                    >
-                      <span className="komsco-ai__quick-prompt-icon">{item.icon}</span>
-                      <span className="komsco-ai__quick-prompt-label">{item.label}</span>
-                    </Button>
-                  ))}
-                </div>
-
                 <div className="komsco-ai__input">
                   <input
                     accept="image/png,image/jpeg,image/webp,image/gif"
@@ -3091,15 +3452,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     ref={fileInputRef}
                     type="file"
                   />
-                  <Button
-                    aria-label="이미지 첨부"
-                    className="komsco-ai__attach"
-                    isDisabled={loading || pendingAttachments.length >= MAX_IMAGE_ATTACHMENTS}
-                    onClick={() => fileInputRef.current?.click()}
-                    variant="plain"
-                  >
-                    <PaperclipIcon />
-                  </Button>
                   <div className="komsco-ai__composer">
                     {pendingAttachments.length > 0 && (
                       <div className="komsco-ai__pending-attachments">
@@ -3149,26 +3501,124 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         }
                       }}
                       onPaste={handlePaste}
-                      placeholder={copy.inputPlaceholder}
+                      placeholder={
+                        uiLanguage === 'ko'
+                          ? TASK_MODE_PLACEHOLDERS[assistantTaskMode]
+                          : copy.inputPlaceholder
+                      }
                       rows={1}
                       style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
                       value={input}
                     />
+                    <div className="komsco-ai__composer-toolbar">
+                      <div className="komsco-ai__composer-tools">
+                        <div className="komsco-ai__quick-menu" ref={quickPromptMenuRef}>
+                          <Button
+                            aria-expanded={quickPromptMenuOpen}
+                            aria-label="자주 쓰는 점검 질문 열기"
+                            aria-haspopup="menu"
+                            className="komsco-ai__tool-button komsco-ai__quick-menu-trigger"
+                            isDisabled={loading}
+                            onClick={() => {
+                              setQuickPromptMenuOpen((value) => !value);
+                              setTaskModeMenuOpen(false);
+                            }}
+                            variant="plain"
+                          >
+                            <PlusIcon />
+                          </Button>
+                          {quickPromptMenuOpen && (
+                            <div className="komsco-ai__quick-menu-panel" role="menu">
+                              {QUICK_PROMPTS.map((item) => (
+                                <button
+                                  className="komsco-ai__quick-menu-item"
+                                  key={item.label}
+                                  onClick={() => {
+                                    setQuickPromptMenuOpen(false);
+                                    void send(item.prompt);
+                                  }}
+                                  role="menuitem"
+                                  type="button"
+                                >
+                                  <span className="komsco-ai__quick-prompt-icon">{item.icon}</span>
+                                  <span className="komsco-ai__quick-menu-copy">
+                                    <strong>{item.label}</strong>
+                                    <small>{item.prompt}</small>
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <Button
+                          aria-label="이미지 첨부"
+                          className="komsco-ai__tool-button komsco-ai__attach"
+                          isDisabled={loading || pendingAttachments.length >= MAX_IMAGE_ATTACHMENTS}
+                          onClick={() => fileInputRef.current?.click()}
+                          variant="plain"
+                        >
+                          <PaperclipIcon />
+                        </Button>
+                        <div className="komsco-ai__task-mode" ref={taskModeMenuRef}>
+                          <button
+                            aria-expanded={taskModeMenuOpen}
+                            aria-haspopup="listbox"
+                            className="komsco-ai__task-mode-button"
+                            data-assistant-task-mode={assistantTaskMode}
+                            disabled={loading}
+                            onClick={() => {
+                              setTaskModeMenuOpen((value) => !value);
+                              setQuickPromptMenuOpen(false);
+                            }}
+                            type="button"
+                          >
+                            <span className="komsco-ai__task-mode-icon">{selectedTaskMode.icon}</span>
+                            <span className="komsco-ai__task-mode-label">{selectedTaskMode.label}</span>
+                            <CaretDownIcon />
+                          </button>
+                          {taskModeMenuOpen && (
+                            <div className="komsco-ai__task-mode-menu" role="listbox">
+                              {ASSISTANT_TASK_MODES.map((item) => (
+                                <button
+                                  aria-selected={assistantTaskMode === item.value}
+                                  className="komsco-ai__task-mode-option"
+                                  data-komsco-task-mode={item.value}
+                                  key={item.value}
+                                  onClick={() => {
+                                    setAssistantTaskMode(item.value);
+                                    setTaskModeMenuOpen(false);
+                                  }}
+                                  role="option"
+                                  type="button"
+                                >
+                                  <span className="komsco-ai__task-mode-icon">{item.icon}</span>
+                                  <span>
+                                    <strong>{item.label}</strong>
+                                    <small>{item.description}</small>
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        aria-label={loading ? '응답 중지' : '질문 전송'}
+                        className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
+                        isDisabled={!loading && !input.trim() && pendingAttachments.length === 0}
+                        onClick={() => {
+                          if (loading) {
+                            cancelAssistantResponse();
+                            return;
+                          }
+                          void send();
+                        }}
+                        variant="plain"
+                      >
+                        {loading ? <StopIcon /> : <PaperPlaneIcon />}
+                      </Button>
+                    </div>
                   </div>
-                  <Button
-                    aria-label={loading ? '응답 중지' : '질문 전송'}
-                    className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
-                    isDisabled={!loading && !input.trim() && pendingAttachments.length === 0}
-                    onClick={() => {
-                      if (loading) {
-                        cancelAssistantResponse();
-                        return;
-                      }
-                      void send();
-                    }}
-                  >
-                    {loading ? <StopIcon /> : <PaperPlaneIcon />}
-                  </Button>
                 </div>
               </div>
             </div>
@@ -3187,16 +3637,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           </div>
           </Card>
           {panelResizeUnlocked && !fullScreen && (
-            <button
-              aria-label="창 크기 조절"
-              className="komsco-ai__resize-grip"
-              onMouseDown={startPanelResize}
-              type="button"
-            />
+            <div className="komsco-ai__resize-handles" aria-label="채팅창 크기 조절 핸들">
+              {(['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as PanelResizeDirection[]).map(
+                (direction) => (
+                  <button
+                    aria-label={`채팅창 ${direction} 방향 크기 조절`}
+                    className={`komsco-ai__resize-handle komsco-ai__resize-handle--${direction}${
+                      direction === 'se' ? ' komsco-ai__resize-grip' : ''
+                    }`}
+                    key={direction}
+                    onMouseDown={(event) => startPanelResize(event, direction)}
+                    type="button"
+                  />
+                ),
+              )}
+            </div>
           )}
         </div>
         </FullscreenPortal>
       )}
+      {historySidebarPortal}
       {previewAttachment && (
         <div
           aria-label={`${previewAttachment.name} 크게 보기`}

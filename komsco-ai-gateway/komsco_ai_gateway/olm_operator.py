@@ -17,11 +17,11 @@ DEFAULT_NAME = os.getenv("KOMSCO_AI_DEFAULT_INSTALLATION_NAME", "komsco-aiops")
 DEFAULT_TARGET_NAMESPACE = os.getenv("KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "komsco-ai-kugnus")
 DEFAULT_PLUGIN_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_PLUGIN_IMAGE",
-    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.2",
+    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.3",
 )
 DEFAULT_GATEWAY_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE",
-    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.2",
+    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.3",
 )
 DEFAULT_CONSOLE_PLUGIN_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_NAME",

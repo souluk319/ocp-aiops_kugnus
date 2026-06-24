@@ -486,6 +486,7 @@ const RecordTable: React.FC<{
 
 export const AiopsDashboardPage: React.FC = () => {
   const data = useAiopsPageData();
+  const assistantStageRef = React.useRef<HTMLElement | null>(null);
   const actionCount = actionRecords(data.status).length;
   const auditCount = data.status?.spec.records.auditRecords?.length ?? 0;
   const actionCountValue = data.status ? actionCount : '-';
@@ -498,9 +499,26 @@ export const AiopsDashboardPage: React.FC = () => {
   const safetyMode = data.status?.spec.safetyContract?.mode ?? 'status pending';
   const lightspeedProbe =
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe pending';
+  const focusAssistant = React.useCallback(() => {
+    assistantStageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => {
+      assistantStageRef.current
+        ?.querySelector<HTMLElement>('.komsco-ai__input textarea, .komsco-ai__input')
+        ?.focus();
+    }, 250);
+  }, []);
 
   return (
     <PageShell data={data} eyebrow="Cywell AI" icon={<ProductIcon />} title="Cywell AI">
+      <button
+        aria-label="Cywell AI 챗봇으로 이동"
+        className="komsco-ai-page__assistant-quick-toggle"
+        onClick={focusAssistant}
+        title="Cywell AI 챗봇으로 이동"
+        type="button"
+      >
+        <img alt="" src={kIcon} />
+      </button>
       <section className="komsco-ai-page__overview">
         <div className="komsco-ai-page__overview-main">
           <HealthDial score={data.summary?.healthScore} />
@@ -556,7 +574,11 @@ export const AiopsDashboardPage: React.FC = () => {
         />
       </div>
 
-      <section className="komsco-ai-page__assistant-stage" aria-label="Cywell AI assistant">
+      <section
+        ref={assistantStageRef}
+        className="komsco-ai-page__assistant-stage"
+        aria-label="Cywell AI assistant"
+      >
         <AssistantLauncher defaultOpen embedded lockOpen />
       </section>
 

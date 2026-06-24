@@ -426,10 +426,30 @@ const getChatInteractionState = async (cdp) =>
       const surface = ${activeSurfaceExpression};
       const send = surface?.querySelector('.komsco-ai__send');
       const textarea = surface?.querySelector('textarea.komsco-ai__textarea, .komsco-ai__textarea textarea, textarea');
-      const messages = [...(surface?.querySelectorAll('.komsco-ai__message') || [])].map((node) => ({
-        cls: node.className,
-        text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
-      }));
+      const rect = (node) => {
+        if (!node) return null;
+        const r = node.getBoundingClientRect();
+        return {
+          bottom: r.bottom,
+          left: r.left,
+          right: r.right,
+          top: r.top,
+          width: r.width,
+        };
+      };
+      const messages = [...(surface?.querySelectorAll('.komsco-ai__message') || [])].map((node) => {
+        const avatar = node.querySelector('.komsco-ai__message-avatar');
+        const content = node.querySelector('.komsco-ai__message-content');
+        const label = node.querySelector('.komsco-ai__message-label');
+        return {
+          avatar: rect(avatar),
+          cls: node.className,
+          content: rect(content),
+          labelText: label?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+          message: rect(node),
+          text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
+        };
+      });
 
       return {
         inputValue: textarea?.value || '',
@@ -499,7 +519,7 @@ const getUiState = async (cdp) =>
       const rectOf = (selector) => {
         const el = selector === '.komsco-ai__surface'
           ? surface
-          : surface?.querySelector(selector);
+          : surface?.querySelector(selector) || document.querySelector(selector);
         if (!el) return null;
         const r = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
@@ -510,7 +530,12 @@ const getUiState = async (cdp) =>
           bottom: r.bottom,
           width: r.width,
           height: r.height,
+          borderRadius: style.borderRadius,
           display: style.display,
+          paddingBottom: style.paddingBottom,
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+          paddingTop: style.paddingTop,
           resize: style.resize,
         };
       };
@@ -521,6 +546,27 @@ const getUiState = async (cdp) =>
       const rail = surface?.querySelector('.komsco-ai__insight-rail');
       const input = surface?.querySelector('.komsco-ai__textarea textarea, textarea.komsco-ai__textarea');
       const send = surface?.querySelector('.komsco-ai__send');
+      const quickMenuTrigger = surface?.querySelector('.komsco-ai__quick-menu-trigger');
+      const quickMenuItems = [...(surface?.querySelectorAll('.komsco-ai__quick-menu-item') || [])];
+      const inlineQuickPrompts = [...(surface?.querySelectorAll('.komsco-ai__composer-wrap > .komsco-ai__quick-prompts .komsco-ai__quick-prompt') || [])];
+      const attach = surface?.querySelector('.komsco-ai__attach');
+      const fileInput = surface?.querySelector('input.komsco-ai__file-input[type="file"]');
+      const taskModeButton = surface?.querySelector('.komsco-ai__task-mode-button');
+      const taskModeOptions = [...(surface?.querySelectorAll('.komsco-ai__task-mode-option') || [])];
+      const headerStatus = surface?.querySelector('.komsco-ai__header-status');
+      const headerActions = surface?.querySelector('.komsco-ai__header-actions');
+      const resizeHandles = [...(surface?.querySelectorAll('.komsco-ai__resize-handle') || [])];
+      const titleStyle = title ? window.getComputedStyle(title) : null;
+      const brandCopy = surface?.querySelector('.komsco-ai__brand-copy');
+      const historySidebar = surface?.querySelector('.komsco-ai__history-sidebar') || document.querySelector('.komsco-ai__history-sidebar');
+      const historyUser = historySidebar?.querySelector('.komsco-ai__history-user');
+      const historyItems = [...(historySidebar?.querySelectorAll('.komsco-ai__history-item') || [])];
+      const historyItemHeights = historyItems.map((item) => item.getBoundingClientRect().height);
+      const historySidebarRect = historySidebar?.getBoundingClientRect();
+      const historyTopElement =
+        historySidebarRect && historySidebarRect.width > 0 && historySidebarRect.height > 0
+          ? document.elementFromPoint(historySidebarRect.left + 20, historySidebarRect.top + 30)
+          : null;
 
       return {
         rootExists: Boolean(document.querySelector('.komsco-ai')),
@@ -529,6 +575,41 @@ const getUiState = async (cdp) =>
         surfaceClasses: surface?.className || '',
         title: title?.textContent?.trim() || '',
         languageText: language?.textContent?.trim() || '',
+        headerStatusText: headerStatus?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        quickMenuTriggerExists: Boolean(quickMenuTrigger),
+        quickMenuExpanded: quickMenuTrigger?.getAttribute('aria-expanded') || '',
+        quickMenuItemCount: quickMenuItems.length,
+        quickMenuItemLabels: quickMenuItems.map((item) =>
+          item.querySelector('strong')?.textContent?.trim() || item.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        ),
+        inlineQuickPromptCount: inlineQuickPrompts.length,
+        attachExists: Boolean(attach),
+        fileInputExists: Boolean(fileInput),
+        taskModeText: taskModeButton?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        taskModeValue: taskModeButton?.getAttribute('data-assistant-task-mode') || '',
+        taskModeOptionCount: taskModeOptions.length,
+        taskModeOptionValues: taskModeOptions.map((item) => item.getAttribute('data-komsco-task-mode') || ''),
+        historyUserText: historyUser?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        historyUserExists: Boolean(historyUser),
+        historyTopElementClass: String(historyTopElement?.className || ''),
+        historyTopElementText: historyTopElement?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim().slice(0, 80) || '',
+        historyItemCount: historyItems.length,
+        historyItemMaxHeight: historyItemHeights.length ? Math.max(...historyItemHeights) : 0,
+        headerModeButtonCount: headerStatus?.querySelectorAll('.komsco-ai__mode-toggle-button').length || 0,
+        hasHeaderStatusChip: Boolean(headerStatus?.querySelector('.komsco-ai__status-chip')),
+        hasHeaderModeChip: Boolean(headerStatus?.querySelector('.komsco-ai__mode-chip')),
+        headerTitleClipped: title ? title.scrollWidth > title.clientWidth + 1 : false,
+        headerTitleMetrics: title
+          ? {
+              clientWidth: title.clientWidth,
+              computedOverflow: titleStyle?.overflow || '',
+              computedTextOverflow: titleStyle?.textOverflow || '',
+              computedWidth: titleStyle?.width || '',
+              scrollWidth: title.scrollWidth,
+            }
+          : null,
+        resizeHandleCount: resizeHandles.length,
+        resizeHandleCursors: resizeHandles.map((handle) => window.getComputedStyle(handle).cursor),
         isEmbedded: Boolean(document.querySelector('.komsco-ai--embedded')),
         hasWorkspaceHistoryClass: Boolean(surface?.querySelector('.komsco-ai__workspace--history-open')),
         workspaceGrid: workspace ? window.getComputedStyle(workspace).gridTemplateColumns : null,
@@ -537,7 +618,15 @@ const getUiState = async (cdp) =>
         toggle: rectOf('.komsco-ai__sidebar-toggle'),
         logo: rectOf('.komsco-ai__brand-logo'),
         brand: rectOf('.komsco-ai__brand'),
+        brandCopy: rectOf('.komsco-ai__brand-copy'),
+        titleRect: rectOf('.komsco-ai__title'),
+        header: rectOf('.komsco-ai__header'),
+        headerStatus: rectOf('.komsco-ai__header-status'),
+        headerActions: rectOf('.komsco-ai__header-actions'),
         history: rectOf('.komsco-ai__history-sidebar'),
+        composerWrap: rectOf('.komsco-ai__composer-wrap'),
+        inputBox: rectOf('.komsco-ai__input'),
+        textarea: rectOf('.komsco-ai__input textarea'),
         panel: rectOf('.komsco-ai__panel'),
         chat: rectOf('.komsco-ai__chat-column'),
         rail: rectOf('.komsco-ai__insight-rail'),
@@ -571,6 +660,13 @@ const getDashboardState = async (cdp) =>
         pageExists: Boolean(document.querySelector('.komsco-ai-page')),
         healthScoreText: document.querySelector('.komsco-ai-page__health-dial strong')?.textContent?.trim() || '',
         overviewSideText: document.querySelector('.komsco-ai-page__overview-side')?.textContent?.trim() || '',
+        quickToggleVisible: (() => {
+          const el = document.querySelector('.komsco-ai-page__assistant-quick-toggle');
+          if (!el) return false;
+          const r = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return r.width > 0 && r.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        })(),
         floatingFabVisible: [...document.querySelectorAll('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__fab')]
           .some((el) => {
             const r = el.getBoundingClientRect();
@@ -644,6 +740,24 @@ const run = async () => {
     assertCheck('dashboard route does not show duplicate global assistant FAB', !dashboardState.floatingFabVisible, {
       floatingFabVisible: dashboardState.floatingFabVisible,
     });
+    assertCheck('dashboard route keeps K assistant quick toggle visible after refresh', dashboardState.quickToggleVisible, {
+      quickToggleVisible: dashboardState.quickToggleVisible,
+    });
+    await evaluate(cdp, 'window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "auto" })');
+    await sleep(250);
+    await click(cdp, '.komsco-ai-page__assistant-quick-toggle');
+    await waitFor(
+      cdp,
+      'assistant quick toggle scrolls to embedded assistant',
+      `(() => {
+        const stage = document.querySelector('.komsco-ai-page__assistant-stage');
+        if (!stage) return false;
+        const r = stage.getBoundingClientRect();
+        return r.top >= 0 && r.top < window.innerHeight * 0.75;
+      })()`,
+      5000,
+    );
+    record('dashboard K assistant quick toggle scrolls to embedded assistant', true);
     assertCheck('dashboard health score is loaded from gateway data', /^\d+$/.test(dashboardState.healthScoreText), {
       healthScoreText: dashboardState.healthScoreText,
     });
@@ -688,7 +802,9 @@ const run = async () => {
 
     let state = await getUiState(cdp);
     assertCheck('assistant surface loaded', state.surfaceExists, { url: uiUrl });
-    assertCheck('header title is Cywell AI', state.title === 'Cywell AI', { title: state.title });
+    assertCheck('header removes Cywell AI title from compact toolbar', state.title === '', {
+      title: state.title,
+    });
     assertCheck('header sidebar toggle is left of KOMSCO logo', state.toggle.right <= state.logo.left, {
       toggleRight: Math.round(state.toggle.right),
       logoLeft: Math.round(state.logo.left),
@@ -698,6 +814,48 @@ const run = async () => {
       logoWidth: Math.round(state.logo.width),
       logoHeight: Math.round(state.logo.height),
     });
+    assertCheck('history sidebar is closed by default', !state.surfaceClasses.includes('komsco-ai__surface--history-open'), {
+      surfaceClasses: state.surfaceClasses,
+    });
+    assertCheck(
+      'header logo, runtime status, and action buttons do not overlap',
+      state.brand.right <= state.headerStatus.left + 2 &&
+        state.headerStatus.right <= state.headerActions.left + 2,
+      {
+        actionsLeft: Math.round(state.headerActions.left),
+        brandRight: Math.round(state.brand.right),
+        headerStatusLeft: Math.round(state.headerStatus.left),
+        headerStatusRight: Math.round(state.headerStatus.right),
+      },
+    );
+    const headerCenterY = (state.header.top + state.header.bottom) / 2;
+    const headerCenterDeltas = {
+      actions: Math.round(((state.headerActions.top + state.headerActions.bottom) / 2 - headerCenterY) * 10) / 10,
+      logo: Math.round(((state.logo.top + state.logo.bottom) / 2 - headerCenterY) * 10) / 10,
+      status: Math.round(((state.headerStatus.top + state.headerStatus.bottom) / 2 - headerCenterY) * 10) / 10,
+      toggle: Math.round(((state.toggle.top + state.toggle.bottom) / 2 - headerCenterY) * 10) / 10,
+    };
+    assertCheck(
+      'header controls share a consistent vertical centerline',
+      Object.values(headerCenterDeltas).every((delta) => Math.abs(delta) <= 3),
+      {
+        headerCenterY: Math.round(headerCenterY * 10) / 10,
+        headerCenterDeltas,
+      },
+    );
+    assertCheck(
+      'header restores compact runtime status and mode controls',
+      state.hasHeaderStatusChip &&
+        state.hasHeaderModeChip &&
+        state.headerModeButtonCount === 3 &&
+        state.headerStatusText.includes('읽기'),
+      {
+        headerModeButtonCount: state.headerModeButtonCount,
+        headerStatusText: state.headerStatusText,
+        hasHeaderModeChip: state.hasHeaderModeChip,
+        hasHeaderStatusChip: state.hasHeaderStatusChip,
+      },
+    );
 
     const languageBefore = state.languageText;
     await click(cdp, '.komsco-ai__language-button');
@@ -714,25 +872,67 @@ const run = async () => {
     await click(cdp, '.komsco-ai__language-button');
 
     state = await getUiState(cdp);
-    if (!state.surfaceClasses.includes('komsco-ai__surface--history-open')) {
+    if (state.surfaceClasses.includes('komsco-ai__surface--history-open')) {
       await click(cdp, '.komsco-ai__sidebar-toggle');
-      await waitFor(cdp, 'history sidebar open', `(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--history-open')`);
+      await waitFor(cdp, 'history sidebar closed', `!(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--history-open')`);
     }
+    const historyClosedState = await getUiState(cdp);
+    await click(cdp, '.komsco-ai__sidebar-toggle');
+    await waitFor(cdp, 'history sidebar open', `(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--history-open')`);
+    await waitFor(
+      cdp,
+      'history user footer resolves current OpenShift user',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const text = (surface?.querySelector('.komsco-ai__history-user') || document.querySelector('.komsco-ai__history-user'))?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '';
+        return text && !text.includes('OpenShift user') && !text.includes('인증 확인 필요') && !text.includes('확인 중') && !text.includes('cluster pending');
+      })()`,
+      12000,
+    );
 
     state = await getUiState(cdp);
-    assertCheck('history sidebar opens as surface sibling', Boolean(state.history) && state.history.right <= state.panel.left + 2, {
-      historyRight: Math.round(state.history?.right || 0),
-      panelLeft: Math.round(state.panel?.left || 0),
-    });
+    assertCheck(
+      'history sidebar shows current OpenShift user footer',
+      state.historyUserExists &&
+        !state.historyUserText.includes('OpenShift user') &&
+        !state.historyUserText.includes('인증 확인 필요') &&
+        !state.historyUserText.includes('확인 중'),
+      {
+        historyUserText: state.historyUserText,
+      },
+    );
+    assertCheck(
+      'history saved conversation cards stay compact',
+      state.historyItemCount === 0 || state.historyItemMaxHeight <= 72,
+      {
+        historyItemCount: state.historyItemCount,
+        historyItemMaxHeight: Math.round(state.historyItemMaxHeight),
+      },
+    );
+    assertCheck(
+      'history drawer extends outside the main panel without resizing it',
+      Boolean(state.history) &&
+        Math.abs(state.panel.width - historyClosedState.panel.width) <= 2 &&
+        Math.abs(state.panel.left - historyClosedState.panel.left) <= 2 &&
+        Math.abs(state.surface.width - historyClosedState.surface.width) <= 2 &&
+        state.history.right <= state.panel.left + 2 &&
+        !state.historyTopElementClass.includes('pf-v6-c-nav__link'),
+      {
+        closedPanelLeft: Math.round(historyClosedState.panel.left),
+        closedPanelWidth: Math.round(historyClosedState.panel.width),
+        closedSurfaceWidth: Math.round(historyClosedState.surface.width),
+        historyLeft: Math.round(state.history?.left || 0),
+        historyRight: Math.round(state.history?.right || 0),
+        openPanelLeft: Math.round(state.panel?.left || 0),
+        openPanelWidth: Math.round(state.panel?.width || 0),
+        openSurfaceWidth: Math.round(state.surface?.width || 0),
+        topClass: state.historyTopElementClass,
+        topText: state.historyTopElementText,
+      },
+    );
     assertCheck('history open does not split chat workspace', !state.hasWorkspaceHistoryClass, {
       workspaceGrid: state.workspaceGrid,
     });
-    if (state.isEmbedded) {
-      assertCheck('embedded history open hides right rail instead of squeezing chat', state.railDisplay === 'none', {
-        railDisplay: state.railDisplay,
-        workspaceGrid: state.workspaceGrid,
-      });
-    }
 
     await click(cdp, 'button[aria-label="Open full screen"]');
     await waitFor(cdp, 'fullscreen surface', "!!document.querySelector('.komsco-ai__surface--fullscreen')");
@@ -740,9 +940,10 @@ const run = async () => {
     assertCheck('fullscreen surface is portaled to body', state.surfaceParentTag === 'BODY', {
       surfaceParentTag: state.surfaceParentTag,
     });
-    assertCheck('fullscreen keeps history and main panel separate', Boolean(state.history) && state.history.right <= state.panel.left + 2, {
+    assertCheck('fullscreen history drawer overlays without resizing main panel', Boolean(state.history) && state.history.right < state.panel.right, {
       historyRight: Math.round(state.history?.right || 0),
       panelLeft: Math.round(state.panel?.left || 0),
+      panelRight: Math.round(state.panel?.right || 0),
     });
     if (state.railDisplay !== 'none') {
       assertCheck('fullscreen keeps chat and right rail separate', state.chat.right <= state.rail.left + 2, {
@@ -764,14 +965,38 @@ const run = async () => {
     state = await getUiState(cdp);
     assertCheck('resize is locked by default', state.surface.resize === 'none', { resize: state.surface.resize });
 
+    const lockedBeforeUnlock = state;
     await click(cdp, 'button[aria-label="창 크기 잠금 해제"]');
     await waitFor(cdp, 'resize unlocked', `(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--resize-unlocked')`);
     const beforeResize = await getUiState(cdp);
-    const expectedResize = beforeResize.isEmbedded ? 'vertical' : 'both';
+    assertCheck(
+      'resize unlock keeps current panel size unchanged',
+      Math.abs(beforeResize.surface.height - lockedBeforeUnlock.surface.height) <= 2 &&
+        Math.abs(beforeResize.surface.width - lockedBeforeUnlock.surface.width) <= 2,
+      {
+        beforeHeight: Math.round(lockedBeforeUnlock.surface.height),
+        afterHeight: Math.round(beforeResize.surface.height),
+        beforeWidth: Math.round(lockedBeforeUnlock.surface.width),
+        afterWidth: Math.round(beforeResize.surface.width),
+      },
+    );
+    const expectedResize = 'both';
     assertCheck('resize unlock uses correct resize axis', beforeResize.surface.resize === expectedResize, {
       resize: beforeResize.surface.resize,
       isEmbedded: beforeResize.isEmbedded,
     });
+    assertCheck(
+      'resize unlock exposes edge and corner cursors',
+      beforeResize.resizeHandleCount === 8 &&
+        beforeResize.resizeHandleCursors.includes('ns-resize') &&
+        beforeResize.resizeHandleCursors.includes('ew-resize') &&
+        beforeResize.resizeHandleCursors.includes('nwse-resize') &&
+        beforeResize.resizeHandleCursors.includes('nesw-resize'),
+      {
+        cursors: beforeResize.resizeHandleCursors,
+        resizeHandleCount: beforeResize.resizeHandleCount,
+      },
+    );
 
     await dragResizeHandle(cdp, beforeResize.isEmbedded ? 80 : 70, 90);
     const afterResize = await getUiState(cdp);
@@ -792,9 +1017,123 @@ const run = async () => {
     await click(cdp, 'button[aria-label="창 크기 잠금"]');
     await waitFor(cdp, 'resize relocked', `!(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--resize-unlocked')`);
     state = await getUiState(cdp);
+    assertCheck(
+      'resize lock keeps current panel size unchanged',
+      Math.abs(state.surface.height - afterResize.surface.height) <= 2 &&
+        Math.abs(state.surface.width - afterResize.surface.width) <= 2,
+      {
+        beforeHeight: Math.round(afterResize.surface.height),
+        afterHeight: Math.round(state.surface.height),
+        beforeWidth: Math.round(afterResize.surface.width),
+        afterWidth: Math.round(state.surface.width),
+      },
+    );
     assertCheck('resize lock disables manual resize again', state.surface.resize === 'none', {
       resize: state.surface.resize,
     });
+
+    assertCheck(
+      'composer border is square and close to the panel edges',
+      Number.parseFloat(state.inputBox.borderRadius) <= 1 &&
+        state.inputBox.left - state.composerWrap.left <= 8 &&
+        state.composerWrap.right - state.inputBox.right <= 8,
+      {
+        composerPaddingLeft: state.composerWrap.paddingLeft,
+        inputBorderRadius: state.inputBox.borderRadius,
+        inputLeftGap: Math.round(state.inputBox.left - state.composerWrap.left),
+        inputRightGap: Math.round(state.composerWrap.right - state.inputBox.right),
+      },
+    );
+    assertCheck(
+      'composer text has breathing room inside the border',
+      Number.parseFloat(state.textarea.paddingLeft) >= 10 &&
+        Number.parseFloat(state.textarea.paddingTop) >= 10,
+      {
+        textareaPaddingLeft: state.textarea.paddingLeft,
+        textareaPaddingTop: state.textarea.paddingTop,
+      },
+    );
+
+    assertCheck('composer quick prompts are hidden behind the plus menu', state.inlineQuickPromptCount === 0, {
+      inlineQuickPromptCount: state.inlineQuickPromptCount,
+    });
+    assertCheck('composer keeps image attachment control visible', state.attachExists && state.fileInputExists, {
+      attachExists: state.attachExists,
+      fileInputExists: state.fileInputExists,
+    });
+    assertCheck('composer task mode defaults to Ask', state.taskModeValue === 'ask' && state.taskModeText.includes('Ask'), {
+      taskModeText: state.taskModeText,
+      taskModeValue: state.taskModeValue,
+    });
+
+    await click(cdp, '.komsco-ai__quick-menu-trigger');
+    await waitFor(
+      cdp,
+      'quick prompt menu opens',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        return (surface?.querySelectorAll('.komsco-ai__quick-menu-item') || []).length === 4;
+      })()`,
+      5000,
+    );
+    state = await getUiState(cdp);
+    assertCheck(
+      'composer plus menu contains frequent operation prompts',
+      state.quickMenuItemCount === 4 &&
+        ['Node 상태', '최근 경고', '조치 절차', '조치 후보 검토'].every((label) =>
+          state.quickMenuItemLabels.includes(label),
+        ),
+      {
+        quickMenuExpanded: state.quickMenuExpanded,
+        quickMenuItemCount: state.quickMenuItemCount,
+        quickMenuItemLabels: state.quickMenuItemLabels,
+      },
+    );
+
+    await click(cdp, '.komsco-ai__quick-menu-trigger');
+    await click(cdp, '.komsco-ai__task-mode-button');
+    await waitFor(
+      cdp,
+      'task mode menu opens',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        return (surface?.querySelectorAll('.komsco-ai__task-mode-option') || []).length === 2;
+      })()`,
+      5000,
+    );
+    state = await getUiState(cdp);
+    assertCheck(
+      'composer exposes Ask and Troubleshooting task modes',
+      state.taskModeOptionCount === 2 &&
+        state.taskModeOptionValues.includes('ask') &&
+        state.taskModeOptionValues.includes('troubleshooting'),
+      {
+        taskModeOptionCount: state.taskModeOptionCount,
+        taskModeOptionValues: state.taskModeOptionValues,
+      },
+    );
+    await click(cdp, '[data-komsco-task-mode="troubleshooting"]');
+    state = await getUiState(cdp);
+    assertCheck(
+      'composer task mode switches to Troubleshooting',
+      state.taskModeValue === 'troubleshooting' && state.taskModeText.includes('Troubleshooting'),
+      {
+        taskModeText: state.taskModeText,
+        taskModeValue: state.taskModeValue,
+      },
+    );
+    await click(cdp, '.komsco-ai__task-mode-button');
+    await waitFor(
+      cdp,
+      'task mode menu reopens',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        return (surface?.querySelectorAll('.komsco-ai__task-mode-option') || []).length === 2;
+      })()`,
+      5000,
+    );
+    await click(cdp, '[data-komsco-task-mode="ask"]');
+    state = await getUiState(cdp);
 
     if (state.inputExists) {
       assertCheck('composer send starts disabled without prompt', state.sendDisabled === true, {
@@ -860,6 +1199,29 @@ const run = async () => {
       after: chatState.messageCount,
       messages: chatState.messages.slice(-3),
     });
+    const latestAssistantMessage = [...chatState.messages]
+      .reverse()
+      .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant'));
+    assertCheck(
+      'assistant answer label is KOMSCO AI AGENT',
+      latestAssistantMessage?.labelText === 'KOMSCO AI AGENT',
+      {
+        labelText: latestAssistantMessage?.labelText,
+      },
+    );
+    assertCheck(
+      'assistant K logo sits in the answer header without indenting content',
+      Boolean(latestAssistantMessage?.avatar) &&
+        Boolean(latestAssistantMessage?.content) &&
+        Math.abs(latestAssistantMessage.content.left - latestAssistantMessage.message.left) <= 2 &&
+        latestAssistantMessage.avatar.top <= latestAssistantMessage.content.top,
+      {
+        avatarTop: Math.round(latestAssistantMessage?.avatar?.top || 0),
+        contentLeft: Math.round(latestAssistantMessage?.content?.left || 0),
+        contentTop: Math.round(latestAssistantMessage?.content?.top || 0),
+        messageLeft: Math.round(latestAssistantMessage?.message?.left || 0),
+      },
+    );
 
     await makeConversationScrollableAndScrollUp(cdp);
     await waitFor(
@@ -934,6 +1296,63 @@ const run = async () => {
       })()`,
     );
     assertCheck('jump button returns conversation to latest message', scrollState.buttonVisible === false && scrollState.distanceToBottom <= 24, scrollState);
+
+    await cdp.send('Page.navigate', { url: new URL('/dashboards', uiUrl).toString() });
+    await waitFor(cdp, 'dashboard page reload', "document.readyState === 'complete'");
+    await waitFor(cdp, 'floating assistant fab after console refresh', "!!document.querySelector('.komsco-ai__fab')");
+    await click(cdp, '.komsco-ai__fab');
+    await waitFor(cdp, 'floating assistant surface', "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface')");
+    const floatingState = await getUiState(cdp);
+    assertCheck(
+      'floating header does not overlap or clip after refresh',
+      !floatingState.isEmbedded &&
+        floatingState.title === '' &&
+        floatingState.logo.width >= 120 &&
+        floatingState.brand.right <= floatingState.headerStatus.left + 2 &&
+        floatingState.headerStatus.right <= floatingState.headerActions.left + 2,
+      {
+        actionsLeft: Math.round(floatingState.headerActions.left),
+        brandRight: Math.round(floatingState.brand.right),
+        brandWidth: Math.round(floatingState.brand.width),
+        brandCopyWidth: Math.round(floatingState.brandCopy?.width || 0),
+        headerStatusLeft: Math.round(floatingState.headerStatus.left),
+        headerStatusRight: Math.round(floatingState.headerStatus.right),
+        logoWidth: Math.round(floatingState.logo.width),
+        title: floatingState.title,
+      },
+    );
+
+    await click(cdp, 'button[aria-label="창 크기 잠금 해제"]');
+    await waitFor(cdp, 'floating resize unlocked', `(${activeSurfaceExpression})?.className.includes('komsco-ai__surface--resize-unlocked')`);
+    const floatingBeforeResize = await getUiState(cdp);
+    assertCheck(
+      'floating resize unlock exposes edge and corner cursors',
+      !floatingBeforeResize.isEmbedded &&
+        floatingBeforeResize.surface.resize === 'both' &&
+        floatingBeforeResize.resizeHandleCount === 8 &&
+        floatingBeforeResize.resizeHandleCursors.includes('ns-resize') &&
+        floatingBeforeResize.resizeHandleCursors.includes('ew-resize') &&
+        floatingBeforeResize.resizeHandleCursors.includes('nwse-resize') &&
+        floatingBeforeResize.resizeHandleCursors.includes('nesw-resize'),
+      {
+        cursors: floatingBeforeResize.resizeHandleCursors,
+        resize: floatingBeforeResize.surface.resize,
+        resizeHandleCount: floatingBeforeResize.resizeHandleCount,
+      },
+    );
+    await dragResizeHandle(cdp, 70, 70);
+    const floatingAfterResize = await getUiState(cdp);
+    assertCheck(
+      'floating resize handle changes panel width and height',
+      floatingAfterResize.surface.width > floatingBeforeResize.surface.width + 20 &&
+        floatingAfterResize.surface.height > floatingBeforeResize.surface.height + 20,
+      {
+        afterHeight: Math.round(floatingAfterResize.surface.height),
+        afterWidth: Math.round(floatingAfterResize.surface.width),
+        beforeHeight: Math.round(floatingBeforeResize.surface.height),
+        beforeWidth: Math.round(floatingBeforeResize.surface.width),
+      },
+    );
   } finally {
     await cdp.close();
   }

@@ -40,7 +40,7 @@ from .security import (
     safe_subject,
 )
 
-app = FastAPI(title="KOMSCO AI Gateway", version="0.1.0")
+app = FastAPI(title="KOMSCO AI Gateway", version="0.1.3")
 
 
 def parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -6761,6 +6761,12 @@ async def cluster_summary(authorization: str | None = Header(default=None)) -> d
     )
 
 
+@app.get("/v1/auth/subject")
+async def auth_subject(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    return await fetch_self_subject_review(user_auth_header)
+
+
 @app.get("/v1/evidence")
 async def list_evidence(
     authorization: str | None = Header(default=None),
@@ -6972,6 +6978,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 record_store_enabled=RECORD_STORE_ENABLED,
             ),
             "productAccessReview": redact_sensitive(product_access_review),
+            "subject": redact_sensitive(dict(subject)),
             "records": {
                 "auditRecords": latest_readable_audit_records(
                     subject,

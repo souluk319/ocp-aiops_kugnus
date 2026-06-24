@@ -187,7 +187,44 @@
 }
 
 .komsco-ai-page__assistant-stage {
+  position: relative;
+  z-index: 10020;
   margin-block: 0 16px;
+}
+
+.komsco-ai-page__assistant-quick-toggle {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 9980;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgb(3 7 18 / 22%);
+}
+
+.komsco-ai-page__assistant-quick-toggle:hover {
+  border-color: var(--pf-t--global--border--color--brand--default);
+  box-shadow: 0 12px 32px rgb(3 7 18 / 28%);
+}
+
+.komsco-ai-page__assistant-quick-toggle:focus-visible {
+  outline: 2px solid var(--pf-t--global--border--color--brand--default);
+  outline-offset: 3px;
+}
+
+.komsco-ai-page__assistant-quick-toggle img {
+  display: block;
+  width: 39px;
+  height: 39px;
+  object-fit: contain;
 }
 
 .komsco-ai-page__assistant-stage .komsco-ai--embedded .komsco-ai__surface:not(.komsco-ai__surface--fullscreen) {
@@ -513,6 +550,18 @@
 
   .komsco-ai-page__metrics {
     grid-template-columns: 1fr;
+  }
+
+  .komsco-ai-page__assistant-quick-toggle {
+    right: 18px;
+    bottom: 18px;
+    width: 52px;
+    height: 52px;
+  }
+
+  .komsco-ai-page__assistant-quick-toggle img {
+    width: 35px;
+    height: 35px;
   }
 
   .komsco-ai-page__health-dial {

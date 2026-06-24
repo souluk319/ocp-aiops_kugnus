@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .main import execute_typed_action_plan, parse_bool, redact_sensitive
 
-app = FastAPI(title="KOMSCO AIOps Action Executor", version="0.1.0")
+app = FastAPI(title="KOMSCO AIOps Action Executor", version="0.1.3")
 
 EXECUTOR_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ACTION_EXECUTOR_ENABLED"), default=False)
 EXECUTOR_SHARED_TOKEN = os.getenv("KOMSCO_AI_ACTION_EXECUTOR_SHARED_TOKEN", "")

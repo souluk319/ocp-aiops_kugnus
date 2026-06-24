@@ -79,6 +79,14 @@ export type ClusterSummary = {
   };
 };
 
+export type AuthSubject = {
+  authenticatedByCluster?: boolean;
+  groups?: string[];
+  groupsDigest?: string;
+  uid?: string;
+  username: string;
+};
+
 export type AiopsRecord = {
   kind?: string;
   metadata?: {
@@ -131,6 +139,7 @@ export type AiopsRuntimeStatus = {
         status?: string;
       };
     };
+    subject?: AuthSubject;
     records: {
       actionProposals: AiopsRecord[];
       auditRecords?: AiopsRecord[];
@@ -178,7 +187,10 @@ const GATEWAY_CLUSTER_SUMMARY_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/cluster/summary';
 const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
+const GATEWAY_AUTH_SUBJECT_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/auth/subject';
 const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
+const CONSOLE_SELF_USER_URL = '/api/kubernetes/apis/user.openshift.io/v1/users/~';
 const GATEWAY_AUTH_ERROR_MESSAGE =
   'OpenShift 콘솔 사용자 인증이 만료되었거나 Gateway로 사용자 토큰이 전달되지 않았습니다. 콘솔을 새로고침하거나 다시 로그인한 뒤 다시 시도하세요.';
 
@@ -259,6 +271,57 @@ export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {
   }
 
   return (await response.json()) as AiopsRuntimeStatus;
+}
+
+export async function fetchAuthSubject(): Promise<AuthSubject> {
+  const response = await consoleFetch(
+    GATEWAY_AUTH_SUBJECT_URL,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'GET',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'Auth subject request failed'));
+  }
+
+  return (await response.json()) as AuthSubject;
+}
+
+export async function fetchConsoleUserSubject(): Promise<AuthSubject> {
+  const response = await consoleFetch(
+    CONSOLE_SELF_USER_URL,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'GET',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'Console user request failed'));
+  }
+
+  const payload = (await response.json()) as {
+    groups?: string[];
+    identities?: string[];
+    metadata?: {
+      name?: string;
+      uid?: string;
+    };
+  };
+
+  return {
+    groups: payload.groups ?? [],
+    uid: payload.metadata?.uid,
+    username: payload.metadata?.name || payload.identities?.[0] || 'unknown',
+  };
 }
 
 export async function createActionPlan(proposalId: string): Promise<AiopsRecord> {
