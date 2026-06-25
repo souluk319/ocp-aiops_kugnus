@@ -176,6 +176,23 @@ def test_rag_pdf_upload_parser_extracts_page_marked_text(monkeypatch) -> None:
     assert report["pageCount"] == 2
 
 
+def test_rag_upload_content_strips_postgres_unsafe_control_chars() -> None:
+    record = build_rag_upload_document(
+        RagDocumentUploadCreate(
+            name="nul-byte-runbook.md",
+            content="alpha\x00beta\x07\n\noc get co",
+            namespace="komsco-ai-kugnus",
+        ),
+        {"username": "admin", "uid": "uid-admin", "groups": ["cluster-admins"]},
+    )
+
+    combined_content = "\n".join(str(chunk["content"]) for chunk in record["chunks"])
+    assert "\x00" not in combined_content
+    assert "\x07" not in combined_content
+    assert "alpha beta" in combined_content
+    assert "oc get co" in combined_content
+
+
 def test_rag_upload_file_endpoint_uses_multipart_parser_and_existing_rag_contract(monkeypatch) -> None:
     async def fake_subject_review(_user_auth_header: str) -> dict:
         return {"username": "admin", "uid": "uid-admin", "groups": ["cluster-admins"]}
@@ -247,6 +264,13 @@ def test_parse_ols_verify() -> None:
     assert parse_ols_verify("/var/run/configmaps/service-ca/service-ca.crt") == (
         "/var/run/configmaps/service-ca/service-ca.crt"
     )
+
+
+def test_verify_bearer_header_rejects_empty_bearer_token() -> None:
+    with pytest.raises(HTTPException) as caught:
+        gateway_main.verify_bearer_header("Bearer ")
+
+    assert caught.value.status_code == 401
 
 
 def test_aiops_contract_rejects_mutating_tool_plan() -> None:

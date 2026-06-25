@@ -1,11 +1,11 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T11:41:01.388842Z",
+  "generatedAt": "2026-06-25T23:25:52.048945Z",
   "kind": "CrashLoopScreenCycleReadinessVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
-    "branch": "feat/v.0.1.3",
-    "headSha": "64e4ca0743b73d1a20194870d08b5b7d785a7c70",
+    "branch": "feat/v.0.1.5",
+    "headSha": "8f933d3e94fd903c47b6ba65e45c78f41bc96fc8",
     "name": "ver-0.1.3-crashloop-screen-cycle-readiness",
     "scope": "source-and-local-runtime-readiness"
   },

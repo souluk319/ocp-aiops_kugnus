@@ -1,12 +1,12 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T11:41:01.338348Z",
+  "generatedAt": "2026-06-25T23:25:52.084149Z",
   "kind": "CrashLoopLiveDemoCycleVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
-    "branch": "feat/v.0.1.3",
+    "branch": "feat/v.0.1.5",
     "gateway": "http://127.0.0.1:18080",
-    "headSha": "64e4ca0743b73d1a20194870d08b5b7d785a7c70",
+    "headSha": "8f933d3e94fd903c47b6ba65e45c78f41bc96fc8",
     "name": "ver-0.1.3-crashloop-live-demo-cycle",
     "scope": "local-gateway-controlled-execution"
   },
@@ -275,9 +275,9 @@
       },
       {
         "type": "runbook",
-        "status": "missing",
-        "count": 0,
-        "reason": "RAG/runbook retrieval is planned for a later RCA slice"
+        "status": "collected",
+        "count": 1,
+        "partialCount": 0
       },
       {
         "type": "audit",
@@ -288,15 +288,15 @@
     ],
     "eventCounts": {
       "run_status": 3,
-      "tool_call": 19,
-      "tool_result": 24,
+      "tool_call": 21,
+      "tool_result": 26,
       "tool_plan": 1,
       "rca_context": 3,
-      "text": 2
+      "text": 3
     },
     "finalText": {
-      "digest": "126b8f2e919341e0bf5a4f34af3916229dd1d24dd7c4fdec0bf244c541f62a49",
-      "length": 3643,
+      "digest": "c4dedae33a0d4439facd4ad0ac931a429095b72bb58ad61f2c1b916b2a5a26f9",
+      "length": 4095,
       "overclaimRisk": false
     },
     "finding": {
@@ -322,9 +322,9 @@
     },
     "rcaContext": {
       "metadata": {
-        "digest": "sha256:84aebf7402e3e307cf58d1aa0802b9ccdae7f44c045230caa2873c7b97dd6f01",
+        "digest": "sha256:c99d0d44776ec4baaf846622e032abb6bb7256e2f89649ef37bbe5c7bb91206e",
         "findingId": "3bc71be7b6998201",
-        "runId": "ver-0.1.3-live-demo-1782387662",
+        "runId": "ver-0.1.3-live-demo-1782429953",
         "scenarioId": "crashloop"
       },
       "collectedEvidenceTypes": [
@@ -334,29 +334,30 @@
         "snapshot",
         "node",
         "alert",
-        "metric"
+        "metric",
+        "runbook"
       ],
       "failedEvidenceTypes": [],
       "missingEvidenceTypes": [
-        "clusteroperator",
-        "runbook"
+        "clusteroperator"
       ],
       "partialEvidenceTypes": [
         "pod_log"
       ],
       "summary": {
-        "collectedCount": 7,
+        "collectedCount": 8,
         "partialCount": 1,
         "failedCount": 0,
-        "missingCount": 2
+        "missingCount": 1
       }
     },
-    "runId": "ver-0.1.3-live-demo-1782387662",
+    "runId": "ver-0.1.3-live-demo-1782429953",
     "textSources": [
       "crashloop-v0.1.3",
       "fallbackAnswer",
       "gateway_answer_contract",
-      "gateway_fallback"
+      "gateway_fallback",
+      "gateway_rag_citation"
     ],
     "toolResultNames": [
       "access_check",
@@ -372,6 +373,7 @@
       "pod_status_evidence",
       "policy_check",
       "product_access_review",
+      "rag_context_evidence",
       "restart_metric_evidence",
       "runtime_tool_plan",
       "security_boundary",

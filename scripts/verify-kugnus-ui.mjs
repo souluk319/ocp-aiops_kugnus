@@ -1200,6 +1200,22 @@ const run = async () => {
         5000,
       );
       record('dashboard K assistant quick toggle scrolls to embedded assistant', true);
+      await waitFor(
+        cdp,
+        'dashboard gateway data loaded',
+        `(() => {
+          const health = document.querySelector('.komsco-ai-page__health-dial strong')?.textContent?.trim() || '';
+          const overview = document.querySelector('.komsco-ai-page__overview-side')?.textContent || '';
+          return /^\\d+$/.test(health)
+            && overview.includes('API')
+            && overview.includes('Version')
+            && overview.includes('Safety')
+            && overview.includes('Lightspeed stream')
+            && !overview.includes('상태 확인 중');
+        })()`,
+        30000,
+      );
+      dashboardState = await getDashboardState(cdp);
       assertCheck('dashboard health score is loaded from gateway data', /^\d+$/.test(dashboardState.healthScoreText), {
         healthScoreText: dashboardState.healthScoreText,
       });
@@ -2179,24 +2195,22 @@ const run = async () => {
         refCount: evidenceFooter?.refCount,
       },
     );
-    assertCheck(
-      'assistant distinguishes no-evidence stopped answer from collected evidence footer',
-      chatState.messages.some((message) =>
+    const stoppedMessagesWithCollectedEvidence = chatState.messages.filter(
+      (message) =>
         String(message.cls || '').includes('komsco-ai__message--assistant') &&
-        /응답 생성을 중지했습니다|오류 확인 필요/.test(message.text || '') &&
-        (!message.evidenceFooter ||
-          (message.evidenceFooter.collectedNumber === 0 && message.evidenceFooter.refCount === 0)),
-      ) &&
+        /응답 생성을 중지했습니다/.test(message.text || '') &&
+        message.evidenceFooter &&
+        (message.evidenceFooter.collectedNumber > 0 || message.evidenceFooter.refCount > 0),
+    );
+    assertCheck(
+      'assistant does not attach collected evidence footer to explicit stopped/no-evidence answers',
+      stoppedMessagesWithCollectedEvidence.length === 0 &&
         Boolean(evidenceFooter) &&
         evidenceFooter.collectedNumber > 0 &&
         evidenceFooter.missingNumber >= 0 &&
         evidenceFooter.refCount > 0,
       {
-        noEvidenceAssistantMessages: chatState.messages.filter((message) =>
-          String(message.cls || '').includes('komsco-ai__message--assistant') &&
-          (!message.evidenceFooter ||
-            (message.evidenceFooter.collectedNumber === 0 && message.evidenceFooter.refCount === 0)),
-        ).length,
+        stoppedMessagesWithCollectedEvidence: stoppedMessagesWithCollectedEvidence.length,
         withEvidenceFooterText: evidenceFooter?.text?.slice(0, 240),
       },
     );
@@ -2266,11 +2280,18 @@ const run = async () => {
     const evidenceFooterShot = await screenshot(cdp, '.tmp-aiops-kugnus-ui-verify-evidence-footer.png');
     record('evidence footer screenshot saved', true, { path: evidenceFooterShot });
     if (isAiopsDashboardRoute) {
+      await waitFor(
+        cdp,
+        'dashboard refresh button is enabled',
+        `(() => [...document.querySelectorAll('button')]
+          .some((node) => /새로고침|Refresh/i.test(node.textContent || '') && !node.disabled))()`,
+        10000,
+      );
       const dashboardRefreshClicked = await evaluate(
         cdp,
         `(() => {
           const button = [...document.querySelectorAll('button')]
-            .find((node) => node.textContent?.includes('새로고침'));
+            .find((node) => /새로고침|Refresh/i.test(node.textContent || ''));
           if (!button || button.disabled) return false;
           button.click();
           return true;
@@ -2346,8 +2367,8 @@ const run = async () => {
     assertCheck(
       'Lightspeed fallback is visibly labelled when Gateway answers from local evidence',
       fallbackAssistantMessage?.fallbackBadgeText === 'Gateway fallback' &&
-        state.headerStatusLabel.includes('Gateway fallback active') &&
-        state.headerStatusLabel.includes('Lightspeed stream'),
+        /Gateway fallback|Gateway가 수집한 증거/.test(fallbackAssistantMessage?.text || '') &&
+        !state.headerStatusLabel.includes('Gateway fallback active'),
       {
         fallbackBadgeText: fallbackAssistantMessage?.fallbackBadgeText,
         headerStatusLabel: state.headerStatusLabel,

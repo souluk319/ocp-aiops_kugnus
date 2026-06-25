@@ -3042,7 +3042,11 @@ def verify_bearer_header(user_auth_header: str | None) -> str:
     if not user_auth_header or not user_auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
 
-    return user_auth_header
+    token = user_auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
+
+    return f"Bearer {token}"
 
 
 def validate_image_attachments(attachments: list[ImageAttachment]) -> None:
@@ -10041,6 +10045,14 @@ def split_rag_upload_chunks(content: str, *, max_chars: int | None = None) -> li
     return chunks[:RAG_UPLOAD_MAX_CHUNKS]
 
 
+def sanitize_rag_upload_text(content: str) -> str:
+    """Remove control characters that cannot be persisted as PostgreSQL text."""
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", content)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{4,}", "\n\n\n", cleaned)
+    return cleaned.strip()
+
+
 def xml_local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag
 
@@ -10230,7 +10242,7 @@ def extract_rag_upload_file_content(name: str, mime_type: str, raw: bytes) -> tu
         guessed = mimetypes.guess_type(name)[0] or mime_type or "application/octet-stream"
         raise HTTPException(status_code=400, detail=f"Unsupported RAG upload file type: {guessed}")
 
-    content = content.strip()
+    content = sanitize_rag_upload_text(content)
     if not content:
         raise HTTPException(status_code=400, detail="RAG upload parser produced empty content")
 
@@ -10329,7 +10341,7 @@ def classify_rag_upload_freshness(labels: Mapping[str, str]) -> str:
 
 
 def build_rag_upload_document(req: RagDocumentUploadCreate, subject: Mapping[str, Any]) -> dict[str, Any]:
-    content = decode_rag_upload_content(req)
+    content = sanitize_rag_upload_text(decode_rag_upload_content(req))
     redacted_content = redact_sensitive(content)
     if not isinstance(redacted_content, str):
         redacted_content = str(redacted_content)

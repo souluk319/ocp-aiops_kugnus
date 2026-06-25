@@ -194,6 +194,11 @@ tasks:
     cmds:
       - bash ./scripts/kugnus-rag-upload-smoke.sh
 
+  kugnus:rag:file-upload:smoke:
+    desc: Upload a PDF through multipart RAG ingestion and verify parser, chunks, and pgvector persistence
+    cmds:
+      - komsco-ai-gateway/.venv/bin/python scripts/kugnus-rag-file-upload-smoke.py
+
   kugnus:rag:chat:smoke:
     desc: Verify chat SSE exposes retrieved RAG evidence and answer citation text
     cmds:

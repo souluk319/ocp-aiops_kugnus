@@ -1,0 +1,71 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "RagFileUploadSmokeReport",
+  "generatedAt": "2026-06-25T23:25:19.818454+00:00",
+  "gatewayUrl": "http://127.0.0.1:18080",
+  "uploadFile": "/home/kugnus/cywell/ocp-aiops_kugnus/docs/Komsco_ai_agent_final.pdf",
+  "httpStatus": 200,
+  "result": "pass",
+  "checks": [
+    {
+      "name": "http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "persisted",
+      "ok": true,
+      "detail": "Uploaded document chunks were persisted to pgvector."
+    },
+    {
+      "name": "pdf-parser",
+      "ok": true,
+      "detail": "pypdf"
+    },
+    {
+      "name": "document-format-pdf",
+      "ok": true,
+      "detail": "pdf"
+    },
+    {
+      "name": "chunks-produced",
+      "ok": true,
+      "detail": "chunkCount=15"
+    },
+    {
+      "name": "raw-content-not-returned",
+      "ok": true,
+      "detail": "response chunks do not include raw content"
+    }
+  ],
+  "summary": {
+    "status": "persisted",
+    "reason": "Uploaded document chunks were persisted to pgvector.",
+    "documentId": "user-upload:91fe2fe13bf23874",
+    "title": "Komsco_ai_agent_final.pdf",
+    "mimeType": "application/pdf",
+    "chunkCount": 15,
+    "contentBytes": 20887,
+    "labels": {
+      "parser": "pypdf",
+      "documentFormat": "pdf",
+      "originalFileName": "Komsco_ai_agent_final.pdf",
+      "originalMimeType": "application/pdf",
+      "originalBytes": "961979",
+      "extractedChars": "12772",
+      "truncated": "false"
+    },
+    "ingestionReport": {
+      "parser": "pypdf",
+      "documentFormat": "pdf",
+      "pageCount": 14,
+      "originalFileName": "Komsco_ai_agent_final.pdf",
+      "originalMimeType": "application/pdf",
+      "originalBytes": 961979,
+      "extractedChars": 12772,
+      "truncated": false
+    },
+    "returnedChunkCount": 15,
+    "rawContentReturned": false
+  }
+}

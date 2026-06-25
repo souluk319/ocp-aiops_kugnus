@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ver.0.1.5 Demo Readiness Report</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f4f6f8;
+      color: #151515;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 36px 24px 64px;
+    }
+    h1, h2 {
+      line-height: 1.25;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+    }
+    h2 {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #d8dee5;
+      font-size: 22px;
+    }
+    code {
+      padding: 2px 6px;
+      border: 1px solid #d8dee5;
+      border-radius: 4px;
+      background: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      background: #fff;
+    }
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid #d8dee5;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #eef2f6;
+    }
+    .badge {
+      display: inline-block;
+      min-width: 64px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .pass {
+      background: #dff7e8;
+      color: #146b32;
+    }
+    .warn {
+      background: #fff4ce;
+      color: #7a4d00;
+    }
+    .note {
+      padding: 14px 16px;
+      border-left: 4px solid #0066cc;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Ver.0.1.5 Demo Readiness Report</h1>
+  <p>작성 시점: 2026-06-26 KST. 기준 브랜치: <code>feat/v.0.1.5</code>. 목적은 KOMSCO/Cywell AIOps Agent가 오늘 시연에서 관제, RCA, RAG, 안전 실행 모드, UI 흐름을 실제로 보여줄 수 있는지 검증하는 것이다.</p>
+
+  <section>
+    <h2>현재 판단</h2>
+    <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. RCA ToolPlan과 Evidence/RCA 시연 사이클은 준비되어 있다.</p>
+    <table>
+      <tr><th>항목</th><th>상태</th><th>근거</th></tr>
+      <tr><td>Gateway runtime</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:runtime:smoke</code></td></tr>
+      <tr><td>RCA ToolPlan / 운영 시나리오</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:scenario:verify</code>, 10/10 passed</td></tr>
+      <tr><td>Evidence/RCA scene</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:evidence-rca:verify</code></td></tr>
+      <tr><td>CrashLoop live demo cycle</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:demo:live-verify</code></td></tr>
+      <tr><td>CrashLoop screen readiness</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:demo:screen-readiness</code></td></tr>
+      <tr><td>PDF upload RAG to pgvector</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:rag:file-upload:smoke</code>, 15 chunks persisted</td></tr>
+      <tr><td>Backend unit tests</td><td><span class="badge pass">PASS</span></td><td><code>python -m pytest komsco-ai-gateway -q</code>, 183 passed</td></tr>
+      <tr><td>Frontend UI verifier</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed</td></tr>
+      <tr><td>Frontend production build</td><td><span class="badge pass">PASS</span></td><td><code>corepack yarn build</code></td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>RCA ToolPlan 준비 상태</h2>
+    <p>RCA 질문은 Gateway에서 ToolPlan으로 분해된다. 현재 CrashLoopBackOff/Pod restart 계열은 <code>pod_restart_rca</code>로 분류되고, event, pod snapshot, previous log probe, metric probe, RAG runbook evidence가 read-only 근거로 연결된다.</p>
+    <ul>
+      <li>ToolPlan schema, task type, read-only invariant, adapter resolution은 scenario evaluator에서 검증된다.</li>
+      <li>RcaContext는 collected, failed, missing evidence와 digest/contextId를 포함한다.</li>
+      <li>답변 UI는 evidence footer, RCA Context JSON, trace id, collected/missing count를 노출한다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>이번에 고친 문제</h2>
+    <table>
+      <tr><th>문제</th><th>수정</th><th>검증</th></tr>
+      <tr><td>PDF에서 추출된 NUL/control 문자가 pgvector 저장을 깨뜨림</td><td>RAG 업로드 텍스트 정화 함수 추가</td><td>PDF file upload smoke PASS</td></tr>
+      <tr><td><code>Authorization: Bearer </code> 빈 토큰이 내부 500으로 번질 수 있음</td><td>빈 bearer token을 401로 거절</td><td>단위 테스트 추가 및 backend 전체 테스트 PASS</td></tr>
+      <tr><td>Stop 버튼이 너무 빨리 지나가 verifier가 못 잡음</td><td>정지 버튼 최소 표시 시간을 2초로 조정</td><td>UI verifier에서 stop 버튼 전환 PASS</td></tr>
+      <tr><td>UI verifier가 데이터 로딩 전 dashboard state를 검사함</td><td>Gateway data load 대기 후 검사하도록 수정</td><td>health score 92 확인 PASS</td></tr>
+      <tr><td>HMR 후 local console bridge가 stale chunk를 물어 404 발생</td><td>webpack dev server와 console bridge 재시작 후 proxy chunk 200 확인</td><td>UI verifier PASS</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>남은 제약</h2>
+    <ul>
+      <li><strong>Lightspeed stream</strong>: 현재 시연 경로에서는 Lightspeed stream이 실패하고 Gateway fallback이 동작한다. UI에는 <code>Gateway fallback</code> 뱃지와 Lightspeed panel 상태가 표시된다.</li>
+      <li><strong>실행 무제한</strong>: 공식 시연 기본 모드는 execute + approval guard다. unrestricted는 local lab 용도이며 현재 헤더에서 비활성 사유를 표시한다.</li>
+      <li><strong>Host diagnostics</strong>: Linux host diagnostics adapter는 gate off 상태다. Windows adapter는 planned 상태다.</li>
+      <li><strong>Cypress/Electron</strong>: 기존 Cypress 브라우저 E2E는 WSL OS 의존성 문제 때문에 PASS로 보고하지 않는다. 이번 UI 검증은 Chrome CDP 기반 verifier 결과다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>시연 권장 흐름</h2>
+    <ol>
+      <li><code>http://localhost:9000/aiops-kugnus</code> 접속.</li>
+      <li>대시보드에서 health score 92, Node 1/1, Operator 정상, anomaly/action candidate board 확인.</li>
+      <li>챗봇에서 <code>aiops-two-pod-exec 파드 몇개 띄었어?</code> 질문으로 read-only 직접 조회 답변 확인.</li>
+      <li>CrashLoopBackOff 질문으로 RCA 보고서, ToolPlan, Evidence footer, RCA Context JSON 확인.</li>
+      <li>RAG 근거가 포함된 답변에서 업로드 PDF citation이 붙는지 확인.</li>
+    </ol>
+  </section>
+</main>
+</body>
+</html>
