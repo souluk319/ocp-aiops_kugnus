@@ -177,7 +177,7 @@ tasks:
   kugnus:dev:doctor:
     desc: Diagnose WSL, Node, oc, Docker, ports, backend, and console readiness without changing state
     cmds:
-      - ./scripts/kugnus-dev-doctor.sh
+      - bash ./scripts/kugnus-dev-doctor.sh
 
   kugnus:stage1:verify:
     desc: Verify local Stage 1 evidence/RCA context events and write a JSON evidence report
