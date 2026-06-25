@@ -1,11 +1,11 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T07:44:49.921496Z",
+  "generatedAt": "2026-06-25T10:49:54.957215Z",
   "kind": "CrashLoopScreenCycleReadinessVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
     "branch": "feat/v.0.1.3",
-    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "headSha": "1b374853671b0db37a5e0de9c3cbd9f1f5611396",
     "name": "ver-0.1.3-crashloop-screen-cycle-readiness",
     "scope": "source-and-local-runtime-readiness"
   },
@@ -179,7 +179,7 @@
       },
       {
         "evidence": {
-          "body": "{\n  \"name\": \"komsco-ai-console-plugin-kugnus\",\n  \"version\": \"0.1.3\",\n  \"dependencies\": {\n    \"@console/pluginAPI\": \"^4.2",
+          "body": "{\"name\":\"komsco-ai-console-plugin-kugnus\",\"version\":\"0.1.3\",\"dependencies\":{\"@console/pluginAPI\":\"^4.20.0\"},\"customPrope",
           "ok": true,
           "status": 200,
           "url": "http://127.0.0.1:9001/plugin-manifest.json"

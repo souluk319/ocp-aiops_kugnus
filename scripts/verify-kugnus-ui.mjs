@@ -914,6 +914,13 @@ const getUiState = async (cdp) =>
           disabledReason: button.getAttribute('data-disabled-reason') || '',
           title: button.getAttribute('title') || '',
         })),
+        headerOpsChipCount: headerStatus?.querySelectorAll('.komsco-ai__header-op-chip').length || 0,
+        headerOpsChipLabels: Array.from(headerStatus?.querySelectorAll('.komsco-ai__header-op-chip') || []).map((chip) =>
+          chip.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        ),
+        headerOpsChipTitles: Array.from(headerStatus?.querySelectorAll('.komsco-ai__header-op-chip') || []).map((chip) =>
+          chip.getAttribute('title') || '',
+        ),
         actionLifecycleText: actionLifecycle?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         actionLifecycleStepCount: actionLifecycleSteps.length,
         actionLifecycleStepKeys: actionLifecycleSteps.map((step) => step.getAttribute('data-action-lifecycle-step') || ''),
@@ -924,10 +931,10 @@ const getUiState = async (cdp) =>
           mutationFlagState: actionLifecycle?.getAttribute('data-mutation-flag-state') || '',
           uiExecutionMode: actionLifecycle?.getAttribute('data-ui-execution-mode') || '',
         },
-        headerStatusLabel: headerStatus?.querySelector('.komsco-ai__status-chip')?.getAttribute('aria-label') || '',
-        headerStatusTitle: headerStatus?.querySelector('.komsco-ai__status-chip')?.getAttribute('title') || '',
-        hasHeaderStatusChip: Boolean(headerStatus?.querySelector('.komsco-ai__status-chip')),
-        hasHeaderModeChip: Boolean(headerStatus?.querySelector('.komsco-ai__mode-chip')),
+        headerStatusLabel: headerStatus?.getAttribute('aria-label') || '',
+        headerStatusTitle: headerStatus?.getAttribute('title') || '',
+        hasHeaderStatusChip: Boolean(headerStatus?.querySelector('.komsco-ai__header-op-chip')),
+        hasHeaderModeChip: Boolean(headerStatus?.querySelector('.komsco-ai__mode-toggle')),
         headerTitleClipped: title ? title.scrollWidth > title.clientWidth + 1 : false,
         headerTitleMetrics: title
           ? {
@@ -1489,12 +1496,16 @@ const run = async () => {
       },
     );
     assertCheck(
-      'header restores compact runtime status and mode controls',
-      state.hasHeaderStatusChip &&
+      'header exposes node and operator status with compact runtime mode controls',
+      state.headerOpsChipCount === 2 &&
+        state.headerOpsChipLabels.some((label) => label.includes('Node')) &&
+        state.headerOpsChipLabels.some((label) => label.includes('Operator')) &&
+        !state.headerStatusText.includes('연결됨') &&
         state.hasHeaderModeChip &&
-        state.headerModeButtonCount === 3 &&
-        state.headerStatusText.includes('읽기'),
+        state.headerModeButtonCount === 3,
       {
+        headerOpsChipCount: state.headerOpsChipCount,
+        headerOpsChipLabels: state.headerOpsChipLabels,
         headerModeButtonCount: state.headerModeButtonCount,
         headerStatusText: state.headerStatusText,
         hasHeaderModeChip: state.hasHeaderModeChip,
@@ -1502,15 +1513,16 @@ const run = async () => {
       },
     );
     assertCheck(
-      'header status controls expose labels and disabled reasons',
-      state.headerStatusLabel.includes('Lightspeed stream') &&
-        state.headerStatusLabel.includes('Safety mode') &&
+      'header operation chips expose evidence titles and mode controls expose disabled reasons',
+      state.headerOpsChipTitles.some((title) => title.toLowerCase().includes('node')) &&
+        state.headerOpsChipTitles.some((title) => title.includes('ClusterOperators')) &&
         state.headerModeButtons.length === 3 &&
         state.headerModeButtons
           .filter((button) => button.disabled)
           .every((button) => button.disabledReason && button.title.includes(button.disabledReason)),
       {
         headerModeButtons: state.headerModeButtons,
+        headerOpsChipTitles: state.headerOpsChipTitles,
         headerStatusLabel: state.headerStatusLabel,
         headerStatusTitle: state.headerStatusTitle,
       },
@@ -1680,14 +1692,23 @@ const run = async () => {
         railDisplay: state.railDisplay,
       },
     );
-    assertCheck(
-      'visible action lifecycle exposes stable local read-only gate states',
+    const readOnlyGateVisible =
       state.actionLifecycleAttrs.actionExecutorState === 'not-configured' &&
-        state.actionLifecycleAttrs.mutationFlagState === 'disabled' &&
-        state.actionLifecycleAttrs.uiExecutionMode === 'read-only' &&
-        state.actionLifecycleText.includes('Action Executor URL not configured') &&
-        state.actionLifecycleText.includes('mutation execution disabled') &&
-        state.actionLifecycleText.includes('read-only UI blocks proposal, approval, and execution mutations'),
+      state.actionLifecycleAttrs.mutationFlagState === 'disabled' &&
+      state.actionLifecycleAttrs.uiExecutionMode === 'read-only' &&
+      state.actionLifecycleText.includes('Action Executor URL not configured') &&
+      state.actionLifecycleText.includes('mutation execution disabled') &&
+      state.actionLifecycleText.includes('read-only UI blocks proposal, approval, and execution mutations');
+    const executeGateVisible =
+      state.actionLifecycleAttrs.actionExecutorState === 'configured' &&
+      state.actionLifecycleAttrs.mutationFlagState === 'enabled' &&
+      state.actionLifecycleAttrs.uiExecutionMode === 'execute' &&
+      state.actionLifecycleText.includes(
+        'Plan, approval, and execution requests may be submitted after server-side checks.',
+      );
+    assertCheck(
+      'visible action lifecycle exposes stable local read-only or execute gate states',
+      readOnlyGateVisible || executeGateVisible,
       {
         actionLifecycleAttrs: state.actionLifecycleAttrs,
         actionLifecycleTextPreview: state.actionLifecycleText.slice(0, 640),

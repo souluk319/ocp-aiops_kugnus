@@ -2706,12 +2706,84 @@
 
 .komsco-ai__header-status {
   display: flex;
-  flex: 0 1 158px;
+  flex: 1 1 auto;
   gap: 4px;
   align-items: center;
   min-width: 0;
-  max-width: 158px;
+  max-width: none;
   overflow: hidden;
+}
+
+.komsco-ai__header-ops {
+  display: flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.komsco-ai__header-op-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  max-width: 96px;
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 740;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #ffffff;
+  border: 1px solid #dce4ee;
+  border-radius: 999px;
+}
+
+.komsco-ai__header-op-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.komsco-ai__header-op-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.komsco-ai__header-op-chip--ok {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.komsco-ai__header-op-chip--warn {
+  color: #a16207;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.komsco-ai__header-op-chip--danger {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__header-op-chip--review {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.komsco-ai__header-op-chip--neutral {
+  color: #536276;
+  background: #ffffff;
+  border-color: #dce4ee;
 }
 
 .komsco-ai__context-pill--header {
@@ -3537,17 +3609,14 @@
 }
 
 .komsco-ai__surface .komsco-ai__header-status {
-  flex: 0 1 190px;
-  max-width: 190px;
+  flex: 1 1 auto;
+  max-width: none;
   gap: 5px;
 }
 
-.komsco-ai__surface .komsco-ai__status-chip {
-  max-width: 58px;
-}
-
-.komsco-ai__surface .komsco-ai__mode-chip {
-  max-width: 44px;
+.komsco-ai__surface .komsco-ai__header-ops {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .komsco-ai__surface .komsco-ai__header-status .komsco-ai__mode-toggle {
@@ -4031,8 +4100,7 @@
   height: 42px;
 }
 
-.komsco-ai__surface .komsco-ai__status-chip,
-.komsco-ai__surface .komsco-ai__mode-chip,
+.komsco-ai__surface .komsco-ai__header-op-chip,
 .komsco-ai__surface .komsco-ai__header-status .komsco-ai__mode-toggle {
   align-self: center;
 }

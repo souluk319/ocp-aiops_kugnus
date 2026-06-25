@@ -1,11 +1,11 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T07:44:45.084368Z",
+  "generatedAt": "2026-06-25T10:49:42.210168Z",
   "kind": "EvidenceRcaSceneVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
     "branch": "feat/v.0.1.3",
-    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "headSha": "1b374853671b0db37a5e0de9c3cbd9f1f5611396",
     "name": "ver-0.1.3-official-evidence-rca-scene",
     "source": "docs/Ver.0.1.3/Evidence_RCA_Scene.md"
   },
@@ -242,7 +242,7 @@
       }
     ],
     "officialQuestion": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
-    "rcaContextDigest": "sha256:dfb9ad66129074fb726c5333a5f4cc21b44d597df8e718c420f9006a38f69d56",
+    "rcaContextDigest": "sha256:762282cec52a8e2a6221000ae37eace24d3e78ea677281a241b335256e2d795d",
     "toolAliases": [
       "event_tool",
       "grep_tool",

@@ -518,7 +518,8 @@ task kugnus:dev:fe</code></pre>
             <tr><td>Webpack manifest</td><td><code>curl -I http://127.0.0.1:9001/api/plugins/komsco-ai-console-plugin-kugnus/plugin-manifest.json</code></td><td>200</td><td>plugin dev server 미기동</td></tr>
             <tr><td>Console dashboard</td><td><code>http://localhost:9000/dashboards</code></td><td>OKD dashboard 표시</td><td>bridge 미기동</td></tr>
             <tr><td>Cywell AI 토글</td><td>화면 우측 하단</td><td>K 아이콘 라운딩 사각형 표시</td><td>plugin 로드 실패</td></tr>
-            <tr><td>우측 rail</td><td>전체화면/확장</td><td><code>Node 1/1</code>, <code>Operator 정상</code>, 실행 상태 배지 표시</td><td>summary/status API 실패</td></tr>
+            <tr><td>Header 상태</td><td>챗봇 열기</td><td><code>Node</code>, <code>Operator</code> 운영 상태 + <code>읽기 전용</code>, <code>실행 가능</code>, <code>실행 무제한</code> 전환 토글 표시</td><td>summary/status API 실패</td></tr>
+            <tr><td>우측 rail</td><td>전체화면/확장</td><td><code>Node 1/1 · Ready</code>, <code>Operator 34/34 정상</code>, 실행 상태 배지 표시</td><td>summary/status API 실패</td></tr>
           </tbody>
         </table>
         <h3>빌드 검증</h3>
@@ -593,7 +594,7 @@ task kugnus:demo:screen-readiness</code></pre>
           <li>Docker daemon과 WSL integration을 확인한다.</li>
           <li>backend를 <code>execute</code> 모드로 띄운다.</li>
           <li>frontend/console bridge를 띄운다.</li>
-          <li><code>Node 1/1</code>, <code>Operator 정상</code>, <code>읽기 전용/실행 가능/실행 무제한</code> UI 상태를 확인한다.</li>
+          <li><code>Node 1/1 · Ready</code>, <code>Operator 34/34 정상</code>, <code>실행 가능/읽기 전용/실행 무제한</code> UI 상태를 확인한다.</li>
           <li>공식 Evidence RCA 질문을 한 번 돌린다.</li>
           <li>fail이 있으면 이 문서의 섹션 번호 기준으로 원인을 기록한다.</li>
         </ol>

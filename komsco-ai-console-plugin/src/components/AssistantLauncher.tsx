@@ -5,6 +5,7 @@ import {
   CoolArrowDownIcon,
   CoolCaretDownIcon,
   CoolChatDotsIcon,
+  CoolCheckIcon,
   CoolClockIcon,
   CoolCloseIcon,
   CoolCopyIcon,
@@ -12,6 +13,7 @@ import {
   CoolExpandIcon,
   CoolGlobeIcon,
   CoolInfoIcon,
+  CoolListChecklistIcon,
   CoolLockIcon,
   CoolLockOpenIcon,
   CoolMenuIcon,
@@ -1759,7 +1761,7 @@ const getNodeCompactStatus = (
     const label = `Node ${summary.nodes.ready}/${summary.nodes.total}`;
     if (summary.nodes.notReady > 0) {
       return {
-        label,
+        label: `${label} 확인 필요`,
         title: `${summary.nodes.notReady} node(s) are not ready.`,
         tone: 'danger',
       };
@@ -1767,14 +1769,14 @@ const getNodeCompactStatus = (
 
     if (summary.nodes.total > 0 && summary.nodes.ready === summary.nodes.total) {
       return {
-        label,
+        label: `${label} · Ready`,
         title: 'All reported nodes are Ready.',
         tone: 'ok',
       };
     }
 
     return {
-      label,
+      label: `${label} 부분 확인`,
       title: 'Node readiness is partially available.',
       tone: 'warn',
     };
@@ -1808,7 +1810,7 @@ const getOperatorCompactStatus = (
     const faultCount = getClusterFaultCount(summary);
     if (faultCount > 0) {
       return {
-        label: `Operator 장애 ${faultCount}`,
+        label: `Operator ${faultCount}건 확인`,
         title: `${faultCount} degraded/unavailable operator issue(s) need attention.`,
         tone: 'danger',
       };
@@ -1816,7 +1818,7 @@ const getOperatorCompactStatus = (
 
     if (summary.operators.progressing > 0) {
       return {
-        label: `Operator 진행 ${summary.operators.progressing}`,
+        label: `Operator ${summary.operators.progressing}건 진행`,
         title: `${summary.operators.progressing} operator(s) are progressing.`,
         tone: 'warn',
       };
@@ -1827,14 +1829,14 @@ const getOperatorCompactStatus = (
       summary.operators.available === summary.operators.total
     ) {
       return {
-        label: 'Operator 정상',
+        label: `Operator ${summary.operators.available}/${summary.operators.total} 정상`,
         title: `All ${summary.operators.total} ClusterOperators are available.`,
         tone: 'ok',
       };
     }
 
     return {
-      label: `Operator ${summary.operators.available}/${summary.operators.total}`,
+      label: `Operator ${summary.operators.available}/${summary.operators.total} 확인`,
       title: 'ClusterOperator summary is partially available.',
       tone: 'warn',
     };
@@ -1866,6 +1868,60 @@ const renderStatusTag = (
     {label}
   </span>
 );
+
+const renderHeaderOpsChip = (
+  label: string,
+  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral',
+  title: string,
+  icon: React.ReactNode,
+) => (
+  <span
+    className={`komsco-ai__header-op-chip komsco-ai__header-op-chip--${tone}`}
+    title={title}
+  >
+    <span className="komsco-ai__header-op-icon">{icon}</span>
+    <span>{label}</span>
+  </span>
+);
+
+const renderHeaderOpsStatus = (
+  summary: ClusterSummary | null,
+  loading: boolean,
+  error: string,
+) => {
+  const nodeStatus = getNodeCompactStatus(summary, loading, error);
+  const operatorStatus = getOperatorCompactStatus(summary, loading, error);
+
+  const headerNodeLabel = nodeStatus.label
+    .replace(' · Ready', '')
+    .replace(' 부분 확인', '')
+    .replace(' 확인 필요', '');
+  const headerOperatorLabel =
+    summary && getClusterFaultCount(summary) > 0
+      ? `Operator 장애 ${getClusterFaultCount(summary)}`
+      : summary && summary.operators.progressing > 0
+        ? `Operator 진행 ${summary.operators.progressing}`
+        : summary && summary.operators.total > 0 && summary.operators.available === summary.operators.total
+          ? 'Operator 정상'
+          : operatorStatus.label.replace(' 확인 필요', ' 확인');
+
+  return (
+    <div className="komsco-ai__header-ops" aria-label="클러스터 운영 상태">
+      {renderHeaderOpsChip(
+        headerNodeLabel,
+        nodeStatus.tone,
+        nodeStatus.title,
+        <CoolDesktopTowerIcon />,
+      )}
+      {renderHeaderOpsChip(
+        headerOperatorLabel,
+        operatorStatus.tone,
+        operatorStatus.title,
+        operatorStatus.tone === 'ok' ? <CoolCheckIcon /> : <CoolListChecklistIcon />,
+      )}
+    </div>
+  );
+};
 
 const renderRailSummaryBadges = (
   summary: ClusterSummary | null,
@@ -1930,16 +1986,6 @@ const getUnrestrictedDisabledReason = (status: AiopsRuntimeStatus | null): strin
 
 const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
   mode === 'execute' || mode === 'unrestricted';
-
-const getExecutionModeLabel = (mode: AiopsExecutionMode): string => {
-  if (mode === 'unrestricted') {
-    return '실행 무제한';
-  }
-  if (mode === 'execute') {
-    return '실행 가능';
-  }
-  return '읽기 전용';
-};
 
 const getExecutionModeShortLabel = (mode: AiopsExecutionMode): string => {
   if (mode === 'unrestricted') {
@@ -2918,6 +2964,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
     DEFAULT_AIOPS_EXECUTION_MODE,
   );
+  const [executionModeManuallySelected, setExecutionModeManuallySelected] =
+    React.useState(false);
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [conversationId, setConversationId] = React.useState<string | undefined>();
@@ -2963,14 +3011,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     aiopsStatus,
     aiopsStatusError,
   );
-  const lightspeedStatus = aiopsStatus?.spec.safetyContract?.lightspeedStatus;
-  const headerConnectionLabel = [
-    assistantConnection.label,
-    `Lightspeed stream: ${lightspeedStatus?.streamProbe ?? 'status pending'}${
-      lightspeedStatus?.fallbackActive ? ' (Gateway fallback active)' : ''
-    }`,
-    `Safety mode: ${aiopsStatus?.spec.safetyContract?.mode ?? 'status pending'}`,
-  ].join(' · ');
   const copy = UI_COPY[uiLanguage];
   const selectedTaskMode =
     ASSISTANT_TASK_MODES.find((item) => item.value === assistantTaskMode) ||
@@ -2989,6 +3029,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setAssistantTaskMode(draftPrompt.taskMode ?? 'troubleshooting');
     if (draftPrompt.pageContext?.readOnlyOnly === true) {
       setExecutionMode('read-only');
+      setExecutionModeManuallySelected(true);
     }
     setQuickPromptMenuOpen(false);
     setTaskModeMenuOpen(false);
@@ -3162,13 +3203,27 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     if (!aiopsStatus) {
       return;
     }
+    if (
+      actionExecutionAvailable &&
+      executionMode === 'read-only' &&
+      !executionModeManuallySelected
+    ) {
+      setExecutionMode('execute');
+      return;
+    }
     if (!actionExecutionAvailable && executionMode === 'execute') {
       setExecutionMode('read-only');
     }
     if (!unrestrictedAvailable && executionMode === 'unrestricted') {
       setExecutionMode('read-only');
     }
-  }, [actionExecutionAvailable, aiopsStatus, executionMode, unrestrictedAvailable]);
+  }, [
+    actionExecutionAvailable,
+    aiopsStatus,
+    executionMode,
+    executionModeManuallySelected,
+    unrestrictedAvailable,
+  ]);
 
   React.useLayoutEffect(() => {
     if (!historySidebarOpen || fullScreen) {
@@ -3240,6 +3295,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       }
 
       setAiopsActionError('');
+      setExecutionModeManuallySelected(true);
       setExecutionMode(mode);
     },
     [actionExecutionAvailable, unrestrictedAvailable],
@@ -4381,27 +4437,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 <img alt="" className="komsco-ai__brand-logo" src={komscoLogo} />
               </div>
             </div>
-            <div className="komsco-ai__header-status" aria-label="AIOps 상태 및 실행 모드">
-              <span
-                aria-label={headerConnectionLabel}
-                className={`komsco-ai__status-chip komsco-ai__status-chip--${assistantConnection.tone}`}
-                title={headerConnectionLabel}
-              >
-                <span className="komsco-ai__status-chip-dot" />
-                <span>
-                  {assistantConnection.tone === 'connected'
-                    ? '연결됨'
-                    : assistantConnection.tone === 'danger'
-                      ? '확인 필요'
-                      : '확인 중'}
-                </span>
-              </span>
-              <span
-                className={`komsco-ai__mode-chip komsco-ai__mode-chip--${executionMode}`}
-                title={getExecutionModeLabel(executionMode)}
-              >
-                {getExecutionModeShortLabel(executionMode)}
-              </span>
+            <div className="komsco-ai__header-status" aria-label="클러스터 운영 상태 및 실행 모드">
+              {renderHeaderOpsStatus(clusterSummary, clusterSummaryLoading, clusterSummaryError)}
               {renderExecutionModeToggle(
                 executionMode,
                 actionExecutionAvailable,

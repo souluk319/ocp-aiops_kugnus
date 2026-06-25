@@ -3,6 +3,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -16,6 +17,15 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+except ImportError:  # pragma: no cover - optional local RAG backend dependency
+    psycopg = None
+    dict_row = None
+    Jsonb = None
 
 from .aiops_core import (
     HOST_DIAGNOSTIC_COLLECTORS,
@@ -129,6 +139,8 @@ RAG_BACKEND_TYPE = os.getenv("KOMSCO_AI_RAG_BACKEND_TYPE", "pgvector")
 RAG_COLLECTION = os.getenv("KOMSCO_AI_RAG_COLLECTION", "komsco-aiops-runbooks")
 RAG_EMBEDDING_MODEL = os.getenv("KOMSCO_AI_RAG_EMBEDDING_MODEL", "")
 RAG_VECTOR_DIMENSIONS = int(os.getenv("KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "0") or "0")
+RAG_EFFECTIVE_VECTOR_DIMENSIONS = RAG_VECTOR_DIMENSIONS or 64
+RAG_DEMO_SEED_ENABLED = parse_bool(os.getenv("KOMSCO_AI_RAG_DEMO_SEED_ENABLED"), default=True)
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
@@ -9878,18 +9890,294 @@ def latest_readable_audit_records(
     ]
 
 
+
+RAG_DEMO_RUNBOOKS: tuple[dict[str, Any], ...] = (
+    {
+        "chunkId": "komsco-runbook-pod-restart-oom-v1:chunk:0",
+        "documentId": "komsco-runbook-pod-restart-oom-v1",
+        "title": "Pod restart / OOMKilled RCA runbook",
+        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#pod-restart-rca",
+        "sourceType": "runbook",
+        "customer": "komsco",
+        "namespace": "default",
+        "version": "v0.1.3",
+        "aclGroups": ["cluster-admins", "aiops-admins"],
+        "labels": {"scenario": "pod_restart_rca", "severity": "warning", "domain": "openshift"},
+        "content": (
+            "Pod 재시작 RCA는 Event, previous container log, restart metric, Pod snapshot 순서로 근거를 수집한다. "
+            "OOMKilled, Evicted, CrashLoopBackOff, readiness/liveness probe 실패를 구분하고, 메모리 limit 변경과 배포 변경 이력을 확인한다. "
+            "답변은 RCA, 즉시 조치, 재발 방지책, 참고 증적 순서로 작성한다."
+        ),
+    },
+    {
+        "chunkId": "komsco-runbook-image-pull-v1:chunk:0",
+        "documentId": "komsco-runbook-image-pull-v1",
+        "title": "ImagePullBackOff triage runbook",
+        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#image-pull",
+        "sourceType": "runbook",
+        "customer": "komsco",
+        "namespace": "openshift-marketplace",
+        "version": "v0.1.3",
+        "aclGroups": ["cluster-admins", "aiops-admins"],
+        "labels": {"scenario": "image_pull", "severity": "warning", "domain": "openshift"},
+        "content": (
+            "ImagePullBackOff는 image 경로, tag 존재 여부, registry 연결성, pull secret, mirror registry 정책을 확인한다. "
+            "CatalogSource 또는 marketplace Pod라면 관련 CatalogSource, Pod event, registry route 상태를 함께 본다."
+        ),
+    },
+    {
+        "chunkId": "komsco-runbook-etcd-fragmentation-v1:chunk:0",
+        "documentId": "komsco-runbook-etcd-fragmentation-v1",
+        "title": "etcd high fragmentation review runbook",
+        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#etcd-fragmentation",
+        "sourceType": "runbook",
+        "customer": "komsco",
+        "namespace": "openshift-etcd",
+        "version": "v0.1.3",
+        "aclGroups": ["cluster-admins", "aiops-admins"],
+        "labels": {"scenario": "etcd_fragmentation", "severity": "warning", "domain": "openshift"},
+        "content": (
+            "etcdDatabaseHighFragmentationRatio 경고는 즉시 defrag를 실행하지 않는다. "
+            "먼저 etcd member 상태, leader, DB size, fragmentation ratio, backup 상태, 운영 영향도를 확인하고 승인된 절차로만 defrag를 수행한다."
+        ),
+    },
+    {
+        "chunkId": "komsco-runbook-operator-degraded-v1:chunk:0",
+        "documentId": "komsco-runbook-operator-degraded-v1",
+        "title": "ClusterOperator degraded RCA runbook",
+        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#operator",
+        "sourceType": "runbook",
+        "customer": "komsco",
+        "namespace": "cluster-scoped",
+        "version": "v0.1.3",
+        "aclGroups": ["cluster-admins", "aiops-admins"],
+        "labels": {"scenario": "operator_degraded", "severity": "warning", "domain": "openshift"},
+        "content": (
+            "ClusterOperator degraded/progressing/unavailable 상태는 ClusterOperator condition, relatedObjects, 최근 Warning event, operand Pod 상태를 함께 확인한다. "
+            "Upgradeable=False 또는 AdminAckRequired는 장애와 업데이트 정책 신호를 분리해서 설명한다."
+        ),
+    },
+    {
+        "chunkId": "komsco-runbook-bounded-action-v1:chunk:0",
+        "documentId": "komsco-runbook-bounded-action-v1",
+        "title": "Approved bounded action runbook",
+        "sourceUri": "docs/Ver.0.1.1/rag-storage-contract.md#runbook-plan",
+        "sourceType": "sop",
+        "customer": "komsco",
+        "namespace": "komsco-ai-dev",
+        "version": "v0.1.3",
+        "aclGroups": ["cluster-admins", "aiops-admins"],
+        "labels": {"scenario": "approved_action", "severity": "controlled", "domain": "execution"},
+        "content": (
+            "실행 가능한 조치는 자연어에서 직접 patch/delete/scale을 수행하지 않는다. "
+            "Gateway는 ActionProposal, SealedActionPlan, Approval, Action Executor 순서로 처리하고, 실행 전 fresh evidence와 namespace/owner/HPA/PDB 정책을 확인한다."
+        ),
+    },
+)
+
+
+def rag_tokenize(value: str) -> list[str]:
+    return re.findall(r"[0-9a-zA-Z가-힣_./:-]+", value.lower())
+
+
+def build_rag_embedding(value: str, dimensions: int | None = None) -> list[float]:
+    size = int(dimensions or RAG_EFFECTIVE_VECTOR_DIMENSIONS or 64)
+    vector = [0.0 for _ in range(size)]
+    tokens = rag_tokenize(value)
+    if not tokens:
+        return vector
+    for token in tokens:
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        bucket = int.from_bytes(digest[:4], "big") % size
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[bucket] += sign
+    norm = math.sqrt(sum(item * item for item in vector)) or 1.0
+    return [round(item / norm, 6) for item in vector]
+
+
+def pgvector_literal(vector: list[float]) -> str:
+    return "[" + ",".join(f"{item:.6f}" for item in vector) + "]"
+
+
+def ensure_pgvector_schema(conn: Any) -> None:
+    dimensions = int(RAG_EFFECTIVE_VECTOR_DIMENSIONS or 64)
+    conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS aiops_rag_chunks (
+          chunk_id text PRIMARY KEY,
+          collection text NOT NULL,
+          document_id text NOT NULL,
+          title text NOT NULL,
+          source_uri text NOT NULL,
+          source_type text NOT NULL,
+          customer text NOT NULL,
+          namespace text NOT NULL,
+          version text NOT NULL,
+          acl_groups text[] NOT NULL,
+          labels jsonb NOT NULL DEFAULT '{{}}'::jsonb,
+          lifecycle text NOT NULL DEFAULT 'active',
+          content_redacted text NOT NULL,
+          text_hash text NOT NULL,
+          checksum text NOT NULL,
+          embedding vector({dimensions}) NOT NULL,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+        """
+    )
+
+
+def seed_pgvector_runbooks(conn: Any) -> None:
+    if not RAG_DEMO_SEED_ENABLED:
+        return
+    for doc in RAG_DEMO_RUNBOOKS:
+        content = str(doc["content"])
+        embedding = pgvector_literal(build_rag_embedding(f"{doc['title']} {content}"))
+        text_hash = canonical_digest(content)
+        checksum = canonical_digest({"chunkId": doc["chunkId"], "content": content, "version": doc["version"]})
+        conn.execute(
+            """
+            INSERT INTO aiops_rag_chunks (
+              chunk_id, collection, document_id, title, source_uri, source_type, customer,
+              namespace, version, acl_groups, labels, lifecycle, content_redacted,
+              text_hash, checksum, embedding, updated_at
+            ) VALUES (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s::vector, now()
+            )
+            ON CONFLICT (chunk_id) DO UPDATE SET
+              collection = EXCLUDED.collection,
+              title = EXCLUDED.title,
+              source_uri = EXCLUDED.source_uri,
+              source_type = EXCLUDED.source_type,
+              customer = EXCLUDED.customer,
+              namespace = EXCLUDED.namespace,
+              version = EXCLUDED.version,
+              acl_groups = EXCLUDED.acl_groups,
+              labels = EXCLUDED.labels,
+              lifecycle = EXCLUDED.lifecycle,
+              content_redacted = EXCLUDED.content_redacted,
+              text_hash = EXCLUDED.text_hash,
+              checksum = EXCLUDED.checksum,
+              embedding = EXCLUDED.embedding,
+              updated_at = now()
+            """,
+            (
+                doc["chunkId"],
+                RAG_COLLECTION,
+                doc["documentId"],
+                doc["title"],
+                doc["sourceUri"],
+                doc["sourceType"],
+                doc["customer"],
+                doc["namespace"],
+                doc["version"],
+                doc["aclGroups"],
+                Jsonb(doc["labels"]) if Jsonb else json.dumps(doc["labels"]),
+                content,
+                text_hash,
+                checksum,
+                embedding,
+            ),
+        )
+
+
+def row_matches_rag_filters(row: Mapping[str, Any], filters: RagSearchFilters) -> bool:
+    if filters.sourceTypes and row.get("source_type") not in filters.sourceTypes:
+        return False
+    if filters.namespaces and row.get("namespace") not in filters.namespaces:
+        return False
+    if filters.customers and row.get("customer") not in filters.customers:
+        return False
+    if filters.runbookIds and row.get("document_id") not in filters.runbookIds:
+        return False
+    if filters.versions and row.get("version") not in filters.versions:
+        return False
+    acl_groups = row.get("acl_groups") or []
+    if filters.aclGroups and not set(filters.aclGroups).intersection(set(acl_groups)):
+        return False
+    return bool(acl_groups)
+
+
+def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[str, Any]]]:
+    if not RAG_BACKEND_URL:
+        return (
+            "not_configured",
+            "KOMSCO_AI_RAG_BACKEND_URL is not configured; search returns no retrieved runbook evidence.",
+            [],
+        )
+    if psycopg is None or dict_row is None:
+        return ("unavailable", "psycopg is not installed in the Gateway runtime.", [])
+
+    query_vector = pgvector_literal(build_rag_embedding(req.query))
+    try:
+        with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
+            ensure_pgvector_schema(conn)
+            seed_pgvector_runbooks(conn)
+            rows = conn.execute(
+                """
+                SELECT
+                  chunk_id, document_id, title, source_uri, source_type, customer, namespace,
+                  version, acl_groups, labels, content_redacted, text_hash, checksum,
+                  1 - (embedding <=> %s::vector) AS score
+                FROM aiops_rag_chunks
+                WHERE collection = %s AND lifecycle = 'active'
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (query_vector, RAG_COLLECTION, query_vector, max(req.topK * 4, 20)),
+            ).fetchall()
+    except Exception as exc:  # pragma: no cover - depends on local DB state
+        return ("unavailable", f"pgvector search failed: {exc}", [])
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        if not row_matches_rag_filters(row, req.filters):
+            continue
+        content = str(row.get("content_redacted") or "")
+        result = {
+            "id": row.get("chunk_id"),
+            "documentId": row.get("document_id"),
+            "title": row.get("title"),
+            "score": round(float(row.get("score") or 0.0), 6),
+            "sourceUri": row.get("source_uri"),
+            "sourceType": row.get("source_type"),
+            "customer": row.get("customer"),
+            "namespace": row.get("namespace"),
+            "version": row.get("version"),
+            "contentPreview": content[:260],
+            "content": content if req.includeContent else "",
+            "metadata": row.get("labels") or {},
+            "evidenceRef": {
+                "type": "runbook",
+                "evidenceType": "runbook",
+                "status": "collected",
+                "summary": row.get("title"),
+                "sourceUri": row.get("source_uri"),
+                "checksum": row.get("checksum"),
+            },
+        }
+        results.append(redact_sensitive(result))
+        if len(results) >= req.topK:
+            break
+
+    if results:
+        return ("collected", "pgvector runbook evidence retrieved from local Gateway-controlled backend.", results)
+    return ("empty", "pgvector backend is configured but no runbook matched the query and filters.", [])
+
+
 def build_rag_backend_status() -> dict[str, Any]:
     backend_configured = bool(RAG_BACKEND_URL)
     return {
-        "status": "configured_skeleton" if backend_configured else "not_configured",
+        "status": "configured" if backend_configured else "not_configured",
         "backendType": RAG_BACKEND_TYPE,
         "collection": RAG_COLLECTION,
         "endpointConfigured": backend_configured,
         "embeddingModel": RAG_EMBEDDING_MODEL if backend_configured else "not_configured",
-        "vectorDimensions": RAG_VECTOR_DIMENSIONS,
+        "vectorDimensions": RAG_EFFECTIVE_VECTOR_DIMENSIONS if backend_configured else RAG_VECTOR_DIMENSIONS,
         "accessPath": "gateway-only",
         "directDatabaseAccess": False,
         "aclRequired": True,
+        "demoSeedEnabled": RAG_DEMO_SEED_ENABLED,
         "requiredMetadata": [
             "documentId",
             "sourceUri",
@@ -10228,12 +10516,10 @@ async def search_rag_runbooks(
     backend = build_rag_backend_status()
     request_id = f"rag-search-{uuid.uuid4()}"
     increment_metric("aiops_rag_search_requests_total")
-    if backend["status"] == "not_configured":
-        search_status = "not_configured"
-        reason = str(backend["reason"])
-    else:
-        search_status = "configured_skeleton"
-        reason = "RAG backend endpoint is configured, but Stage 3 only exposes the retrieval contract skeleton."
+    search_status, reason, results = search_pgvector_runbooks(req)
+    evidence_status = "collected" if results else ("missing" if search_status == "not_configured" else search_status)
+    collected_refs = [result.get("evidenceRef", {}) for result in results if isinstance(result.get("evidenceRef"), Mapping)]
+    missing = [] if collected_refs else [{"type": "runbook", "reason": reason}]
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "RagSearchResult",
@@ -10250,18 +10536,13 @@ async def search_rag_runbooks(
             "status": search_status,
             "reason": reason,
             "backend": backend,
-            "results": [],
+            "results": results,
             "evidence": {
                 "type": "runbook",
-                "status": "missing" if search_status == "not_configured" else "pending",
+                "status": evidence_status,
                 "reason": reason,
-                "collectedRefs": [],
-                "missing": [
-                    {
-                        "type": "runbook",
-                        "reason": reason,
-                    }
-                ],
+                "collectedRefs": collected_refs,
+                "missing": missing,
             },
             "safety": {
                 "gatewayOnly": True,

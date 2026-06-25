@@ -147,8 +147,8 @@ ss -ltnp | grep -E ':9000|:9001|:18080|:18443|:18083' || true
 | Webpack manifest | `curl -I http://127.0.0.1:9001/api/plugins/komsco-ai-console-plugin-kugnus/plugin-manifest.json` | 200 | plugin dev server 미기동 |
 | Console dashboard | 브라우저 `http://localhost:9000/dashboards` | OKD dashboard 표시 | bridge 미기동 |
 | Cywell AI 토글 | 화면 우측 하단 | K 아이콘 라운딩 사각형 표시 | plugin 로드 실패 |
-| Header 상태 | 챗봇 열기 | 연결/읽기/실행 토글 표시 | status API 실패 |
-| 우측 rail | 전체화면/확장 | `Node 1/1`, `Operator 정상`, 실행 상태 배지 표시 | cluster summary/status API 실패 |
+| Header 상태 | 챗봇 열기 | `Node`, `Operator` 운영 상태 + `읽기 전용`, `실행 가능`, `실행 무제한` 전환 토글 표시 | summary/status API 실패 |
+| 우측 rail | 전체화면/확장 | `Node 1/1 · Ready`, `Operator 34/34 정상`, 실행 상태 배지 표시 | cluster summary/status API 실패 |
 
 빌드 검증:
 
@@ -250,6 +250,6 @@ error while loading shared libraries: libnspr4.so
 4. Docker daemon과 WSL integration을 확인한다.
 5. backend를 `execute` 모드로 띄운다.
 6. frontend/console bridge를 띄운다.
-7. `Node 1/1`, `Operator 정상`, `읽기 전용/실행 가능/실행 무제한` UI 상태를 확인한다.
+7. `Node 1/1 · Ready`, `Operator 34/34 정상`, `실행 가능/읽기 전용/실행 무제한` UI 상태를 확인한다.
 8. 공식 Evidence RCA 질문을 한 번 돌린다.
 9. fail이 있으면 이 문서의 섹션 번호 기준으로 원인을 기록한다.

@@ -1,14 +1,14 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T07:44:46.108085Z",
+  "generatedAt": "2026-06-25T10:49:41.909379Z",
   "kind": "CrashLoopLiveDemoCycleVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
     "branch": "feat/v.0.1.3",
     "gateway": "http://127.0.0.1:18080",
-    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "headSha": "1b374853671b0db37a5e0de9c3cbd9f1f5611396",
     "name": "ver-0.1.3-crashloop-live-demo-cycle",
-    "scope": "local-gateway-read-only"
+    "scope": "local-gateway-controlled-execution"
   },
   "spec": {
     "checks": [
@@ -63,8 +63,8 @@
         "ok": true
       },
       {
-        "detail": "Overview safety shows mutations and unrestricted commands disabled",
-        "name": "overview_safety_read_only",
+        "detail": "Overview safety shows controlled execution enabled while unrestricted commands remain disabled",
+        "name": "overview_safety_controlled_execution",
         "ok": true
       },
       {
@@ -295,7 +295,7 @@
       "text": 2
     },
     "finalText": {
-      "digest": "e54786410d2a2d1274d55d454326291fff44032a4a08042c92a5a264ce3cb12b",
+      "digest": "d56e8e34349251c7007a952870d442e920297cdf9853085c6f00a9d40609d05e",
       "length": 3643,
       "overclaimRisk": false
     },
@@ -316,15 +316,15 @@
       "komsco-ai-dev"
     ],
     "overviewSafety": {
-      "mutationsEnabled": false,
-      "readOnlyDefault": true,
+      "mutationsEnabled": true,
+      "readOnlyDefault": false,
       "unrestrictedCommandsEnabled": false
     },
     "rcaContext": {
       "metadata": {
-        "digest": "sha256:2e6463d8ae3fa88706b65d1412547ba79675f5cdff2711cb9cece56fddb6efbb",
+        "digest": "sha256:fdb7aa990bdd86022d6b4d77f3af5040c7864596e462f47bd47847397ea22bc8",
         "findingId": "3bc71be7b6998201",
-        "runId": "ver-0.1.3-live-demo-1782373488",
+        "runId": "ver-0.1.3-live-demo-1782384583",
         "scenarioId": "crashloop"
       },
       "collectedEvidenceTypes": [
@@ -351,7 +351,7 @@
         "missingCount": 2
       }
     },
-    "runId": "ver-0.1.3-live-demo-1782373488",
+    "runId": "ver-0.1.3-live-demo-1782384583",
     "textSources": [
       "crashloop-v0.1.3",
       "fallbackAnswer",

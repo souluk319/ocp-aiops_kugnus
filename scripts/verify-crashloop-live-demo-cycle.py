@@ -424,7 +424,7 @@ def main() -> int:
             "gateway": args.gateway,
             "headSha": git_value(["rev-parse", "HEAD"]),
             "name": "ver-0.1.3-crashloop-live-demo-cycle",
-            "scope": "local-gateway-read-only",
+            "scope": "local-gateway-controlled-execution",
         },
         "spec": {"checks": checks},
         "status": "fail",
@@ -539,10 +539,10 @@ def main() -> int:
             checks,
         )
         require(
-            overview_safety.get("mutationsEnabled") is False
+            overview_safety.get("mutationsEnabled") is True
             and overview_safety.get("unrestrictedCommandsEnabled") is False,
-            "overview_safety_read_only",
-            "Overview safety shows mutations and unrestricted commands disabled",
+            "overview_safety_controlled_execution",
+            "Overview safety shows controlled execution enabled while unrestricted commands remain disabled",
             checks,
         )
         require(context is not None, "chat_stream_rca_context", "Chat stream emitted RCA context", checks)
