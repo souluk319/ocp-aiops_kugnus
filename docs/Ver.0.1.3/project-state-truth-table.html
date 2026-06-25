@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로젝트 현재 상태 Truth Table</title>
+<style>
+:root{--bg:#f5f7fb;--paper:#fff;--ink:#172033;--muted:#667085;--line:#d8dee8;--soft:#eef3f8;--blue:#0066cc;--green:#168a45;--orange:#b85c00;--red:#b42318;--nav:#111827;--code:#111827;}
+*{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.62}.layout{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}.nav{position:sticky;top:0;height:100vh;padding:24px 18px;background:var(--nav);color:#dbe4f0;overflow:auto}.nav h1{font-size:17px;line-height:1.28;margin:0 0 8px;color:#fff}.nav .meta{font-size:12px;color:#aab6c5;margin:0 0 18px}.nav a{display:block;color:#cbd5e1;text-decoration:none;padding:7px 8px;border-radius:6px;font-size:13px}.nav a:hover{background:#1f2937;color:#fff}.content{max-width:1120px;padding:36px 42px 80px}.doc{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:34px 40px;box-shadow:0 12px 28px rgba(15,23,42,.06)}h1.title{font-size:31px;margin:0 0 12px}h2{font-size:22px;margin:34px 0 14px;padding-top:8px;border-top:1px solid #edf1f6}h3{font-size:17px;margin:24px 0 10px}p{margin:8px 0}.lead{font-size:17px;color:#344054}.muted{color:var(--muted)}.badge{display:inline-block;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12px;margin:2px 4px 2px 0}.pass{color:var(--green);border-color:#b8e6c8;background:#eefbf3}.warn{color:var(--orange);border-color:#f6d39b;background:#fff8ea}.stop{color:var(--red);border-color:#f3b8b3;background:#fff1f0}.info{color:var(--blue);border-color:#b8d7f5;background:#eef6ff}code{font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace;background:#f3f6fa;border:1px solid #e0e6ef;border-radius:4px;padding:1px 4px}pre{background:var(--code);color:#e5e7eb;padding:14px 16px;border-radius:8px;overflow:auto;border:1px solid #263244}pre code{background:transparent;border:0;padding:0;color:inherit}table{width:100%;border-collapse:collapse;margin:14px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{background:#f0f5fb;color:#26324a}tr:last-child td{border-bottom:0}ul,ol{padding-left:22px}.callout{border:1px solid #b8d7f5;background:#eef6ff;border-radius:8px;padding:13px 15px;margin:14px 0}.warning{border:1px solid #f6d39b;background:#fff8ea;border-radius:8px;padding:13px 15px;margin:14px 0}.danger{border:1px solid #f3b8b3;background:#fff1f0;border-radius:8px;padding:13px 15px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.card strong{display:block;margin-bottom:6px}.flow{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.flow span{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 10px}.footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}@media(max-width:880px){.layout{display:block}.nav{position:static;height:auto}.content{padding:18px}.doc{padding:24px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="nav">
+    <h1>프로젝트 현재 상태 Truth Table</h1>
+    <p class="meta">Ver.0.1.3/0.1.4 facts<br>branch: feat/v.0.1.4<br>base: 48e3b54</p>
+    <a href="#where">작업대와 대상</a>
+<a href="#done">된 것</a>
+<a href="#notdone">안 한 것</a>
+<a href="#versions">버전 의미</a>
+<a href="#mental-model">한 문장 모델</a>
+  </aside>
+  <main class="content"><article class="doc">
+
+<h1 class="title">프로젝트 현재 상태 Truth Table</h1>
+<p class="lead">이 문서는 헷갈리기 쉬운 말을 사실 단위로 분리한다. “했다”, “안 했다”, “보여줄 수 있다”, “말하면 안 된다”를 구분한다.</p>
+
+<h2 id="where">1. 작업대와 대상</h2>
+<table><tbody>
+<tr><th>질문</th><th>현재 사실</th></tr>
+<tr><td>작업대는 어디인가?</td><td>WSL Ubuntu native repo: <code>/home/kugnus/cywell/ocp-aiops_kugnus</code></td></tr>
+<tr><td>브랜치는?</td><td><code>feat/v.0.1.4</code>. 0.1.3 최종 커밋 <code>48e3b54</code>에서 분기.</td></tr>
+<tr><td>OCP 대상은?</td><td>회사 OCP <code>https://api.ocp.cywell.server:6443</code>를 조회/port-forward 대상으로 사용.</td></tr>
+<tr><td>CRC인가?</td><td>아니다. 이 프로젝트의 현재 런타임 검증은 회사 OCP 연결 기반 로컬 개발 콘솔이다.</td></tr>
+<tr><td>회사 서버에 설치했나?</td><td>아니다. 이번 범위는 신규 설치/Subscription/AIOpsInstallation 생성이 아니다.</td></tr>
+</tbody></table>
+
+<h2 id="done">2. 실제로 된 것</h2>
+<table><tbody>
+<tr><th>항목</th><th>상태</th><th>근거</th></tr>
+<tr><td>로컬 Gateway</td><td><span class="badge pass">OK</span></td><td><code>http://127.0.0.1:18080/healthz</code></td></tr>
+<tr><td>로컬 Console</td><td><span class="badge pass">OK</span></td><td><code>http://localhost:9000/dashboards</code> HTTP 200</td></tr>
+<tr><td>Plugin webpack</td><td><span class="badge pass">OK</span></td><td><code>http://127.0.0.1:9001/plugin-manifest.json</code> HTTP 200</td></tr>
+<tr><td>RAG pgvector dev DB</td><td><span class="badge pass">OK</span></td><td><code>runtime:smoke</code>에서 <code>backend=pgvector</code>, <code>results=3</code></td></tr>
+<tr><td>Action Executor 연결</td><td><span class="badge pass">OK</span></td><td><code>http://127.0.0.1:18083/healthz</code></td></tr>
+<tr><td>10개 운영 시나리오</td><td><span class="badge pass">10/10</span></td><td><code>task kugnus:scenario:verify</code></td></tr>
+<tr><td>Evidence/RCA 공식 장면</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:evidence-rca:verify</code></td></tr>
+</tbody></table>
+
+<h2 id="notdone">3. 아직 안 한 것</h2>
+<div class="danger">
+<ul>
+<li>회사 OCP에 신규 runtime 설치 완료라고 말하면 안 된다.</li>
+<li>Software Catalog 등록 완료라고 새로 보고하면 안 된다. 기존 0.1.0 문서에 기록된 카탈로그 준비/등록 맥락과 현재 로컬 시연은 분리해야 한다.</li>
+<li>Cypress 브라우저 E2E 전체 PASS라고 말하면 안 된다.</li>
+<li>실제 <code>default</code> namespace에 과거 재시작 Pod 로그가 항상 있다고 가정하면 안 된다.</li>
+<li><code>실험 무제한</code>이 회사 OCP에서 안전하다고 말하면 안 된다.</li>
+</ul>
+</div>
+
+<h2 id="versions">4. 버전 의미</h2>
+<table><tbody>
+<tr><th>버전</th><th>의미</th></tr>
+<tr><td>0.1.0</td><td>방향 고정, Kugnus 이름 분리, 카탈로그/OLM 준비, 금지선 정리.</td></tr>
+<tr><td>0.1.1</td><td>UI polish와 AIOps 기능 계약: Tool Plan, Evidence/RCA, RAG skeleton, 평가 기준.</td></tr>
+<tr><td>0.1.2</td><td>회사 OCP read-only 신호를 로컬 관제탑 UI와 연결, Stage 1-6 검증.</td></tr>
+<tr><td>0.1.3</td><td>공식 시연 한 사이클 안정화: pgvector RAG, Action Executor, 10 시나리오, Evidence/RCA, screen readiness.</td></tr>
+<tr><td>0.1.4</td><td>RAG를 skeleton/demo에서 운영 설계로 끌어올리는 설계 단계.</td></tr>
+</tbody></table>
+
+<h2 id="mental-model">5. 한 문장 모델</h2>
+<div class="callout">이 프로젝트는 회사 OCP 위에 바로 뭔가를 박는 것이 아니라, WSL 로컬 개발 콘솔에서 회사 OCP를 관측 대상으로 연결해 Cywell AI 관제탑/챗봇 제품 흐름을 만든 뒤, 검증된 부분만 다음 단계에서 카탈로그/설치로 넘기는 구조다.</div>
+
+    <p class="footer">Generated for Kugnus OCP AIOps Ver.0.1.4 planning handoff. 기준 환경은 WSL Ubuntu native repo입니다.</p>
+  </article></main>
+</div>
+</body>
+</html>

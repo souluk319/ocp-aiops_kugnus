@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>테스트 준비 책자</title>
+<style>
+:root{--bg:#f5f7fb;--paper:#fff;--ink:#172033;--muted:#667085;--line:#d8dee8;--soft:#eef3f8;--blue:#0066cc;--green:#168a45;--orange:#b85c00;--red:#b42318;--nav:#111827;--code:#111827;}
+*{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.62}.layout{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}.nav{position:sticky;top:0;height:100vh;padding:24px 18px;background:var(--nav);color:#dbe4f0;overflow:auto}.nav h1{font-size:17px;line-height:1.28;margin:0 0 8px;color:#fff}.nav .meta{font-size:12px;color:#aab6c5;margin:0 0 18px}.nav a{display:block;color:#cbd5e1;text-decoration:none;padding:7px 8px;border-radius:6px;font-size:13px}.nav a:hover{background:#1f2937;color:#fff}.content{max-width:1120px;padding:36px 42px 80px}.doc{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:34px 40px;box-shadow:0 12px 28px rgba(15,23,42,.06)}h1.title{font-size:31px;margin:0 0 12px}h2{font-size:22px;margin:34px 0 14px;padding-top:8px;border-top:1px solid #edf1f6}h3{font-size:17px;margin:24px 0 10px}p{margin:8px 0}.lead{font-size:17px;color:#344054}.muted{color:var(--muted)}.badge{display:inline-block;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12px;margin:2px 4px 2px 0}.pass{color:var(--green);border-color:#b8e6c8;background:#eefbf3}.warn{color:var(--orange);border-color:#f6d39b;background:#fff8ea}.stop{color:var(--red);border-color:#f3b8b3;background:#fff1f0}.info{color:var(--blue);border-color:#b8d7f5;background:#eef6ff}code{font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace;background:#f3f6fa;border:1px solid #e0e6ef;border-radius:4px;padding:1px 4px}pre{background:var(--code);color:#e5e7eb;padding:14px 16px;border-radius:8px;overflow:auto;border:1px solid #263244}pre code{background:transparent;border:0;padding:0;color:inherit}table{width:100%;border-collapse:collapse;margin:14px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{background:#f0f5fb;color:#26324a}tr:last-child td{border-bottom:0}ul,ol{padding-left:22px}.callout{border:1px solid #b8d7f5;background:#eef6ff;border-radius:8px;padding:13px 15px;margin:14px 0}.warning{border:1px solid #f6d39b;background:#fff8ea;border-radius:8px;padding:13px 15px;margin:14px 0}.danger{border:1px solid #f3b8b3;background:#fff1f0;border-radius:8px;padding:13px 15px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.card strong{display:block;margin-bottom:6px}.flow{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.flow span{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 10px}.footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}@media(max-width:880px){.layout{display:block}.nav{position:static;height:auto}.content{padding:18px}.doc{padding:24px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="nav">
+    <h1>테스트 준비 책자</h1>
+    <p class="meta">Ver.0.1.3 morning index<br>branch: feat/v.0.1.4<br>base: 48e3b54</p>
+    <a href="#read-order">읽는 순서</a>
+<a href="#fast-start">빠른 루틴</a>
+<a href="#status">현재 상태</a>
+<a href="#links">관련 HTML</a>
+  </aside>
+  <main class="content"><article class="doc">
+
+<h1 class="title">Ver.0.1.3/0.1.4 테스트 준비 책자</h1>
+<p class="lead">이 책자는 아침에 열어 볼 단일 목차다. 먼저 0.1.3 시연 준비 상태를 확인하고, 다음으로 0.1.4 RAG 설계로 넘어간다.</p>
+
+<h2 id="read-order">1. 읽는 순서</h2>
+<ol>
+<li><a href="morning-test-brief.html">아침 테스트 브리핑</a>: 명령 순서와 PASS/FAIL 기준.</li>
+<li><a href="project-state-truth-table.html">프로젝트 현재 상태 Truth Table</a>: 했다/안 했다/말하면 안 된다 정리.</li>
+<li><a href="code-and-risk-audit.html">코드·리스크 점검</a>: 주요 변경 축과 리스크.</li>
+<li><a href="../Ver.0.1.4/rag-architecture-design.html">Ver.0.1.4 RAG 설계</a>: 다음 버전 설계 기준.</li>
+<li><a href="../Ver.0.1.4/pbs-user-upload-rag-import-analysis.html">PBS 사용자 업로드 RAG 조사</a>: 채팅 첨부 버튼에 붙일 업로드 ingestion 후보.</li>
+</ol>
+
+<h2 id="fast-start">2. 제일 빠른 아침 루틴</h2>
+<pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:dev:doctor
+task kugnus:runtime:smoke
+task kugnus:scenario:verify
+task kugnus:evidence-rca:verify
+task kugnus:demo:live-verify
+task kugnus:demo:screen-readiness</code></pre>
+
+<h2 id="status">3. 현재 상태</h2>
+<table><tbody>
+<tr><th>브랜치</th><td><code>feat/v.0.1.4</code></td></tr>
+<tr><th>0.1.3 최종 상태</th><td>로컬 시연 자동 검증 세트 PASS</td></tr>
+<tr><th>0.1.4 시작 목표</th><td>RAG를 demo 연결에서 운영 설계로 끌어올림</td></tr>
+<tr><th>중요 주의</th><td>회사 OCP 신규 설치 완료로 말하면 안 됨</td></tr>
+</tbody></table>
+
+<h2 id="links">4. 관련 HTML</h2>
+<ul>
+<li><a href="../version-progress-book.html">전체 버전 진행 책자</a></li>
+<li><a href="home-demo-test-order.html">집에서 실행/검증 순서</a></li>
+<li><a href="operational-scenarios-and-demo-cycle.html">운영 시나리오와 데모 사이클</a></li>
+<li><a href="runtime-execution-troubleshooting-checklist.html">런타임 실행 문제 체크리스트</a></li>
+</ul>
+
+    <p class="footer">Generated for Kugnus OCP AIOps Ver.0.1.4 planning handoff. 기준 환경은 WSL Ubuntu native repo입니다.</p>
+  </article></main>
+</div>
+</body>
+</html>

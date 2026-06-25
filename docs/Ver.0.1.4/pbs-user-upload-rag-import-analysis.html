@@ -1,0 +1,146 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ver.0.1.4 PBS 업로드 RAG 조사</title><style>
+:root{--bg:#f5f7fb;--paper:#fff;--ink:#172033;--muted:#667085;--line:#d8dee8;--soft:#eef3f8;--blue:#0066cc;--green:#168a45;--orange:#b85c00;--red:#b42318;--nav:#111827;--code:#111827;}
+*{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;line-height:1.62}.layout{display:grid;grid-template-columns:270px minmax(0,1fr);min-height:100vh}.nav{position:sticky;top:0;height:100vh;padding:24px 18px;background:var(--nav);color:#dbe4f0;overflow:auto}.nav h1{font-size:17px;line-height:1.28;margin:0 0 8px;color:#fff}.nav .meta{font-size:12px;color:#aab6c5;margin:0 0 18px}.nav a{display:block;color:#cbd5e1;text-decoration:none;padding:7px 8px;border-radius:6px;font-size:13px}.nav a:hover{background:#1f2937;color:#fff}.content{max-width:1120px;padding:36px 42px 80px}.doc{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:34px 40px;box-shadow:0 12px 28px rgba(15,23,42,.06)}h1.title{font-size:31px;margin:0 0 12px}h2{font-size:22px;margin:34px 0 14px;padding-top:8px;border-top:1px solid #edf1f6}h3{font-size:17px;margin:24px 0 10px}p{margin:8px 0}.lead{font-size:17px;color:#344054}.muted{color:var(--muted)}.badge{display:inline-block;padding:3px 8px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12px;margin:2px 4px 2px 0}.pass{color:var(--green);border-color:#b8e6c8;background:#eefbf3}.warn{color:var(--orange);border-color:#f6d39b;background:#fff8ea}.stop{color:var(--red);border-color:#f3b8b3;background:#fff1f0}.info{color:var(--blue);border-color:#b8d7f5;background:#eef6ff}code{font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace;background:#f3f6fa;border:1px solid #e0e6ef;border-radius:4px;padding:1px 4px}pre{background:var(--code);color:#e5e7eb;padding:14px 16px;border-radius:8px;overflow:auto;border:1px solid #263244}pre code{background:transparent;border:0;padding:0;color:inherit}table{width:100%;border-collapse:collapse;margin:14px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}th{background:#f0f5fb;color:#26324a}tr:last-child td{border-bottom:0}ul,ol{padding-left:22px}.callout{border:1px solid #b8d7f5;background:#eef6ff;border-radius:8px;padding:13px 15px;margin:14px 0}.warning{border:1px solid #f6d39b;background:#fff8ea;border-radius:8px;padding:13px 15px;margin:14px 0}.danger{border:1px solid #f3b8b3;background:#fff1f0;border-radius:8px;padding:13px 15px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:14px}.card strong{display:block;margin-bottom:6px}.flow{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.flow span{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 10px}.footer{margin-top:38px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}@media(max-width:880px){.layout{display:block}.nav{position:static;height:auto}.content{padding:18px}.doc{padding:24px}.grid{grid-template-columns:1fr}}
+</style></head><body><div class="layout"><aside class="nav"><h1>PBS 업로드 RAG 조사</h1><p class="meta">Ver.0.1.4<br>source: OCPOps-PBS-Dev-v2</p><a href="#sec-1--결론">결론</a><a href="#sec-2--pbs에서-확인한-핵심-흐름">핵심 흐름</a><a href="#sec-4--우리-프로젝트에-바로-가져올-최소-기능-세트">최소 이식</a><a href="#sec-7--0-1-4-구현-순서-제안">구현 순서</a></aside><main class="content"><article class="doc"><h1 class="title">Ver.0.1.4 PBS 사용자 업로드 RAG 파이프라인 조사</h1>
+
+<p>작성일: 2026-06-25</p>
+<p>참조 프로젝트: <code>/mnt/c/Users/soulu/cywell/OCPOps-PBS-Dev-v2</code></p>
+<p>현재 프로젝트 브랜치: <code>feat/v.0.1.4</code></p>
+
+<h2 id="sec-1--결론">1. 결론</h2>
+
+<p>PBS 프로젝트에는 사용자가 문서를 업로드하면 RAG에 들어갈 수 있도록 처리하는 파이프라인이 이미 있다. 우리 KOMSCO AIOps 챗봇의 파일 첨부 버튼은 이 기능을 붙일 명확한 후보 지점이다.</p>
+
+<p>단, PBS 코드를 통째로 복붙하면 안 된다. 우리 프로젝트에는 OpenShift 콘솔 플러그인, Gateway, pgvector dev RAG, Evidence/RCA, Action Executor라는 별도 제품 맥락이 있으므로 **기능 단위로 선별 이식**해야 한다.</p>
+
+<h2 id="sec-2--pbs에서-확인한-핵심-흐름">2. PBS에서 확인한 핵심 흐름</h2>
+
+<p>PBS 업로드 파이프라인은 다음 흐름을 갖는다.</p>
+
+<ol>
+<li>프론트에서 파일을 <code>FormData</code>로 전송</li>
+<li>서버가 안전한 파일명으로 object storage 하위에 저장</li>
+<li>문서 포맷 감지</li>
+<li>문서 파싱: md/txt/pdf/docx/pptx/xlsx/image 등</li>
+<li>block 추출</li>
+<li>chunk 생성</li>
+<li>PostgreSQL에 document source / parsed document / blocks / assets / chunks 저장</li>
+<li>pgvector embedding indexing</li>
+<li>ingestion report 생성</li>
+<li>quality gate와 ready_for_chat 상태 반환</li>
+<li>stream API로 진행 상황을 프론트에 전달</li>
+</ol>
+
+<h2 id="sec-3--참고한-pbs-파일">3. 참고한 PBS 파일</h2>
+
+<table><tbody>
+<tr><th>파일</th><th>가져올 만한 기능</th></tr>
+<tr><td><code>src/play_book_studio/http/upload_api.py</code></td><td>업로드 저장, 중복 처리, stage event, failure report, ingestion report, stream handler</td></tr>
+<tr><td><code>src/play_book_studio/ingestion/document_parsing.py</code></td><td>문서 포맷 감지, markdown 변환, block/asset/chunk 모델</td></tr>
+<tr><td><code>src/play_book_studio/db/document_repository.py</code></td><td>document source, parsed document, block, asset, chunk persist 구조</td></tr>
+<tr><td><code>src/play_book_studio/db/embedding_indexer.py</code></td><td>pending chunk를 pgvector embedding으로 index하는 구조</td></tr>
+<tr><td><code>db/migrations/0001_ingestion_foundation.sql</code></td><td>documents/versions/parse_jobs/blocks/assets/chunks 기본 schema</td></tr>
+<tr><td><code>db/migrations/0010_pgvector_chunk_embeddings.sql</code></td><td><code>chunk_embeddings</code> pgvector schema와 HNSW index</td></tr>
+<tr><td><code>apps/web/src/lib/runtimeApi.ts</code></td><td><code>uploadDocumentIngestion</code>, <code>uploadDocumentIngestionStream</code>, <code>loadUploadIngestReport</code>, <code>deleteUploadedDocument</code> API client</td></tr>
+<tr><td><code>src/play_book_studio/evals/user_upload_rag_eval.py</code></td><td>업로드 문서 기반 RAG 평가 구조</td></tr>
+</tbody></table>
+
+<h2 id="sec-4--우리-프로젝트에-바로-가져올-최소-기능-세트">4. 우리 프로젝트에 바로 가져올 최소 기능 세트</h2>
+
+<h3>4.1 Backend 최소 세트</h3>
+
+<ul>
+<li><code>/v1/aiops/uploads/ingest</code></li>
+<li><code>/v1/aiops/uploads/ingest/stream</code></li>
+<li><code>/v1/aiops/uploads/reports/{document_source_id}</code></li>
+<li><code>/v1/aiops/uploads/delete</code></li>
+<li>local object storage: <code>.aiops-storage/uploads/</code></li>
+<li>upload source table</li>
+<li>parsed document table</li>
+<li>document chunk table</li>
+<li>chunk embedding table</li>
+<li>ingestion report JSON</li>
+</ul>
+
+<h3>4.2 Frontend 최소 세트</h3>
+
+<ul>
+<li>현재 챗봇 composer의 첨부 버튼에 파일 선택 연결</li>
+<li>업로드 진행 상태 표시: store, parse, chunk, persist, index, ready</li>
+<li>업로드된 문서를 현재 대화의 RAG scope에 연결</li>
+<li>답변에서 “사용자 업로드 문서 근거”를 별도 badge로 표시</li>
+<li>실패 시 실패 stage와 report link 표시</li>
+</ul>
+
+<h3>4.3 RAG 최소 세트</h3>
+
+<ul>
+<li>upload document chunks를 기존 pgvector RAG 검색 대상에 포함</li>
+<li>기본 검색은 official/internal runbook + user upload를 함께 검색</li>
+<li>필요 시 <code>restrictUploadedSources</code> 옵션으로 업로드 문서만 검색</li>
+<li>citation/source에 <code>uploaded-document</code> 표시</li>
+<li>stale/missing/dangerous evidence 구분 유지</li>
+</ul>
+
+<h2 id="sec-5--우리-제품에-맞게-바꿔야-할-점">5. 우리 제품에 맞게 바꿔야 할 점</h2>
+
+<p>PBS는 PlayBookStudio용 구조이고, 우리는 OpenShift AIOps 콘솔 플러그인이다. 따라서 다음은 그대로 가져오지 않는다.</p>
+
+<ul>
+<li>PBS viewer route 전체</li>
+<li>PBS course/runtime/learning 기능</li>
+<li>PBS terminal/session 기능</li>
+<li>Neo4j/graph sidecar 전체</li>
+<li>Qdrant legacy 흔적</li>
+<li>customer pack 전체 기능</li>
+<li>PBS 전용 UI 레이아웃</li>
+</ul>
+
+<p>가져올 것은 “업로드 문서가 RAG source가 되는 pipeline”뿐이다.</p>
+
+<h2 id="sec-6--안전-설계">6. 안전 설계</h2>
+
+<table><tbody>
+<tr><th>위험</th><th>대응</th></tr>
+<tr><td>token/kubeconfig 업로드</td><td>파일 내용 redaction scan 또는 reject policy 필요</td></tr>
+<tr><td>너무 큰 파일</td><td>size limit, page/chunk limit, timeout</td></tr>
+<tr><td>OCR/이미지 처리 비용</td><td>0.1.4에서는 optional로 두고 기본은 텍스트 중심</td></tr>
+<tr><td>문서 중복</td><td>SHA256 + owner/session scope로 중복 처리</td></tr>
+<tr><td>근거 없는 답변</td><td>업로드 문서 검색 실패 시 missing evidence 표시</td></tr>
+<tr><td>위험 조치 문서</td><td>safety_class를 <code>dangerous</code>로 분류하고 자동 실행 금지</td></tr>
+<tr><td>회사 OCP 오염</td><td>업로드/RAG는 로컬 개발 DB 기준. OCP 리소스 변경과 분리</td></tr>
+</tbody></table>
+
+<h2 id="sec-7--0-1-4-구현-순서-제안">7. 0.1.4 구현 순서 제안</h2>
+
+<ol>
+<li>PBS 업로드 파이프라인에서 필요한 모델/스키마만 축소 설계</li>
+<li>우리 Gateway에 upload ingestion endpoint 추가</li>
+<li>local object storage 디렉터리 추가</li>
+<li>pgvector schema에 <code>aiops_documents</code>, <code>aiops_document_chunks</code>, <code>aiops_chunk_embeddings</code> 추가</li>
+<li><code>md/txt/pdf/docx</code>부터 parser 지원</li>
+<li>chunker 구현</li>
+<li>hashing embedding으로 먼저 index</li>
+<li><code>/v1/aiops/rag/search</code>가 upload chunk source를 반환하게 변경</li>
+<li>챗봇 첨부 버튼을 upload stream API에 연결</li>
+<li>답변 citation에 uploaded document source 표시</li>
+<li>user-upload RAG smoke/eval 추가</li>
+</ol>
+
+<h2 id="sec-8--완료-조건">8. 완료 조건</h2>
+
+<p>0.1.4에서 이 기능은 다음이 되면 완료로 본다.</p>
+
+<ol>
+<li>챗봇에서 파일 첨부 가능</li>
+<li>업로드 진행 상태가 UI에 표시됨</li>
+<li>업로드 문서가 pgvector에 chunk/embedding으로 들어감</li>
+<li>공식 질문 또는 별도 질문에서 업로드 문서가 근거로 검색됨</li>
+<li>답변에 업로드 문서 citation/source가 표시됨</li>
+<li>실패 시 어느 stage에서 실패했는지 report로 확인 가능</li>
+<li><code>task kugnus:rag:upload:smoke</code> 같은 pass/fail 검증이 존재함</li>
+</ol>
+
+<h2 id="sec-9--현재-판단">9. 현재 판단</h2>
+
+<p>사용자 말대로 채팅창 첨부 버튼은 단순 UI 장식으로 두면 안 된다. PBS에 이미 구현된 파이프라인이 있으므로, 0.1.4는 RAG 설계뿐 아니라 **사용자 업로드 문서 RAG ingestion**을 핵심 목표로 잡는 것이 맞다.</p></article></main></div></body></html>
