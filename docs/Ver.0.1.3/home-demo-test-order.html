@@ -8,7 +8,7 @@
 :root{--bg:#f6f8fb;--panel:#fff;--line:#d8dee8;--text:#172033;--muted:#667085;--blue:#0066cc;--green:#0f8f4d;}
 *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.62;}
 .layout{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100vh}.nav{position:sticky;top:0;height:100vh;padding:24px 18px;background:#111827;color:#dbe4f0;overflow:auto}.nav h2{font-size:15px;margin:0 0 14px;color:#fff}.nav a{display:block;color:#cbd5e1;text-decoration:none;padding:7px 8px;border-radius:6px;font-size:13px}.nav a:hover{background:#1f2937;color:#fff}.content{max-width:1040px;padding:36px 42px 80px}.doc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:34px 40px;box-shadow:0 12px 28px rgba(15,23,42,.06)}
-h1{font-size:30px;margin:0 0 20px} h2{font-size:22px;margin:34px 0 14px;padding-top:8px;border-top:1px solid #edf1f6} h3{font-size:17px;margin:26px 0 10px} p{margin:8px 0}.bullet{padding-left:12px;color:#25324a} code{font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace} pre{background:#111827;color:#e5e7eb;padding:14px 16px;border-radius:8px;overflow:auto;border:1px solid #263244} table{width:100%;border-collapse:collapse;margin:14px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden} th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top} th{background:#f0f5fb;color:#26324a} tr:last-child td{border-bottom:0}
+h1{font-size:30px;margin:0 0 20px} h2{font-size:22px;margin:34px 0 14px;padding-top:8px;border-top:1px solid #edf1f6} h3{font-size:17px;margin:26px 0 10px} p{margin:8px 0}.bullet{padding-left:12px;color:#25324a} code{font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace} pre{background:#111827;color:#e5e7eb;padding:14px 16px;border-radius:8px;overflow:auto;border:1px solid #263244} table{width:100%;border-collapse:collapse;margin:14px 0;border:1px solid var(--line);border-radius:8px;overflow:hidden}.handoff-section{margin-top:42px;padding-top:18px;border-top:2px solid #d8dee8} th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top} th{background:#f0f5fb;color:#26324a} tr:last-child td{border-bottom:0}
 @media(max-width:860px){.layout{display:block}.nav{position:static;height:auto}.content{padding:18px}.doc{padding:24px}}
 </style>
 </head>
@@ -21,13 +21,14 @@ h1{font-size:30px;margin:0 0 20px} h2{font-size:22px;margin:34px 0 14px;padding-
 <a href="#section-5">공식 시연 검증</a>
 <a href="#section-8">문제 해결</a>
 <a href="#section-10">주의 사항</a>
+<a href="#night-handoff">야간 인수인계</a>
 </nav><main class="content"><article class="doc">
 <h1>Ver.0.1.3 집에서 바로 실행/검증 순서</h1>
 
 <p>작성일: 2026-06-25  </p>
 <p>작업 기준 경로: `/home/kugnus/cywell/ocp-aiops_kugnus`  </p>
 <p>브랜치: `feat/v.0.1.3`  </p>
-<p>현재 기준 HEAD: `1b37485 fix dev doctor task shell invocation`</p>
+<p>현재 기준 HEAD: `29e5e1e document ver.0.1.3 night handoff verification`</p>
 
 <h2 id="section-1">1. 현재 판단</h2>
 
@@ -285,4 +286,189 @@ oc exec</code></pre>
 <p class="bullet">2. `task kugnus:scenario:verify` 10/10 PASS</p>
 <p class="bullet">3. `http://localhost:9000/dashboards` 열림</p>
 <p class="bullet">4. 챗봇 공식 질문에 Evidence/RCA + RAG 기반 답변 흐름 확인</p>
+
+<section id="night-handoff" class="handoff-section">
+<h1>Ver.0.1.3 야간 인수인계 검증 요약</h1>
+
+<p>작성일: 2026-06-25</p>
+<p>작업 위치: WSL Ubuntu <code>/home/kugnus/cywell/ocp-aiops_kugnus</code></p>
+<p>브랜치: <code>feat/v.0.1.3</code></p>
+<p>기준 커밋: <code>64e4ca0 stabilize ver.0.1.3 demo runtime</code></p>
+
+<h2 id="night-1--결론">1. 결론</h2>
+
+<p>오늘 밤 기준으로 사용자가 추가 입력할 것은 없다. 로컬 개발환경, Gateway, RAG, Action Executor, 시나리오 계약, Evidence/RCA 시연 흐름, 화면 준비도 검증은 모두 PASS 상태다.</p>
+
+<p>단, 이것은 로컬 개발 콘솔 기반 시연 준비 완료를 뜻한다. 회사 OCP에 신규 설치/배포/카탈로그 등록이 완료됐다는 뜻은 아니다.</p>
+
+<h2 id="night-2--사용자가-직접-확인한-명령과-의미">2. 사용자가 직접 확인한 명령과 의미</h2>
+
+<table><tbody>
+<tr><th>순서</th><th>명령</th><th>결과</th><th>의미</th></tr>
+<tr><td>1</td><td><code>task kugnus:dev:doctor</code></td><td><code>PASS=17 WARN=5 FAIL=0</code></td><td>WSL, oc, Docker, 로컬 포트, 콘솔 접근 상태 확인. FAIL이 없으므로 진행 가능. WARN은 필요한 서버가 이미 떠 있어서 발생한 정상 범위.</td></tr>
+<tr><td>2</td><td><code>task kugnus:runtime:smoke</code></td><td><code>Runtime smoke: PASS</code></td><td>Gateway, oc 인증, cluster summary, AIOps overview, runbook registry, pgvector RAG 검색 계약이 실제로 응답함.</td></tr>
+<tr><td>3</td><td><code>task kugnus:scenario:verify</code></td><td><code>scenarioCount=10</code>, <code>passed=10</code>, <code>failed=0</code></td><td>우리가 정의한 운영 시나리오 10개 요구사항 계약이 깨지지 않았음.</td></tr>
+<tr><td>4</td><td><code>task kugnus:evidence-rca:verify</code></td><td><code>pass</code></td><td>공식 Evidence/RCA 시연 장면의 필수 구조가 유지됨. 사용자가 두 번 실행했고 둘 다 PASS.</td></tr>
+<tr><td>5</td><td><code>task kugnus:demo:live-verify</code></td><td><code>pass</code></td><td>CrashLoop 기반 라이브 데모 한 사이클 계약이 통과함.</td></tr>
+<tr><td>6</td><td><code>task kugnus:demo:screen-readiness</code></td><td><code>pass</code></td><td>화면 시연 준비도 계약이 통과함.</td></tr>
+</tbody></table>
+
+<h2 id="night-3--내가-추가로-재검증한-결과">3. 내가 추가로 재검증한 결과</h2>
+
+<p>사용자 확인 이후 같은 검증 세트를 다시 실행했다.</p>
+
+<table><tbody>
+<tr><th>검증</th><th>결과</th></tr>
+<tr><td><code>task kugnus:runtime:smoke</code></td><td>PASS</td></tr>
+<tr><td><code>task kugnus:scenario:verify</code></td><td>10/10 PASS</td></tr>
+<tr><td><code>task kugnus:evidence-rca:verify</code></td><td>PASS</td></tr>
+<tr><td><code>task kugnus:demo:live-verify</code></td><td>PASS</td></tr>
+<tr><td><code>task kugnus:demo:screen-readiness</code></td><td>PASS</td></tr>
+<tr><td>Gateway <code>http://127.0.0.1:18080/healthz</code></td><td><code>{&quot;status&quot;:&quot;ok&quot;}</code></td></tr>
+<tr><td>Action Executor <code>http://127.0.0.1:18083/healthz</code></td><td><code>{&quot;status&quot;:&quot;ok&quot;}</code></td></tr>
+<tr><td>Local Console <code>http://127.0.0.1:9000/dashboards</code></td><td>HTTP 200</td></tr>
+<tr><td>Plugin manifest <code>http://127.0.0.1:9001/plugin-manifest.json</code></td><td>HTTP 200</td></tr>
+</tbody></table>
+
+<h2 id="night-4--오늘-검증이-증명하는-것">4. 오늘 검증이 증명하는 것</h2>
+
+<h3>4.1 실제 연결</h3>
+
+<p><code>runtime:smoke</code>가 통과했으므로 다음 연결은 살아 있다.</p>
+
+<ul>
+<li>로컬 Gateway</li>
+<li>현재 <code>oc</code> 인증</li>
+<li>회사 OCP cluster summary 조회</li>
+<li>AIOps overview 조회</li>
+<li>runbook registry 조회</li>
+<li>pgvector RAG 검색 계약</li>
+</ul>
+
+<p>확인된 대표 값:</p>
+
+<pre><code>health=92 nodes=1/1 operators=34/34
+rag=collected backend=pgvector configured=True results=3</code></pre>
+
+<h3>4.2 제품 요구사항 계약</h3>
+
+<p><code>scenario:verify</code>가 통과했으므로 Ver.0.1.3에서 고정한 10개 운영 시나리오 파일은 구조적으로 유효하다.</p>
+
+<p>이 검증은 실제 브라우저 답변 품질을 보장하는 테스트가 아니다. 정확한 의미는 다음이다.</p>
+
+<ul>
+<li>운영 시나리오 10개가 존재한다.</li>
+<li>필수 시나리오 누락이 없다.</li>
+<li>중복 시나리오가 없다.</li>
+<li>negative control이 깨지지 않았다.</li>
+<li>제품 고도화 기준으로 삼을 계약 파일이 깨지지 않았다.</li>
+</ul>
+
+<h3>4.3 공식 시연 장면</h3>
+
+<p><code>evidence-rca:verify</code>, <code>demo:live-verify</code>, <code>demo:screen-readiness</code>가 통과했으므로 자동 검증 기준에서는 다음 흐름을 시연할 준비가 됐다.</p>
+
+<ol>
+<li>사용자가 운영 사고 질문을 입력한다.</li>
+<li>Gateway가 클러스터 상태, Evidence/RCA 계약, RAG runbook을 기준으로 답변 흐름을 구성한다.</li>
+<li>실행 모드와 안전 정책이 구분된다.</li>
+<li>화면에 필요한 상태/증거/조치 흐름을 보여줄 수 있다.</li>
+</ol>
+
+<h2 id="night-5--내일-바로-돌릴-최우선-테스트-플랜">5. 내일 바로 돌릴 최우선 테스트 플랜</h2>
+
+<h3>Step 1. 상태 확인</h3>
+
+<pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></pre>
+
+<pre><code>task kugnus:dev:doctor</code></pre>
+
+<p>기준:</p>
+
+<ul>
+<li><code>FAIL=0</code>이면 진행.</li>
+<li><code>WARN</code>은 포트가 이미 떠 있는 경우면 정상.</li>
+</ul>
+
+<h3>Step 2. 런타임 smoke</h3>
+
+<pre><code>task kugnus:runtime:smoke</code></pre>
+
+<p>기준:</p>
+
+<pre><code>Runtime smoke: PASS
+rag=collected backend=pgvector configured=True results=3</code></pre>
+
+<h3>Step 3. 공식 시나리오 검증</h3>
+
+<pre><code>task kugnus:scenario:verify</code></pre>
+
+<p>기준:</p>
+
+<pre><code>scenarioCount=10
+passed=10
+failed=0</code></pre>
+
+<h3>Step 4. Evidence/RCA 검증</h3>
+
+<pre><code>task kugnus:evidence-rca:verify</code></pre>
+
+<p>기준:</p>
+
+<pre><code>pass</code></pre>
+
+<h3>Step 5. 라이브 데모 사이클</h3>
+
+<pre><code>task kugnus:demo:live-verify</code></pre>
+
+<p>기준:</p>
+
+<pre><code>pass</code></pre>
+
+<h3>Step 6. 화면 준비도</h3>
+
+<pre><code>task kugnus:demo:screen-readiness</code></pre>
+
+<p>기준:</p>
+
+<pre><code>pass</code></pre>
+
+<h3>Step 7. 브라우저 수동 확인</h3>
+
+<p>브라우저에서 연다.</p>
+
+<pre><code>http://localhost:9000/dashboards</code></pre>
+
+<p>챗봇을 열고 질문한다.</p>
+
+<pre><code>어제 새벽에 default namespace Pod가 왜 재시작됐어?</code></pre>
+
+<p>수동 확인 기준:</p>
+
+<ul>
+<li>챗봇이 열린다.</li>
+<li>상단 상태에서 노드 수, Health, Operator 상태, 실행 모드가 보인다.</li>
+<li>RAG/Evidence/RCA 기반 답변 흐름이 보인다.</li>
+<li>답변이 단순 일반론이 아니라 운영 사고 분석처럼 보인다.</li>
+<li>실행 가능 모드와 실험 무제한 모드가 구분되어 보인다.</li>
+</ul>
+
+<h2 id="night-6--아직-완료로-말하면-안-되는-것">6. 아직 완료로 말하면 안 되는 것</h2>
+
+<p>아래 항목은 오늘 밤 PASS로 보고하면 안 된다.</p>
+
+<ul>
+<li>Cypress 브라우저 E2E 전체 PASS</li>
+<li>회사 OCP에 신규 설치 완료</li>
+<li>회사 OCP Software Catalog 등록 완료</li>
+<li>실제 <code>default</code> namespace에 과거 재시작 Pod 로그가 항상 존재한다는 보장</li>
+<li><code>실험 무제한</code> 모드를 회사 OCP 대상으로 써도 안전하다는 주장</li>
+</ul>
+
+<h2 id="night-7--오늘-밤-상태-요약">7. 오늘 밤 상태 요약</h2>
+
+<p>자동 검증 기준으로는 Ver.0.1.3 공식 시연 사이클을 돌릴 수 있는 상태다.</p>
+
+<p>남은 것은 브라우저에서 실제 답변의 설득력, 화면 구성, 시연 멘트를 사람이 확인하는 일이다. 이 단계는 자동 검증으로 완전히 대체할 수 없다.</p>
+</section>
 </article></main></div></body></html>

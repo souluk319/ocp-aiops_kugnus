@@ -387,7 +387,7 @@
   <div class="layout">
     <aside class="sidebar">
       <h1>Kugnus OCP AIOps</h1>
-      <p class="meta">버전별 작업 기록<br />작성일: 2026-06-25 KST<br />브랜치: <code>feat/v.0.1.2</code><br />HEAD: <code>2558dbf</code></p>
+      <p class="meta">버전별 작업 기록<br />작성일: 2026-06-25 KST<br />브랜치: <code>feat/v.0.1.3</code><br />HEAD: <code>29e5e1e</code></p>
 
       <nav aria-label="문서 목차">
         <div class="nav-group">
@@ -403,6 +403,7 @@
           <a class="nav-link" href="#v010">Ver.0.1.0</a>
           <a class="nav-link" href="#v011">Ver.0.1.1</a>
           <a class="nav-link" href="#v012">Ver.0.1.2</a>
+          <a class="nav-link" href="#v013">Ver.0.1.3</a>
         </div>
 
         <div class="nav-group">
@@ -411,6 +412,7 @@
           <a class="nav-link" href="#gaps">남은 것</a>
           <a class="nav-link" href="#next">다음 작업</a>
           <a class="nav-link" href="#evidence">근거 파일</a>
+          <a class="nav-link" href="#night-handoff-book">야간 인수인계</a>
         </div>
       </nav>
     </aside>
@@ -421,7 +423,7 @@
           <p class="eyebrow">Fact-based Version Book</p>
           <h2>Kugnus OCP AIOps 버전별 작업 기록</h2>
           <p>
-            이 문서는 <code>Ver.0.1.0</code>, <code>Ver.0.1.1</code>, <code>Ver.0.1.2</code> 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
+            이 문서는 <code>Ver.0.1.0</code>, <code>Ver.0.1.1</code>, <code>Ver.0.1.2</code>, <code>Ver.0.1.3</code> 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
             목적은 지금까지 어떤 작업이 실제로 이루어졌는지, 어떤 기능이 구현되었는지, 전체 제품 기준으로 어디까지 왔는지를 꾸밈없이 정리하는 것이다.
           </p>
         </header>
@@ -434,8 +436,8 @@
             로컬 WSL 개발환경에서 Gateway와 console plugin을 띄우고, 회사 OCP는 read-only 관측 대상으로 연결한다.
           </p>
           <div class="callout">
-            현재 확인된 최종 상태는 <code>feat/v.0.1.2</code> 브랜치의 <code>2558dbf</code> 커밋이다.
-            이 커밋은 <code>complete ver.0.1.2 stage 6 verification</code>으로, 0.1.2 Stage 6 검증 자동화와 운영 시나리오 산출물을 포함한다.
+            현재 확인된 최종 상태는 <code>feat/v.0.1.3</code> 브랜치의 <code>29e5e1e</code> 커밋이다.
+            이 커밋은 <code>document ver.0.1.3 night handoff verification</code>으로, 로컬 시연 런타임 정상화, RAG smoke, Evidence/RCA, live demo cycle, screen readiness 검증 결과와 야간 인수인계 산출물을 포함한다.
           </div>
         </section>
 
@@ -465,6 +467,11 @@
                 <td><code>Ver.0.1.2</code></td>
                 <td>실제 회사 OCP read-only 신호를 로컬 관제탑에 연결하고 Stage 1-6을 검증 자동화까지 완료</td>
                 <td>로컬 관제탑 제품 흐름 구현, 자동 검증, 운영 시나리오 작성</td>
+              </tr>
+              <tr>
+                <td><code>Ver.0.1.3</code></td>
+                <td>공식 시연 시나리오 한 사이클: pgvector RAG, Action Executor, Evidence/RCA, 10개 운영 시나리오, 화면 준비도 검증</td>
+                <td>로컬 개발 콘솔 기반 시연 안정화와 야간 인수인계</td>
               </tr>
             </tbody>
           </table>
@@ -496,8 +503,9 @@
         <section id="progress">
           <h2>진행도</h2>
           <p>
-            진행도는 두 기준으로 나눠서 봐야 한다. <strong>승인된 0.1.2 로컬/read-only 범위</strong>는 Stage 1-6이 완료되어 100%로 본다.
-            반면 <strong>운영 제품 전체</strong> 기준은 설치, 운영 rollout, live Lightspeed 안정화, production RAG, 승인 기반 action execution이 남아 있어 약 65%로 판단한다.
+            진행도는 세 기준으로 나눠서 봐야 한다. <strong>0.1.2 로컬/read-only 계획 범위</strong>는 Stage 1-6이 완료되어 100%다.
+            <strong>0.1.3 로컬 시연 준비 범위</strong>도 smoke, scenario, Evidence/RCA, live cycle, screen readiness가 모두 PASS라 100%로 본다.
+            반면 <strong>운영 제품 전체</strong> 기준은 회사 OCP 설치/운영 rollout, production RAG, 승인 기반 action execution 운영 검증이 남아 있어 약 75%로 판단한다.
           </p>
 
           <div class="progress-row">
@@ -506,9 +514,14 @@
             <span>100%</span>
           </div>
           <div class="progress-row">
+            <strong>0.1.3 로컬 시연 준비</strong>
+            <div class="bar green"><span style="width: 100%"></span></div>
+            <span>100%</span>
+          </div>
+          <div class="progress-row">
             <strong>로컬 관제탑 완성도</strong>
-            <div class="bar green"><span style="width: 90%"></span></div>
-            <span>90%</span>
+            <div class="bar green"><span style="width: 92%"></span></div>
+            <span>92%</span>
           </div>
           <div class="progress-row">
             <strong>카탈로그/OLM 준비도</strong>
@@ -517,12 +530,12 @@
           </div>
           <div class="progress-row">
             <strong>운영 제품 전체</strong>
-            <div class="bar orange"><span style="width: 65%"></span></div>
-            <span>65%</span>
+            <div class="bar orange"><span style="width: 75%"></span></div>
+            <span>75%</span>
           </div>
 
           <div class="warning">
-            65%는 배포 완료율이 아니다. 현재까지 구현/검증된 기능과 남은 운영 리스크를 합산한 제품 관점 추정치다.
+            75%는 배포 완료율이 아니다. 현재까지 구현/검증된 기능과 남은 운영 리스크를 합산한 제품 관점 추정치다.
             회사 서버에 실제 설치를 완료했다는 뜻으로 사용하면 안 된다.
           </div>
         </section>
@@ -793,6 +806,80 @@
           </div>
         </section>
 
+        <section id="v013">
+          <div class="version-header">
+            <h2>Ver.0.1.3</h2>
+            <div>
+              <span class="tag pass">공식 시연 사이클 PASS</span>
+              <span class="tag pass">RAG pgvector 연결</span>
+              <span class="tag pending">브라우저 수동 품질 확인 남음</span>
+            </div>
+          </div>
+
+          <h3>개요</h3>
+          <p>
+            0.1.3은 로컬 개발 콘솔에서 공식 시연 한 사이클을 돌릴 수 있게 정상화한 버전이다.
+            회사 OCP에 신규 설치를 수행한 것이 아니라, WSL native repo에서 Gateway, local console bridge, pgvector RAG dev DB,
+            Lightspeed port-forward, Action Executor port-forward를 연결해 시연 가능한 상태를 검증했다.
+          </p>
+
+          <h3>목표</h3>
+          <ul>
+            <li>공식 Evidence/RCA 시연 질문을 기준으로 한 사이클이 깨지지 않는지 검증한다.</li>
+            <li>RAG runbook 검색 계약이 <code>pgvector</code> backend로 실제 응답하는지 확인한다.</li>
+            <li>실행 가능 모드에서 Action Executor 경로가 실제로 살아 있는지 확인한다.</li>
+            <li>사용자가 집에서 바로 이어 할 수 있도록 명령 순서와 문제 대응 기준을 문서화한다.</li>
+          </ul>
+
+          <h3>기능범위</h3>
+          <table>
+            <tbody>
+              <tr>
+                <th>로컬 런타임</th>
+                <td>Gateway <code>18080</code>, Console <code>9000</code>, Plugin webpack <code>9001</code>, Lightspeed <code>18443</code>, Action Executor <code>18083</code></td>
+              </tr>
+              <tr>
+                <th>RAG</th>
+                <td>로컬 Docker pgvector dev DB <code>127.0.0.1:15432</code>, smoke 기준 <code>rag=collected backend=pgvector configured=True results=3</code></td>
+              </tr>
+              <tr>
+                <th>시나리오</th>
+                <td>10개 운영 시나리오 계약 <code>10/10 PASS</code>, Evidence/RCA scene PASS, live demo cycle PASS, screen readiness PASS</td>
+              </tr>
+              <tr>
+                <th>안전선</th>
+                <td>회사 OCP 신규 설치/카탈로그 등록/Subscription 생성은 하지 않음. <code>oc apply/delete/patch/scale/exec</code> 임의 실행 금지.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>검증 결과</h3>
+          <ul>
+            <li><code>task kugnus:dev:doctor</code>: <code>PASS=17 WARN=5 FAIL=0</code>. WARN은 필요한 포트가 이미 떠 있는 정상 범위.</li>
+            <li><code>task kugnus:runtime:smoke</code>: PASS. cluster summary, overview, runbook registry, pgvector RAG 응답 확인.</li>
+            <li><code>task kugnus:scenario:verify</code>: <code>scenarioCount=10</code>, <code>passed=10</code>, <code>failed=0</code>.</li>
+            <li><code>task kugnus:evidence-rca:verify</code>: PASS.</li>
+            <li><code>task kugnus:demo:live-verify</code>: PASS.</li>
+            <li><code>task kugnus:demo:screen-readiness</code>: PASS.</li>
+            <li>Gateway와 Action Executor healthz, local console dashboard, plugin manifest가 모두 HTTP 200/OK.</li>
+          </ul>
+
+          <h3>아직 하지 않은 것</h3>
+          <ul>
+            <li>Cypress 브라우저 E2E 전체 PASS는 보고하지 않는다.</li>
+            <li>회사 OCP 신규 설치, Software Catalog 등록, Subscription 생성은 아직 별도 승인 전이다.</li>
+            <li>실제 <code>default</code> namespace에 과거 재시작 Pod 로그가 항상 존재한다고 가정하지 않는다.</li>
+            <li>브라우저에서 실제 챗봇 답변의 발표 설득력은 사람이 마지막으로 확인해야 한다.</li>
+          </ul>
+
+          <div class="source-list">
+            근거: <code>docs/Ver.0.1.3/night-handoff-verification-summary.md</code>,
+            <code>docs/Ver.0.1.3/home-demo-test-order.md</code>,
+            <code>docs/Ver.0.1.3/runtime-normalization-and-verification-report.md</code>,
+            <code>docs/Ver.0.1.3/runtime-smoke-report.json</code>
+          </div>
+        </section>
+
         <section id="implemented">
           <h2>구현된 것</h2>
           <div class="grid">
@@ -847,6 +934,26 @@
           </ol>
         </section>
 
+        <section id="night-handoff-book">
+          <h2>야간 인수인계 요약</h2>
+          <p>
+            2026-06-25 밤 기준, 사용자가 직접 실행한 검증과 Codex가 재실행한 검증은 모두 PASS다.
+            추가 입력 없이 휴식해도 되는 상태로 판단했다. 다만 이 결론은 로컬 개발 콘솔 기반 시연 준비 완료를 뜻하며,
+            회사 OCP 신규 설치 완료를 뜻하지 않는다.
+          </p>
+          <table>
+            <tbody>
+              <tr><th>사용자 확인</th><td><code>doctor</code>, <code>runtime:smoke</code>, <code>scenario:verify</code>, <code>evidence-rca</code>, <code>live-verify</code>, <code>screen-readiness</code> 모두 PASS</td></tr>
+              <tr><th>추가 재검증</th><td>같은 검증 세트 재실행 PASS, Gateway/Action Executor/Console/Plugin endpoint OK</td></tr>
+              <tr><th>내일 첫 순서</th><td><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code> 후 <code>task kugnus:dev:doctor</code></td></tr>
+              <tr><th>최종 수동 확인</th><td><code>http://localhost:9000/dashboards</code>에서 챗봇을 열고 공식 질문 응답 품질 확인</td></tr>
+            </tbody>
+          </table>
+          <div class="source-list">
+            전문: <code>docs/Ver.0.1.3/night-handoff-verification-summary.md</code>
+          </div>
+        </section>
+
         <section id="evidence">
           <h2>근거 파일</h2>
           <table>
@@ -893,10 +1000,26 @@
                 <td><code>docs/Ver.0.1.2/stage-6-review.md</code></td>
                 <td>최종 검증 자동화, reviewer 결과, 105 UI checks, OCP immutability</td>
               </tr>
+
+              <tr>
+                <td>0.1.3</td>
+                <td><code>docs/Ver.0.1.3/night-handoff-verification-summary.md</code></td>
+                <td>사용자 직접 검증, Codex 재검증, PASS 의미, 내일 테스트 순서, 아직 말하면 안 되는 항목</td>
+              </tr>
+              <tr>
+                <td>0.1.3</td>
+                <td><code>docs/Ver.0.1.3/home-demo-test-order.md</code></td>
+                <td>집에서 바로 실행할 명령 순서, smoke/시나리오/브라우저 수동 확인 기준</td>
+              </tr>
+              <tr>
+                <td>0.1.3</td>
+                <td><code>docs/Ver.0.1.3/runtime-normalization-and-verification-report.md</code></td>
+                <td>Action Executor port-forward 정상화, 런타임 endpoint, smoke 증거</td>
+              </tr>
               <tr>
                 <td>Git</td>
                 <td><code>git log --oneline</code></td>
-                <td><code>bedb13c</code> Stage 1부터 <code>2558dbf</code> Stage 6 verification까지 0.1.2 단계 커밋 존재</td>
+                <td><code>bedb13c</code> Stage 1부터 <code>29e5e1e</code> Ver.0.1.3 야간 인수인계까지 단계 커밋 존재</td>
               </tr>
             </tbody>
           </table>
