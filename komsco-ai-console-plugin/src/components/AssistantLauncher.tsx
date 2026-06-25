@@ -99,6 +99,8 @@ const TASK_MODE_PLACEHOLDERS: Record<AssistantTaskMode, string> = {
   troubleshooting: '어떤 문제를 점검할까요?',
 };
 
+type HistoryPanelView = 'chats' | 'uploads';
+
 type Message = {
   role: 'user' | 'assistant' | 'system';
   attachments?: ImageAttachment[];
@@ -400,31 +402,40 @@ const UI_COPY: Record<
   UiLanguage,
   {
     emptyHistory: string;
+    emptyUploadedDocs: string;
     history: string;
     inputPlaceholder: string;
     newChat: string;
+    openUploadedDocs: string;
     openSidebar: string;
     sidebar: string;
     switchLanguage: string;
+    uploadedDocs: string;
   }
 > = {
   ko: {
     emptyHistory: '아직 저장된 대화가 없습니다.',
+    emptyUploadedDocs: '업로드된 문서가 없습니다. 파일 첨부 RAG 연결 후 이곳에 표시됩니다.',
     history: '지난 대화',
     inputPlaceholder: '현재 화면이나 클러스터 상태를 질문하세요',
     newChat: '새 채팅',
+    openUploadedDocs: '업로드 문서 패널',
     openSidebar: '대화 사이드바',
     sidebar: '대화 기록',
     switchLanguage: 'English',
+    uploadedDocs: '업로드 문서',
   },
   en: {
     emptyHistory: 'No saved conversations yet.',
+    emptyUploadedDocs: 'No uploaded documents yet. They will appear here after file-attachment RAG ingestion is connected.',
     history: 'Recent chats',
     inputPlaceholder: 'Ask about the current screen or cluster state',
     newChat: 'New chat',
+    openUploadedDocs: 'Uploaded documents panel',
     openSidebar: 'Conversation sidebar',
     sidebar: 'Conversation history',
     switchLanguage: 'Korean',
+    uploadedDocs: 'Uploaded documents',
   },
 };
 
@@ -2972,6 +2983,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [activeSessionId, setActiveSessionId] = React.useState(() => createRunId());
   const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>([]);
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
+  const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
   const [quickPromptMenuOpen, setQuickPromptMenuOpen] = React.useState(false);
   const [taskModeMenuOpen, setTaskModeMenuOpen] = React.useState(false);
   const [assistantTaskMode, setAssistantTaskMode] = React.useState<AssistantTaskMode>('ask');
@@ -4335,40 +4347,63 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
   const historySidebar = historySidebarOpen ? (
     <aside className="komsco-ai__history-sidebar" aria-label={copy.sidebar} style={historySidebarStyle}>
-      <Button
-        className="komsco-ai__new-chat"
-        isDisabled={loading}
-        onClick={startNewConversation}
-        variant="secondary"
-      >
-        <CoolPlusIcon />
-        <span>{copy.newChat}</span>
-      </Button>
+      <div className="komsco-ai__history-actions" aria-label="History panel actions">
+        <button
+          aria-label={copy.newChat}
+          className="komsco-ai__history-action-button"
+          disabled={loading}
+          onClick={() => {
+            startNewConversation();
+            setHistoryPanelView('chats');
+          }}
+          title={copy.newChat}
+          type="button"
+        >
+          <CoolPlusIcon />
+        </button>
+        <button
+          aria-label={copy.openUploadedDocs}
+          className={`komsco-ai__history-action-button${
+            historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
+          }`}
+          onClick={() => setHistoryPanelView((view) => (view === 'uploads' ? 'chats' : 'uploads'))}
+          title={copy.openUploadedDocs}
+          type="button"
+        >
+          <CoolCopyIcon />
+        </button>
+      </div>
       <div className="komsco-ai__history-title">
-        <CoolClockIcon />
-        <span>{copy.history}</span>
+        {historyPanelView === 'uploads' ? <CoolCopyIcon /> : <CoolClockIcon />}
+        <span>{historyPanelView === 'uploads' ? copy.uploadedDocs : copy.history}</span>
       </div>
-      <div className="komsco-ai__history-list">
-        {conversationHistory.length === 0 ? (
-          <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
-        ) : (
-          conversationHistory.map((conversation) => (
-            <button
-              className={`komsco-ai__history-item${
-                conversation.id === activeSessionId ? ' komsco-ai__history-item--active' : ''
-              }`}
-              disabled={loading}
-              key={conversation.id}
-              onClick={() => loadConversation(conversation)}
-              title={conversation.title}
-              type="button"
-            >
-              <span>{conversation.title}</span>
-              <small>{formatHistoryTime(conversation.updatedAt)}</small>
-            </button>
-          ))
-        )}
-      </div>
+      {historyPanelView === 'uploads' ? (
+        <div className="komsco-ai__history-list komsco-ai__history-list--uploads">
+          <div className="komsco-ai__history-empty">{copy.emptyUploadedDocs}</div>
+        </div>
+      ) : (
+        <div className="komsco-ai__history-list">
+          {conversationHistory.length === 0 ? (
+            <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
+          ) : (
+            conversationHistory.map((conversation) => (
+              <button
+                className={`komsco-ai__history-item${
+                  conversation.id === activeSessionId ? ' komsco-ai__history-item--active' : ''
+                }`}
+                disabled={loading}
+                key={conversation.id}
+                onClick={() => loadConversation(conversation)}
+                title={conversation.title}
+                type="button"
+              >
+                <span>{conversation.title}</span>
+                <small>{formatHistoryTime(conversation.updatedAt)}</small>
+              </button>
+            ))
+          )}
+        </div>
+      )}
       <div className="komsco-ai__history-user" aria-label="현재 OpenShift 사용자">
         <div className="komsco-ai__history-user-avatar">
           <CoolUserCircleIcon />

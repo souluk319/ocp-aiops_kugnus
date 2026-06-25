@@ -2958,18 +2958,43 @@
   border-inline-end: 1px solid var(--pf-t--global--border--color--default);
 }
 
-.komsco-ai__new-chat {
-  justify-content: flex-start;
-  width: 100%;
+.komsco-ai__history-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
   min-height: 34px;
-  font-size: 12px;
-  font-weight: 720;
-  border-radius: 8px;
 }
 
-.komsco-ai__new-chat svg {
-  width: 12px;
-  height: 12px;
+.komsco-ai__history-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: var(--komsco-blue-700);
+  background: #ffffff;
+  border: 1px solid #c9d7e8;
+  border-radius: 8px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+}
+
+.komsco-ai__history-action-button:hover:not(:disabled),
+.komsco-ai__history-action-button--active {
+  color: var(--komsco-blue-700);
+  background: var(--komsco-blue-soft);
+  border-color: #8abff5;
+}
+
+.komsco-ai__history-action-button:disabled {
+  color: var(--pf-t--global--text--color--disabled);
+  cursor: not-allowed;
+  background: #f3f6fa;
+  border-color: #d8e0eb;
+}
+
+.komsco-ai__history-action-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .komsco-ai__history-title {
@@ -2999,6 +3024,13 @@
   font-size: 11px;
   line-height: 1.35;
   color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__history-list--uploads .komsco-ai__history-empty {
+  padding: 10px;
+  background: #ffffff;
+  border: 1px dashed #c9d7e8;
+  border-radius: 8px;
 }
 
 .komsco-ai__history-item {
