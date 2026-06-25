@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-06-25T13:11:15.582964+00:00",
+  "gatewayUrl": "http://127.0.0.1:18080",
+  "result": "pass",
+  "httpStatus": 200,
+  "checks": [
+    {
+      "name": "chat-stream-http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "rag-context-tool-event",
+      "ok": true,
+      "detail": "rag_context_evidence appears in SSE stream"
+    },
+    {
+      "name": "rag-answer-citation-text",
+      "ok": true,
+      "detail": "answer stream includes RAG citation section"
+    },
+    {
+      "name": "uploaded-document-source-visible",
+      "ok": true,
+      "detail": "uploaded document id/title appears in RAG stream evidence"
+    }
+  ],
+  "streamBytes": 36183
+}

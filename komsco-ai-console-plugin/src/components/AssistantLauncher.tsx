@@ -10,6 +10,7 @@ import {
   CoolCloseIcon,
   CoolCopyIcon,
   CoolDesktopTowerIcon,
+  CoolDocumentIcon,
   CoolExpandIcon,
   CoolGlobeIcon,
   CoolInfoIcon,
@@ -36,13 +37,16 @@ import {
   type ClusterSummary,
   type EvidenceStatusItem,
   type ImageAttachment,
+  type RagUploadedDocument,
   approveActionPlan,
   createActionPlan,
   executeApprovedAction,
   fetchAiopsStatus,
   fetchClusterSummary,
   fetchConsoleUserSubject,
+  fetchUploadedRagDocuments,
   streamChat,
+  uploadRagDocument,
 } from '../services/aiGateway';
 import { evidenceCount, redactSensitiveText, safeEvidenceText, shortDigest } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
@@ -238,9 +242,20 @@ const MARKDOWN_LINK_PATTERN = /^\[(.+)\]\((https?:\/\/[^)]+)\)$/;
 const INLINE_PATTERN = /(\[[^\n]+\]\(https?:\/\/[^)]+\)|\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s]+)/g;
 const FAILED_TOOL_STATUSES = new Set(['error', 'failed', 'failure']);
 const ACCEPTED_IMAGE_MIME_TYPES = new Set(['image/gif', 'image/jpeg', 'image/png', 'image/webp']);
+const ACCEPTED_RAG_DOCUMENT_MIME_TYPES = new Set([
+  'application/json',
+  'application/x-yaml',
+  'text/log',
+  'text/markdown',
+  'text/plain',
+  'text/x-markdown',
+]);
+const ACCEPTED_RAG_DOCUMENT_EXTENSIONS = ['.json', '.log', '.md', '.markdown', '.txt', '.yaml', '.yml'];
+const FILE_INPUT_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.md,.markdown,.txt,.yaml,.yml,.log';
 const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
+const MAX_RAG_DOCUMENT_UPLOAD_BYTES = 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
 const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
@@ -406,11 +421,14 @@ const UI_COPY: Record<
     history: string;
     inputPlaceholder: string;
     newChat: string;
+    openHistoryPanel: string;
     openUploadedDocs: string;
     openSidebar: string;
     sidebar: string;
     switchLanguage: string;
     uploadedDocs: string;
+    uploadedDocsError: string;
+    uploadedDocsLoading: string;
   }
 > = {
   ko: {
@@ -419,11 +437,14 @@ const UI_COPY: Record<
     history: '지난 대화',
     inputPlaceholder: '현재 화면이나 클러스터 상태를 질문하세요',
     newChat: '새 채팅',
+    openHistoryPanel: '대화 기록 패널',
     openUploadedDocs: '업로드 문서 패널',
     openSidebar: '대화 사이드바',
     sidebar: '대화 기록',
     switchLanguage: 'English',
     uploadedDocs: '업로드 문서',
+    uploadedDocsError: '업로드 문서 목록을 불러오지 못했습니다.',
+    uploadedDocsLoading: '업로드 문서를 확인하는 중입니다.',
   },
   en: {
     emptyHistory: 'No saved conversations yet.',
@@ -431,11 +452,14 @@ const UI_COPY: Record<
     history: 'Recent chats',
     inputPlaceholder: 'Ask about the current screen or cluster state',
     newChat: 'New chat',
+    openHistoryPanel: 'Conversation history panel',
     openUploadedDocs: 'Uploaded documents panel',
     openSidebar: 'Conversation sidebar',
     sidebar: 'Conversation history',
     switchLanguage: 'Korean',
     uploadedDocs: 'Uploaded documents',
+    uploadedDocsError: 'Unable to load uploaded documents.',
+    uploadedDocsLoading: 'Checking uploaded documents.',
   },
 };
 
@@ -646,6 +670,23 @@ const buildConsolePageContext = (): Record<string, unknown> => {
   }
 
   return context;
+};
+
+const isRagDocumentFile = (file: File): boolean => {
+  const loweredName = file.name.toLowerCase();
+  return (
+    ACCEPTED_RAG_DOCUMENT_MIME_TYPES.has(file.type) ||
+    file.type.startsWith('text/') ||
+    ACCEPTED_RAG_DOCUMENT_EXTENSIONS.some((extension) => loweredName.endsWith(extension))
+  );
+};
+
+const readRagDocumentContent = async (file: File): Promise<string> => {
+  try {
+    return await file.text();
+  } catch {
+    throw new Error(`${file.name} 문서를 읽을 수 없습니다.`);
+  }
 };
 
 const readImageAttachment = (file: File): Promise<ImageAttachment> =>
@@ -2522,6 +2563,26 @@ const getAiopsRecordAction = (
   return null;
 };
 
+const renderUploadedDocumentRows = (
+  documents: RagUploadedDocument[],
+  emptyText: string,
+): React.ReactNode => {
+  if (documents.length === 0) {
+    return <div className="komsco-ai__history-empty">{emptyText}</div>;
+  }
+
+  return documents.map((document) => (
+    <div className="komsco-ai__uploaded-doc-item" key={document.documentId} title={document.sourceUri || document.title}>
+      <div className="komsco-ai__uploaded-doc-title">{document.title}</div>
+      <div className="komsco-ai__uploaded-doc-meta">
+        <span>{document.chunkCount ?? 0} chunks</span>
+        <span>{formatFileSize(document.contentBytes ?? 0)}</span>
+      </div>
+      <div className="komsco-ai__uploaded-doc-source">{document.sourceUri || document.documentId}</div>
+    </div>
+  ));
+};
+
 const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
   if (records.length === 0) {
     return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
@@ -2984,6 +3045,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>([]);
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
+  const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
+  const [uploadedDocumentsError, setUploadedDocumentsError] = React.useState('');
+  const [uploadedDocumentsLoading, setUploadedDocumentsLoading] = React.useState(false);
   const [quickPromptMenuOpen, setQuickPromptMenuOpen] = React.useState(false);
   const [taskModeMenuOpen, setTaskModeMenuOpen] = React.useState(false);
   const [assistantTaskMode, setAssistantTaskMode] = React.useState<AssistantTaskMode>('ask');
@@ -3511,6 +3575,44 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     };
   }, [open]);
 
+  React.useEffect(() => {
+    if (!open || !historySidebarOpen || historyPanelView !== 'uploads') {
+      return undefined;
+    }
+
+    let disposed = false;
+
+    const loadUploadedDocuments = async () => {
+      setUploadedDocumentsLoading(true);
+      try {
+        const payload = await fetchUploadedRagDocuments();
+        if (disposed) {
+          return;
+        }
+        const uploadStatus = payload.spec.status;
+        setUploadedDocuments(payload.spec.documents ?? []);
+        setUploadedDocumentsError(
+          uploadStatus === 'collected' || uploadStatus === 'empty'
+            ? ''
+            : payload.spec.reason ?? copy.uploadedDocsError,
+        );
+      } catch (error) {
+        if (!disposed) {
+          setUploadedDocumentsError(error instanceof Error ? error.message : copy.uploadedDocsError);
+        }
+      } finally {
+        if (!disposed) {
+          setUploadedDocumentsLoading(false);
+        }
+      }
+    };
+
+    void loadUploadedDocuments();
+    return () => {
+      disposed = true;
+    };
+  }, [copy.uploadedDocsError, historyPanelView, historySidebarOpen, open]);
+
   const refreshAiopsRuntimeStatus = React.useCallback(async () => {
     try {
       const status = await fetchAiopsStatus();
@@ -3745,48 +3847,99 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const addImageFiles = React.useCallback(
     async (files: File[]) => {
       const imageFiles = files.filter((file) => ACCEPTED_IMAGE_MIME_TYPES.has(file.type));
+      const documentFiles = files.filter(
+        (file) => !ACCEPTED_IMAGE_MIME_TYPES.has(file.type) && isRagDocumentFile(file),
+      );
 
-      if (imageFiles.length === 0) {
-        setAttachmentError('지원되는 이미지 형식은 PNG, JPEG, WebP, GIF입니다.');
+      if (imageFiles.length === 0 && documentFiles.length === 0) {
+        setAttachmentError('지원 형식: PNG/JPEG/WebP/GIF 이미지 또는 TXT/MD/JSON/YAML/log 문서입니다.');
         return;
       }
 
-      const nextCount = pendingAttachments.length + imageFiles.length;
-      if (nextCount > MAX_IMAGE_ATTACHMENTS) {
-        setAttachmentError(`이미지는 최대 ${MAX_IMAGE_ATTACHMENTS}개까지 첨부할 수 있습니다.`);
-        return;
+      const unsupportedCount = files.length - imageFiles.length - documentFiles.length;
+      if (unsupportedCount > 0) {
+        setAttachmentError('일부 파일은 지원 형식이 아니라 제외했습니다.');
       }
 
-      const tooLarge = imageFiles.find((file) => file.size > MAX_IMAGE_ATTACHMENT_BYTES);
-      if (tooLarge) {
+      if (imageFiles.length > 0) {
+        const nextCount = pendingAttachments.length + imageFiles.length;
+        if (nextCount > MAX_IMAGE_ATTACHMENTS) {
+          setAttachmentError(`이미지는 최대 ${MAX_IMAGE_ATTACHMENTS}개까지 첨부할 수 있습니다.`);
+          return;
+        }
+
+        const tooLarge = imageFiles.find((file) => file.size > MAX_IMAGE_ATTACHMENT_BYTES);
+        if (tooLarge) {
+          setAttachmentError(
+            `${tooLarge.name} 파일이 너무 큽니다. 이미지당 최대 ${formatFileSize(
+              MAX_IMAGE_ATTACHMENT_BYTES,
+            )}까지 가능합니다.`,
+          );
+          return;
+        }
+
+        const currentTotal = pendingAttachments.reduce((total, item) => total + item.size, 0);
+        const nextTotal = imageFiles.reduce((total, file) => total + file.size, currentTotal);
+        if (nextTotal > MAX_IMAGE_ATTACHMENT_TOTAL_BYTES) {
+          setAttachmentError(
+            `첨부 이미지 합계는 최대 ${formatFileSize(MAX_IMAGE_ATTACHMENT_TOTAL_BYTES)}까지 가능합니다.`,
+          );
+          return;
+        }
+      }
+
+      const tooLargeDocument = documentFiles.find((file) => file.size > MAX_RAG_DOCUMENT_UPLOAD_BYTES);
+      if (tooLargeDocument) {
         setAttachmentError(
-          `${tooLarge.name} 파일이 너무 큽니다. 이미지당 최대 ${formatFileSize(
-            MAX_IMAGE_ATTACHMENT_BYTES,
+          `${tooLargeDocument.name} 문서가 너무 큽니다. 문서당 최대 ${formatFileSize(
+            MAX_RAG_DOCUMENT_UPLOAD_BYTES,
           )}까지 가능합니다.`,
         );
         return;
       }
 
-      const currentTotal = pendingAttachments.reduce((total, item) => total + item.size, 0);
-      const nextTotal = imageFiles.reduce((total, file) => total + file.size, currentTotal);
-      if (nextTotal > MAX_IMAGE_ATTACHMENT_TOTAL_BYTES) {
-        setAttachmentError(
-          `첨부 이미지 합계는 최대 ${formatFileSize(MAX_IMAGE_ATTACHMENT_TOTAL_BYTES)}까지 가능합니다.`,
-        );
-        return;
-      }
-
       try {
-        const attachments = await Promise.all(imageFiles.map(readImageAttachment));
-        setPendingAttachments((prev) => [...prev, ...attachments]);
+        if (imageFiles.length > 0) {
+          const attachments = await Promise.all(imageFiles.map(readImageAttachment));
+          setPendingAttachments((prev) => [...prev, ...attachments]);
+        }
+
+        if (documentFiles.length > 0) {
+          const uploaded = await Promise.all(
+            documentFiles.map(async (file) => {
+              const content = await readRagDocumentContent(file);
+              const result = await uploadRagDocument({
+                content,
+                labels: { source: 'chat-attachment', version: 'v0.1.4' },
+                mimeType: file.type || 'text/plain',
+                name: file.name,
+                namespace: 'komsco-ai-kugnus',
+                runId: activeSessionId,
+                sourceType: 'user-upload',
+                version: 'v0.1.4',
+              });
+              if (result.spec.status !== 'persisted') {
+                throw new Error(result.spec.reason || `${file.name} 문서를 RAG 저장소에 등록하지 못했습니다.`);
+              }
+              return result.spec.document;
+            }),
+          );
+          setUploadedDocuments((prev) => {
+            const existing = new Set(prev.map((item) => item.documentId));
+            return [...uploaded.filter((item) => !existing.has(item.documentId)), ...prev];
+          });
+          setHistoryPanelView('uploads');
+          setHistorySidebarOpen(true);
+        }
+
         setAttachmentError('');
       } catch (error) {
         setAttachmentError(
-          error instanceof Error ? error.message : '이미지 파일을 읽지 못했습니다.',
+          error instanceof Error ? error.message : '파일을 처리하지 못했습니다.',
         );
       }
     },
-    [pendingAttachments],
+    [activeSessionId, pendingAttachments],
   );
 
   const removeAttachment = React.useCallback((id: string) => {
@@ -4346,11 +4499,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [lockOpen]);
 
   const historySidebar = historySidebarOpen ? (
-    <aside className="komsco-ai__history-sidebar" aria-label={copy.sidebar} style={historySidebarStyle}>
-      <div className="komsco-ai__history-actions" aria-label="History panel actions">
+    <aside
+      className="komsco-ai__history-sidebar"
+      aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
+      style={historySidebarStyle}
+    >
+      <div className="komsco-ai__history-actions" aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}>
         <button
           aria-label={copy.newChat}
-          className="komsco-ai__history-action-button"
+          className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
           disabled={loading}
           onClick={() => {
             startNewConversation();
@@ -4361,25 +4518,48 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         >
           <CoolPlusIcon />
         </button>
-        <button
-          aria-label={copy.openUploadedDocs}
-          className={`komsco-ai__history-action-button${
-            historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
-          }`}
-          onClick={() => setHistoryPanelView((view) => (view === 'uploads' ? 'chats' : 'uploads'))}
-          title={copy.openUploadedDocs}
-          type="button"
-        >
-          <CoolCopyIcon />
-        </button>
+        <div className="komsco-ai__history-action-group" role="group" aria-label={copy.sidebar}>
+          <button
+            aria-label={copy.openHistoryPanel}
+            aria-pressed={historyPanelView === 'chats'}
+            className={`komsco-ai__history-action-button${
+              historyPanelView === 'chats' ? ' komsco-ai__history-action-button--active' : ''
+            }`}
+            onClick={() => setHistoryPanelView('chats')}
+            title={copy.openHistoryPanel}
+            type="button"
+          >
+            <CoolClockIcon />
+          </button>
+          <button
+            aria-label={copy.openUploadedDocs}
+            aria-pressed={historyPanelView === 'uploads'}
+            className={`komsco-ai__history-action-button${
+              historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
+            }`}
+            onClick={() => setHistoryPanelView('uploads')}
+            title={copy.openUploadedDocs}
+            type="button"
+          >
+            <CoolDocumentIcon />
+          </button>
+        </div>
       </div>
       <div className="komsco-ai__history-title">
-        {historyPanelView === 'uploads' ? <CoolCopyIcon /> : <CoolClockIcon />}
+        {historyPanelView === 'uploads' ? <CoolDocumentIcon /> : <CoolClockIcon />}
         <span>{historyPanelView === 'uploads' ? copy.uploadedDocs : copy.history}</span>
       </div>
       {historyPanelView === 'uploads' ? (
         <div className="komsco-ai__history-list komsco-ai__history-list--uploads">
-          <div className="komsco-ai__history-empty">{copy.emptyUploadedDocs}</div>
+          {uploadedDocumentsLoading ? (
+            <div className="komsco-ai__history-empty">{copy.uploadedDocsLoading}</div>
+          ) : uploadedDocumentsError ? (
+            <div className="komsco-ai__history-empty komsco-ai__history-empty--error">
+              {uploadedDocumentsError}
+            </div>
+          ) : (
+            renderUploadedDocumentRows(uploadedDocuments, copy.emptyUploadedDocs)
+          )}
         </div>
       ) : (
         <div className="komsco-ai__history-list">
@@ -4652,8 +4832,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 )}
                 <div className="komsco-ai__input">
                   <input
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    aria-label="이미지 첨부"
+                    accept={FILE_INPUT_ACCEPT}
+                    aria-label="파일 첨부"
                     className="komsco-ai__file-input"
                     disabled={loading}
                     multiple
@@ -4760,9 +4940,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           )}
                         </div>
                         <Button
-                          aria-label="이미지 첨부"
+                          aria-label="파일 첨부"
                           className="komsco-ai__tool-button komsco-ai__attach"
-                          isDisabled={loading || pendingAttachments.length >= MAX_IMAGE_ATTACHMENTS}
+                          isDisabled={loading}
                           onClick={() => fileInputRef.current?.click()}
                           variant="plain"
                         >

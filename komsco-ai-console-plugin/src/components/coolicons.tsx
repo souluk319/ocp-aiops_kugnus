@@ -73,6 +73,17 @@ export const CoolCopyIcon: React.FC<CoolIconProps> = (props) => (
   </CoolIcon>
 );
 
+export const CoolDocumentIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path d="M14 3V7C14 7.55228 14.4477 8 15 8H19" {...strokeProps} />
+    <path
+      d="M19 9.5V16.8C19 17.9201 19 18.4802 18.782 18.908C18.5903 19.2843 18.2843 19.5903 17.908 19.782C17.4802 20 16.9201 20 15.8 20H8.2C7.0799 20 6.51984 20 6.09202 19.782C5.71569 19.5903 5.40973 19.2843 5.21799 18.908C5 18.4802 5 17.9201 5 16.8V7.2C5 6.0799 5 5.51984 5.21799 5.09202C5.40973 4.71569 5.71569 4.40973 6.09202 4.21799C6.51984 4 7.0799 4 8.2 4H13.5L19 9.5Z"
+      {...strokeProps}
+    />
+    <path d="M8.75 13H15.25M8.75 16H13" {...strokeProps} />
+  </CoolIcon>
+);
+
 export const CoolDesktopTowerIcon: React.FC<CoolIconProps> = (props) => (
   <CoolIcon {...props}>
     <path

@@ -151,7 +151,7 @@ Ver.0.1.4는 다음이 되면 완료로 본다.
 
 1. RAG schema와 ingestion source가 문서화됨
 2. local pgvector에 실제 chunk가 들어감
-3. `/v1/aiops/rag/search`가 source metadata를 반환함
+3. `/v1/rag/search`가 source metadata를 반환함
 4. 공식 질문에서 RAG evidence가 UI/응답에 보임
 5. RAG 관련 smoke/evaluator가 pass/fail로 존재함
 6. stale/missing/dangerous evidence가 구분됨
@@ -196,3 +196,89 @@ Ver.0.1.4는 다음이 되면 완료로 본다.
 
 근거 문서: `docs/Ver.0.1.4/pbs-user-upload-rag-import-analysis.md`
 
+## 11. 구현 결과 및 검수 메모
+
+작성 기준: `feat/v.0.1.4`
+
+### 11.1 이번에 닫은 범위
+
+- `POST /v1/rag/uploads` 추가
+  - JSON 기반 사용자 문서 업로드 계약을 만든다.
+  - `content` 또는 base64 `data` 중 하나만 받는다.
+  - Ver.0.1.4 최소 범위는 UTF-8 텍스트/마크다운 계열 문서다.
+  - raw content는 응답으로 반환하지 않는다.
+
+- `GET /v1/rag/uploads` 추가
+  - pgvector에 저장된 `sourceType=user-upload` 문서 목록을 반환한다.
+  - 좌측 확장 패널의 업로드 문서 탭이 이 endpoint를 조회한다.
+
+- pgvector schema 확장
+  - 기존 `aiops_rag_chunks`에 더해 `aiops_rag_documents`를 생성한다.
+  - 업로드 문서는 `aiops_rag_documents`에 문서 metadata를 저장하고, chunk는 기존 `aiops_rag_chunks`에 저장한다.
+  - 기존 `/v1/rag/search`는 `sourceTypes: ["user-upload"]` filter로 업로드 문서를 검색할 수 있다.
+  - 업로드 ACL은 클라이언트 입력을 그대로 신뢰하지 않고, 현재 OpenShift subject의 group/user principal과 교집합이 있는 값만 저장한다.
+  - `/v1/rag/uploads`와 `/v1/rag/search`는 subject principal과 ACL이 교차하는 문서만 반환한다.
+  - `system:authenticated` 같은 광역 시스템 그룹은 기본 ACL에서 제외한다.
+  - pgvector 조회 시 DB query 단계부터 ACL array overlap을 적용해 전역 top-k 이후 필터링으로 인한 false-empty를 줄인다.
+  - kubeconfig의 `client-key-data`, `client-certificate-data`, `certificate-authority-data`도 chunk 저장 전에 redact한다.
+  - 업로드 chunk label에 `safetyClass`와 `freshness`를 보존하고, 위험 명령 패턴이 있는 문서는 `dangerous`로 승격한다.
+  - `dangerous` 또는 `stale` 문서는 기본 RAG context/citation에서 제외하고, 명시 필터가 있을 때만 검색 계약상 포함할 수 있다.
+  - OLM runtime은 `spec.rag.backendUrlSecret/backendUrlKey`를 통해 `KOMSCO_AI_RAG_BACKEND_URL`을 Gateway에 Secret env로 주입할 수 있다.
+
+- 프론트 연결
+  - 좌측 패널 상단의 큰 `+ 새 채팅` 버튼을 아이콘 toolbar로 바꿨다.
+  - 대화 기록 아이콘과 업로드 문서 아이콘을 분리해 패널 view를 전환한다.
+  - 업로드 문서 패널 토글 아이콘을 추가했다.
+  - 첨부 버튼은 기존 이미지 첨부를 유지하면서 TXT/MD/JSON/YAML/log 문서를 RAG upload endpoint로 보낸다.
+  - 업로드 성공 시 좌측 패널을 `업로드 문서` view로 전환하고, 업로드 문서 목록을 보여준다.
+  - RAG backend가 `not_configured`/`unavailable`이면 빈 목록처럼 숨기지 않고 오류 상태로 표시한다.
+
+- smoke task 추가
+  - `task kugnus:rag:upload:smoke`
+  - 실제 Gateway에 문서를 업로드하고, pgvector persist, 목록 조회, RAG search retrieval까지 확인한다.
+  - `task kugnus:rag:chat:smoke`
+  - 채팅 SSE에서 `rag_context_evidence`와 답변의 `[ RAG 근거 ]` citation이 보이는지 확인한다.
+
+### 11.2 병렬 검수 반영
+
+- 문서 검수: 0.1.4 문서는 방향은 맞지만, 업로드 ingestion이 없으면 완료로 볼 수 없다고 판단했다.
+- 백엔드 검수: 기존 상태는 demo runbook search contract 수준이었고, user upload endpoint와 backend write가 없었다.
+- 프론트 검수: 업로드 문서 패널은 placeholder였고, 접근성 `aria-pressed`, 실제 list fetch, document icon이 부족했다.
+
+위 지적에 따라 upload endpoint, pgvector document table, upload smoke, data-backed uploaded document panel, document icon, `aria-pressed`, subject 기반 ACL enforcement, 답변 citation smoke를 반영했다.
+
+### 11.3 검증 결과
+
+- `python3 -m py_compile komsco-ai-gateway/komsco_ai_gateway/main.py`: pass
+- `cd komsco-ai-gateway && . .venv/bin/activate && python -m pytest`: `179 passed, 2 warnings`
+- `cd komsco-ai-console-plugin && corepack yarn build`: pass
+- `task kugnus:scenario:verify`: `10 passed, 0 failed`
+- `task kugnus:runtime:smoke`: pass
+  - `health=92`, `nodes=1/1`, `operators=34/34`
+  - `rag=collected`, `backend=pgvector`, `results=1`
+- `task kugnus:rag:upload:smoke`: pass
+  - upload HTTP 200
+  - list HTTP 200
+  - search HTTP 200
+  - `upload-persisted`
+  - `list-includes-upload`
+  - `search-finds-upload`
+- `task kugnus:rag:chat:smoke`: pass
+  - chat stream HTTP 200
+  - `rag_context_evidence` SSE event emitted
+  - answer stream includes `[ RAG 근거 ]`
+  - uploaded document id/title appears in RAG stream evidence
+
+### 11.4 아직 0.1.5 이후로 넘기는 범위
+
+- PDF/Office 문서 parser
+- multipart upload endpoint
+- upload stream progress event
+- delete/re-ingest endpoint
+- 문서 freshness의 시간 기반 자동 만료 판정
+- 위험 문서 `dangerous` safety class의 정책 엔진화
+- Chrome CDP 기반 `task kugnus:ui:verify` 안정화
+
+### 11.5 주의: UI verifier 상태
+
+`task kugnus:ui:verify`는 이번 실행에서 `Chrome CDP endpoint missing`으로 실패했다. 이는 UI 코드 빌드 실패가 아니라 Windows Chrome remote debugging endpoint `localhost:9231`에 연결하지 못한 상태다. 따라서 UI verifier는 pass로 보고하지 않는다. 대신 frontend build와 backend/API smoke, upload smoke, chat citation smoke를 이번 0.1.4 검증 증거로 사용한다.

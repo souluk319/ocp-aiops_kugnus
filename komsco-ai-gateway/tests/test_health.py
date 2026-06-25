@@ -36,6 +36,7 @@ from komsco_ai_gateway.main import (
     HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
     HOST_DIAGNOSTIC_COLLECTORS,
     ImageAttachment,
+    RagDocumentUploadCreate,
     METRICS,
     TextReferenceFilter,
     WORKFLOW_RECORDS,
@@ -64,7 +65,10 @@ from komsco_ai_gateway.main import (
     build_pod_count_investigation,
     build_break_glass_request_record,
     build_preapproved_patch_record,
+    build_rag_answer_citation_text,
+    build_rag_context_detail,
     build_runbook_plan_record,
+    build_rag_upload_document,
     build_sealed_action_plan_record,
     build_restart_metric_rca_evidence,
     candidate_action_request_digest,
@@ -622,6 +626,37 @@ def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:
     assert ("Deployment", "komsco-ai-host-diagnostics-controller") not in names
     assert ("ServiceAccount", "komsco-ai-action-executor") not in names
     assert ("ServiceAccount", "komsco-ai-host-diagnostics-controller") not in names
+
+
+def test_olm_operator_can_wire_rag_backend_url_from_secret() -> None:
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus"},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "rag": {
+                    "backendUrlSecret": "komsco-ai-rag-pgvector",
+                    "backendUrlKey": "database-url",
+                    "embeddingModel": "hashing-local-dev",
+                    "vectorDimensions": 64,
+                },
+            },
+        }
+    )
+    gateway = next(
+        resource
+        for resource in olm_operator.resources_for(config)
+        if resource["kind"] == "Deployment" and resource["metadata"]["name"] == "komsco-ai-gateway"
+    )
+    env = {item["name"]: item for item in gateway["spec"]["template"]["spec"]["containers"][0]["env"]}
+
+    assert env["KOMSCO_AI_RAG_BACKEND_URL"]["valueFrom"]["secretKeyRef"] == {
+        "name": "komsco-ai-rag-pgvector",
+        "key": "database-url",
+    }
+    assert env["KOMSCO_AI_RAG_EMBEDDING_MODEL"]["value"] == "hashing-local-dev"
+    assert env["KOMSCO_AI_RAG_VECTOR_DIMENSIONS"]["value"] == "64"
 
 
 def _ready_olm_resource(
@@ -1612,6 +1647,254 @@ def test_build_pod_count_investigation_uses_deployment_selector() -> None:
     assert result["rows"][0]["totalPods"] == 3
     assert result["rows"][0]["runningPods"] == 3
     assert result["rows"][0]["readyPods"] == 3
+
+
+def test_rag_upload_document_redacts_sensitive_content_before_chunking() -> None:
+    request = RagDocumentUploadCreate(
+        name="ops-runbook.md",
+        content="""
+        # 운영 절차
+
+        oc get pods -n openshift-marketplace
+        Authorization: Bearer secret-token-value-1234567890
+        token: sha256~secret-token-value
+        client-key-data: UHJpdmF0ZUtleUJvZHk=
+        client-certificate-data: Q2VydGlmaWNhdGVCb2R5
+        certificate-authority-data: Q0FCb2R5
+        -----BEGIN PRIVATE KEY-----
+        PrivateKeyBody
+        -----END PRIVATE KEY-----
+        """,
+        labels={"scenario": "upload_rag"},
+    )
+
+    record = build_rag_upload_document(request, {"username": "admin"})
+    rendered = json.dumps(record, ensure_ascii=False)
+
+    assert record["document"]["sourceType"] == "user-upload"
+    assert record["document"]["chunkCount"] >= 1
+    assert record["document"]["checksum"].startswith("sha256:")
+    assert "secret-token-value" not in rendered
+    assert "PrivateKeyBody" not in rendered
+    assert "UHJpdmF0ZUtleUJvZHk" not in rendered
+    assert "Q2VydGlmaWNhdGVCb2R5" not in rendered
+    assert "Q0FCb2R5" not in rendered
+    assert "[REDACTED" in rendered
+
+
+def test_rag_upload_acl_is_derived_from_current_subject() -> None:
+    subject = safe_subject(
+        {
+            "username": "admin",
+            "uid": "uid-admin",
+            "groups": ["cluster-admins", "system:authenticated"],
+        }
+    )
+
+    default_acl_record = build_rag_upload_document(
+        RagDocumentUploadCreate(name="ops-runbook.md", content="RAG ACL smoke content."),
+        subject,
+    )
+    restricted_acl_record = build_rag_upload_document(
+        RagDocumentUploadCreate(
+            name="ops-runbook.md",
+            content="RAG ACL smoke content.",
+            aclGroups=["cluster-admins"],
+        ),
+        subject,
+    )
+
+    assert set(default_acl_record["document"]["aclGroups"]) == {
+        "cluster-admins",
+        "uid:uid-admin",
+        "user:admin",
+    }
+    assert "system:authenticated" not in default_acl_record["document"]["aclGroups"]
+    assert restricted_acl_record["document"]["aclGroups"] == ["cluster-admins"]
+
+    with pytest.raises(HTTPException) as exc:
+        build_rag_upload_document(
+            RagDocumentUploadCreate(
+                name="ops-runbook.md",
+                content="RAG ACL smoke content.",
+                aclGroups=["other-team"],
+            ),
+            subject,
+        )
+    assert exc.value.status_code == 403
+
+
+def test_rag_search_acl_filter_hides_other_subject_documents() -> None:
+    filters = gateway_main.RagSearchFilters()
+    admin_principals = {"cluster-admins", "user:admin", "uid:uid-admin"}
+    admin_row = {
+        "acl_groups": ["cluster-admins", "user:admin"],
+        "customer": "KOMSCO",
+        "document_id": "user-upload:admin",
+        "namespace": "openshift-marketplace",
+        "source_type": "user-upload",
+        "version": "v0.1.4",
+        "labels": {"freshness": "fresh", "safetyClass": "read-only"},
+    }
+    other_row = {
+        "acl_groups": ["other-team", "user:other"],
+        "customer": "KOMSCO",
+        "document_id": "user-upload:other",
+        "namespace": "openshift-marketplace",
+        "source_type": "user-upload",
+        "version": "v0.1.4",
+        "labels": {"freshness": "fresh", "safetyClass": "read-only"},
+    }
+
+    assert gateway_main.row_matches_rag_filters(admin_row, filters, admin_principals) is True
+    assert gateway_main.row_matches_rag_filters(other_row, filters, admin_principals) is False
+
+
+def test_rag_search_acl_filter_rejects_requested_group_not_owned_by_subject() -> None:
+    subject_principals = {"cluster-admins", "user:admin"}
+    row = {
+        "acl_groups": ["cluster-admins", "user:admin"],
+        "customer": "KOMSCO",
+        "document_id": "user-upload:admin",
+        "namespace": "openshift-marketplace",
+        "source_type": "user-upload",
+        "version": "v0.1.4",
+        "labels": {"freshness": "fresh", "safetyClass": "read-only"},
+    }
+
+    assert (
+        gateway_main.row_matches_rag_filters(
+            row,
+            gateway_main.RagSearchFilters(aclGroups=["cluster-admins"]),
+            subject_principals,
+        )
+        is True
+    )
+    assert (
+        gateway_main.row_matches_rag_filters(
+            row,
+            gateway_main.RagSearchFilters(aclGroups=["other-team"]),
+            subject_principals,
+        )
+        is False
+    )
+
+
+def test_rag_search_filter_excludes_stale_and_dangerous_documents_by_default() -> None:
+    subject_principals = {"cluster-admins", "user:admin"}
+    base_row = {
+        "acl_groups": ["cluster-admins", "user:admin"],
+        "customer": "KOMSCO",
+        "document_id": "user-upload:admin",
+        "namespace": "openshift-marketplace",
+        "source_type": "user-upload",
+        "version": "v0.1.4",
+    }
+
+    assert (
+        gateway_main.row_matches_rag_filters(
+            {**base_row, "labels": {"freshness": "fresh", "safetyClass": "read-only"}},
+            gateway_main.RagSearchFilters(),
+            subject_principals,
+        )
+        is True
+    )
+    assert (
+        gateway_main.row_matches_rag_filters(
+            {**base_row, "labels": {"freshness": "stale", "safetyClass": "read-only"}},
+            gateway_main.RagSearchFilters(),
+            subject_principals,
+        )
+        is False
+    )
+    assert (
+        gateway_main.row_matches_rag_filters(
+            {**base_row, "labels": {"freshness": "fresh", "safetyClass": "dangerous"}},
+            gateway_main.RagSearchFilters(),
+            subject_principals,
+        )
+        is False
+    )
+    assert (
+        gateway_main.row_matches_rag_filters(
+            {**base_row, "labels": {"freshness": "stale", "safetyClass": "read-only"}},
+            gateway_main.RagSearchFilters(labels={"freshness": "stale"}),
+            subject_principals,
+        )
+        is True
+    )
+
+def test_rag_upload_safety_and_freshness_metadata_are_classified() -> None:
+    subject = safe_subject(
+        {
+            "username": "admin",
+            "uid": "uid-admin",
+            "groups": ["cluster-admins"],
+        }
+    )
+
+    stale_read_only = build_rag_upload_document(
+        RagDocumentUploadCreate(
+            name="ops-runbook.md",
+            content="Read-only runbook. First inspect events and logs.",
+            labels={"freshness": "stale", "safetyClass": "read-only"},
+        ),
+        subject,
+    )
+    dangerous = build_rag_upload_document(
+        RagDocumentUploadCreate(
+            name="dangerous-runbook.md",
+            content="운영자가 승인 없이 oc delete pod bad -n default 를 실행하라고 적은 문서",
+            labels={"safetyClass": "read-only"},
+        ),
+        subject,
+    )
+
+    assert stale_read_only["document"]["labels"]["freshness"] == "stale"
+    assert stale_read_only["document"]["labels"]["safetyClass"] == "read-only"
+    assert dangerous["document"]["labels"]["safetyClass"] == "dangerous"
+    assert dangerous["chunks"][0]["labels"]["safetyClass"] == "dangerous"
+
+
+def test_rag_upload_endpoints_validate_contract_without_configured_backend(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "admin", "uid": "uid-admin", "groups": ["cluster-admins"]}
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "RAG_BACKEND_URL", "")
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                "/v1/rag/uploads",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "name": "uploaded-runbook.md",
+                    "content": "Pod restart RCA uploaded runbook. Check events, previous logs, and restart metrics.",
+                    "labels": {"scenario": "pod_restart_rca"},
+                },
+            )
+            list_response = await client.get(
+                "/v1/rag/uploads",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert upload_response.status_code == 200
+        upload_payload = upload_response.json()
+        assert upload_payload["kind"] == "RagUploadIngestionResult"
+        assert upload_payload["spec"]["status"] == "not_configured"
+        assert upload_payload["spec"]["document"]["sourceType"] == "user-upload"
+        assert upload_payload["spec"]["chunks"]
+        assert upload_payload["spec"]["safety"]["rawContentReturned"] is False
+
+        assert list_response.status_code == 200
+        list_payload = list_response.json()
+        assert list_payload["kind"] == "RagUploadedDocumentList"
+        assert list_payload["spec"]["status"] == "not_configured"
+        assert list_payload["spec"]["documents"] == []
+
+    asyncio.run(run())
 
 
 def test_validate_image_attachments_accepts_supported_base64_image() -> None:
@@ -5788,3 +6071,27 @@ def test_break_glass_api_rejects_arbitrary_command_input_and_records_request() -
         assert len(BREAK_GLASS_REQUESTS) == 1
 
     asyncio.run(run())
+
+
+def test_rag_context_detail_and_answer_citation_show_sources_without_raw_dump() -> None:
+    results = [
+        {
+            "contentPreview": "업로드 문서 preview",
+            "documentId": "user-upload:abc123",
+            "score": 0.91,
+            "sourceType": "user-upload",
+            "sourceUri": "upload://user-upload:abc123/ops.md#chunk-0",
+            "title": "ops.md",
+        }
+    ]
+
+    detail = build_rag_context_detail(results, "ok")
+    citation = build_rag_answer_citation_text(results)
+
+    assert "Gateway-collected RAG evidence" in detail
+    assert "ops.md" in detail
+    assert "user-upload" in detail
+    assert "업로드 문서 preview" in detail
+    assert "[ RAG 근거 ]" in citation
+    assert "upload://user-upload:abc123/ops.md#chunk-0" in citation
+    assert "rawContent" not in citation

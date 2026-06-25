@@ -12,6 +12,9 @@ SENSITIVE_KEYS = {
     "api_key",
     "authorization",
     "bearer",
+    "certificate_authority_data",
+    "client_certificate_data",
+    "client_key_data",
     "client_secret",
     "clientsecret",
     "data",
@@ -35,6 +38,9 @@ KEY_VALUE_SECRET_RE = re.compile(
     r"(?i)([\"']?(?:access[_-]?token|api[_-]?key|authorization|client[_-]?secret|id[_-]?token|password|private[_-]?key|refresh[_-]?token|secret|token)[\"']?\s*[:=]\s*[\"']?)([^\"'\s,;}]+)([\"']?)"
 )
 KUBECONFIG_TOKEN_RE = re.compile(r"(?im)^(\s*token:\s*)[A-Za-z0-9._~+/=-]+$")
+KUBECONFIG_DATA_RE = re.compile(
+    r"(?im)^(\s*(?:client-key-data|client-certificate-data|certificate-authority-data):\s*)[A-Za-z0-9+/=._~-]+$"
+)
 DIRECT_MUTATION_RE = re.compile(
     r"(?i)(?<![A-Za-z0-9._-])"
     r"(apply|cordon|delete|drain|evict|exec|patch|restart|rollback|rollout\s+(restart|undo)|scale|uncordon)"
@@ -91,6 +97,7 @@ def redact_text(text: str) -> str:
     redacted = BEARER_TOKEN_RE.sub(r"\1 [REDACTED]", redacted)
     redacted = KEY_VALUE_SECRET_RE.sub(r"\1[REDACTED]\3", redacted)
     redacted = KUBECONFIG_TOKEN_RE.sub(r"\1[REDACTED]", redacted)
+    redacted = KUBECONFIG_DATA_RE.sub(r"\1[REDACTED]", redacted)
     return redacted
 
 
@@ -122,15 +129,18 @@ def safe_subject(user_info: Mapping[str, Any] | None) -> dict[str, Any]:
     if not user_info:
         return {
             "authenticatedByCluster": "unknown",
+            "groups": [],
             "groupsDigest": groups_digest([]),
             "uid": "unknown",
             "username": "unknown",
         }
 
     groups = user_info.get("groups")
+    safe_groups = sorted(str(group) for group in groups) if isinstance(groups, list) else []
     return {
         "authenticatedByCluster": "api-server",
-        "groupsDigest": groups_digest(groups if isinstance(groups, list) else []),
+        "groups": safe_groups,
+        "groupsDigest": groups_digest(safe_groups),
         "uid": str(user_info.get("uid") or "unknown"),
         "username": str(user_info.get("username") or "unknown"),
     }

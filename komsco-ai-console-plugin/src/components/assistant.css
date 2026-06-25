@@ -2960,9 +2960,21 @@
 
 .komsco-ai__history-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
+  justify-content: space-between;
   min-height: 34px;
+}
+
+.komsco-ai__history-action-group {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 2px;
+  margin-inline-start: auto;
+  background: #eaf1f9;
+  border: 1px solid #d8e4f0;
+  border-radius: 10px;
 }
 
 .komsco-ai__history-action-button {
@@ -2978,11 +2990,37 @@
   box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
 }
 
+.komsco-ai__history-action-button--primary {
+  color: #ffffff;
+  background: var(--komsco-blue-700);
+  border-color: var(--komsco-blue-700);
+}
+
+.komsco-ai__history-action-button--primary:hover:not(:disabled) {
+  color: #ffffff;
+  background: #005ea8;
+  border-color: #005ea8;
+}
+
+.komsco-ai__history-action-group .komsco-ai__history-action-button {
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 .komsco-ai__history-action-button:hover:not(:disabled),
 .komsco-ai__history-action-button--active {
   color: var(--komsco-blue-700);
   background: var(--komsco-blue-soft);
   border-color: #8abff5;
+}
+
+.komsco-ai__history-action-group .komsco-ai__history-action-button--active {
+  background: #ffffff;
+  border-color: #8abff5;
+  box-shadow: 0 1px 2px rgba(0, 102, 204, 0.12);
 }
 
 .komsco-ai__history-action-button:disabled {
@@ -3031,6 +3069,44 @@
   background: #ffffff;
   border: 1px dashed #c9d7e8;
   border-radius: 8px;
+}
+
+.komsco-ai__history-empty--error {
+  color: var(--pf-t--global--color--status--danger--default);
+  border-color: #f1b9b9 !important;
+}
+
+.komsco-ai__uploaded-doc-item {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  background: #ffffff;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+}
+
+.komsco-ai__uploaded-doc-title {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 720;
+  color: var(--pf-t--global--text--color--regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__uploaded-doc-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai__uploaded-doc-source {
+  overflow: hidden;
+  font-size: 10px;
+  color: var(--pf-t--global--text--color--subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .komsco-ai__history-item {

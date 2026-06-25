@@ -8,7 +8,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
@@ -51,7 +51,7 @@ from .security import (
     safe_subject,
 )
 
-app = FastAPI(title="KOMSCO AI Gateway", version="0.1.3")
+app = FastAPI(title="KOMSCO AI Gateway", version="0.1.4")
 
 
 def parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -141,6 +141,22 @@ RAG_EMBEDDING_MODEL = os.getenv("KOMSCO_AI_RAG_EMBEDDING_MODEL", "")
 RAG_VECTOR_DIMENSIONS = int(os.getenv("KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "0") or "0")
 RAG_EFFECTIVE_VECTOR_DIMENSIONS = RAG_VECTOR_DIMENSIONS or 64
 RAG_DEMO_SEED_ENABLED = parse_bool(os.getenv("KOMSCO_AI_RAG_DEMO_SEED_ENABLED"), default=True)
+RAG_UPLOAD_MAX_BYTES = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_BYTES", str(1024 * 1024)))
+RAG_UPLOAD_MAX_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHARS", "120000"))
+RAG_UPLOAD_MAX_CHUNKS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNKS", "80"))
+RAG_UPLOAD_MAX_CHUNK_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNK_CHARS", "1200"))
+RAG_DANGEROUS_CONTENT_RE = re.compile(
+    r"\b(?:oc|kubectl)\s+(?:delete|patch|replace|scale|adm|debug|exec)\b|"
+    r"\brm\s+-rf\b|"
+    r"\bchmod\s+777\b|"
+    r"\bdefrag\b",
+    re.IGNORECASE,
+)
+RAG_BROAD_SYSTEM_GROUPS = {
+    "system:authenticated",
+    "system:authenticated:oauth",
+    "system:unauthenticated",
+}
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
 MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
@@ -2069,6 +2085,21 @@ class RagSearchCreate(StrictBaseModel):
     topK: int = Field(default=5, ge=1, le=20)
     filters: RagSearchFilters = Field(default_factory=RagSearchFilters)
     includeContent: bool = False
+    runId: str | None = Field(default=None, max_length=120)
+
+
+class RagDocumentUploadCreate(StrictBaseModel):
+    name: str = Field(min_length=1, max_length=220)
+    mimeType: str = Field(default="text/markdown", min_length=1, max_length=120)
+    content: str | None = Field(default=None, max_length=RAG_UPLOAD_MAX_CHARS)
+    data: str | None = Field(default=None, max_length=((RAG_UPLOAD_MAX_BYTES * 4) // 3) + 8)
+    sourceUri: str | None = Field(default=None, max_length=500)
+    sourceType: str = Field(default="user-upload", min_length=1, max_length=80)
+    customer: str = Field(default="komsco", min_length=1, max_length=80)
+    namespace: str = Field(default="user-upload", min_length=1, max_length=253)
+    version: str = Field(default="v0.1.4", min_length=1, max_length=80)
+    aclGroups: list[str] = Field(default_factory=list, max_length=40)
+    labels: dict[str, str] = Field(default_factory=dict)
     runId: str | None = Field(default=None, max_length=120)
 
 
@@ -9976,6 +10007,173 @@ RAG_DEMO_RUNBOOKS: tuple[dict[str, Any], ...] = (
 )
 
 
+def split_rag_upload_chunks(content: str, *, max_chars: int | None = None) -> list[str]:
+    limit = max_chars or RAG_UPLOAD_MAX_CHUNK_CHARS
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
+    chunks: list[str] = []
+    current = ""
+    for paragraph in paragraphs or [content.strip()]:
+        candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+        if len(paragraph) <= limit:
+            current = paragraph
+            continue
+        for start in range(0, len(paragraph), limit):
+            chunk = paragraph[start : start + limit].strip()
+            if chunk:
+                chunks.append(chunk)
+        current = ""
+    if current:
+        chunks.append(current)
+    return chunks[:RAG_UPLOAD_MAX_CHUNKS]
+
+
+def decode_rag_upload_content(req: RagDocumentUploadCreate) -> str:
+    if req.content and req.data:
+        raise HTTPException(status_code=400, detail="Provide either content or base64 data, not both")
+    if req.content is not None:
+        content = req.content
+        byte_size = len(content.encode("utf-8"))
+    elif req.data is not None:
+        try:
+            raw = base64.b64decode(req.data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid upload base64 data") from exc
+        byte_size = len(raw)
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Only UTF-8 text/markdown uploads are supported in Ver.0.1.4") from exc
+    else:
+        raise HTTPException(status_code=400, detail="Upload content is required")
+
+    if byte_size > RAG_UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="RAG upload is too large")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Upload content is empty")
+    return content
+
+
+def subject_acl_principals(subject: Mapping[str, Any]) -> set[str]:
+    principals: set[str] = set()
+    groups = subject.get("groups")
+    if isinstance(groups, list):
+        principals.update(
+            str(group).strip()
+            for group in groups
+            if str(group).strip() and str(group).strip() not in RAG_BROAD_SYSTEM_GROUPS
+        )
+
+    username = str(subject.get("username") or "")
+    uid = str(subject.get("uid") or "")
+    if username and username != "unknown":
+        principals.add(f"user:{username}")
+    if uid and uid != "unknown":
+        principals.add(f"uid:{uid}")
+    return principals
+
+
+def upload_acl_groups_for_subject(req: RagDocumentUploadCreate, subject: Mapping[str, Any]) -> list[str]:
+    principals = subject_acl_principals(subject)
+    if not principals:
+        raise HTTPException(status_code=403, detail="Authenticated subject has no usable RAG ACL principals")
+
+    if req.aclGroups:
+        requested = {str(group) for group in req.aclGroups if str(group).strip()}
+        allowed = sorted(requested.intersection(principals))
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Requested RAG ACL groups are not owned by the current subject")
+        return allowed
+
+    return sorted(principals)
+
+
+def classify_rag_upload_safety(content: str, labels: Mapping[str, str]) -> str:
+    if RAG_DANGEROUS_CONTENT_RE.search(content):
+        return "dangerous"
+
+    requested = str(labels.get("safetyClass") or labels.get("safety_class") or "").strip()
+    if requested in {"read-only", "approved-exec", "dangerous"}:
+        return requested
+    return "read-only"
+
+
+def classify_rag_upload_freshness(labels: Mapping[str, str]) -> str:
+    requested = str(labels.get("freshness") or "").strip()
+    if requested in {"fresh", "stale", "unknown"}:
+        return requested
+    return "fresh"
+
+
+def build_rag_upload_document(req: RagDocumentUploadCreate, subject: Mapping[str, Any]) -> dict[str, Any]:
+    content = decode_rag_upload_content(req)
+    redacted_content = redact_sensitive(content)
+    if not isinstance(redacted_content, str):
+        redacted_content = str(redacted_content)
+    chunks = split_rag_upload_chunks(redacted_content)
+    if not chunks:
+        raise HTTPException(status_code=400, detail="No upload chunks were produced")
+
+    checksum = canonical_digest(content)
+    document_id = f"user-upload:{checksum.removeprefix('sha256:')[:16]}"
+    generated_at = now_rfc3339()
+    safety_class = classify_rag_upload_safety(redacted_content, req.labels)
+    freshness = classify_rag_upload_freshness(req.labels)
+    labels = {
+        "source": "user-upload",
+        "version": "v0.1.4",
+        **req.labels,
+        "freshness": freshness,
+        "safetyClass": safety_class,
+    }
+    source_uri = req.sourceUri or f"upload://{document_id}/{req.name}"
+    acl_groups = upload_acl_groups_for_subject(req, subject)
+    return {
+        "document": {
+            "documentId": document_id,
+            "name": req.name,
+            "title": req.name,
+            "mimeType": req.mimeType,
+            "sourceUri": source_uri,
+            "sourceType": req.sourceType,
+            "customer": req.customer,
+            "namespace": req.namespace,
+            "version": req.version,
+            "aclGroups": acl_groups,
+            "labels": labels,
+            "checksum": checksum,
+            "contentBytes": len(content.encode("utf-8")),
+            "chunkCount": len(chunks),
+            "ingestedAt": generated_at,
+            "uploadedBy": str(subject.get("username") or "unknown"),
+            "runId": req.runId or "",
+        },
+        "chunks": [
+            {
+                "chunkId": f"{document_id}:chunk:{index}",
+                "documentId": document_id,
+                "chunkIndex": index,
+                "title": req.name,
+                "sourceUri": f"{source_uri}#chunk-{index}",
+                "sourceType": req.sourceType,
+                "customer": req.customer,
+                "namespace": req.namespace,
+                "version": req.version,
+                "aclGroups": acl_groups,
+                "labels": {**labels, "chunkIndex": str(index)},
+                "content": chunk,
+                "textHash": canonical_digest(chunk),
+                "checksum": canonical_digest({"documentId": document_id, "chunkIndex": index, "content": chunk}),
+            }
+            for index, chunk in enumerate(chunks)
+        ],
+    }
+
+
 def rag_tokenize(value: str) -> list[str]:
     return re.findall(r"[0-9a-zA-Z가-힣_./:-]+", value.lower())
 
@@ -10002,6 +10200,31 @@ def pgvector_literal(vector: list[float]) -> str:
 def ensure_pgvector_schema(conn: Any) -> None:
     dimensions = int(RAG_EFFECTIVE_VECTOR_DIMENSIONS or 64)
     conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aiops_rag_documents (
+          document_id text PRIMARY KEY,
+          collection text NOT NULL,
+          title text NOT NULL,
+          source_uri text NOT NULL,
+          source_type text NOT NULL,
+          customer text NOT NULL,
+          namespace text NOT NULL,
+          version text NOT NULL,
+          mime_type text NOT NULL DEFAULT 'text/plain',
+          acl_groups text[] NOT NULL,
+          labels jsonb NOT NULL DEFAULT '{}'::jsonb,
+          checksum text NOT NULL,
+          chunk_count integer NOT NULL DEFAULT 0,
+          content_bytes integer NOT NULL DEFAULT 0,
+          uploaded_by text NOT NULL DEFAULT 'unknown',
+          run_id text NOT NULL DEFAULT '',
+          lifecycle text NOT NULL DEFAULT 'active',
+          ingested_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )
+        """
+    )
     conn.execute(
         f"""
         CREATE TABLE IF NOT EXISTS aiops_rag_chunks (
@@ -10081,7 +10304,180 @@ def seed_pgvector_runbooks(conn: Any) -> None:
         )
 
 
-def row_matches_rag_filters(row: Mapping[str, Any], filters: RagSearchFilters) -> bool:
+def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+    if not RAG_BACKEND_URL:
+        return (
+            "not_configured",
+            "KOMSCO_AI_RAG_BACKEND_URL is not configured; upload ingestion was validated but not persisted.",
+            {},
+        )
+    if psycopg is None or dict_row is None:
+        return ("unavailable", "psycopg is not installed in the Gateway runtime.", {})
+
+    document = record["document"]
+    try:
+        with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
+            ensure_pgvector_schema(conn)
+            conn.execute(
+                """
+                INSERT INTO aiops_rag_documents (
+                  document_id, collection, title, source_uri, source_type, customer, namespace,
+                  version, mime_type, acl_groups, labels, checksum, chunk_count, content_bytes,
+                  uploaded_by, run_id, lifecycle, ingested_at, updated_at
+                ) VALUES (
+                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', now(), now()
+                )
+                ON CONFLICT (document_id) DO UPDATE SET
+                  title = EXCLUDED.title,
+                  source_uri = EXCLUDED.source_uri,
+                  source_type = EXCLUDED.source_type,
+                  customer = EXCLUDED.customer,
+                  namespace = EXCLUDED.namespace,
+                  version = EXCLUDED.version,
+                  mime_type = EXCLUDED.mime_type,
+                  acl_groups = EXCLUDED.acl_groups,
+                  labels = EXCLUDED.labels,
+                  checksum = EXCLUDED.checksum,
+                  chunk_count = EXCLUDED.chunk_count,
+                  content_bytes = EXCLUDED.content_bytes,
+                  uploaded_by = EXCLUDED.uploaded_by,
+                  run_id = EXCLUDED.run_id,
+                  lifecycle = EXCLUDED.lifecycle,
+                  updated_at = now()
+                """,
+                (
+                    document["documentId"],
+                    RAG_COLLECTION,
+                    document["title"],
+                    document["sourceUri"],
+                    document["sourceType"],
+                    document["customer"],
+                    document["namespace"],
+                    document["version"],
+                    document["mimeType"],
+                    document["aclGroups"],
+                    Jsonb(document["labels"]) if Jsonb else json.dumps(document["labels"]),
+                    document["checksum"],
+                    document["chunkCount"],
+                    document["contentBytes"],
+                    document["uploadedBy"],
+                    document["runId"],
+                ),
+            )
+            for chunk in record["chunks"]:
+                embedding = pgvector_literal(build_rag_embedding(f"{chunk['title']} {chunk['content']}"))
+                conn.execute(
+                    """
+                    INSERT INTO aiops_rag_chunks (
+                      chunk_id, collection, document_id, title, source_uri, source_type, customer,
+                      namespace, version, acl_groups, labels, lifecycle, content_redacted,
+                      text_hash, checksum, embedding, updated_at
+                    ) VALUES (
+                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s::vector, now()
+                    )
+                    ON CONFLICT (chunk_id) DO UPDATE SET
+                      collection = EXCLUDED.collection,
+                      title = EXCLUDED.title,
+                      source_uri = EXCLUDED.source_uri,
+                      source_type = EXCLUDED.source_type,
+                      customer = EXCLUDED.customer,
+                      namespace = EXCLUDED.namespace,
+                      version = EXCLUDED.version,
+                      acl_groups = EXCLUDED.acl_groups,
+                      labels = EXCLUDED.labels,
+                      lifecycle = EXCLUDED.lifecycle,
+                      content_redacted = EXCLUDED.content_redacted,
+                      text_hash = EXCLUDED.text_hash,
+                      checksum = EXCLUDED.checksum,
+                      embedding = EXCLUDED.embedding,
+                      updated_at = now()
+                    """,
+                    (
+                        chunk["chunkId"],
+                        RAG_COLLECTION,
+                        chunk["documentId"],
+                        chunk["title"],
+                        chunk["sourceUri"],
+                        chunk["sourceType"],
+                        chunk["customer"],
+                        chunk["namespace"],
+                        chunk["version"],
+                        chunk["aclGroups"],
+                        Jsonb(chunk["labels"]) if Jsonb else json.dumps(chunk["labels"]),
+                        chunk["content"],
+                        chunk["textHash"],
+                        chunk["checksum"],
+                        embedding,
+                    ),
+                )
+        return ("persisted", "Uploaded document chunks were persisted to pgvector.", document)
+    except Exception as exc:
+        return ("unavailable", f"pgvector upload ingestion failed: {exc}", {})
+
+
+def list_pgvector_upload_documents(subject: Mapping[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+    if not RAG_BACKEND_URL:
+        return ("not_configured", "KOMSCO_AI_RAG_BACKEND_URL is not configured.", [])
+    if psycopg is None or dict_row is None:
+        return ("unavailable", "psycopg is not installed in the Gateway runtime.", [])
+    subject_principals = subject_acl_principals(subject)
+    if not subject_principals:
+        return ("empty", "Current subject has no RAG ACL principals.", [])
+    try:
+        with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
+            ensure_pgvector_schema(conn)
+            rows = conn.execute(
+                """
+                SELECT
+                  document_id, title, source_uri, source_type, customer, namespace, version,
+                  mime_type, acl_groups, labels, checksum, chunk_count, content_bytes,
+                  uploaded_by, run_id, lifecycle, ingested_at, updated_at
+                FROM aiops_rag_documents
+                WHERE collection = %s
+                  AND source_type = 'user-upload'
+                  AND lifecycle = 'active'
+                  AND acl_groups && %s::text[]
+                ORDER BY updated_at DESC
+                LIMIT 50
+                """,
+                (RAG_COLLECTION, sorted(subject_principals)),
+            ).fetchall()
+    except Exception as exc:
+        return ("unavailable", f"pgvector upload list failed: {exc}", [])
+
+    documents = [
+        redact_sensitive(
+            {
+                "documentId": row.get("document_id"),
+                "title": row.get("title"),
+                "sourceUri": row.get("source_uri"),
+                "sourceType": row.get("source_type"),
+                "customer": row.get("customer"),
+                "namespace": row.get("namespace"),
+                "version": row.get("version"),
+                "mimeType": row.get("mime_type"),
+                "aclGroups": row.get("acl_groups") or [],
+                "labels": row.get("labels") or {},
+                "checksum": row.get("checksum"),
+                "chunkCount": row.get("chunk_count"),
+                "contentBytes": row.get("content_bytes"),
+                "uploadedBy": row.get("uploaded_by"),
+                "runId": row.get("run_id"),
+                "ingestedAt": row.get("ingested_at").isoformat() if row.get("ingested_at") else "",
+                "updatedAt": row.get("updated_at").isoformat() if row.get("updated_at") else "",
+            }
+        )
+        for row in rows
+        if set(row.get("acl_groups") or []).intersection(subject_principals)
+    ]
+    return ("collected" if documents else "empty", "Uploaded RAG documents retrieved from pgvector.", documents)
+
+
+def row_matches_rag_filters(
+    row: Mapping[str, Any],
+    filters: RagSearchFilters,
+    subject_principals: set[str],
+) -> bool:
     if filters.sourceTypes and row.get("source_type") not in filters.sourceTypes:
         return False
     if filters.namespaces and row.get("namespace") not in filters.namespaces:
@@ -10092,13 +10488,26 @@ def row_matches_rag_filters(row: Mapping[str, Any], filters: RagSearchFilters) -
         return False
     if filters.versions and row.get("version") not in filters.versions:
         return False
-    acl_groups = row.get("acl_groups") or []
-    if filters.aclGroups and not set(filters.aclGroups).intersection(set(acl_groups)):
+    acl_groups = set(row.get("acl_groups") or [])
+    if not acl_groups.intersection(subject_principals):
+        return False
+    if filters.aclGroups and not set(filters.aclGroups).intersection(acl_groups.intersection(subject_principals)):
+        return False
+    labels = row.get("labels") if isinstance(row.get("labels"), Mapping) else {}
+    for key, expected in filters.labels.items():
+        if str(labels.get(key) or "") != str(expected):
+            return False
+    if labels.get("safetyClass") == "dangerous" and filters.labels.get("safetyClass") != "dangerous":
+        return False
+    if labels.get("freshness") == "stale" and filters.labels.get("freshness") != "stale":
         return False
     return bool(acl_groups)
 
 
-def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[str, Any]]]:
+def search_pgvector_runbooks(
+    req: RagSearchCreate,
+    subject: Mapping[str, Any] | None = None,
+) -> tuple[str, str, list[dict[str, Any]]]:
     if not RAG_BACKEND_URL:
         return (
             "not_configured",
@@ -10107,6 +10516,10 @@ def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[
         )
     if psycopg is None or dict_row is None:
         return ("unavailable", "psycopg is not installed in the Gateway runtime.", [])
+
+    subject_principals = subject_acl_principals(subject or safe_subject(None))
+    if not subject_principals:
+        return ("empty", "Current subject has no RAG ACL principals.", [])
 
     query_vector = pgvector_literal(build_rag_embedding(req.query))
     try:
@@ -10120,18 +10533,20 @@ def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[
                   version, acl_groups, labels, content_redacted, text_hash, checksum,
                   1 - (embedding <=> %s::vector) AS score
                 FROM aiops_rag_chunks
-                WHERE collection = %s AND lifecycle = 'active'
+                WHERE collection = %s
+                  AND lifecycle = 'active'
+                  AND acl_groups && %s::text[]
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (query_vector, RAG_COLLECTION, query_vector, max(req.topK * 4, 20)),
+                (query_vector, RAG_COLLECTION, sorted(subject_principals), query_vector, max(req.topK * 4, 20)),
             ).fetchall()
     except Exception as exc:  # pragma: no cover - depends on local DB state
         return ("unavailable", f"pgvector search failed: {exc}", [])
 
     results: list[dict[str, Any]] = []
     for row in rows:
-        if not row_matches_rag_filters(row, req.filters):
+        if not row_matches_rag_filters(row, req.filters, subject_principals):
             continue
         content = str(row.get("content_redacted") or "")
         result = {
@@ -10147,6 +10562,10 @@ def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[
             "contentPreview": content[:260],
             "content": content if req.includeContent else "",
             "metadata": row.get("labels") or {},
+            "safety": {
+                "freshness": (row.get("labels") or {}).get("freshness", "unknown"),
+                "safetyClass": (row.get("labels") or {}).get("safetyClass", "unknown"),
+            },
             "evidenceRef": {
                 "type": "runbook",
                 "evidenceType": "runbook",
@@ -10154,6 +10573,8 @@ def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[
                 "summary": row.get("title"),
                 "sourceUri": row.get("source_uri"),
                 "checksum": row.get("checksum"),
+                "freshness": (row.get("labels") or {}).get("freshness", "unknown"),
+                "safetyClass": (row.get("labels") or {}).get("safetyClass", "unknown"),
             },
         }
         results.append(redact_sensitive(result))
@@ -10163,6 +10584,43 @@ def search_pgvector_runbooks(req: RagSearchCreate) -> tuple[str, str, list[dict[
     if results:
         return ("collected", "pgvector runbook evidence retrieved from local Gateway-controlled backend.", results)
     return ("empty", "pgvector backend is configured but no runbook matched the query and filters.", [])
+
+
+def build_rag_context_detail(results: Sequence[Mapping[str, Any]], reason: str) -> str:
+    if not results:
+        return f"RAG evidence unavailable: {reason}"
+
+    lines = [
+        "Gateway-collected RAG evidence from `/v1/rag/search`.",
+        "Use these retrieved sources as citation candidates; do not invent document contents that are not present in the previews.",
+        "",
+        "| Source | Type | Score | Preview |",
+        "| - | - | - | - |",
+    ]
+    for result in results[:5]:
+        title = str(result.get("title") or result.get("documentId") or "untitled")
+        source_type = str(result.get("sourceType") or "runbook")
+        score = result.get("score")
+        preview = str(result.get("contentPreview") or result.get("content") or "").replace("\n", " ")
+        source_uri = str(result.get("sourceUri") or result.get("documentId") or "")
+        lines.append(f"| {title} ({source_uri}) | {source_type} | {score} | {preview[:180]} |")
+    return "\n".join(lines)
+
+
+def build_rag_answer_citation_text(results: Sequence[Mapping[str, Any]]) -> str:
+    if not results:
+        return ""
+
+    lines = ["\n\n[ RAG 근거 ]"]
+    for index, result in enumerate(results[:3], start=1):
+        title = str(result.get("title") or result.get("documentId") or "untitled")
+        source_uri = str(result.get("sourceUri") or result.get("documentId") or "")
+        source_type = str(result.get("sourceType") or "runbook")
+        score = result.get("score")
+        lines.append(f"{index}. {title} ({source_type}, score={score})")
+        if source_uri:
+            lines.append(f"   - source: {source_uri}")
+    return "\n".join(lines)
 
 
 def build_rag_backend_status() -> dict[str, Any]:
@@ -10506,17 +10964,80 @@ async def get_runbook_registry(authorization: str | None = Header(default=None))
     }
 
 
+@app.get("/v1/rag/uploads")
+async def list_rag_uploads(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    status, reason, documents = list_pgvector_upload_documents(subject)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RagUploadedDocumentList",
+        "metadata": {"name": "uploaded-rag-documents", "generatedAt": now_rfc3339()},
+        "spec": {
+            "status": status,
+            "reason": reason,
+            "backend": build_rag_backend_status(),
+            "documents": documents,
+            "totals": {"documents": len(documents)},
+            "safety": {
+                "gatewayOnly": True,
+                "directDatabaseAccessAllowed": False,
+                "rawContentReturned": False,
+            },
+        },
+    }
+
+
+@app.post("/v1/rag/uploads")
+async def create_rag_upload(
+    req: RagDocumentUploadCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    record = build_rag_upload_document(req, subject)
+    status, reason, document = persist_rag_upload_document(record)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RagUploadIngestionResult",
+        "metadata": {"name": record["document"]["documentId"], "generatedAt": now_rfc3339()},
+        "spec": {
+            "status": status,
+            "reason": reason,
+            "backend": build_rag_backend_status(),
+            "document": document or record["document"],
+            "chunks": [
+                {
+                    "chunkId": chunk["chunkId"],
+                    "chunkIndex": chunk["chunkIndex"],
+                    "textHash": chunk["textHash"],
+                    "checksum": chunk["checksum"],
+                    "charLength": len(chunk["content"]),
+                    "sourceUri": chunk["sourceUri"],
+                }
+                for chunk in record["chunks"]
+            ],
+            "safety": {
+                "gatewayOnly": True,
+                "directDatabaseAccessAllowed": False,
+                "rawContentReturned": False,
+                "redactionAppliedBeforeChunking": True,
+            },
+        },
+    }
+
+
 @app.post("/v1/rag/search")
 async def search_rag_runbooks(
     req: RagSearchCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
-    await fetch_self_subject_review(user_auth_header)
+    subject = await fetch_self_subject_review(user_auth_header)
     backend = build_rag_backend_status()
     request_id = f"rag-search-{uuid.uuid4()}"
     increment_metric("aiops_rag_search_requests_total")
-    search_status, reason, results = search_pgvector_runbooks(req)
+    search_status, reason, results = search_pgvector_runbooks(req, subject=subject)
     evidence_status = "collected" if results else ("missing" if search_status == "not_configured" else search_status)
     collected_refs = [result.get("evidenceRef", {}) for result in results if isinstance(result.get("evidenceRef"), Mapping)]
     missing = [] if collected_refs else [{"type": "runbook", "reason": reason}]
@@ -10745,6 +11266,7 @@ async def chat_stream(
         subject = safe_subject(None)
         product_access_review: dict[str, Any] | None = None
         gateway_evidence: str | None = None
+        rag_answer_citation_text = ""
         text_reference_filter = TextReferenceFilter(
             filter_gateway_api_references=should_filter_gateway_api_references(req.message),
             filter_low_signal_references=should_filter_low_signal_references(req.message),
@@ -12029,6 +12551,82 @@ async def chat_stream(
                     ):
                         yield sse(evidence_ref_event)
 
+            yield sse(
+                {
+                    "type": "tool_call",
+                    "id": f"{request_id}-rag-context-evidence",
+                    "name": "rag_context_evidence",
+                    "summary": "RAG 문서 근거 검색",
+                }
+            )
+            try:
+                rag_request = RagSearchCreate(
+                    query=req.message,
+                    topK=3,
+                    includeContent=False,
+                    runId=run_id,
+                )
+                rag_status, rag_reason, rag_results = search_pgvector_runbooks(
+                    rag_request,
+                    subject=subject,
+                )
+                rag_detail = build_rag_context_detail(rag_results, rag_reason)
+                gateway_evidence = append_gateway_evidence(gateway_evidence, rag_detail)
+                rag_answer_citation_text = build_rag_answer_citation_text(rag_results)
+                rag_event = {
+                    "type": "tool_result",
+                    "detail": rag_detail,
+                    "evidenceType": "runbook",
+                    "id": f"{request_id}-rag-context-evidence",
+                    "missingReason": "" if rag_results else rag_reason,
+                    "name": "rag_context_evidence",
+                    "result": {
+                        "query": req.message,
+                        "resultCount": len(rag_results),
+                        "results": [
+                            {
+                                "documentId": result.get("documentId"),
+                                "score": result.get("score"),
+                                "sourceType": result.get("sourceType"),
+                                "sourceUri": result.get("sourceUri"),
+                                "title": result.get("title"),
+                            }
+                            for result in rag_results
+                        ],
+                        "status": rag_status,
+                    },
+                    "sourcePath": "/v1/rag/search",
+                    "status": "success" if rag_results else "skipped",
+                    "summary": (
+                        f"RAG 근거 {len(rag_results)}건 검색"
+                        if rag_results
+                        else "RAG 근거 검색 결과 없음"
+                    ),
+                }
+            except Exception as exc:
+                rag_detail = f"RAG evidence unavailable: {safe_exception_text(exc)}"
+                gateway_evidence = append_gateway_evidence(gateway_evidence, rag_detail)
+                rag_event = {
+                    "type": "tool_result",
+                    "detail": rag_detail,
+                    "evidenceType": "runbook",
+                    "id": f"{request_id}-rag-context-evidence",
+                    "missingReason": safe_exception_text(exc),
+                    "name": "rag_context_evidence",
+                    "sourcePath": "/v1/rag/search",
+                    "status": "error",
+                    "summary": "RAG 근거 검색 실패",
+                }
+            yield sse(rag_event)
+            for evidence_ref_event in build_evidence_reference_events(
+                event=rag_event,
+                incident_id=incident_id,
+                run_id=run_id,
+                source_type="gateway-rag-evidence",
+                subject=subject,
+            ):
+                yield sse(evidence_ref_event)
+
             rca_context_event = current_rca_context_event("pre_answer")
             LAST_RCA_CONTEXT = rca_context_event["context"]
             yield sse(rca_context_event)
@@ -12159,6 +12757,16 @@ async def chat_stream(
                         "fallbackAnswer": True,
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                         "streamProbe": "failed",
+                    }
+                )
+
+            if rag_answer_citation_text:
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": rag_answer_citation_text,
+                        "source": "gateway_rag_citation",
+                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                     }
                 )
 

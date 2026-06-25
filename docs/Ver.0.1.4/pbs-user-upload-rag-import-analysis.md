@@ -105,7 +105,7 @@ PBS는 PlayBookStudio용 구조이고, 우리는 OpenShift AIOps 콘솔 플러�
 5. `md/txt/pdf/docx`부터 parser 지원
 6. chunker 구현
 7. hashing embedding으로 먼저 index
-8. `/v1/aiops/rag/search`가 upload chunk source를 반환하게 변경
+8. `/v1/rag/search`가 upload chunk source를 반환하게 변경
 9. 챗봇 첨부 버튼을 upload stream API에 연결
 10. 답변 citation에 uploaded document source 표시
 11. user-upload RAG smoke/eval 추가

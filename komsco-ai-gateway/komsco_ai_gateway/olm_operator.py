@@ -258,6 +258,12 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
                 "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "false").lower() == "true",
                 "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
             },
+            "rag": {
+                "backendUrlSecret": os.getenv("KOMSCO_AI_DEFAULT_RAG_BACKEND_URL_SECRET", ""),
+                "backendUrlKey": os.getenv("KOMSCO_AI_DEFAULT_RAG_BACKEND_URL_KEY", "url"),
+                "embeddingModel": os.getenv("KOMSCO_AI_DEFAULT_RAG_EMBEDDING_MODEL", "hashing-local-dev"),
+                "vectorDimensions": int(os.getenv("KOMSCO_AI_DEFAULT_RAG_VECTOR_DIMENSIONS", "64")),
+            },
         },
     }
 
@@ -786,6 +792,7 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
     cr_metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
     images = spec.get("images") if isinstance(spec.get("images"), Mapping) else {}
     capabilities = spec.get("capabilities") if isinstance(spec.get("capabilities"), Mapping) else {}
+    rag = spec.get("rag") if isinstance(spec.get("rag"), Mapping) else {}
     config = {
         "name": str(spec_value(spec, "name", DEFAULT_NAME)),
         "namespace": str(spec_value(spec, "targetNamespace", cr_metadata.get("namespace") or DEFAULT_TARGET_NAMESPACE)),
@@ -804,6 +811,10 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "consolePluginDisplayName": str(
             spec_value(spec, "consolePluginDisplayName", DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME)
         ),
+        "ragBackendUrlSecret": str(rag.get("backendUrlSecret") or ""),
+        "ragBackendUrlKey": str(rag.get("backendUrlKey") or "url"),
+        "ragEmbeddingModel": str(rag.get("embeddingModel") or "hashing-local-dev"),
+        "ragVectorDimensions": int(rag.get("vectorDimensions") or 64),
     }
     validate_console_plugin_name(str(config["consolePluginName"]))
     return config
@@ -1120,6 +1131,38 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
     mutations_enabled = str(mutations_enabled_bool).lower()
     diagnostics_enabled = str(diagnostics_enabled_bool).lower()
     unrestricted_enabled = str(bool(config["unrestrictedEnabled"])).lower()
+    gateway_env = [
+        {"name": "OLS_BASE_URL", "value": "https://lightspeed-app-server.openshift-lightspeed.svc:8443"},
+        {"name": "OLS_CA_FILE", "value": "/var/run/configmaps/service-ca/service-ca.crt"},
+        {"name": "KOMSCO_AI_SECURITY_PHASE", "value": "phase5-action-execution"},
+        {"name": "KOMSCO_AI_ENABLE_MUTATIONS", "value": mutations_enabled},
+        {"name": "KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS", "value": unrestricted_enabled},
+        {"name": "KOMSCO_AI_ACTION_EXECUTOR_URL", "value": "http://komsco-ai-action-executor:8080" if mutations_enabled_bool else ""},
+        {"name": "KOMSCO_AI_DIAGNOSTICS_ENABLED", "value": diagnostics_enabled},
+        {"name": "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "value": "http://komsco-ai-host-diagnostics-controller:8080" if diagnostics_enabled_bool else ""},
+        {"name": "KOMSCO_AI_RECORD_STORE_ENABLED", "value": "true"},
+        {"name": "KOMSCO_AI_RECORD_STORE_CONFIGMAP", "value": "komsco-ai-gateway-ledger"},
+        {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED", "value": "true"},
+        {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED", "value": "true"},
+        {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_GROUP", "value": "console.openshift.io"},
+        {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_RESOURCE", "value": "consoleplugins"},
+        {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB", "value": "get"},
+        {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME", "value": console_plugin_name},
+        {"name": "KOMSCO_AI_RAG_EMBEDDING_MODEL", "value": str(config["ragEmbeddingModel"])},
+        {"name": "KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "value": str(config["ragVectorDimensions"])},
+    ]
+    if config["ragBackendUrlSecret"]:
+        gateway_env.append(
+            {
+                "name": "KOMSCO_AI_RAG_BACKEND_URL",
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": str(config["ragBackendUrlSecret"]),
+                        "key": str(config["ragBackendUrlKey"]),
+                    }
+                },
+            }
+        )
     resources = [
         deployment(
             "komsco-ai-console-plugin",
@@ -1149,24 +1192,7 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
             "komsco-ai-gateway",
             {
                 "ports": [{"name": "https", "containerPort": 8443}],
-                "env": [
-                    {"name": "OLS_BASE_URL", "value": "https://lightspeed-app-server.openshift-lightspeed.svc:8443"},
-                    {"name": "OLS_CA_FILE", "value": "/var/run/configmaps/service-ca/service-ca.crt"},
-                    {"name": "KOMSCO_AI_SECURITY_PHASE", "value": "phase5-action-execution"},
-                    {"name": "KOMSCO_AI_ENABLE_MUTATIONS", "value": mutations_enabled},
-                    {"name": "KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS", "value": unrestricted_enabled},
-                    {"name": "KOMSCO_AI_ACTION_EXECUTOR_URL", "value": "http://komsco-ai-action-executor:8080" if mutations_enabled_bool else ""},
-                    {"name": "KOMSCO_AI_DIAGNOSTICS_ENABLED", "value": diagnostics_enabled},
-                    {"name": "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "value": "http://komsco-ai-host-diagnostics-controller:8080" if diagnostics_enabled_bool else ""},
-                    {"name": "KOMSCO_AI_RECORD_STORE_ENABLED", "value": "true"},
-                    {"name": "KOMSCO_AI_RECORD_STORE_CONFIGMAP", "value": "komsco-ai-gateway-ledger"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_ENABLED", "value": "true"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_REQUIRED", "value": "true"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_GROUP", "value": "console.openshift.io"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_RESOURCE", "value": "consoleplugins"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB", "value": "get"},
-                    {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME", "value": console_plugin_name},
-                ],
+                "env": gateway_env,
                 "readinessProbe": {"httpGet": {"path": "/healthz", "port": "https", "scheme": "HTTPS"}, "initialDelaySeconds": 5, "periodSeconds": 10},
                 "livenessProbe": {"httpGet": {"path": "/healthz", "port": "https", "scheme": "HTTPS"}, "initialDelaySeconds": 15, "periodSeconds": 20},
                 "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}, "runAsNonRoot": True},

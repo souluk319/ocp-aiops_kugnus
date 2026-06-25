@@ -284,6 +284,82 @@ export type EvidenceStatusItem = {
   type: string;
 };
 
+export type RagUploadedDocument = {
+  aclGroups?: string[];
+  checksum?: string;
+  chunkCount?: number;
+  contentBytes?: number;
+  customer?: string;
+  documentId: string;
+  ingestedAt?: string;
+  labels?: Record<string, string>;
+  mimeType?: string;
+  namespace?: string;
+  runId?: string;
+  sourceType?: string;
+  sourceUri?: string;
+  title: string;
+  updatedAt?: string;
+  uploadedBy?: string;
+  version?: string;
+};
+
+export type RagDocumentUploadRequest = {
+  aclGroups?: string[];
+  content: string;
+  customer?: string;
+  labels?: Record<string, string>;
+  mimeType?: string;
+  name: string;
+  namespace?: string;
+  runId?: string;
+  sourceType?: string;
+  sourceUri?: string;
+  version?: string;
+};
+
+export type RagUploadIngestionResult = {
+  apiVersion?: string;
+  kind?: 'RagUploadIngestionResult' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    backend?: AiopsRuntimeStatus['spec']['capabilities']['rag'];
+    chunks?: Array<{
+      charLength?: number;
+      checksum?: string;
+      chunkId?: string;
+      chunkIndex?: number;
+      sourceUri?: string;
+      textHash?: string;
+    }>;
+    document: RagUploadedDocument;
+    reason?: string;
+    safety?: Record<string, unknown>;
+    status: 'persisted' | 'not_configured' | 'unavailable' | string;
+  };
+};
+
+export type RagUploadedDocumentList = {
+  apiVersion?: string;
+  kind?: 'RagUploadedDocumentList' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    backend?: AiopsRuntimeStatus['spec']['capabilities']['rag'];
+    documents: RagUploadedDocument[];
+    reason?: string;
+    status: 'collected' | 'empty' | 'not_configured' | 'unavailable' | string;
+    totals?: {
+      documents?: number;
+    };
+  };
+};
+
 export type AiopsRuntimeStatus = {
   spec: {
     capabilities: {
@@ -441,6 +517,8 @@ const GATEWAY_AIOPS_OVERVIEW_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/overview';
 const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
+const GATEWAY_RAG_UPLOADS_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/uploads';
 const GATEWAY_AUTH_SUBJECT_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/auth/subject';
 const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
@@ -544,6 +622,48 @@ export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {
   }
 
   return (await response.json()) as AiopsRuntimeStatus;
+}
+
+export async function uploadRagDocument(
+  payload: RagDocumentUploadRequest,
+): Promise<RagUploadIngestionResult> {
+  const response = await consoleFetch(
+    GATEWAY_RAG_UPLOADS_URL,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    },
+    60 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'RAG document upload failed', true));
+  }
+
+  return (await response.json()) as RagUploadIngestionResult;
+}
+
+export async function fetchUploadedRagDocuments(): Promise<RagUploadedDocumentList> {
+  const response = await consoleFetch(
+    GATEWAY_RAG_UPLOADS_URL,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'GET',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'Uploaded RAG document request failed'));
+  }
+
+  return (await response.json()) as RagUploadedDocumentList;
 }
 
 export async function fetchAuthSubject(): Promise<AuthSubject> {

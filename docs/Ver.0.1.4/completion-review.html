@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Ver.0.1.4 Completion Review</title>
+  <style>
+    body { margin: 0; font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111827; background: #f6f8fb; }
+    main { max-width: 1040px; margin: 0 auto; padding: 40px 28px 72px; background: #fff; min-height: 100vh; }
+    h1 { font-size: 30px; margin: 0 0 24px; letter-spacing: 0; }
+    h2 { margin-top: 34px; padding-top: 18px; border-top: 1px solid #d8e0eb; font-size: 20px; letter-spacing: 0; }
+    p { margin: 7px 0; }
+    .bullet { padding-left: 12px; }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
+    th, td { padding: 8px 10px; border: 1px solid #d8e0eb; vertical-align: top; text-align: left; }
+    th { background: #eef4ff; font-weight: 700; }
+    code { background: #eef4ff; padding: 1px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body><main>
+<h1>Ver.0.1.4 Completion Review</h1>
+<h2>Ref stamp</h2>
+<p class="bullet">• Branch: `feat/v.0.1.4`</p>
+<p class="bullet">• Base before this closure: `ff81067 polish history panel upload actions`</p>
+<p class="bullet">• Scope: PBS 사용자 문서 업로드 RAG의 최소 end-to-end 경로, 업로드 문서 패널, RAG citation smoke, subject 기반 ACL 보강</p>
+<h2>Goal</h2>
+<p>Ver.0.1.4는 RAG를 demo search contract에서 사용자 문서 업로드 기반의 최소 운영 경로로 올리는 단계다.</p>
+<p>완료 기준은 다음으로 본다.</p>
+<p>1. 업로드 문서가 Gateway를 통해 안전하게 ingestion된다.</p>
+<p>2. 업로드 문서 chunk가 pgvector에 저장된다.</p>
+<p>3. `/v1/rag/search`가 업로드 문서 source metadata를 반환한다.</p>
+<p>4. 채팅 스트림에서 RAG evidence와 답변 citation이 보인다.</p>
+<p>5. 좌측 패널에서 업로드 문서 목록을 볼 수 있다.</p>
+<p>6. ACL, missing, freshness, dangerous 상태가 최소 metadata 수준에서 구분된다.</p>
+<p>7. smoke/evaluator가 pass/fail 산출물을 남긴다.</p>
+<h2>Implemented</h2>
+<p>1. Backend upload ingestion contract</p>
+<p>   - `POST /v1/rag/uploads`</p>
+<p>   - `GET /v1/rag/uploads`</p>
+<p>   - `RagDocumentUploadCreate`</p>
+<p>   - UTF-8 text/markdown/json/yaml/log 계열 JSON upload</p>
+<p>   - size limit, redaction-before-chunking, raw content response 금지</p>
+<p>2. pgvector persistence/search</p>
+<p>   - `aiops_rag_documents` table creation</p>
+<p>   - uploaded document chunk persistence into `aiops_rag_chunks`</p>
+<p>   - `/v1/rag/search` retrieval through `sourceTypes=[&quot;user-upload&quot;]`</p>
+<p>   - search result `evidenceRef`, `sourceUri`, `sourceType`, `safetyClass`, `freshness`</p>
+<p>3. Subject-based ACL</p>
+<p>   - `safe_subject` now preserves sanitized group names as well as `groupsDigest`.</p>
+<p>   - upload ACL is derived from current OpenShift subject principals.</p>
+<p>   - caller-provided `aclGroups` are accepted only when owned by the current subject.</p>
+<p>   - list/search return only rows whose ACL intersects the current subject principals.</p>
+<p>4. Frontend uploaded document panel</p>
+<p>   - left history panel icon toolbar</p>
+<p>   - new chat icon, history icon, uploaded-document icon</p>
+<p>   - data-backed uploaded document list</p>
+<p>   - `not_configured`/`unavailable` is shown as an error state, not hidden as an empty list</p>
+<p>   - file attach keeps image upload and adds TXT/MD/JSON/YAML/log document upload</p>
+<p>   - attach button is no longer disabled merely because image attachment slots are full</p>
+<p>5. Chat citation path</p>
+<p>   - chat loop runs RAG context search before Lightspeed handoff.</p>
+<p>   - SSE emits `rag_context_evidence`.</p>
+<p>   - answer stream appends `[ RAG 근거 ]` citation text when RAG results exist.</p>
+<p>6. Verification automation</p>
+<p>   - `task kugnus:rag:upload:smoke`</p>
+<p>   - `task kugnus:rag:chat:smoke`</p>
+<p>   - reports:</p>
+<p>     - `docs/Ver.0.1.4/rag-upload-smoke-report.json`</p>
+<p>     - `docs/Ver.0.1.4/rag-chat-citation-smoke-report.json`</p>
+<h2>Parallel Review Closure</h2>
+<p>Two fresh read-only subagent reviews were run after the first 0.1.4 implementation pass.</p>
+<p>Backend/RAG review findings:</p>
+<p class="bullet">• ACL/user isolation was metadata-only.</p>
+<p class="bullet">• caller-controlled `aclGroups` could not be trusted.</p>
+<p class="bullet">• local upload/list/search smoke existed; a stronger pytest was still needed for cross-subject ACL filtering.</p>
+<p class="bullet">• docs had route drift between `/v1/aiops/rag/search` and `/v1/rag/search`.</p>
+<p>Frontend/UI review findings:</p>
+<p class="bullet">• UI browser verifier still does not prove the frontend flow because Chrome CDP is unavailable.</p>
+<p class="bullet">• uploaded-documents panel treated `not_configured` as empty.</p>
+<p class="bullet">• attach button blocked document uploads when image slots were full.</p>
+<p class="bullet">• uploaded-documents panel and icon toolbar are present and accessible at source level.</p>
+<p>Actions taken after review:</p>
+<p class="bullet">• Added subject principal preservation and ACL enforcement.</p>
+<p class="bullet">• Removed default `cluster-admins` upload ACL.</p>
+<p class="bullet">• Added ACL/safety/freshness pytest coverage, including cross-subject search filter rejection.</p>
+<p class="bullet">• Excluded broad `system:authenticated` style groups from default upload ACL.</p>
+<p class="bullet">• Added kubeconfig data redaction for `client-key-data`, `client-certificate-data`, and `certificate-authority-data`.</p>
+<p class="bullet">• Moved pgvector ACL filtering into the SQL query path and kept source-level row filtering as a second guard.</p>
+<p class="bullet">• Excluded `dangerous` and `stale` documents from default RAG context/citation.</p>
+<p class="bullet">• Added OLM runtime RAG backend Secret wiring through `spec.rag.backendUrlSecret/backendUrlKey`.</p>
+<p class="bullet">• Added RAG pre-answer evidence search and answer citation text.</p>
+<p class="bullet">• Added chat citation smoke task/report.</p>
+<p class="bullet">• Fixed uploaded-documents `not_configured` UI handling.</p>
+<p class="bullet">• Fixed attach button disable logic.</p>
+<p class="bullet">• Fixed docs route drift to `/v1/rag/search`.</p>
+<h2>Verification</h2>
+<table><tbody>
+<tr><th>Check</th><th>Result</th></tr>
+</tbody></table>
+<p>|---|---|</p>
+<table><tbody>
+<tr><td>`python3 -m py_compile komsco-ai-gateway/komsco_ai_gateway/main.py komsco-ai-gateway/komsco_ai_gateway/security.py`</td><td>PASS</td></tr>
+<tr><td>Gateway pytest</td><td>`179 passed, 2 warnings`</td></tr>
+<tr><td>Console plugin build</td><td>PASS</td></tr>
+<tr><td>`task kugnus:scenario:verify`</td><td>`10 passed, 0 failed`</td></tr>
+<tr><td>`task kugnus:runtime:smoke`</td><td>PASS, `health=92`, `nodes=1/1`, `operators=34/34`, `rag=collected`, `results=1`</td></tr>
+<tr><td>`task kugnus:rag:upload:smoke`</td><td>PASS</td></tr>
+<tr><td>`task kugnus:rag:chat:smoke`</td><td>PASS</td></tr>
+<tr><td>`task kugnus:ui:verify`</td><td>FAIL: Chrome CDP endpoint missing</td></tr>
+</tbody></table>
+<h2>Acceptance Status</h2>
+<table><tbody>
+<tr><th>Requirement</th><th>Status</th><th>Evidence</th></tr>
+</tbody></table>
+<p>|---|---|---|</p>
+<table><tbody>
+<tr><td>RAG schema/source documented</td><td>PASS</td><td>`README.md`, `rag-architecture-design.html`</td></tr>
+<tr><td>local pgvector receives real chunks</td><td>PASS</td><td>`rag-upload-smoke-report.json`</td></tr>
+<tr><td>RAG search returns source metadata</td><td>PASS</td><td>`/v1/rag/search`, runtime smoke, upload smoke</td></tr>
+<tr><td>uploaded document list panel exists</td><td>PASS</td><td>`AssistantLauncher.tsx`, `fetchUploadedRagDocuments`</td></tr>
+<tr><td>chat answer includes RAG citation</td><td>PASS</td><td>`task kugnus:rag:chat:smoke`, `rag-chat-citation-smoke-report.json`</td></tr>
+<tr><td>subject ACL enforced for upload/list/search</td><td>PASS</td><td>`main.py`, `security.py`, pytest ACL coverage, broad system groups excluded</td></tr>
+<tr><td>stale/missing/dangerous distinguishable</td><td>PASS for 0.1.4 minimum</td><td>missing is represented in RAG search evidence; uploaded chunks expose `freshness`; dangerous/stale documents are excluded by default search policy</td></tr>
+<tr><td>upload smoke/evaluator exists</td><td>PASS</td><td>`task kugnus:rag:upload:smoke`</td></tr>
+<tr><td>UI browser verifier pass</td><td>NOT PROVEN</td><td>Chrome CDP endpoint unavailable</td></tr>
+</tbody></table>
+<h2>Residual Risk</h2>
+<p class="bullet">• Browser-level UI verification remains blocked by Chrome CDP `localhost:9231` reachability. Do not report `task kugnus:ui:verify` as pass.</p>
+<p class="bullet">• PDF/Office parsing is not included in 0.1.4.</p>
+<p class="bullet">• multipart upload and streaming upload progress are not included in 0.1.4.</p>
+<p class="bullet">• Time-based stale expiration, namespace ownership checks, DB health reporting beyond env presence, and policy-engine-grade dangerous document handling should move to Ver.0.1.5.</p>
+<h2>Next Version Candidates</h2>
+<p class="bullet">• Ver.0.1.5: PDF/Office parser</p>
+<p class="bullet">• Ver.0.1.5: multipart upload and upload progress stream</p>
+<p class="bullet">• Ver.0.1.5: UI verifier Chrome CDP auto-start stabilization</p>
+<p class="bullet">• Ver.0.1.5: time-based freshness expiry and policy-engine dangerous document handling</p>
+</main></body>
+</html>
