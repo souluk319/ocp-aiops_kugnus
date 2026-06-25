@@ -1,0 +1,30 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "LiveToolPlanRunbookProof",
+  "generatedAt": "2026-06-25T23:53:03.992225Z",
+  "branch": "feat/v.0.1.5",
+  "headSha": "21e9e65a6f2f4214c6e30d1efaf06e401c93b99b",
+  "chatStatus": 200,
+  "statusHttp": 200,
+  "taskType": "pod_restart_rca",
+  "tools": [
+    "openshift_event_lookup",
+    "openshift_pod_snapshot_lookup",
+    "openshift_pod_status_lookup",
+    "openshift_pod_log_pattern_probe",
+    "openshift_clusteroperator_lookup",
+    "openshift_node_status_lookup",
+    "openshift_alert_lookup",
+    "openshift_metric_query",
+    "gateway_rag_runbook_search"
+  ],
+  "aliases": [
+    "event_tool",
+    "snapshot_tool",
+    "grep_tool",
+    "metric_tool",
+    "runbook_tool"
+  ],
+  "hasRunbookTool": true,
+  "note": "Token and response body are intentionally not persisted."
+}

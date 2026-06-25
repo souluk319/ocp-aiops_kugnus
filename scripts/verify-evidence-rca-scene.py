@@ -32,8 +32,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_ROOT = REPO_ROOT / "komsco-ai-gateway"
 DEFAULT_REPORT = REPO_ROOT / "docs/Ver.0.1.3/evidence-rca-scene-verification.json"
 OFFICIAL_SCENE_DOC = REPO_ROOT / "docs/Ver.0.1.3/Evidence_RCA_Scene.md"
-REQUIRED_TOOL_ALIASES = {"event_tool", "grep_tool", "metric_tool", "snapshot_tool"}
-REQUIRED_EVIDENCE_TYPES = {"event", "pod_log", "metric", "snapshot"}
+REQUIRED_TOOL_ALIASES = {"event_tool", "grep_tool", "metric_tool", "runbook_tool", "snapshot_tool"}
+REQUIRED_EVIDENCE_TYPES = {"event", "pod_log", "metric", "runbook", "snapshot"}
 REQUIRED_FINAL_SECTIONS = ["RCA", "즉시 조치", "재발 방지책", "참고 증적"]
 RAW_LOG_COMMAND_RE = re.compile(r"(?im)^\s*oc\s+logs\b")
 MUTATION_COMMAND_RE = re.compile(
@@ -147,6 +147,15 @@ def build_official_context() -> dict[str, Any]:
             "snapshot",
             digest_suffix="snapshot-tool",
             summary="snapshot_tool: Pod status snapshot includes restartCount, lastState, container state",
+        ),
+        evidence_ref(
+            "runbook",
+            digest_suffix="runbook-tool",
+            summary="runbook_tool: pgvector/RAG runbook evidence retrieved for RCA action candidates and prevention guidance",
+            extra={
+                "sourcePath": "upload://user-upload:official-runbook/pod-restart-rca.md#chunk-0",
+                "sourceType": "gateway-rag-runbook-search",
+            },
         ),
     ]
     context = build_rca_context(

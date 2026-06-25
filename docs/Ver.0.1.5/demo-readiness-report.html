@@ -104,6 +104,7 @@
     <p>RCA 질문은 Gateway에서 ToolPlan으로 분해된다. 현재 CrashLoopBackOff/Pod restart 계열은 <code>pod_restart_rca</code>로 분류되고, event, pod snapshot, previous log probe, metric probe, RAG runbook evidence가 read-only 근거로 연결된다.</p>
     <ul>
       <li>ToolPlan schema, task type, read-only invariant, adapter resolution은 scenario evaluator에서 검증된다.</li>
+      <li><code>runbook_tool</code>은 <code>gateway_rag_runbook_search</code>로 해석되며, Gateway-controlled pgvector/RAG runbook evidence를 RCA 조치 후보와 재발 방지 근거에 연결한다.</li>
       <li>RcaContext는 collected, failed, missing evidence와 digest/contextId를 포함한다.</li>
       <li>답변 UI는 evidence footer, RCA Context JSON, trace id, collected/missing count를 노출한다.</li>
     </ul>
@@ -118,6 +119,7 @@
       <tr><td>Stop 버튼이 너무 빨리 지나가 verifier가 못 잡음</td><td>정지 버튼 최소 표시 시간을 2초로 조정</td><td>UI verifier에서 stop 버튼 전환 PASS</td></tr>
       <tr><td>UI verifier가 데이터 로딩 전 dashboard state를 검사함</td><td>Gateway data load 대기 후 검사하도록 수정</td><td>health score 92 확인 PASS</td></tr>
       <tr><td>HMR 후 local console bridge가 stale chunk를 물어 404 발생</td><td>webpack dev server와 console bridge 재시작 후 proxy chunk 200 확인</td><td>UI verifier PASS</td></tr>
+      <tr><td>RCA ToolPlan에서 RAG/runbook이 정식 evidence step이 아니라 missing gap처럼 보임</td><td><code>gateway_rag_runbook_search</code>와 <code>runbook_tool</code>을 RCA ToolPlan에 편입</td><td><code>evidence-rca-runbook-toolplan-verification.json</code>, scenario 10/10, pytest 183 PASS</td></tr>
     </table>
   </section>
 

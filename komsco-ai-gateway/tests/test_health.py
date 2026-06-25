@@ -361,6 +361,7 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
         "openshift_node_status_lookup",
         "openshift_alert_lookup",
         "openshift_metric_query",
+        "gateway_rag_runbook_search",
     }
     resolution_by_tool = {item["tool"]: item for item in resolutions}
     assert resolution_by_tool["openshift_event_lookup"]["status"] == "resolved"
@@ -369,7 +370,8 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
     assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_alert_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_metric_query"]["status"] == "resolved"
-    assert all(item["adapter"] == "OpenShift" for item in resolutions)
+    assert resolution_by_tool["gateway_rag_runbook_search"]["status"] == "resolved"
+    assert {item["adapter"] for item in resolutions} == {"OpenShift", "AI Gateway"}
     linux = next(adapter for adapter in registry if adapter["name"] == "Linux")
     windows = next(adapter for adapter in registry if adapter["name"] == "Windows")
     assert linux["status"] == "disabled"
@@ -409,10 +411,12 @@ def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
     assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_alert_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_metric_query"]["status"] == "resolved"
-    assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift"}
+    assert resolution_by_tool["gateway_rag_runbook_search"]["status"] == "resolved"
+    assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift", "AI Gateway"}
     assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
     missing_types = {item["type"] for item in plan["missing_evidence"]}
-    assert {"clusteroperator", "runbook"} <= missing_types
+    assert "clusteroperator" in missing_types
+    assert "runbook" not in missing_types
     assert {"event", "pod_log", "snapshot"}.isdisjoint(missing_types)
     assert {"node", "alert", "metric"}.isdisjoint(missing_types)
 
@@ -466,7 +470,7 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     assert context["question"]["pageContext"] == {"namespace": "default", "resourceKind": "Pod"}
     assert context["evidence"]["summary"]["collectedCount"] == 1
     assert context["evidence"]["collectedRefs"][0]["type"] == "pod_status"
-    assert any(item["type"] == "runbook" for item in context["evidence"]["missing"])
+    assert not any(item["type"] == "runbook" for item in context["evidence"]["missing"])
     assert context["confidence"]["level"] == "evidence_based"
     assert context["analysisPlan"]["mode"] == "evidence_first"
     assert context["analysisPlan"]["answerContract"]["format"] == "operations_rca_report"
@@ -483,6 +487,7 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     assert step_status["node"]["status"] == "not_attempted"
     assert step_status["alert"]["status"] == "not_attempted"
     assert step_status["metric"]["status"] == "not_attempted"
+    assert step_status["runbook"]["status"] == "not_attempted"
 
 
 def test_rca_context_without_evidence_marks_uncertainty() -> None:

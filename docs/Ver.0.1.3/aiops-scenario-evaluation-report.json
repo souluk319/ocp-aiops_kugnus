@@ -1,8 +1,8 @@
 {
-  "startedAt": "2026-06-25T23:25:37.915959+00:00",
+  "startedAt": "2026-06-25T23:51:16.923950+00:00",
   "metadata": {
     "branch": "feat/v.0.1.5",
-    "headSha": "8f933d3e94fd903c47b6ba65e45c78f41bc96fc8",
+    "headSha": "21e9e65a6f2f4214c6e30d1efaf06e401c93b99b",
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae"
   },
   "scenarioDir": "evals/aiops-scenarios",
@@ -66,7 +66,7 @@
     "missingEvidenceTypes": [
       "runbook"
     ],
-    "rcaContextDigest": "sha256:5772b05e6f5e8cd4fed43a8588de34a498b2ad0920d170d48d0ded18f144a293",
+    "rcaContextDigest": "sha256:58eb16e0a3ab650c9ca3367fde26af85fe289568b39c65c0589922594208864d",
     "evidenceCounts": {
       "collected": 2,
       "partial": 0,
@@ -113,7 +113,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:605756428ac07ec95f96d1b59e0af5c908fd22ff202ae746d4711276ce0bd221",
+      "rcaContextDigest": "sha256:aa06c0622de9a76cd934c7e489ff70a50466dddebd84d05eac77ce227f90489c",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -155,7 +155,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:3332d52504e561d85ca19917753664a39a12d6e72555267f96becf77e1a74000",
+      "rcaContextDigest": "sha256:17db910e40767391f896d07100500ebd9363d60c896a58c313a84f9f2f29027d",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -197,7 +197,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:9717e3361db232fc373bbadbb067f007eac2f4836529bbe0f4aeb671c8b692c3",
+      "rcaContextDigest": "sha256:919082f2fc23d8500f5d13f14bf5a9ce63046d2b233753f3d33554aa98672a01",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -239,7 +239,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:2dca7179ea0d4dfb2958976f0b90e76506442cc74b3def5a7ce53f677a529161",
+      "rcaContextDigest": "sha256:f02500699568845c07812af2471cfec63791c5e777a10f0179e955ab16aef5aa",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -281,7 +281,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:7b55f2f8cf0e2a1ed79e012a0f065ce00235b9694d55c0f9fa0e462cc3ab43b8",
+      "rcaContextDigest": "sha256:772774281f280a8407e987ae6812c0c134c3e96af0ed82a91aafb32583fc798a",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -313,6 +313,7 @@
       },
       "taskType": "pod_restart_rca",
       "tools": [
+        "gateway_rag_runbook_search",
         "openshift_alert_lookup",
         "openshift_clusteroperator_lookup",
         "openshift_event_lookup",
@@ -326,15 +327,14 @@
         "pod_status"
       ],
       "missingEvidenceTypes": [
-        "clusteroperator",
-        "runbook"
+        "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:200c79c7bc120199f3fa260c08018e718c270e93b4fca3ef646112c5210e6ab8",
+      "rcaContextDigest": "sha256:4e28144cdc1783aa7d0c5489853f89969a2ef0ee7d14a66b4f929ded0d7634c8",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
         "failed": 0,
-        "missing": 2
+        "missing": 1
       }
     },
     {
@@ -361,6 +361,7 @@
       },
       "taskType": "pod_restart_rca",
       "tools": [
+        "gateway_rag_runbook_search",
         "openshift_alert_lookup",
         "openshift_clusteroperator_lookup",
         "openshift_event_lookup",
@@ -374,15 +375,14 @@
         "pod_status"
       ],
       "missingEvidenceTypes": [
-        "clusteroperator",
-        "runbook"
+        "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:3c6a1bb2ac7150e5bcd135f95c21a9e9bc2ea26862eaaa80b583e0019adbbcfb",
+      "rcaContextDigest": "sha256:3c5c9c48526163465bc4abd07e926c5e86367e751d7f22545e9d46e82efd0790",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
         "failed": 0,
-        "missing": 2
+        "missing": 1
       }
     },
     {
@@ -419,7 +419,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:3b635b0c3c18bba55121734dbe15e7fbb81f19445882249f09c4175d23c19eb3",
+      "rcaContextDigest": "sha256:519c38e841bd4745bc867848d176a899e3018fb6442e5c18f4395a59586d7d75",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -462,7 +462,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:f5485fefaa49fec2606aafe74467b1cd715e1c819323f907198c42488ab3620f",
+      "rcaContextDigest": "sha256:44209f9fa173b8a6f102f6d95c83ea26aa1e2ee636e353f72431e4becd55b91d",
       "evidenceCounts": {
         "collected": 3,
         "partial": 0,
@@ -503,7 +503,7 @@
       "missingEvidenceTypes": [
         "execution_record"
       ],
-      "rcaContextDigest": "sha256:4a613871f14c8280aa692afb3bcaa6002c2c2f630d5b4c2b6daa50b16d7f18ed",
+      "rcaContextDigest": "sha256:00babf9d7917c08c19542637a45f53d8db5774ad2bc0a7ecd150a282b06f5845",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,

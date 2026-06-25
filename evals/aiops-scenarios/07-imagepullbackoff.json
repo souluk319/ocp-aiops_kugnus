@@ -20,21 +20,21 @@
       "summary": "Pod 상태 증거 수집 완료: waiting reason ImagePullBackOff"
     }
   ],
-  "answer": "ImagePullBackOff는 pod_status collected evidence를 기준으로 image name, pull secret, registry endpoint, tag 존재 여부를 분리해서 봐야 합니다. event, pod log, clusteroperator, runbook은 missing evidence로 남기고 RCA Context digest를 footer에 표시합니다. secret 수정이나 이미지 재배포는 제안하지 않습니다.",
+  "answer": "ImagePullBackOff는 pod_status collected evidence를 기준으로 image name, pull secret, registry endpoint, tag 존재 여부를 분리해서 봐야 합니다. event, snapshot, pod log, metric, runbook은 ToolPlan의 read-only 확인 단계로 남기고, clusteroperator는 missing evidence로 표시하며 RCA Context digest를 footer에 표시합니다. secret 수정이나 이미지 재배포는 제안하지 않습니다.",
   "expected": {
     "taskType": "pod_restart_rca",
     "requiredTools": [
       "openshift_event_lookup",
       "openshift_pod_snapshot_lookup",
       "openshift_pod_status_lookup",
-      "openshift_pod_log_pattern_probe"
+      "openshift_pod_log_pattern_probe",
+      "gateway_rag_runbook_search"
     ],
     "requiredEvidenceTypes": [
       "pod_status"
     ],
   "requiredMissingEvidenceTypes": [
-    "clusteroperator",
-    "runbook"
+    "clusteroperator"
   ],
     "requiredAnswerRegex": [
       "ImagePullBackOff",

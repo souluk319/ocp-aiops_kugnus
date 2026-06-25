@@ -20,21 +20,21 @@
       "summary": "Pod 상태/재시작 증거 수집 완료: waiting reason CrashLoopBackOff"
     }
   ],
-  "answer": "CrashLoopBackOff는 pod_status collected evidence로 restartCount와 waiting reason을 먼저 확인하고, event, pod log, clusteroperator, runbook은 missing evidence로 남겨야 합니다. RCA Context digest는 footer에 표시합니다. 로그를 보지 못한 상태에서는 원인을 확정하지 않고 확인 순서만 제안합니다.",
+  "answer": "CrashLoopBackOff는 pod_status collected evidence로 restartCount와 waiting reason을 먼저 확인하고, event, snapshot, pod log, metric, runbook은 ToolPlan의 read-only 확인 단계로 남깁니다. clusteroperator는 missing evidence로 남기고 RCA Context digest는 footer에 표시합니다. 로그와 runbook 근거가 collected 되기 전에는 원인을 확정하지 않고 확인 순서만 제안합니다.",
   "expected": {
     "taskType": "pod_restart_rca",
     "requiredTools": [
       "openshift_event_lookup",
       "openshift_pod_snapshot_lookup",
       "openshift_pod_status_lookup",
-      "openshift_pod_log_pattern_probe"
+      "openshift_pod_log_pattern_probe",
+      "gateway_rag_runbook_search"
     ],
     "requiredEvidenceTypes": [
       "pod_status"
     ],
   "requiredMissingEvidenceTypes": [
-    "clusteroperator",
-    "runbook"
+    "clusteroperator"
   ],
     "requiredAnswerRegex": [
       "CrashLoopBackOff",

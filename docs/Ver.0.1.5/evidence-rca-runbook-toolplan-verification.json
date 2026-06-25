@@ -1,6 +1,6 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T23:49:52.414270Z",
+  "generatedAt": "2026-06-25T23:48:43.289774Z",
   "kind": "EvidenceRcaSceneVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
@@ -250,7 +250,7 @@
       }
     ],
     "officialQuestion": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
-    "rcaContextDigest": "sha256:0e89146719b1175bf897abf6a58ffb3f2d1c1c7a6b11a105d3371c117879c713",
+    "rcaContextDigest": "sha256:f8b7a0855ca7132547cee6626af2a5156d0dfa2d82808e57b592f7871da46f5e",
     "toolAliases": [
       "event_tool",
       "grep_tool",

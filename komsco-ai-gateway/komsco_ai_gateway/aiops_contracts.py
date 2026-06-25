@@ -141,6 +141,13 @@ OPENSHIFT_ADAPTER_TOOLS = (
 
 AI_GATEWAY_ADAPTER_TOOLS = (
     {
+        "tool": "gateway_rag_runbook_search",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["runbook"],
+        "description": "Search Gateway-controlled pgvector/RAG runbook evidence for RCA correlation.",
+    },
+    {
         "tool": "gateway_pending_action_plan_lookup",
         "status": "available",
         "verbs": ["get"],
@@ -749,7 +756,7 @@ def build_rca_context(
             "name": "Evidence 기반 AI 장애 분석 시나리오",
             "questionExample": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
             "toolPlanAliases": official_tool_aliases,
-            "requiredToolAliases": ["event_tool", "grep_tool", "metric_tool", "snapshot_tool"],
+            "requiredToolAliases": ["event_tool", "grep_tool", "metric_tool", "runbook_tool", "snapshot_tool"],
             "rcaContextContract": {
                 "mustStructure": [
                     "collected evidence",
@@ -1065,13 +1072,21 @@ def build_runtime_tool_plan(
                 "evidence_type": "metric",
                 "reason": "최근 restart 증가량, CPU/Memory 압력 같은 metric 근거 확인",
             },
+            {
+                "step": 9,
+                "tool": "gateway_rag_runbook_search",
+                "official_tool": "runbook_tool",
+                "adapter": "AI Gateway",
+                "verb": "get",
+                "evidence_type": "runbook",
+                "reason": "pgvector/RAG에 등록된 운영 Runbook을 검색해 RCA 조치 후보와 재발 방지 근거에 연결",
+            },
         ]
         missing = [
             {
                 "type": "clusteroperator",
                 "reason": "ClusterOperator evidence may be included in pod status evidence, but is not a separate RCA evidence ref yet",
             },
-            {"type": "runbook", "reason": "RAG/runbook retrieval is planned for a later RCA slice"},
         ]
     elif asks_pod and asks_count:
         task_type = "pod_inventory"
