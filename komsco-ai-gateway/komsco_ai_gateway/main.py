@@ -107,6 +107,11 @@ EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
 WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
 DIAGNOSTICS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_DIAGNOSTICS_ENABLED"), default=False)
 DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000"))
+DEMO_NAMESPACE_ALLOWLIST = {
+    item.strip()
+    for item in os.getenv("KOMSCO_AIOPS_DEMO_NAMESPACE_ALLOWLIST", "komsco-ai-dev,default").split(",")
+    if item.strip()
+}
 HOST_DIAGNOSTICS_CONTROLLER_URL = os.getenv("KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "").rstrip("/")
 HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN = os.getenv(
     "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN",
@@ -225,7 +230,11 @@ CRONJOB_POLICY_ENV_RE = re.compile(
 )
 SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credential|key)")
 K8S_NAME_RE = r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?"
-NAMESPACE_MENTION_RE = re.compile(rf"\b(?P<namespace>{K8S_NAME_RE})\s*네임스페이스")
+NAMESPACE_MENTION_RE = re.compile(
+    rf"(?:\b(?P<namespace>{K8S_NAME_RE})\s*(?:namespace|네임스페이스)|"
+    rf"(?:namespace|네임스페이스)\s*(?P<namespace_after>{K8S_NAME_RE})\b)",
+    re.IGNORECASE,
+)
 DEPLOYMENT_RESOURCE_RE = re.compile(rf"\b(?:deployment|deploy|디플로이먼트)/(?P<name>{K8S_NAME_RE})\b", re.IGNORECASE)
 POD_RESOURCE_RE = re.compile(rf"\b(?:pod|pods|파드)/(?P<name>{K8S_NAME_RE})\b", re.IGNORECASE)
 POD_COUNT_TARGET_BEFORE_POD_RE = re.compile(
@@ -322,6 +331,7 @@ K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT = {
     "statefulsets": "StatefulSet",
 }
 PAGE_CONTEXT_ALLOWED_KEYS = {
+    "aiopsDemoCycle",
     "aiopsExecutionMode",
     "clusterScope",
     "href",
@@ -332,6 +342,21 @@ PAGE_CONTEXT_ALLOWED_KEYS = {
     "resourceList",
     "resourceName",
     "route",
+}
+AIOPS_DEMO_CYCLE_ALLOWED_KEYS = {
+    "candidateId",
+    "candidateStatusLabel",
+    "findingId",
+    "findingTitle",
+    "readOnlyOnly",
+    "scenarioId",
+    "selectedAt",
+    "source",
+}
+AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS = {
+    "kind",
+    "name",
+    "namespace",
 }
 METRICS: dict[str, int] = {
     "aiops_chat_requests_total": 0,
@@ -2077,6 +2102,9 @@ def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deploymen
 
 def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
+    demo_cycle = context.get("aiopsDemoCycle")
+    if isinstance(demo_cycle, Mapping) and demo_cycle.get("readOnlyOnly") is True:
+        return "read-only"
     mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
     if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
         return "unrestricted"
@@ -2112,14 +2140,14 @@ def is_pod_list_request(message: str) -> bool:
 def pod_list_namespace(req: ChatRequest) -> str:
     match = NAMESPACE_MENTION_RE.search(req.message.lower())
     if match:
-        return match.group("namespace")
+        return match.group("namespace") or match.group("namespace_after") or ""
     return page_context_namespace(req)
 
 
 def namespace_from_natural_action(req: ChatRequest) -> str:
     match = NAMESPACE_MENTION_RE.search(req.message.lower())
     if match:
-        return match.group("namespace")
+        return match.group("namespace") or match.group("namespace_after") or ""
     shorthand_match = NAMESPACED_RESOURCE_SHORTHAND_RE.search(req.message.lower())
     if shorthand_match and shorthand_match.group("namespace") not in {"deployment", "deploy", "디플로이먼트"}:
         return shorthand_match.group("namespace")
@@ -2835,10 +2863,37 @@ def decode_path_segment(segment: str | None) -> str | None:
         return segment
 
 
+def normalize_aiops_demo_cycle_context(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+
+    normalized = {
+        key: value.get(key)
+        for key in AIOPS_DEMO_CYCLE_ALLOWED_KEYS
+        if value.get(key) is not None and value.get(key) != ""
+    }
+    target = value.get("target")
+    if isinstance(target, Mapping):
+        normalized_target = {
+            key: target.get(key)
+            for key in AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS
+            if target.get(key) is not None and target.get(key) != ""
+        }
+        if normalized_target:
+            normalized["target"] = normalized_target
+
+    return normalized
+
+
 def normalize_console_page_context(page_context: Mapping[str, Any] | None) -> dict[str, Any]:
     raw_context = page_context or {}
     normalized: dict[str, Any] = {}
     for key, value in raw_context.items():
+        if key == "aiopsDemoCycle":
+            demo_cycle = normalize_aiops_demo_cycle_context(value)
+            if demo_cycle:
+                normalized[key] = demo_cycle
+            continue
         if key in PAGE_CONTEXT_ALLOWED_KEYS and value is not None and value != "":
             normalized[key] = value
     pathname = str(normalized.get("pathname") or "")
@@ -4046,7 +4101,20 @@ def build_aiops_anomaly_summary(
     }
 
 
-ACTION_CANDIDATE_FORBIDDEN_VERBS = ["apply", "delete", "patch", "scale", "exec"]
+ACTION_CANDIDATE_FORBIDDEN_VERBS = [
+    "apply",
+    "attach",
+    "create",
+    "delete",
+    "evict",
+    "exec",
+    "patch",
+    "replace",
+    "restart",
+    "rollout",
+    "scale",
+    "update",
+]
 
 
 def action_candidate_target_label(resource: Mapping[str, Any]) -> str:
@@ -4487,7 +4555,7 @@ def build_ols_gateway_context(
         "metadata": {
             "generatedAt": now_rfc3339(),
             "source": "komsco-ai-gateway",
-            "version": "0.1.1",
+            "version": "0.1.3",
             "rcaContextDigest": rca_context.get("metadata", {}).get("digest")
             if isinstance(rca_context.get("metadata"), Mapping)
             else "",
@@ -6183,6 +6251,9 @@ def build_ols_query(
 [Gateway 선조회 증거]
 {redact_sensitive(gateway_evidence) if gateway_evidence else "Gateway 선조회 증거 없음"}
 
+[CrashLoopBackOff 시연 답변 계약]
+{crashloop_demo_prompt_answer_contract(req)}
+
 이미지/화면 컨텍스트 처리:
 - [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 근거로 답하세요.
 - [현재 콘솔 컨텍스트]는 URL, namespace, resource metadata입니다. 화면의 시각적 내용 자체라고 단정하지 말고, `/catalog/ns/<namespace>` 같은 경로가 있으면 "경로 기준으로는 Catalog 페이지로 보입니다"처럼 근거 범위를 분리하세요.
@@ -6723,6 +6794,864 @@ async def fetch_ocp_json(
     return None
 
 
+def crashloop_demo_target_from_request(req: ChatRequest) -> dict[str, str]:
+    context = normalize_console_page_context(req.pageContext)
+    demo_cycle = context.get("aiopsDemoCycle")
+    if not isinstance(demo_cycle, Mapping) or demo_cycle.get("scenarioId") not in {
+        "crashloop",
+        "evidence-rca-scene",
+    }:
+        return {}
+
+    target = demo_cycle.get("target")
+    if not isinstance(target, Mapping):
+        return {}
+
+    kind = str(target.get("kind") or "")
+    namespace = str(target.get("namespace") or "")
+    name = str(target.get("name") or "")
+    if kind.lower() != "pod" or not namespace or not name:
+        return {}
+
+    return {
+        "kind": "Pod",
+        "name": name,
+        "namespace": namespace,
+    }
+
+
+def crashloop_demo_prompt_answer_contract(req: ChatRequest) -> str:
+    target = crashloop_demo_target_from_request(req)
+    if not target:
+        return "적용 없음"
+
+    return "\n".join(
+        [
+            "이 요청은 Ver.0.1.3 공식 Evidence 기반 Pod 재시작 RCA 시연 사이클입니다.",
+            "최종 답변에는 아래 5개 섹션명을 이 순서 그대로 포함하세요.",
+            "1. `### 확인된 근거`",
+            "2. `### 가능한 원인 후보`",
+            "3. `### 추가 확인 필요`",
+            "4. `### Read-only 확인 순서`",
+            "5. `### 금지 작업`",
+            "로그 원문이나 Event message 원문을 출력하지 말고, 수집 여부/상태/digest 중심으로 말하세요.",
+            "원인을 확정하지 말고 collected/partial/missing evidence에 맞춰 확인됨과 추정을 분리하세요.",
+            "로그 분석은 `grep_tool`의 오류 패턴/digest 결과로 설명하고, 코드블록에 raw `oc logs` 덤프 명령을 넣지 마세요.",
+            "공식 최종 답변에는 `RCA`, `즉시 조치`, `재발 방지책`, `참고 증적` 관점을 포함하세요.",
+            "`oc apply/delete/patch/scale/exec/rollout restart/replace/create`는 코드블록에 넣지 말고 금지 작업 섹션에서만 언급하세요.",
+        ]
+    )
+
+
+def container_status_rows(pod_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    status = pod_payload.get("status") if isinstance(pod_payload.get("status"), Mapping) else {}
+    statuses = status.get("containerStatuses")
+    rows: list[dict[str, Any]] = []
+    for item in statuses if isinstance(statuses, list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        state = item.get("state") if isinstance(item.get("state"), Mapping) else {}
+        waiting = state.get("waiting") if isinstance(state.get("waiting"), Mapping) else {}
+        terminated = state.get("terminated") if isinstance(state.get("terminated"), Mapping) else {}
+        last_state = item.get("lastState") if isinstance(item.get("lastState"), Mapping) else {}
+        last_terminated = (
+            last_state.get("terminated")
+            if isinstance(last_state.get("terminated"), Mapping)
+            else {}
+        )
+        rows.append(
+            {
+                "container": str(item.get("name") or "unknown"),
+                "lastReason": str(last_terminated.get("reason") or ""),
+                "ready": bool(item.get("ready")),
+                "restartCount": int(item.get("restartCount") or 0),
+                "stateReason": str(waiting.get("reason") or terminated.get("reason") or ""),
+            }
+        )
+    return rows
+
+
+def crashloop_container_name(pod_payload: Mapping[str, Any]) -> str:
+    rows = container_status_rows(pod_payload)
+    waiting_crashloop = [
+        row
+        for row in rows
+        if "crashloop" in str(row.get("stateReason") or "").lower()
+    ]
+    if waiting_crashloop:
+        return str(waiting_crashloop[0].get("container") or "")
+    if rows:
+        return str(sorted(rows, key=lambda row: int(row.get("restartCount") or 0), reverse=True)[0].get("container") or "")
+    return ""
+
+
+def summarize_pod_event_availability(events_payload: Mapping[str, Any] | None) -> tuple[str, int]:
+    items = events_payload.get("items") if isinstance(events_payload, Mapping) else []
+    warning_reasons: dict[str, int] = {}
+    total = 0
+    for event in items if isinstance(items, list) else []:
+        if not isinstance(event, Mapping):
+            continue
+        total += 1
+        if str(event.get("type") or "") != "Warning":
+            continue
+        reason = str(event.get("reason") or "Warning")
+        warning_reasons[reason] = warning_reasons.get(reason, 0) + 1
+
+    reason_summary = ", ".join(
+        f"{reason}={count}"
+        for reason, count in sorted(warning_reasons.items(), key=lambda item: (-item[1], item[0]))[:5]
+    )
+    if reason_summary:
+        return f"events={total}; warningReasons={reason_summary}; raw event messages omitted", total
+    return f"events={total}; warningReasons=none; raw event messages omitted", total
+
+
+async def fetch_ocp_text_status(
+    client: httpx.AsyncClient,
+    path: str,
+    authorization: str,
+) -> dict[str, Any]:
+    response = await client.get(
+        f"{OPENSHIFT_API_URL}{path}",
+        headers={
+            "Accept": "text/plain",
+            "Authorization": authorization,
+        },
+    )
+    if response.status_code >= 400:
+        return {
+            "byteCount": 0,
+            "httpStatus": response.status_code,
+            "lineCount": 0,
+            "reason": f"HTTP {response.status_code}",
+            "status": "skipped",
+        }
+    return {
+        "byteCount": len(response.content or b""),
+        "httpStatus": response.status_code,
+        "lineCount": len(response.text.splitlines()),
+        "reason": "",
+        "status": "success",
+    }
+
+
+def build_resource_access_review_request(resource_attributes: Mapping[str, Any]) -> dict[str, Any]:
+    clean_attributes = {
+        key: value
+        for key, value in dict(resource_attributes).items()
+        if value is not None and value != ""
+    }
+    return {
+        "apiVersion": "authorization.k8s.io/v1",
+        "kind": "SelfSubjectAccessReview",
+        "spec": {"resourceAttributes": clean_attributes},
+    }
+
+
+async def fetch_resource_access_review(
+    client: httpx.AsyncClient,
+    user_auth_header: str,
+    resource_attributes: Mapping[str, Any],
+) -> dict[str, Any]:
+    review_request = build_resource_access_review_request(resource_attributes)
+    response = await client.post(
+        f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        headers={
+            "Accept": "application/json",
+            "Authorization": user_auth_header,
+            "Content-Type": "application/json",
+        },
+        json=review_request,
+    )
+    if response.status_code >= 400:
+        return {
+            "allowed": False,
+            "evaluationError": safe_error_text(response.text, limit=300),
+            "reason": f"SelfSubjectAccessReview failed with HTTP {response.status_code}",
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+        }
+
+    payload = response.json()
+    status_payload = payload.get("status", {}) if isinstance(payload, Mapping) else {}
+    status_map = status_payload if isinstance(status_payload, Mapping) else {}
+    return {
+        "allowed": bool(status_map.get("allowed")),
+        "denied": bool(status_map.get("denied")),
+        "evaluationError": status_map.get("evaluationError") or "",
+        "reason": status_map.get("reason") or "",
+        "resourceAttributes": review_request["spec"]["resourceAttributes"],
+    }
+
+
+async def fetch_crashloop_demo_access_reviews(
+    client: httpx.AsyncClient,
+    user_auth_header: str,
+    target: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
+    namespace = str(target.get("namespace") or "")
+    pod_name = str(target.get("name") or "")
+    return {
+        "eventsList": await fetch_resource_access_review(
+            client,
+            user_auth_header,
+            {
+                "namespace": namespace,
+                "resource": "events",
+                "verb": "list",
+            },
+        ),
+        "podGet": await fetch_resource_access_review(
+            client,
+            user_auth_header,
+            {
+                "namespace": namespace,
+                "name": pod_name,
+                "resource": "pods",
+                "verb": "get",
+            },
+        ),
+        "podLogGet": await fetch_resource_access_review(
+            client,
+            user_auth_header,
+            {
+                "namespace": namespace,
+                "name": pod_name,
+                "resource": "pods",
+                "subresource": "log",
+                "verb": "get",
+            },
+        ),
+    }
+
+
+def crashloop_demo_skipped_evidence_events(
+    *,
+    request_id: str,
+    target: Mapping[str, str],
+    reason: str,
+    detail: str = "",
+) -> list[dict[str, Any]]:
+    safe_detail = safe_error_text(detail or reason, limit=700)
+    return [
+        {
+            "type": "tool_result",
+            "detail": safe_detail,
+            "evidenceType": "event",
+            "id": f"{request_id}-crashloop-event-evidence",
+            "missingReason": reason,
+            "name": "crashloop_event_evidence",
+            "sourcePath": "",
+            "status": "skipped",
+            "summary": "CrashLoop Event 증거 수집 생략",
+            "target": dict(target),
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_detail,
+            "evidenceType": "pod_log",
+            "id": f"{request_id}-crashloop-log-availability",
+            "missingReason": reason,
+            "name": "crashloop_log_availability",
+            "sourcePath": "",
+            "status": "skipped",
+            "summary": "CrashLoop 이전 로그 가용성 확인 생략",
+            "target": dict(target),
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_detail,
+            "evidenceType": "snapshot",
+            "id": f"{request_id}-crashloop-pod-snapshot",
+            "missingReason": reason,
+            "name": "crashloop_pod_snapshot",
+            "sourcePath": "",
+            "status": "skipped",
+            "summary": "CrashLoop Pod snapshot 증거 수집 생략",
+            "target": dict(target),
+        },
+    ]
+
+
+async def collect_crashloop_demo_evidence_events(
+    user_auth_header: str,
+    target: Mapping[str, str],
+    request_id: str,
+) -> list[dict[str, Any]]:
+    if not OPENSHIFT_API_URL:
+        return [
+            {
+                "type": "tool_result",
+                "detail": "CrashLoop event evidence unavailable: OPENSHIFT_API_URL is not configured.",
+                "evidenceType": "event",
+                "id": f"{request_id}-crashloop-event-evidence",
+                "missingReason": "OPENSHIFT_API_URL is not configured",
+                "name": "crashloop_event_evidence",
+                "sourcePath": "",
+                "status": "skipped",
+                "summary": "CrashLoop Event 증거 수집 생략",
+            },
+            {
+                "type": "tool_result",
+                "detail": "CrashLoop previous log availability unavailable: OPENSHIFT_API_URL is not configured.",
+                "evidenceType": "pod_log",
+                "id": f"{request_id}-crashloop-log-availability",
+                "missingReason": "OPENSHIFT_API_URL is not configured",
+                "name": "crashloop_log_availability",
+                "sourcePath": "",
+                "status": "skipped",
+                "summary": "CrashLoop 이전 로그 가용성 확인 생략",
+            },
+            {
+                "type": "tool_result",
+                "detail": "CrashLoop Pod snapshot unavailable: OPENSHIFT_API_URL is not configured.",
+                "evidenceType": "snapshot",
+                "id": f"{request_id}-crashloop-pod-snapshot",
+                "missingReason": "OPENSHIFT_API_URL is not configured",
+                "name": "crashloop_pod_snapshot",
+                "sourcePath": "",
+                "status": "skipped",
+                "summary": "CrashLoop Pod snapshot 증거 수집 생략",
+            },
+        ]
+
+    namespace = str(target.get("namespace") or "")
+    pod_name = str(target.get("name") or "")
+    if not namespace or not pod_name:
+        return crashloop_demo_skipped_evidence_events(
+            request_id=request_id,
+            target=target,
+            reason="CrashLoop demo target is incomplete.",
+        )
+
+    if namespace not in DEMO_NAMESPACE_ALLOWLIST:
+        return crashloop_demo_skipped_evidence_events(
+            request_id=request_id,
+            target=target,
+            reason=f"Namespace {namespace} is not allowlisted for CrashLoop demo evidence collection.",
+            detail=json.dumps(
+                {
+                    "allowlist": sorted(DEMO_NAMESPACE_ALLOWLIST),
+                    "namespace": namespace,
+                    "target": dict(target),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+
+    pod_path = f"/api/v1/namespaces/{path_segment(namespace)}/pods/{path_segment(pod_name)}"
+    events_path = (
+        f"/api/v1/namespaces/{path_segment(namespace)}/events"
+        f"?fieldSelector=involvedObject.name={path_segment(pod_name)}&limit=50"
+    )
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        access_reviews = await fetch_crashloop_demo_access_reviews(client, user_auth_header, target)
+        denied_reviews = {
+            key: value
+            for key, value in access_reviews.items()
+            if value.get("allowed") is not True
+        }
+        if denied_reviews:
+            return crashloop_demo_skipped_evidence_events(
+                request_id=request_id,
+                target=target,
+                reason="Exact SelfSubjectAccessReview denied CrashLoop demo evidence collection.",
+                detail=json.dumps(
+                    {
+                        "deniedReviews": redact_sensitive(denied_reviews),
+                        "target": dict(target),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+
+        pod_payload = await fetch_ocp_json(client, pod_path, user_auth_header)
+        events_payload = await fetch_ocp_json(client, events_path, user_auth_header)
+        container_name = crashloop_container_name(pod_payload or {})
+        log_path = (
+            f"/api/v1/namespaces/{path_segment(namespace)}/pods/{path_segment(pod_name)}/log"
+            f"?previous=true&tailLines=1&limitBytes=1"
+        )
+        if container_name:
+            log_path = f"{log_path}&container={path_segment(container_name)}"
+        log_status = await fetch_ocp_text_status(client, log_path, user_auth_header)
+
+    container_rows = container_status_rows(pod_payload or {})
+    event_summary, event_count = summarize_pod_event_availability(events_payload)
+    event_status = "success" if events_payload is not None else "skipped"
+    event_missing = "" if event_status == "success" else "Pod-specific events were not returned by Kubernetes API."
+    log_probe_status = str(log_status.get("status") or "skipped")
+    log_evidence_status = "partial"
+    log_missing = (
+        "availability checked only; raw logs intentionally withheld"
+        if log_probe_status == "success"
+        else (
+            "previous log endpoint probe did not return log content; "
+            f"raw logs intentionally withheld; probeStatus={log_status.get('reason') or 'unknown'}"
+        )
+    )
+    pod_summary = {
+        "containers": container_rows,
+        "phase": str((pod_payload or {}).get("status", {}).get("phase") or "Unknown")
+        if isinstance((pod_payload or {}).get("status"), Mapping)
+        else "Unknown",
+        "target": dict(target),
+    }
+    return [
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "eventAvailability": event_summary,
+                        "eventCount": event_count,
+                        "pod": pod_summary,
+                        "rawEventMessages": "omitted",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1200,
+            ),
+            "evidenceType": "event",
+            "id": f"{request_id}-crashloop-event-evidence",
+            "missingReason": event_missing,
+            "name": "crashloop_event_evidence",
+            "sourcePath": events_path,
+            "status": event_status,
+            "summary": _evidence_summary("CrashLoop Pod Event 증거", event_status),
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "byteCount": log_status.get("byteCount"),
+                        "container": container_name,
+                        "httpStatus": log_status.get("httpStatus"),
+                        "lineCount": log_status.get("lineCount"),
+                        "probeLimitBytes": 1,
+                        "rawLogDisclosure": False,
+                        "target": dict(target),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1200,
+            ),
+            "evidenceType": "pod_log",
+            "id": f"{request_id}-crashloop-log-availability",
+            "missingReason": log_missing,
+            "name": "crashloop_log_availability",
+            "sourcePath": log_path,
+            "status": log_evidence_status,
+            "summary": _evidence_summary("CrashLoop 이전 로그 가용성", log_evidence_status),
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "pod": pod_summary,
+                        "snapshotSource": "pod.status.containerStatuses",
+                        "target": dict(target),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1200,
+            ),
+            "evidenceType": "snapshot",
+            "id": f"{request_id}-crashloop-pod-snapshot",
+            "missingReason": "" if pod_payload is not None else "Pod payload was not returned by Kubernetes API.",
+            "name": "crashloop_pod_snapshot",
+            "sourcePath": pod_path,
+            "status": "success" if pod_payload is not None else "skipped",
+            "summary": _evidence_summary(
+                "CrashLoop Pod snapshot 증거",
+                "success" if pod_payload is not None else "skipped",
+            ),
+        },
+    ]
+
+
+def official_namespace_restart_namespace(runtime_tool_plan: Mapping[str, Any] | None) -> str:
+    if not isinstance(runtime_tool_plan, Mapping):
+        return ""
+    if str(runtime_tool_plan.get("task_type") or "") != "pod_restart_rca":
+        return ""
+    target = runtime_tool_plan.get("target")
+    if not isinstance(target, Mapping):
+        return ""
+    namespace = str(target.get("namespace") or "").strip()
+    if not namespace or namespace == "all-accessible-namespaces":
+        return ""
+    return namespace
+
+
+def namespace_restart_candidate_rows(
+    pods_payload: Mapping[str, Any] | None,
+    *,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for pod in resource_items(pods_payload):
+        container_rows = container_status_rows(pod)
+        restart_count = sum(int(row.get("restartCount") or 0) for row in container_rows)
+        reasons = sorted(
+            {
+                str(row.get("stateReason") or row.get("lastReason") or "")
+                for row in container_rows
+                if row.get("stateReason") or row.get("lastReason")
+            }
+        )
+        status = pod.get("status") if isinstance(pod.get("status"), Mapping) else {}
+        phase = str(status.get("phase") or "Unknown")
+        if restart_count <= 0 and not reasons and phase in {"Running", "Succeeded"}:
+            continue
+        rows.append(
+            {
+                "containers": container_rows[:4],
+                "name": metadata_name(pod),
+                "namespace": metadata_namespace(pod),
+                "phase": phase,
+                "restartCount": restart_count,
+                "stateReasons": reasons,
+            }
+        )
+
+    return sorted(
+        rows,
+        key=lambda row: (-int(row.get("restartCount") or 0), str(row.get("name") or "")),
+    )[:limit]
+
+
+def summarize_namespace_restart_events(
+    events_payload: Mapping[str, Any] | None,
+    *,
+    candidate_names: set[str],
+) -> dict[str, Any]:
+    items = resource_items(events_payload)
+    warning_reasons: dict[str, int] = {}
+    candidate_hits: dict[str, int] = {}
+    involved_kinds: dict[str, int] = {}
+    restart_reason_hints = {"BackOff", "Killing", "OOMKilled", "Evicted", "Unhealthy", "Failed"}
+
+    for event in items:
+        involved = event.get("involvedObject") if isinstance(event.get("involvedObject"), Mapping) else {}
+        involved_name = str(involved.get("name") or "")
+        involved_kind = str(involved.get("kind") or "unknown")
+        if involved_kind:
+            involved_kinds[involved_kind] = involved_kinds.get(involved_kind, 0) + 1
+        if candidate_names and involved_name in candidate_names:
+            candidate_hits[involved_name] = candidate_hits.get(involved_name, 0) + 1
+        if str(event.get("type") or "") != "Warning":
+            continue
+        reason = str(event.get("reason") or "Warning")
+        warning_reasons[reason] = warning_reasons.get(reason, 0) + 1
+
+    restart_hints = {
+        reason: count
+        for reason, count in warning_reasons.items()
+        if reason in restart_reason_hints or "back" in reason.lower() or "kill" in reason.lower()
+    }
+    return {
+        "candidateEventHits": dict(sorted(candidate_hits.items())[:8]),
+        "eventCount": len(items),
+        "involvedKinds": dict(sorted(involved_kinds.items())[:8]),
+        "rawEventMessages": "omitted",
+        "restartReasonHints": dict(sorted(restart_hints.items(), key=lambda item: (-item[1], item[0]))[:8]),
+        "warningReasons": dict(sorted(warning_reasons.items(), key=lambda item: (-item[1], item[0]))[:8]),
+    }
+
+
+async def fetch_ocp_log_pattern_probe(
+    client: httpx.AsyncClient,
+    path: str,
+    authorization: str,
+) -> dict[str, Any]:
+    response = await client.get(
+        f"{OPENSHIFT_API_URL}{path}",
+        headers={
+            "Accept": "text/plain",
+            "Authorization": authorization,
+        },
+    )
+    if response.status_code >= 400:
+        return {
+            "byteCount": 0,
+            "httpStatus": response.status_code,
+            "lineCount": 0,
+            "matchedPatternIds": [],
+            "patternCounts": {},
+            "rawLogDisclosure": False,
+            "reason": f"HTTP {response.status_code}",
+            "status": "skipped",
+        }
+
+    text = response.text or ""
+    patterns = {
+        "Back-off": r"back[- ]off|crashloopbackoff",
+        "Exception": r"exception|traceback|panic|error|failed",
+        "OOMKilled": r"oomkilled|out of memory|killed process",
+    }
+    counts = {
+        name: len(re.findall(pattern, text, flags=re.IGNORECASE))
+        for name, pattern in patterns.items()
+    }
+    return {
+        "byteCount": len(response.content or b""),
+        "httpStatus": response.status_code,
+        "lineCount": len(text.splitlines()),
+        "matchedPatternIds": [name for name, count in counts.items() if count > 0],
+        "patternCounts": counts,
+        "rawLogDisclosure": False,
+        "reason": "",
+        "status": "success",
+    }
+
+
+def official_namespace_restart_skipped_evidence_events(
+    *,
+    namespace: str,
+    request_id: str,
+    reason: str,
+    detail: str = "",
+) -> list[dict[str, Any]]:
+    safe_detail = safe_error_text(detail or reason, limit=900)
+    target = {"kind": "Namespace", "namespace": namespace}
+    return [
+        {
+            "type": "tool_result",
+            "detail": safe_detail,
+            "evidenceType": "event",
+            "id": f"{request_id}-official-namespace-restart-events",
+            "missingReason": reason,
+            "name": "official_namespace_restart_event_evidence",
+            "sourcePath": "",
+            "status": "skipped",
+            "summary": "공식 Pod 재시작 namespace Event 증거 수집 생략",
+            "target": target,
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_detail,
+            "evidenceType": "snapshot",
+            "id": f"{request_id}-official-namespace-restart-snapshot",
+            "missingReason": reason,
+            "name": "official_namespace_restart_snapshot",
+            "sourcePath": "",
+            "status": "skipped",
+            "summary": "공식 Pod 재시작 namespace snapshot 증거 수집 생략",
+            "target": target,
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_detail,
+            "evidenceType": "pod_log",
+            "id": f"{request_id}-official-namespace-restart-log-patterns",
+            "missingReason": reason,
+            "name": "official_namespace_restart_log_pattern_probe",
+            "sourcePath": "",
+            "status": "skipped",
+            "summary": "공식 Pod 재시작 log pattern 증거 수집 생략",
+            "target": target,
+        },
+    ]
+
+
+async def collect_official_namespace_restart_evidence_events(
+    user_auth_header: str,
+    namespace: str,
+    request_id: str,
+) -> list[dict[str, Any]]:
+    namespace = namespace.strip()
+    if not OPENSHIFT_API_URL:
+        return official_namespace_restart_skipped_evidence_events(
+            namespace=namespace,
+            request_id=request_id,
+            reason="OPENSHIFT_API_URL is not configured",
+        )
+    if not namespace:
+        return official_namespace_restart_skipped_evidence_events(
+            namespace=namespace,
+            request_id=request_id,
+            reason="namespace target is empty",
+        )
+    if namespace not in DEMO_NAMESPACE_ALLOWLIST:
+        return official_namespace_restart_skipped_evidence_events(
+            namespace=namespace,
+            request_id=request_id,
+            reason=f"Namespace {namespace} is not allowlisted for official Evidence RCA collection.",
+            detail=json.dumps(
+                {"allowlist": sorted(DEMO_NAMESPACE_ALLOWLIST), "namespace": namespace},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+
+    pods_path = f"/api/v1/namespaces/{path_segment(namespace)}/pods?limit=200"
+    events_path = f"/api/v1/namespaces/{path_segment(namespace)}/events?limit=200"
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        access_reviews = {
+            "eventsList": await fetch_resource_access_review(
+                client,
+                user_auth_header,
+                {"namespace": namespace, "resource": "events", "verb": "list"},
+            ),
+            "podsList": await fetch_resource_access_review(
+                client,
+                user_auth_header,
+                {"namespace": namespace, "resource": "pods", "verb": "list"},
+            ),
+        }
+        denied_reviews = {
+            key: value
+            for key, value in access_reviews.items()
+            if value.get("allowed") is not True
+        }
+        if denied_reviews:
+            return official_namespace_restart_skipped_evidence_events(
+                namespace=namespace,
+                request_id=request_id,
+                reason="SelfSubjectAccessReview denied namespace Evidence RCA collection.",
+                detail=json.dumps(
+                    {"deniedReviews": redact_sensitive(denied_reviews), "namespace": namespace},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+
+        pods_payload = await fetch_ocp_json(client, pods_path, user_auth_header)
+        events_payload = await fetch_ocp_json(client, events_path, user_auth_header)
+        candidates = namespace_restart_candidate_rows(pods_payload)
+        top_candidate = candidates[0] if candidates else {}
+        container_name = ""
+        log_probe: dict[str, Any] = {
+            "byteCount": 0,
+            "lineCount": 0,
+            "matchedPatternIds": [],
+            "patternCounts": {},
+            "rawLogDisclosure": False,
+            "reason": "No restart candidate pod found in namespace snapshot.",
+            "status": "skipped",
+        }
+        log_path = ""
+        if top_candidate.get("name"):
+            pod_payload = next(
+                (
+                    pod
+                    for pod in resource_items(pods_payload)
+                    if metadata_name(pod) == top_candidate.get("name")
+                ),
+                {},
+            )
+            container_name = crashloop_container_name(pod_payload)
+            log_path = (
+                f"/api/v1/namespaces/{path_segment(namespace)}/pods/"
+                f"{path_segment(str(top_candidate.get('name') or ''))}/log"
+                "?previous=true&tailLines=80&limitBytes=20000"
+            )
+            if container_name:
+                log_path = f"{log_path}&container={path_segment(container_name)}"
+            log_probe = await fetch_ocp_log_pattern_probe(client, log_path, user_auth_header)
+
+    candidate_names = {str(candidate.get("name") or "") for candidate in candidates if candidate.get("name")}
+    event_summary = summarize_namespace_restart_events(events_payload, candidate_names=candidate_names)
+    event_status = "success" if events_payload is not None else "skipped"
+    snapshot_status = "success" if pods_payload is not None else "skipped"
+    log_status = "partial" if log_probe.get("status") == "success" else "skipped"
+    log_missing = (
+        "raw logs withheld; pattern probe executed"
+        if log_probe.get("status") == "success"
+        else str(log_probe.get("reason") or "Pod previous log pattern probe did not run")
+    )
+
+    return [
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "namespace": namespace,
+                        "summary": event_summary,
+                        "targetCandidateNames": sorted(candidate_names),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1600,
+            ),
+            "evidenceType": "event",
+            "id": f"{request_id}-official-namespace-restart-events",
+            "missingReason": "" if event_status == "success" else "Namespace events were not returned by Kubernetes API.",
+            "name": "official_namespace_restart_event_evidence",
+            "sourcePath": events_path,
+            "status": event_status,
+            "summary": _evidence_summary("공식 Pod 재시작 namespace Event 증거", event_status),
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "candidatePods": candidates,
+                        "namespace": namespace,
+                        "snapshotSource": "namespace pods.status.containerStatuses",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1600,
+            ),
+            "evidenceType": "snapshot",
+            "id": f"{request_id}-official-namespace-restart-snapshot",
+            "missingReason": "" if snapshot_status == "success" else "Namespace pods were not returned by Kubernetes API.",
+            "name": "official_namespace_restart_snapshot",
+            "sourcePath": pods_path,
+            "status": snapshot_status,
+            "summary": _evidence_summary("공식 Pod 재시작 namespace snapshot 증거", snapshot_status),
+        },
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "container": container_name,
+                        "namespace": namespace,
+                        "probe": log_probe,
+                        "rawLogDisclosure": False,
+                        "targetPod": top_candidate.get("name") or "",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1600,
+            ),
+            "evidenceType": "pod_log",
+            "id": f"{request_id}-official-namespace-restart-log-patterns",
+            "lineCount": log_probe.get("lineCount"),
+            "matchedPatternIds": log_probe.get("matchedPatternIds"),
+            "missingReason": log_missing,
+            "name": "official_namespace_restart_log_pattern_probe",
+            "patternCounts": log_probe.get("patternCounts"),
+            "rawLogDisclosure": False,
+            "sourcePath": log_path,
+            "status": log_status,
+            "summary": _evidence_summary("공식 Pod 재시작 log pattern 증거", log_status),
+        },
+    ]
+
+
 async def collect_pod_status_evidence(
     user_auth_header: str,
     *,
@@ -7082,6 +8011,107 @@ def evidence_refs_for_run(run_id: str) -> list[dict[str, Any]]:
     return sorted(
         refs,
         key=lambda item: str(item.get("collectedAt") or item.get("evidenceId") or ""),
+    )
+
+
+def evidence_ref_bucket(ref: Mapping[str, Any]) -> str:
+    status = str(ref.get("eventStatus") or ref.get("status") or "").lower()
+    if status in {"recorded", "success", "succeeded", "ok", "completed", "collected"}:
+        return "collected"
+    if status == "partial":
+        return "partial"
+    return "missing"
+
+
+def evidence_type_from_record(ref: Mapping[str, Any]) -> str:
+    return str(ref.get("evidenceType") or ref.get("type") or "").lower()
+
+
+def evidence_contract_line(refs: list[Mapping[str, Any]], evidence_type: str, label: str) -> str:
+    typed_refs = [ref for ref in refs if evidence_type_from_record(ref) == evidence_type]
+    if not typed_refs:
+        return f"- {label}: 확인 불가. 해당 evidence reference가 없습니다."
+    preferred = sorted(
+        typed_refs,
+        key=lambda ref: {"collected": 0, "partial": 1}.get(evidence_ref_bucket(ref), 2),
+    )[0]
+    bucket = evidence_ref_bucket(preferred)
+    digest = str(preferred.get("contentDigest") or "")
+    short_digest = digest[:24] if digest else "digest 없음"
+    reason = str(preferred.get("missingReason") or preferred.get("summary") or "")
+    if bucket == "collected":
+        return f"- {label}: 수집됨. evidence `{preferred.get('evidenceId')}`, digest `{short_digest}`."
+    if bucket == "partial":
+        return (
+            f"- {label}: 부분 확인. evidence `{preferred.get('evidenceId')}`, "
+            f"digest `{short_digest}`. {safe_error_text(reason, limit=160)}"
+        )
+    return (
+        f"- {label}: 확인 불가. evidence `{preferred.get('evidenceId')}`, "
+        f"상태 `{preferred.get('eventStatus') or preferred.get('status') or 'unknown'}`. "
+        f"{safe_error_text(reason, limit=160)}"
+    )
+
+
+def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> str:
+    target = crashloop_demo_target_from_request(req)
+    if not target:
+        return ""
+
+    refs = evidence_refs_for_run(run_id)
+    namespace = target["namespace"]
+    pod_name = target["name"]
+    forbidden = ", ".join(ACTION_CANDIDATE_FORBIDDEN_VERBS)
+    evidence_lines = [
+        evidence_contract_line(refs, "pod_status", "Pod 상태와 재시작 근거"),
+        evidence_contract_line(refs, "event", "Pod Event 근거"),
+        evidence_contract_line(refs, "pod_log", "이전 로그 가용성"),
+        evidence_contract_line(refs, "metric", "Restart/운영 메트릭"),
+    ]
+    return "\n".join(
+        [
+            "",
+            "## RCA 계약 요약",
+            "",
+            "### 확인된 근거",
+            *evidence_lines,
+            "",
+            "### 가능한 원인 후보",
+            "- 현재 시연 컨텍스트는 공식 Evidence RCA 대상 Pod 재시작 질문에 묶여 있습니다.",
+            "- 컨테이너 프로세스 반복 종료, 잘못된 command/args, 설정/env 참조, 이미지 또는 애플리케이션 초기화 실패가 후보입니다.",
+            "- 이 후보는 수집된 상태/event/메트릭과 이전 로그 가용성 기준의 후보이며, 로그 원문을 근거로 확정하지 않습니다.",
+            "",
+            "### RCA",
+            "- 공식 시연 기준 RCA는 Event, grep/log-pattern, Metric, Snapshot evidence를 함께 묶어 판단합니다.",
+            "- 현재 답변은 수집된 evidence와 누락 evidence를 분리한 원인 후보 분석이며, 단일 원인 확정이 아닙니다.",
+            "",
+            "### 즉시 조치",
+            "- 즉시 실행이 아니라 read-only 확인 순서와 승인 필요 여부를 먼저 제시합니다.",
+            "- 영향도가 큰 변경은 action candidate로만 남기고 실행하지 않습니다.",
+            "",
+            "### 재발 방지책",
+            "- restart 추세, resource request/limit, readiness/liveness 설정, 배포 변경 이력, runbook 보완 여부를 후속 점검합니다.",
+            "",
+            "### 참고 증적",
+            "- Pod/Event/Metric/Snapshot evidence의 수집 상태와 digest를 기준으로 참고 증적을 표시합니다.",
+            "",
+            "### 추가 확인 필요",
+            "- Pod log 원문은 민감정보 가능성이 있어 gateway evidence에는 저장하거나 출력하지 않았습니다.",
+            "- grep_tool은 로그 원문이 아니라 OOMKilled, Eviction, stack-trace, error 같은 패턴과 digest만 근거화해야 합니다.",
+            "- ClusterOperator 및 runbook/RAG 근거는 현재 사이클에서 미수집 상태로 남을 수 있습니다.",
+            "- 원인을 확정하려면 승인된 운영 절차 안에서 이벤트 상세, Pod spec, 이전 로그를 추가 확인해야 합니다.",
+            "",
+            "### Read-only 확인 순서",
+            "```bash",
+            f"oc describe pod {pod_name} -n {namespace}",
+            f"oc get events -n {namespace} --field-selector involvedObject.name={pod_name} --sort-by=.lastTimestamp",
+            f"oc get pod {pod_name} -n {namespace} -o yaml",
+            "```",
+            "",
+            "### 금지 작업",
+            f"- 이 사이클은 read-only 전용입니다. `{forbidden}` 계열 작업은 실행하지 않습니다.",
+            "- action candidate는 제안만 하며, 승인 전 `apply/delete/patch/scale/exec/rollout/restart`를 수행하지 않습니다.",
+        ]
     )
 
 
@@ -7949,7 +8979,7 @@ def build_empty_answer_fallback(
         lines.extend(
             [
                 "",
-                "### Gateway 사전 수집 증거 원문",
+                "### Gateway 사전 수집 증거 요약",
                 truncate_detail(gateway_evidence, 1800),
             ]
         )
@@ -9705,7 +10735,7 @@ async def chat_stream(
                 return
 
             pod_count_query = parse_pod_count_query(req)
-            if pod_count_query:
+            if pod_count_query and not crashloop_demo_target_from_request(req):
                 target_name = str(pod_count_query.get("targetName") or "")
                 namespace = str(pod_count_query.get("namespace") or "")
                 scope_summary = (
@@ -10147,7 +11177,10 @@ async def chat_stream(
                 yield sse("[DONE]")
                 return
 
-            if policy.get("decision") == "action_proposal_only":
+            if (
+                policy.get("decision") == "action_proposal_only"
+                and not crashloop_demo_target_from_request(req)
+            ):
                 natural_action_intent = parse_natural_action_intent(req)
                 if not natural_action_intent:
                     unresolved_result = {
@@ -10453,9 +11486,29 @@ async def chat_stream(
                         "status": evidence_status,
                         "summary": _evidence_summary("Pod 상태/재시작 증거", evidence_status),
                     }
+                    pod_snapshot_event = {
+                        "type": "tool_result",
+                        "detail": pod_evidence,
+                        "evidenceType": "snapshot",
+                        "id": f"{request_id}-pod-snapshot-evidence",
+                        "missingReason": pod_evidence if evidence_status != "success" else "",
+                        "name": "pod_snapshot_evidence",
+                        "sourcePath": "/api/v1/pods,/apis/apps/v1/deployments,/apis/config.openshift.io/v1/clusteroperators",
+                        "status": evidence_status,
+                        "summary": _evidence_summary("Pod snapshot 증거", evidence_status),
+                    }
                     yield sse(pod_event)
                     for evidence_event in build_evidence_reference_events(
                         event=pod_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
+                    yield sse(pod_snapshot_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=pod_snapshot_event,
                         incident_id=incident_id,
                         run_id=run_id,
                         source_type="gateway-preflight-evidence",
@@ -10475,9 +11528,138 @@ async def chat_stream(
                         "status": "error",
                         "summary": "Pod 상태/재시작 증거 수집 실패",
                     }
+                    pod_snapshot_event = {
+                        "type": "tool_result",
+                        "detail": pod_evidence,
+                        "id": f"{request_id}-pod-snapshot-evidence",
+                        "name": "pod_snapshot_evidence",
+                        "evidenceType": "snapshot",
+                        "missingReason": safe_exception_text(exc),
+                        "status": "error",
+                        "summary": "Pod snapshot 증거 수집 실패",
+                    }
                     yield sse(pod_event)
                     for evidence_event in build_evidence_reference_events(
                         event=pod_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
+                    yield sse(pod_snapshot_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=pod_snapshot_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
+
+            crashloop_demo_target = crashloop_demo_target_from_request(req)
+            official_restart_namespace = official_namespace_restart_namespace(runtime_tool_plan)
+            if official_restart_namespace and not crashloop_demo_target:
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-official-namespace-restart-evidence",
+                        "name": "official_namespace_restart_evidence",
+                        "summary": f"공식 Evidence RCA namespace 재시작 증거 수집: `{official_restart_namespace}`",
+                    }
+                )
+                try:
+                    official_restart_events = await collect_official_namespace_restart_evidence_events(
+                        authorization,
+                        official_restart_namespace,
+                        request_id,
+                    )
+                except Exception as exc:
+                    safe_detail = safe_exception_text(exc)
+                    official_restart_events = official_namespace_restart_skipped_evidence_events(
+                        namespace=official_restart_namespace,
+                        request_id=request_id,
+                        reason=safe_detail,
+                        detail=safe_detail,
+                    )
+
+                for official_restart_event in official_restart_events:
+                    gateway_evidence = append_gateway_evidence(
+                        gateway_evidence,
+                        str(
+                            official_restart_event.get("detail")
+                            or official_restart_event.get("summary")
+                            or ""
+                        ),
+                    )
+                    yield sse(official_restart_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=official_restart_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-preflight-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
+
+            if crashloop_demo_target:
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-crashloop-demo-evidence",
+                        "name": "crashloop_demo_evidence",
+                        "summary": "CrashLoopBackOff 시연 증거 수집",
+                    }
+                )
+                try:
+                    crashloop_events = await collect_crashloop_demo_evidence_events(
+                        authorization,
+                        crashloop_demo_target,
+                        request_id,
+                    )
+                except Exception as exc:
+                    safe_detail = safe_exception_text(exc)
+                    crashloop_events = [
+                        {
+                            "type": "tool_result",
+                            "detail": f"CrashLoop event evidence unavailable: {safe_detail}",
+                            "evidenceType": "event",
+                            "id": f"{request_id}-crashloop-event-evidence",
+                            "missingReason": safe_detail,
+                            "name": "crashloop_event_evidence",
+                            "status": "error",
+                            "summary": "CrashLoop Event 증거 수집 실패",
+                        },
+                        {
+                            "type": "tool_result",
+                            "detail": f"CrashLoop previous log availability unavailable: {safe_detail}",
+                            "evidenceType": "pod_log",
+                            "id": f"{request_id}-crashloop-log-availability",
+                            "missingReason": safe_detail,
+                            "name": "crashloop_log_availability",
+                            "status": "error",
+                            "summary": "CrashLoop 이전 로그 가용성 확인 실패",
+                        },
+                        {
+                            "type": "tool_result",
+                            "detail": f"CrashLoop Pod snapshot unavailable: {safe_detail}",
+                            "evidenceType": "snapshot",
+                            "id": f"{request_id}-crashloop-pod-snapshot",
+                            "missingReason": safe_detail,
+                            "name": "crashloop_pod_snapshot",
+                            "status": "error",
+                            "summary": "CrashLoop Pod snapshot 증거 수집 실패",
+                        },
+                    ]
+
+                for crashloop_event in crashloop_events:
+                    gateway_evidence = append_gateway_evidence(
+                        gateway_evidence,
+                        str(crashloop_event.get("detail") or crashloop_event.get("summary") or ""),
+                    )
+                    yield sse(crashloop_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=crashloop_event,
                         incident_id=incident_id,
                         run_id=run_id,
                         source_type="gateway-preflight-evidence",
@@ -10696,6 +11878,18 @@ async def chat_stream(
                         "fallbackAnswer": True,
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                         "streamProbe": "failed",
+                    }
+                )
+
+            crashloop_answer_contract = build_crashloop_demo_answer_contract_text(req, run_id)
+            if crashloop_answer_contract:
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": crashloop_answer_contract,
+                        "source": "gateway_answer_contract",
+                        "answerContract": "crashloop-v0.1.3",
+                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                     }
                 )
 

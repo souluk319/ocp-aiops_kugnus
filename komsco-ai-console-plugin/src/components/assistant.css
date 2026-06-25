@@ -18,15 +18,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 68px;
-  height: 68px;
+  width: 56px;
+  height: 56px;
   color: var(
     --pf-t--global--text--color--on-brand--default,
     var(--pf-t--global--text--color--inverse)
   );
   background-color: var(--pf-t--global--background--color--primary--default);
   border: 1px solid var(--pf-t--global--border--color--default);
-  border-radius: 999px;
+  border-radius: 14px;
   box-shadow: 0 10px 28px rgb(3 7 18 / 22%);
 }
 
@@ -34,17 +34,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 50px;
-  height: 50px;
+  width: 44px;
+  height: 44px;
   overflow: hidden;
   background-color: var(--pf-t--global--background--color--primary--default);
-  border-radius: 999px;
+  border-radius: 10px;
 }
 
 .komsco-ai__fab-logo {
   display: block;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 
@@ -1943,10 +1943,12 @@
   display: none;
   min-width: 0;
   min-height: 0;
-  padding: 18px;
+  padding: 16px;
   overflow-y: auto;
-  background: #fff;
-  border-inline-start: 1px solid var(--komsco-line-soft);
+  background:
+    linear-gradient(180deg, #f8fafc 0%, #ffffff 42%),
+    #ffffff;
+  border-inline-start: 1px solid #dbe3ee;
 }
 
 .komsco-ai__panel--fullscreen .komsco-ai__insight-rail {
@@ -1954,29 +1956,43 @@
 }
 
 .komsco-ai__rail-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: 0 0 12px;
-  font-size: 13px;
+  padding-inline: 2px;
+  font-size: 12px;
   font-weight: 780;
   color: var(--komsco-ink-900);
 }
 
+.komsco-ai__rail-title::after {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: #16a34a;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgb(22 163 74 / 12%);
+}
+
 .komsco-ai__connection-card {
-  padding: 11px 12px;
-  margin-block-end: 12px;
+  padding: 12px;
+  margin-block-end: 10px;
   color: #475569;
-  background: #f8fafc;
-  border: 1px solid #dce5ef;
-  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgb(15 23 42 / 5%);
 }
 
 .komsco-ai__connection-card--connected {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 88%);
+  border-color: #b7e4c7;
 }
 
 .komsco-ai__connection-card--danger {
   color: #7f1d1d;
-  background: #fef2f2;
+  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 88%);
   border-color: #fecaca;
 }
 
@@ -2020,23 +2036,64 @@
   color: #334155;
 }
 
+.komsco-ai__rail-status-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-block: 0 10px;
+}
+
+.komsco-ai__rail-status-pair .komsco-ai__scope-tag {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 760;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgb(15 23 42 / 4%);
+}
+
 .komsco-ai__health-card {
+  position: relative;
   padding: 14px;
-  background: var(--komsco-surface-2);
-  border: 1px solid #dce5ef;
-  border-radius: 13px;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgb(15 23 42 / 5%);
+}
+
+.komsco-ai__health-card::before {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  height: 3px;
+  content: "";
+  background: #94a3b8;
 }
 
 .komsco-ai__health-card--ok {
-  border-color: #bbf7d0;
+  border-color: #b7e4c7;
+}
+
+.komsco-ai__health-card--ok::before {
+  background: #16a34a;
 }
 
 .komsco-ai__health-card--warn {
   border-color: #fed7aa;
 }
 
+.komsco-ai__health-card--warn::before {
+  background: #f59e0b;
+}
+
 .komsco-ai__health-card--danger {
   border-color: #fecaca;
+}
+
+.komsco-ai__health-card--danger::before {
+  background: #ef4444;
 }
 
 .komsco-ai__health-head,
@@ -2117,24 +2174,41 @@
 }
 
 .komsco-ai__rail-section {
-  margin-block-start: 20px;
+  padding: 12px;
+  margin-block-start: 10px;
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgb(15 23 42 / 5%);
 }
 
 .komsco-ai__rail-section-head {
-  margin-block-end: 9px;
+  padding-block-end: 9px;
+  margin-block-end: 10px;
+  border-block-end: 1px solid #edf1f6;
 }
 
 .komsco-ai__rail-section-head strong {
   font-size: 11px;
+  font-weight: 760;
   color: var(--komsco-ink-900);
 }
 
 .komsco-ai__alert-mini {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 10px 0;
+  gap: 9px;
+  padding: 9px 0;
   border-block-end: 1px solid #eef2f6;
+}
+
+.komsco-ai__alert-mini:first-of-type {
+  padding-block-start: 0;
+}
+
+.komsco-ai__alert-mini:last-child {
+  padding-block-end: 0;
+  border-block-end: 0;
 }
 
 .komsco-ai__alert-mini-dot {
@@ -2200,16 +2274,59 @@
 .komsco-ai__scope-list {
   display: flex;
   flex-wrap: wrap;
+  gap: 7px;
+}
+
+.komsco-ai__scope-list--execution {
   gap: 6px;
+  margin-block-end: 8px;
+}
+
+.komsco-ai__scope-list--execution .komsco-ai__scope-tag {
+  min-height: 28px;
+  padding: 5px 10px;
+  font-size: 10.5px;
+  font-weight: 760;
+  border-radius: 999px;
+}
+
+.komsco-ai__scope-list--secondary {
+  gap: 6px;
+  opacity: 0.92;
+}
+
+.komsco-ai__scope-list--secondary .komsco-ai__scope-tag {
+  min-height: 22px;
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 650;
 }
 
 .komsco-ai__scope-tag {
-  padding: 5px 7px;
-  font-size: 10px;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  font-size: 9.5px;
+  font-weight: 680;
+  line-height: 1.35;
   color: #536276;
   background: #fff;
   border: 1px solid #dce4ee;
-  border-radius: 7px;
+  border-radius: 999px;
+}
+
+.komsco-ai__scope-tag-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+
+.komsco-ai__scope-tag-icon svg {
+  width: 12px;
+  height: 12px;
 }
 
 .komsco-ai__scope-tag--ok {
@@ -2243,9 +2360,10 @@
 }
 
 .komsco-ai__rail-command {
-  padding: 10px;
-  background: #f8fafc;
-  border: 1px solid #e1e7ef;
+  padding: 9px 10px;
+  margin-block-start: 8px;
+  background: #f9fbfd;
+  border: 1px solid #dfe7f1;
   border-radius: 10px;
 }
 
@@ -3997,4 +4115,282 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Mantis-inspired rail polish: compact admin cards, neutral surfaces, clear status pills. */
+.komsco-ai__surface .komsco-ai__insight-rail {
+  padding: 16px;
+  background:
+    linear-gradient(180deg, #f8fafc 0%, #ffffff 42%),
+    #ffffff;
+  border-inline-start: 1px solid #dbe3ee;
+}
+
+.komsco-ai__surface .komsco-ai__rail-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-block-end: 12px;
+  padding-inline: 2px;
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0;
+}
+
+.komsco-ai__surface .komsco-ai__rail-title::after {
+  width: 7px;
+  height: 7px;
+  content: "";
+  background: #16a34a;
+  border-radius: 999px;
+  box-shadow: 0 0 0 4px rgb(22 163 74 / 12%);
+}
+
+.komsco-ai__surface .komsco-ai__connection-card,
+.komsco-ai__surface .komsco-ai__health-card,
+.komsco-ai__surface .komsco-ai__rail-section {
+  background: #ffffff;
+  border: 1px solid #dbe3ee;
+  border-radius: 12px;
+  box-shadow: 0 8px 22px rgb(15 23 42 / 5%);
+}
+
+.komsco-ai__surface .komsco-ai__connection-card {
+  padding: 12px;
+  margin-block-end: 10px;
+}
+
+.komsco-ai__surface .komsco-ai__connection-card--connected {
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 88%);
+  border-color: #b7e4c7;
+}
+
+.komsco-ai__surface .komsco-ai__connection-card--danger {
+  background: linear-gradient(180deg, #fef2f2 0%, #ffffff 88%);
+  border-color: #fecaca;
+}
+
+.komsco-ai__surface .komsco-ai__connection-main {
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.komsco-ai__surface .komsco-ai__connection-target,
+.komsco-ai__surface .komsco-ai__connection-metrics {
+  font-size: 9.5px;
+}
+
+.komsco-ai__surface .komsco-ai__health-card {
+  position: relative;
+  padding: 13px 13px 14px;
+  overflow: hidden;
+}
+
+.komsco-ai__surface .komsco-ai__health-card::before {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  height: 3px;
+  content: "";
+  background: #94a3b8;
+}
+
+.komsco-ai__surface .komsco-ai__health-card--ok::before {
+  background: #16a34a;
+}
+
+.komsco-ai__surface .komsco-ai__health-card--warn::before {
+  background: #f59e0b;
+}
+
+.komsco-ai__surface .komsco-ai__health-card--danger::before {
+  background: #ef4444;
+}
+
+.komsco-ai__surface .komsco-ai__health-head span {
+  font-size: 9.5px;
+  font-weight: 620;
+}
+
+.komsco-ai__surface .komsco-ai__health-score {
+  margin-block-start: 9px;
+  font-size: 29px;
+}
+
+.komsco-ai__surface .komsco-ai__health-bar {
+  height: 8px;
+  margin-block-start: 12px;
+  background: #e8edf4;
+}
+
+.komsco-ai__surface .komsco-ai__rail-section {
+  padding: 12px;
+  margin-block-start: 10px;
+}
+
+.komsco-ai__surface .komsco-ai__rail-section-head {
+  padding-block-end: 9px;
+  margin-block-end: 10px;
+  border-block-end: 1px solid #edf1f6;
+}
+
+.komsco-ai__surface .komsco-ai__rail-section-head strong {
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.komsco-ai__surface .komsco-ai__rail-section-head span {
+  max-width: 42%;
+  overflow: hidden;
+  font-size: 9.5px;
+  font-weight: 620;
+  color: #66758a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__surface .komsco-ai__alert-mini {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 9px;
+  padding: 9px 0;
+}
+
+.komsco-ai__surface .komsco-ai__alert-mini:first-of-type {
+  padding-block-start: 0;
+}
+
+.komsco-ai__surface .komsco-ai__alert-mini:last-child {
+  padding-block-end: 0;
+  border-block-end: 0;
+}
+
+.komsco-ai__surface .komsco-ai__alert-mini-dot {
+  width: 6px;
+  height: 6px;
+  margin-block-start: 5px;
+}
+
+.komsco-ai__surface .komsco-ai__alert-mini-title {
+  font-size: 10.5px;
+  font-weight: 720;
+}
+
+.komsco-ai__surface .komsco-ai__alert-mini-sub {
+  font-size: 9.5px;
+}
+
+.komsco-ai__surface .komsco-ai__scope-list {
+  gap: 7px;
+}
+
+.komsco-ai__surface .komsco-ai__scope-tag,
+.komsco-ai__surface .komsco-ai__rail-badge {
+  min-height: 24px;
+  padding: 4px 8px;
+  font-size: 9.5px;
+  font-weight: 680;
+  line-height: 1.35;
+  border-radius: 999px;
+}
+
+.komsco-ai__surface .komsco-ai__rail-status-pair .komsco-ai__scope-tag {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: 11px;
+  font-weight: 760;
+  border-radius: 12px;
+}
+
+.komsco-ai__surface .komsco-ai__scope-list--execution .komsco-ai__scope-tag {
+  min-height: 28px;
+  padding: 5px 10px;
+  font-size: 10.5px;
+  font-weight: 760;
+}
+
+.komsco-ai__surface .komsco-ai__scope-list--secondary .komsco-ai__scope-tag {
+  min-height: 22px;
+  padding: 3px 7px;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.komsco-ai__surface .komsco-ai__scope-tag--neutral {
+  background: #f8fafc;
+  border-color: #dbe3ee;
+}
+
+.komsco-ai__surface .komsco-ai__scope-tag--ok,
+.komsco-ai__surface .komsco-ai__rail-badge--ok {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.komsco-ai__surface .komsco-ai__scope-tag--warn,
+.komsco-ai__surface .komsco-ai__rail-badge--med {
+  color: #a16207;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.komsco-ai__surface .komsco-ai__scope-tag--danger,
+.komsco-ai__surface .komsco-ai__rail-badge {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__surface .komsco-ai__scope-tag--review,
+.komsco-ai__surface .komsco-ai__rail-badge--review {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command,
+.komsco-ai__surface .komsco-ai__rail-empty,
+.komsco-ai__surface .komsco-ai__rail-error,
+.komsco-ai__surface .komsco-ai__rail-success {
+  padding: 9px 10px;
+  background: #f9fbfd;
+  border-color: #dfe7f1;
+  border-radius: 10px;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command {
+  margin-block-start: 8px;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command:first-child {
+  margin-block-start: 0;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command code {
+  font-size: 9.5px;
+  color: #334155;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command p,
+.komsco-ai__surface .komsco-ai__rail-empty {
+  font-size: 9.5px;
+  color: #64748b;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command--warn {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.komsco-ai__surface .komsco-ai__rail-command--danger,
+.komsco-ai__surface .komsco-ai__rail-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.komsco-ai__surface .komsco-ai__rail-success {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
 }

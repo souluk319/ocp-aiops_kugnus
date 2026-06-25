@@ -1,0 +1,206 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "generatedAt": "2026-06-25T07:44:49.921496Z",
+  "kind": "CrashLoopScreenCycleReadinessVerification",
+  "metadata": {
+    "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
+    "branch": "feat/v.0.1.3",
+    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "name": "ver-0.1.3-crashloop-screen-cycle-readiness",
+    "scope": "source-and-local-runtime-readiness"
+  },
+  "spec": {
+    "checks": [
+      {
+        "evidence": {
+          "file": "komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+          "missing": [],
+          "needles": [
+            "data-aiops-demo-action=\"seed-chat-prompt\"",
+            "setAssistantDraftPrompt(buildFindingDemoDraft(finding, matchingCandidate))",
+            "focusAssistant();",
+            "findingId: finding.id",
+            "readOnlyOnly: true",
+            "scenarioId: isCrashLoopFinding(finding) ? 'crashloop'",
+            "source: 'aiops-dashboard-anomaly-board'",
+            "taskMode: 'troubleshooting'"
+          ]
+        },
+        "name": "dashboard_anomaly_to_chat_draft_wiring",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "file": "komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+          "missing": [],
+          "needles": [
+            "data-action-candidate-execution=\"not-executed\"",
+            "data-action-candidate-mode={mode}",
+            "제안만 함 / 실행 안 함",
+            "mutation disabled. 금지 동작:",
+            "approvalRequired ? '승인 전 실행 불가'"
+          ]
+        },
+        "name": "dashboard_action_candidate_read_only_policy_visible",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "file": "komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+          "missing": [],
+          "needles": [
+            "ref={assistantStageRef}",
+            "<AssistantLauncher",
+            "defaultOpen",
+            "embedded",
+            "lockOpen",
+            "draftPrompt={assistantDraftPrompt}",
+            "onRunComplete={data.refresh}"
+          ]
+        },
+        "name": "dashboard_chat_embedded_and_refresh_wired",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "file": "komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
+          "missing": [],
+          "needles": [
+            "setInput(draftPrompt.prompt)",
+            "setDraftPageContext(draftPrompt.pageContext)",
+            "setAssistantTaskMode(draftPrompt.taskMode ?? 'troubleshooting')",
+            "setExecutionMode('read-only')",
+            "activeDraftPageContext?.readOnlyOnly === true ? 'read-only' : executionMode",
+            "aiopsDemoCycle: activeDraftPageContext"
+          ]
+        },
+        "name": "assistant_draft_context_forces_read_only_and_stream_context",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "file": "komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
+          "missing": [],
+          "needles": [
+            "let runCompleted = false",
+            "if (runCompleted) {",
+            "void onRunComplete?.();"
+          ]
+        },
+        "name": "assistant_completion_refresh_callback",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "file": "komsco-ai-gateway/komsco_ai_gateway/main.py",
+          "missing": [],
+          "needles": [
+            "def normalize_aiops_demo_cycle_context",
+            "AIOPS_DEMO_CYCLE_ALLOWED_KEYS",
+            "AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS",
+            "def crashloop_demo_prompt_answer_contract",
+            "def build_crashloop_demo_answer_contract_text",
+            "\"answerContract\": \"crashloop-v0.1.3\"",
+            "\"aiopsDemoCycle\""
+          ]
+        },
+        "name": "gateway_crashloop_answer_contract_and_context_preserved",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "file": "komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py",
+          "missing": [],
+          "needles": [
+            "\"findingId\": demo_cycle_context.get(\"findingId\")",
+            "\"scenarioId\": demo_cycle_context.get(\"scenarioId\")",
+            "\"scenarioContext\": scenario_context"
+          ]
+        },
+        "name": "gateway_rca_context_preserves_finding_and_scenario",
+        "ok": true,
+        "type": "source_contains"
+      },
+      {
+        "evidence": {
+          "failed": 0,
+          "negativeControlsPassed": true,
+          "passed": 10,
+          "scenarioCount": 10
+        },
+        "name": "scenario_evaluator_10_of_10_pass",
+        "ok": true,
+        "type": "json_report"
+      },
+      {
+        "evidence": {
+          "status": "pass"
+        },
+        "name": "offline_crashloop_demo_contract_pass",
+        "ok": true,
+        "type": "json_report"
+      },
+      {
+        "evidence": {
+          "checkCount": 30,
+          "status": "pass"
+        },
+        "name": "live_crashloop_demo_contract_pass",
+        "ok": true,
+        "type": "json_report"
+      },
+      {
+        "evidence": {
+          "body": "",
+          "ok": true,
+          "status": 200,
+          "url": "http://127.0.0.1:9000/dashboards"
+        },
+        "name": "local_console_dashboard_reachable",
+        "ok": true,
+        "type": "local_http_probe"
+      },
+      {
+        "evidence": {
+          "body": "{\"status\":\"ok\"}",
+          "ok": true,
+          "status": 200,
+          "url": "http://127.0.0.1:18080/healthz"
+        },
+        "name": "local_gateway_healthz_ok",
+        "ok": true,
+        "type": "local_http_probe"
+      },
+      {
+        "evidence": {
+          "body": "{\n  \"name\": \"komsco-ai-console-plugin-kugnus\",\n  \"version\": \"0.1.3\",\n  \"dependencies\": {\n    \"@console/pluginAPI\": \"^4.2",
+          "ok": true,
+          "status": 200,
+          "url": "http://127.0.0.1:9001/plugin-manifest.json"
+        },
+        "name": "local_plugin_dev_server_manifest_reachable",
+        "ok": true,
+        "type": "local_http_probe"
+      }
+    ],
+    "claim": "readiness_only_not_pixel_complete",
+    "missingEvidenceBeforeCompletionClaim": [
+      {
+        "reason": "This WSL-only verifier does not open a browser, click the anomaly card, or capture pixels.",
+        "type": "browser_screenshot"
+      },
+      {
+        "reason": "Live report stores final answer digest/contract checks, not the full answer body snapshot.",
+        "type": "answer_body_snapshot"
+      }
+    ],
+    "nextGate": "browser screenshot or UI verifier artifact for /dashboards anomaly-to-chat cycle"
+  },
+  "status": "pass"
+}

@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ver.0.1.3 현재 상태와 다음 작업</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #667085;
+      --line: #d8dee8;
+      --brand: #1f6feb;
+      --ok: #11845b;
+      --warn: #b7791f;
+      --danger: #b42318;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+      line-height: 1.65;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: var(--paper);
+    }
+
+    nav strong {
+      display: block;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 0;
+      color: #344054;
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    main { padding: 42px; }
+
+    article {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 42px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--paper);
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: 34px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 42px 0 14px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      font-size: 23px;
+    }
+
+    h3 {
+      margin: 22px 0 10px;
+      font-size: 17px;
+    }
+
+    p { margin: 0 0 14px; }
+
+    ul, ol {
+      margin: 10px 0 0;
+      padding-left: 22px;
+    }
+
+    li { margin: 7px 0; }
+
+    code {
+      padding: 2px 6px;
+      border: 1px solid #cbd5e1;
+      border-radius: 5px;
+      background: #f8fafc;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--brand);
+      font-weight: 750;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .meta, .cards {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 20px 0 8px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #fff;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .ok {
+      border-color: #a7f3d0;
+      background: #ecfdf5;
+      color: var(--ok);
+    }
+
+    .warn {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: var(--warn);
+    }
+
+    .card {
+      flex: 1 1 210px;
+      min-height: 112px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .card span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      text-transform: uppercase;
+    }
+
+    .card strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f8fafc;
+      color: #475467;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .callout {
+      margin: 18px 0;
+      padding: 18px;
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      background: #eff6ff;
+    }
+
+    .footer {
+      margin-top: 34px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      nav {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      main { padding: 20px; }
+      article { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav aria-label="문서 목차">
+      <strong>Ver.0.1.3</strong>
+      <a href="#summary">요약</a>
+      <a href="#done">완료된 것</a>
+      <a href="#evidence">검증 증거</a>
+      <a href="#best-cycle">베스트 한 사이클</a>
+      <a href="#next">다음 작업</a>
+      <a href="#guardrails">금지선</a>
+    </nav>
+    <main>
+      <article>
+        <p class="eyebrow">Cywell AI for KOMSCO Operations</p>
+        <h1>Ver.0.1.3 현재 상태와 다음 작업</h1>
+        <p>
+          이 문서는 지금까지 작성된 Ver.0.1.3 내용을 한 장으로 고정한다. 목표는 운영 시나리오 10개를 검증 가능한 계약으로 만들고,
+          공식 Evidence 기반 Pod restart RCA 시나리오 한 사이클을 발표 기준으로 고정하는 것이다.
+        </p>
+
+        <div class="meta">
+          <span class="pill">branch: feat/v.0.1.3</span>
+          <span class="pill">head: 2558dbf</span>
+          <span class="pill ok">scenario evaluator: 10/10 pass</span>
+          <span class="pill ok">negative control: pass</span>
+          <span class="pill warn">deploy/install: 금지</span>
+        </div>
+
+        <section id="summary">
+          <h2>요약</h2>
+          <div class="cards">
+            <div class="card">
+              <span>Scenario contract</span>
+              <strong>10개 고정</strong>
+            </div>
+            <div class="card">
+              <span>Official demo</span>
+              <strong>Evidence RCA</strong>
+            </div>
+            <div class="card">
+              <span>Safety mode</span>
+              <strong>Read-only</strong>
+            </div>
+            <div class="card">
+              <span>Next gate</span>
+              <strong>화면 한 사이클</strong>
+            </div>
+          </div>
+        </section>
+
+        <section id="done">
+          <h2>완료된 것</h2>
+          <ul>
+            <li>Ver.0.1.3 운영 시나리오 10개를 JSON 평가 입력으로 고정했다.</li>
+            <li><code>task kugnus:scenario:verify</code>를 추가하고 0.1.3 report path로 연결했다.</li>
+            <li>evaluator가 ToolPlan, RcaContext, SafetyContract, answer contract를 한 번에 검사한다.</li>
+            <li>답변 안의 실행성 명령, 근거 없는 원인 확정, collected/missing evidence 누락을 실패로 잡는다.</li>
+            <li>Pending Pod / Scheduling 실패가 CronJob activity로 오분류되지 않게 classifier를 수정했다.</li>
+            <li>CrashLoopBackOff demo-cycle offline verifier는 계속 pass다.</li>
+            <li>공식 기준 문서 <code>Evidence_RCA_Scene.md</code>를 기준으로 Tool Plan, RCA Context, final answer 계약을 검증한다.</li>
+          </ul>
+        </section>
+
+        <section id="evidence">
+          <h2>검증 증거</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>검증</th>
+                <th>명령</th>
+                <th>결과</th>
+                <th>산출물</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>10개 운영 시나리오</td>
+                <td><code>task kugnus:scenario:verify</code></td>
+                <td>10/10 pass, negative control pass</td>
+                <td><code>aiops-scenario-evaluation-report.json</code></td>
+              </tr>
+              <tr>
+                <td>CrashLoop demo-cycle contract</td>
+                <td><code>task kugnus:demo:verify</code></td>
+                <td>pass</td>
+                <td><code>crashloop-demo-cycle-verification.json</code></td>
+              </tr>
+              <tr>
+                <td>공식 Evidence RCA scene</td>
+                <td><code>task kugnus:evidence-rca:verify</code></td>
+                <td>pass</td>
+                <td><code>evidence-rca-scene-verification.json</code></td>
+              </tr>
+              <tr>
+                <td>Python syntax</td>
+                <td><code>python3 -m py_compile ...</code></td>
+                <td>pass</td>
+                <td>로컬 실행 로그</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="best-cycle">
+          <h2>베스트 한 사이클</h2>
+          <div class="callout">
+            <strong>공식 목표:</strong> 사용자가 "어제 새벽에 default namespace Pod가 왜 재시작됐어?"라고 묻고,
+            AI Gateway가 event/grep/metric/snapshot evidence 계획과 RCA Context 구조를 만들며,
+            로컬 콘솔에서는 해당 공식 질문을 Cywell AI Troubleshooting 모드에 올리는 것을 증명한다.
+          </div>
+          <ol>
+            <li>대시보드에서 현재 클러스터 컨텍스트와 위험 신호를 확인한다.</li>
+            <li>공식 질문을 chat에 넣어 Pod restart RCA로 분류한다.</li>
+            <li>Tool Plan이 <code>event_tool</code>, <code>grep_tool</code>, <code>metric_tool</code>, <code>snapshot_tool</code>을 선택한다.</li>
+            <li>RCA Context digest와 collected/missing evidence가 답변 footer에 남는다.</li>
+            <li>최종 답변 계약은 RCA, 즉시 조치, 재발 방지책, 참고 증적 관점을 포함한다.</li>
+            <li>action candidate는 제안만 하며 실행하지 않는다.</li>
+            <li>CrashLoopBackOff verifier는 화면/stream 연결 smoke test로 계속 유지한다.</li>
+          </ol>
+          <div class="callout">
+            <strong>주의:</strong> 현재 브라우저 증거는 질문 staging과 Gateway fallback 답변 렌더링 proof다.
+            안정적인 Lightspeed 최종 RCA 완료나 실제 회사 OCP의 <code>default</code> namespace 과거 증적 완전 수집으로 말하지 않는다.
+            최신 코드에서는 공식 namespace restart collector가 Event, Pod snapshot, previous log pattern probe를 read-only로 시도하고,
+            없거나 권한이 부족한 증거는 collected/partial/skipped 상태로 드러낸다.
+          </div>
+        </section>
+
+        <section id="next">
+          <h2>다음 작업</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>순서</th>
+                <th>작업</th>
+                <th>완료 조건</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>공식 Evidence RCA 질문 한 사이클을 재현한다.</td>
+                <td>Tool Plan, RCA Context, final answer contract가 같은 official scenario id로 묶인다.</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>화면 verifier 또는 screenshot evidence를 남긴다.</td>
+                <td><code>/dashboards</code> 기준 캡처와 report가 0.1.3 폴더에 저장된다.</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>발표용 시연 스크립트를 작성한다.</td>
+                <td>3분 안에 Trigger, Evidence, RCA, Action Candidate, Guardrail을 설명할 수 있다.</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td>10개 scenario evaluator를 회귀 게이트로 유지한다.</td>
+                <td>기능 추가 후에도 <code>task kugnus:scenario:verify</code>가 10/10 pass다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="guardrails">
+          <h2>금지선</h2>
+          <ul>
+            <li>회사 OCP에 설치, 배포, catalog 등록, OLM install을 실행하지 않는다.</li>
+            <li><code>oc apply/delete/patch/scale/exec</code>류 mutation 명령을 실행하지 않는다.</li>
+            <li>기존 <code>komsco-ai-console-plugin</code>, <code>lightspeed-console-plugin</code>을 교체하지 않는다.</li>
+            <li>CrashLoop 로그 원문은 민감정보 가능성이 있으므로 표시하지 않고 availability/필요 여부만 다룬다.</li>
+            <li>근거 없는 추정을 RCA 확정처럼 표현하지 않는다.</li>
+          </ul>
+        </section>
+
+        <p class="footer">
+          Source: <code>docs/Ver.0.1.3/README.md</code>,
+          <code>docs/Ver.0.1.3/operational-scenarios-and-demo-cycle.html</code>,
+          <code>docs/Ver.0.1.3/aiops-scenario-evaluation-report.json</code>.
+        </p>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

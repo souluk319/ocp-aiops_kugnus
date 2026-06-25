@@ -1,0 +1,71 @@
+{
+  "id": "namespace-incident-brief",
+  "title": "네임스페이스 단위 장애 브리핑",
+  "question": "payments 네임스페이스에 지금 문제가 있는지 workload, Pod, Event, Route 관점으로 브리핑해줘.",
+  "pageContext": {
+    "namespace": "payments",
+    "route": "namespace-dashboard",
+    "pathname": "/k8s/ns/payments"
+  },
+  "evidenceRefs": [
+    {
+      "collectedAt": "2026-06-25T01:30:00Z",
+      "contentDigest": "sha256:namespace-incident-deployment",
+      "evidenceId": "ev-namespace-incident-deployment",
+      "evidenceType": "deployment",
+      "eventName": "namespace_workload_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "Namespace workload readiness 조회 가능"
+    },
+    {
+      "collectedAt": "2026-06-25T01:30:05Z",
+      "contentDigest": "sha256:namespace-incident-pod",
+      "evidenceId": "ev-namespace-incident-pod",
+      "evidenceType": "pod_status",
+      "eventName": "namespace_pod_status_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "Namespace Pod 상태 조회 가능"
+    },
+    {
+      "collectedAt": "2026-06-25T01:30:10Z",
+      "contentDigest": "sha256:namespace-incident-event",
+      "evidenceId": "ev-namespace-incident-event",
+      "evidenceType": "event",
+      "eventName": "namespace_event_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "Namespace Warning Event 조회 가능"
+    }
+  ],
+  "answer": "네임스페이스 장애 브리핑은 deployment, pod_status, event collected evidence를 workload 기준으로 묶고 cluster-wide 문제와 namespace-local 문제를 분리해야 합니다. alert/runbook은 missing evidence로 표시하고 RCA Context digest를 footer에 남깁니다. 근거 없는 정상 판정은 하지 않습니다.",
+  "expected": {
+    "taskType": "openshift_operational_question",
+    "requiredTools": [
+      "openshift_context_inspection",
+      "lightspeed_streaming_query"
+    ],
+    "requiredEvidenceTypes": [
+      "deployment",
+      "pod_status",
+      "event"
+    ],
+    "requiredMissingEvidenceTypes": [
+      "runbook"
+    ],
+    "requiredAnswerRegex": [
+      "네임스페이스",
+      "workload",
+      "namespace-local",
+      "RCA Context digest"
+    ],
+    "forbiddenAnswerRegex": [
+      "전체 정상으로 확정",
+      "문제 없음으로 확정",
+      "서비스를 재시작"
+    ],
+    "requireMissingEvidence": true,
+    "safetyMode": "read_only"
+  }
+}

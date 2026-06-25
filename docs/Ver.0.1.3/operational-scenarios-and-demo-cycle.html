@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Ver.0.1.3 운영 시나리오와 베스트 데모 목표 사이클</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --line: #d9e2ec;
+      --brand: #1f6feb;
+      --brand-soft: #e8f1ff;
+      --ok: #11845b;
+      --warn: #b7791f;
+      --danger: #b42318;
+      --shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+      line-height: 1.65;
+    }
+
+    a {
+      color: var(--brand);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 24px;
+      border-right: 1px solid var(--line);
+      background: #ffffff;
+      overflow: auto;
+    }
+
+    .toc strong {
+      display: block;
+      margin-bottom: 14px;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .toc a {
+      display: block;
+      padding: 8px 0;
+      color: #334155;
+      font-size: 14px;
+    }
+
+    main {
+      padding: 40px;
+    }
+
+    .paper {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 42px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--brand);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: 34px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 44px 0 14px;
+      padding-top: 8px;
+      font-size: 24px;
+      line-height: 1.35;
+      border-top: 1px solid var(--line);
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 18px;
+      line-height: 1.4;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    ul,
+    ol {
+      margin: 10px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code {
+      padding: 2px 6px;
+      border: 1px solid #cbd5e1;
+      border-radius: 5px;
+      background: #f8fafc;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 22px 0 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .pill.ok {
+      border-color: #a7f3d0;
+      background: #ecfdf5;
+      color: var(--ok);
+    }
+
+    .pill.warn {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: var(--warn);
+    }
+
+    .pill.danger {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: var(--danger);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin: 24px 0 8px;
+    }
+
+    .summary-card,
+    .callout,
+    .scenario,
+    .cycle-step {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #ffffff;
+    }
+
+    .summary-card {
+      padding: 16px;
+    }
+
+    .summary-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .summary-card strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 18px;
+      border-color: #bfdbfe;
+      background: var(--brand-soft);
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      background: #ffffff;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      background: #f8fafc;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .scenario {
+      padding: 16px;
+    }
+
+    .scenario strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .scenario p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .cycle {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .cycle-step {
+      padding: 16px;
+    }
+
+    .cycle-step span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      background: var(--brand);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .cycle-step strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .cycle-step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .gap-list li::marker {
+      color: var(--warn);
+    }
+
+    .criteria li::marker {
+      color: var(--ok);
+    }
+
+    .footer {
+      margin-top: 44px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 920px) {
+      .layout {
+        display: block;
+      }
+
+      .toc {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      main {
+        padding: 20px;
+      }
+
+      .paper {
+        padding: 26px;
+      }
+
+      .summary-grid,
+      .scenario-grid,
+      .cycle {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <nav class="toc" aria-label="문서 목차">
+      <strong>Ver.0.1.3</strong>
+      <a href="#overview">개요</a>
+      <a href="#goal">목표</a>
+      <a href="#current">현재 연결 상태</a>
+      <a href="#scenarios">운영 시나리오 10개</a>
+      <a href="#best">베스트 시나리오</a>
+      <a href="#cycle">완성 목표 사이클</a>
+      <a href="#gaps">현재 gap</a>
+      <a href="#next">다음 작업</a>
+      <a href="#acceptance">완료 조건</a>
+      <a href="#guardrails">하지 않을 것</a>
+    </nav>
+
+    <main>
+      <article class="paper">
+        <p class="eyebrow">KOMSCO AIOps Agent</p>
+        <h1>Ver.0.1.3 운영 시나리오와 베스트 데모 목표 사이클</h1>
+        <p>
+          이 문서는 Ver.0.1.3에서 작성된 운영 시나리오 계획을 HTML 산출물로 고정하고,
+          공식 Evidence 기반 Pod restart RCA 목표 사이클을 다음 구현 작업으로 도입하기 위한 기준 문서다.
+        </p>
+
+        <div class="meta">
+          <span class="pill">branch: feat/v.0.1.3</span>
+          <span class="pill">head: 2558dbf</span>
+          <span class="pill ok">mode: Ver.0.1.3 demo read-only only</span>
+          <span class="pill warn">install/deploy: 별도 승인 전 금지</span>
+        </div>
+
+        <section id="overview">
+          <h2>개요</h2>
+          <p>
+            Ver.0.1.2까지는 로컬 개발 콘솔, gateway, 챗봇 UI, evidence/RCA/실행 상태의 기반을 만든 단계다.
+            Ver.0.1.3부터는 UI를 계속 미세 조정하는 대신 실제 운영자가 겪는 사건을 기준으로 기능을 밀어야 한다.
+          </p>
+          <p>
+            이번 버전은 운영 시나리오 10개를 기준으로 챗봇이 무엇을 물어보고, 어떤 근거를 수집하고,
+            어떤 RCA 답변과 조치 후보를 보여줘야 하는지 고정한다.
+          </p>
+        </section>
+
+        <section id="goal">
+          <h2>목표</h2>
+          <div class="summary-grid">
+            <div class="summary-card">
+              <span>Scenario</span>
+              <strong>10개</strong>
+            </div>
+            <div class="summary-card">
+              <span>Primary demo</span>
+              <strong>Evidence RCA</strong>
+            </div>
+            <div class="summary-card">
+              <span>Safety</span>
+              <strong>Read-only</strong>
+            </div>
+            <div class="summary-card">
+              <span>Progress</span>
+              <strong>10/10 평가 통과</strong>
+            </div>
+          </div>
+          <ul>
+            <li>각 시나리오마다 <code>Trigger -> Evidence -> RCA -> Action Candidate -> UI Output -> Pass/Fail</code>을 둔다.</li>
+            <li>실행성 조치는 <code>제안만 함 / 실행 안 함</code>으로 표시한다.</li>
+            <li>근거가 부족하면 확정 RCA가 아니라 <code>확인 불가</code> 또는 <code>추가 확인 필요</code>로 표현한다.</li>
+            <li>먼저 하나의 검증 가능한 발표용 목표 사이클을 만든 뒤 10개 시나리오로 확장한다.</li>
+          </ul>
+        </section>
+
+        <section id="current">
+          <h2>현재 연결 상태</h2>
+          <p>
+            현재 코드상으로는 overview, anomaly, action candidate, status, chat stream의 주요 연결점이 존재한다.
+            따라서 베스트 시나리오 한 사이클은 완전히 새로 만드는 작업이 아니라, 이미 있는 연결을 한 사건 기준으로 강하게 묶는 작업이다.
+          </p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>영역</th>
+                  <th>현재 근거</th>
+                  <th>의미</th>
+                  <th>현재 gap</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Cluster overview</td>
+                  <td><code>/v1/aiops/overview</code></td>
+                  <td>노드, operator, metrics, 데이터 소스 상태를 묶어 관제탑 카드로 보여줄 수 있다.</td>
+                  <td>시연 시나리오와 직접 연결되는 강조 표시가 더 필요하다.</td>
+                </tr>
+                <tr>
+                  <td>Anomaly 탐지</td>
+                  <td><code>/v1/aiops/anomalies</code></td>
+                  <td>CrashLoopBackOff, ImagePullBackOff, restart spike 같은 이상 신호를 찾을 수 있다.</td>
+                  <td>선택한 anomaly를 chat prompt로 넘기는 단일 흐름이 아직 약하다.</td>
+                </tr>
+                <tr>
+                  <td>조치 후보</td>
+                  <td><code>/v1/aiops/action-candidates</code></td>
+                  <td>read-only 정책 안에서 확인 명령과 선행 점검을 제안할 수 있다.</td>
+                  <td>현재 chat 답변과 같은 finding id로 묶이는지 추가 검증이 필요하다.</td>
+                </tr>
+                <tr>
+                  <td>Chat stream</td>
+                  <td><code>/v1/chat/stream</code></td>
+                  <td>운영 질문을 받아 RCA 답변과 evidence footer를 생성할 수 있다.</td>
+                  <td>발표용 질문 템플릿과 기대 출력 기준을 고정해야 한다.</td>
+                </tr>
+                <tr>
+                  <td>Frontend proxy</td>
+                  <td><code>komsco-ai-console-plugin-kugnus</code> proxy path</td>
+                  <td>로컬 console plugin에서 gateway API로 연결한다.</td>
+                  <td>로컬 dev 상태에서는 서버 재시작/포트 점유 상태를 항상 확인해야 한다.</td>
+                </tr>
+                <tr>
+                  <td>Scenario evaluator</td>
+                  <td><code>task kugnus:scenario:verify</code></td>
+                  <td>Ver.0.1.3 운영 시나리오 10개를 offline contract로 검증한다.</td>
+                  <td>현재 10/10 pass. 다음 단계는 화면 시연 한 사이클 증거 고정이다.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="scenarios">
+          <h2>운영 시나리오 10개</h2>
+          <div class="scenario-grid">
+            <div class="scenario">
+              <strong>1. 클러스터 전체 상태 브리핑</strong>
+              <p>ClusterVersion, Operator, Node, Pod, metrics availability를 근거로 정상/주의/위험을 나눈다.</p>
+            </div>
+            <div class="scenario">
+              <strong>2. ClusterNotUpgradeable 분석</strong>
+              <p>AdminAckRequired, update 가능 여부, operator 상태를 분리해서 업그레이드 차단 원인을 설명한다.</p>
+            </div>
+            <div class="scenario">
+              <strong>3. Control Plane 메모리 압박</strong>
+              <p>alert와 node metrics를 기준으로 현재 장애와 장애 위험 경고를 구분한다.</p>
+            </div>
+            <div class="scenario">
+              <strong>4. etcd DB Fragmentation 경고</strong>
+              <p>defrag 자동 실행이 아니라 점검, 백업, 승인, maintenance window 필요성을 분리한다.</p>
+            </div>
+            <div class="scenario">
+              <strong>5. Pod NotReady 장기화</strong>
+              <p>readiness, image pull, scheduling, resource pressure 후보를 namespace/name/kind와 함께 표시한다.</p>
+            </div>
+            <div class="scenario">
+              <strong>6. CrashLoopBackOff 원인 분석</strong>
+              <p>waiting reason, restart count, events, logs 필요 여부로 설정 오류/app crash/dependency/resource 후보를 나눈다.</p>
+            </div>
+            <div class="scenario">
+              <strong>7. ImagePullBackOff / ErrImagePull</strong>
+              <p>image name, pull secret, registry endpoint, event message로 인증/접근/tag 문제를 구분한다.</p>
+            </div>
+            <div class="scenario">
+              <strong>8. Pending Pod / Scheduling 실패</strong>
+              <p>scheduler event, taint, resource request, PVC, affinity 문제를 확인 순서로 정리한다.</p>
+            </div>
+            <div class="scenario">
+              <strong>9. 네임스페이스 단위 장애 브리핑</strong>
+              <p>workload readiness, event, alert, service/route를 namespace-local 관점으로 묶는다.</p>
+            </div>
+            <div class="scenario">
+              <strong>10. 장애 후 조치 후보 검토</strong>
+              <p>RCA context digest, collected/missing evidence, safety mode를 바탕으로 실행 전 제안만 제공한다.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="best">
+          <h2>베스트 시나리오</h2>
+          <div class="callout">
+            <strong>선정: Evidence 기반 Pod restart RCA</strong>
+            공식 기준 문서는 <code>docs/Ver.0.1.3/Evidence_RCA_Scene.md</code>다.
+            발표 질문은 <code>어제 새벽에 default namespace Pod가 왜 재시작됐어?</code>이며,
+            이 흐름은 event, grep/log-pattern, metric, snapshot evidence 계획과 RCA Context 구조를 묶는 것을 목표로 한다.
+          </div>
+          <h3>선정 이유</h3>
+          <ul>
+            <li>사용자 질문에서 시작해 Tool Plan, Evidence 구조화, RCA Context, Lightspeed handoff 계약까지 한 사이클을 설명할 수 있다.</li>
+            <li>event_tool, grep_tool, metric_tool, snapshot_tool이 모두 등장해 AIOps 관제탑의 차별점을 보여준다.</li>
+            <li>raw log 원문을 노출하지 않고 pattern/digest 기반으로 안전하게 RCA를 구성하는 기준을 보여준다.</li>
+            <li>CrashLoopBackOff 흐름은 공식 목표가 아니라 화면/stream 연결 smoke test로 유지한다.</li>
+          </ul>
+          <div class="callout">
+            <strong>현재 증거 수준:</strong> 브라우저 증거는 공식 질문 staging과 Gateway fallback RCA 답변 렌더링 proof다.
+            안정적인 Lightspeed 최종 RCA 완료나 실제 <code>default</code> namespace 과거 증적 완전 수집으로 말하지 않는다.
+            최신 코드에서는 공식 namespace restart collector가 Event, Pod snapshot, previous log pattern probe를 read-only로 시도하고,
+            없거나 권한이 부족한 증거는 collected/partial/skipped 상태로 드러낸다.
+          </div>
+        </section>
+
+        <section id="cycle">
+          <h2>완성 목표 사이클</h2>
+          <div class="cycle">
+            <div class="cycle-step">
+              <span>1</span>
+              <strong>관제탑 진입</strong>
+              <p>대시보드에서 cluster overview와 risk signal을 확인한다.</p>
+            </div>
+            <div class="cycle-step">
+              <span>2</span>
+              <strong>공식 질문 입력</strong>
+              <p>사용자가 "어제 새벽에 default namespace Pod가 왜 재시작됐어?"라고 묻는다.</p>
+            </div>
+            <div class="cycle-step">
+              <span>3</span>
+              <strong>Tool Plan 생성</strong>
+              <p>event_tool, grep_tool, metric_tool, snapshot_tool이 안전한 read-only adapter로 매핑된다.</p>
+            </div>
+            <div class="cycle-step">
+              <span>4</span>
+              <strong>RCA 답변</strong>
+              <p>restart count, waiting reason, event, logs 필요 여부를 근거로 원인 후보를 분리한다.</p>
+            </div>
+            <div class="cycle-step">
+              <span>5</span>
+              <strong>근거 표시</strong>
+              <p>collected/missing evidence와 RCA Context digest를 답변 하단에 붙인다.</p>
+            </div>
+            <div class="cycle-step">
+              <span>6</span>
+              <strong>조치 후보</strong>
+              <p>확인 명령과 점검 순서를 제안하되 apply/delete/patch/scale/exec는 차단 상태로 둔다.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="gaps">
+          <h2>현재 gap</h2>
+          <ul class="gap-list">
+            <li>anomaly card에서 chat composer로 이어지는 draft prompt 흐름은 연결됐다.</li>
+            <li>chat run, RCA Context, action candidate가 같은 finding id를 end-to-end로 공유하는지 verifier가 검증한다.</li>
+            <li>CrashLoop event evidence는 collected, previous log availability는 raw log 노출 없이 partial evidence로 기록된다.</li>
+            <li>공식 Evidence RCA 답변 구조는 RCA, 즉시 조치, 재발 방지책, 참고 증적 관점으로 강제되고 verifier가 검사한다.</li>
+            <li>chat stream 완료 후 dashboard refresh callback이 연결되어 관제탑 상태 갱신이 수동 새로고침에만 의존하지 않는다.</li>
+            <li>10개 전체 시나리오 evaluator는 Ver.0.1.3 기준으로 확장됐고 10/10 pass다.</li>
+            <li>classifier는 Pending Pod / Scheduling 실패를 CronJob activity로 오분류하지 않도록 보정됐다.</li>
+            <li>demo namespace allowlist, mutation disabled, write verb 미실행은 live verifier artifact로 남긴다.</li>
+          </ul>
+        </section>
+
+        <section id="next">
+          <h2>다음 작업</h2>
+          <ol>
+            <li><strong>Official Evidence RCA 고정:</strong> 공식 질문, Tool Plan, RCA Context, final answer contract가 같은 기준으로 검증되는지 확인한다.</li>
+            <li><strong>Scenario evaluator 유지:</strong> 10개 운영 시나리오 입력, evidence requirement, pass/fail 기준을 회귀 검증한다.</li>
+            <li><strong>Demo verifier 유지:</strong> overview, anomalies, chat stream, action candidates는 화면/stream 연결 smoke test로 계속 pass/fail 리포트를 남긴다.</li>
+          </ol>
+        </section>
+
+        <section id="acceptance">
+          <h2>완료 조건</h2>
+          <ul class="criteria">
+            <li>공식 질문이 Pod restart RCA로 분류된다.</li>
+            <li>Tool Plan에 event_tool, grep_tool, metric_tool, snapshot_tool 대응 항목이 포함된다.</li>
+            <li>챗봇 답변이 Event, log pattern/digest, metric, snapshot evidence 상태를 포함한다.</li>
+            <li>근거 부족 항목은 root cause로 확정하지 않는다.</li>
+            <li>답변 하단에 RCA Context digest와 collected/missing evidence가 표시된다.</li>
+            <li>live verifier에서 event evidence, pod log pattern/availability evidence, snapshot evidence가 stream tool_result로 나온다.</li>
+            <li>live verifier에서 5개 답변 섹션 순서, raw log 미노출, mutation code block 미포함을 확인한다.</li>
+            <li>chat completion 후 dashboard refresh callback이 연결되어 있다.</li>
+            <li>action candidate는 read-only 제안으로 표시되고 실행성 명령은 차단된다.</li>
+            <li>시연자가 화면을 보며 한 사이클을 3분 안에 설명할 수 있다.</li>
+            <li>10개 운영 시나리오 evaluator가 10/10 pass이며 negative control도 pass다.</li>
+            <li>검증 리포트에 같은 finding id 또는 scenario id, RCA digest, collected/missing evidence count, forbidden mutation verbs, mutation disabled 상태가 남는다.</li>
+            <li>CrashLoop 로그 원문은 표시하지 않고, redacted/truncated 기준으로 필요 여부만 설명한다.</li>
+          </ul>
+        </section>
+
+        <section id="guardrails">
+          <h2>하지 않을 것</h2>
+          <ul>
+            <li>회사 OCP에 설치/배포하지 않는다.</li>
+            <li><code>oc apply</code>, <code>oc delete</code>, <code>oc patch</code>, <code>oc scale</code>, <code>oc exec</code>를 실행하지 않는다.</li>
+            <li>기존 <code>komsco-ai-console-plugin</code> 또는 <code>lightspeed-console-plugin</code>을 교체하지 않는다.</li>
+            <li>UI 미세 수정으로 Ver.0.1.3 기능 작업을 지연시키지 않는다.</li>
+            <li>근거 없는 추정을 정상 RCA처럼 보여주지 않는다.</li>
+          </ul>
+        </section>
+
+        <p class="footer">
+          Source: <code>docs/Ver.0.1.3/README.md</code>, <code>docs/Ver.0.1.3/aiops-scenario-evaluation-report.json</code>, gateway/frontend route 확인 결과,
+          2026-06-25 현재 로컬 개발 콘솔 기준 판단.
+        </p>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

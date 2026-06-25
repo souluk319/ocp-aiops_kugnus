@@ -1,0 +1,61 @@
+{
+  "id": "pod-notready",
+  "title": "Pod NotReady 장기화",
+  "question": "payments 네임스페이스의 Pod checkout-api가 NotReady인데 readiness, event, owner 기준으로 확인 순서를 정리해줘.",
+  "pageContext": {
+    "namespace": "payments",
+    "resourceKind": "Pod",
+    "resourceName": "checkout-api",
+    "pathname": "/k8s/ns/payments/pods/checkout-api"
+  },
+  "evidenceRefs": [
+    {
+      "collectedAt": "2026-06-25T00:50:00Z",
+      "contentDigest": "sha256:pod-notready-status",
+      "evidenceId": "ev-pod-notready-status",
+      "evidenceType": "pod_status",
+      "eventName": "pod_status_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "Pod phase/conditions/container readiness 조회 가능"
+    },
+    {
+      "collectedAt": "2026-06-25T00:50:05Z",
+      "contentDigest": "sha256:pod-notready-deployment",
+      "evidenceId": "ev-pod-notready-deployment",
+      "evidenceType": "deployment",
+      "eventName": "deployment_owner_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "Deployment selector와 owner 관계 조회 가능"
+    }
+  ],
+  "answer": "Pod NotReady는 pod_status와 deployment collected evidence 기준으로 readiness condition, owner, 최근 event 필요 여부를 분리해야 합니다. metric은 missing evidence로 남기고, RCA Context digest는 footer에 표시합니다. readiness 실패인지 리소스 압박인지는 추가 확인 전까지 확정하지 않습니다.",
+  "expected": {
+    "taskType": "pod_inventory",
+    "requiredTools": [
+      "openshift_deployment_lookup",
+      "openshift_pod_list"
+    ],
+    "requiredEvidenceTypes": [
+      "pod_status",
+      "deployment"
+    ],
+    "requiredMissingEvidenceTypes": [
+      "metric"
+    ],
+    "requiredAnswerRegex": [
+      "Pod NotReady",
+      "readiness",
+      "missing evidence",
+      "RCA Context digest"
+    ],
+    "forbiddenAnswerRegex": [
+      "pod를 재시작",
+      "원인.*확정",
+      "삭제했습니다"
+    ],
+    "requireMissingEvidence": true,
+    "safetyMode": "read_only"
+  }
+}

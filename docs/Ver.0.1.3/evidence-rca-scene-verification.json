@@ -1,0 +1,254 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "generatedAt": "2026-06-25T07:44:45.084368Z",
+  "kind": "EvidenceRcaSceneVerification",
+  "metadata": {
+    "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
+    "branch": "feat/v.0.1.3",
+    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "name": "ver-0.1.3-official-evidence-rca-scene",
+    "source": "docs/Ver.0.1.3/Evidence_RCA_Scene.md"
+  },
+  "spec": {
+    "checks": [
+      {
+        "evidence": {
+          "missing": []
+        },
+        "name": "official_scene_doc_present",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "target": {
+            "platform": "openshift",
+            "namespace": "default"
+          },
+          "question": "어제 새벽에 default namespace Pod가 왜 재시작됐어?"
+        },
+        "name": "official_question_parses_default_namespace_without_page_context",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "actualAliases": [
+            "event_tool",
+            "grep_tool",
+            "metric_tool",
+            "snapshot_tool"
+          ],
+          "requiredAliases": [
+            "event_tool",
+            "grep_tool",
+            "metric_tool",
+            "snapshot_tool"
+          ],
+          "tools": [
+            "openshift_alert_lookup",
+            "openshift_clusteroperator_lookup",
+            "openshift_event_lookup",
+            "openshift_metric_query",
+            "openshift_node_status_lookup",
+            "openshift_pod_log_pattern_probe",
+            "openshift_pod_snapshot_lookup",
+            "openshift_pod_status_lookup"
+          ]
+        },
+        "name": "official_tool_aliases_present",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "actualEvidenceTypes": [
+            "alert",
+            "clusteroperator",
+            "event",
+            "metric",
+            "node",
+            "pod_log",
+            "pod_status",
+            "snapshot"
+          ],
+          "requiredEvidenceTypes": [
+            "event",
+            "metric",
+            "pod_log",
+            "snapshot"
+          ]
+        },
+        "name": "official_evidence_types_planned",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "collectedTypes": [
+            "event",
+            "metric",
+            "pod_log",
+            "snapshot"
+          ]
+        },
+        "name": "official_evidence_types_collected_in_context",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "missingTypes": [
+            "clusteroperator",
+            "runbook"
+          ],
+          "requiredEvidenceTypes": [
+            "event",
+            "metric",
+            "pod_log",
+            "snapshot"
+          ]
+        },
+        "name": "official_required_evidence_not_missing_in_context",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "officialScene": {
+            "name": "Evidence 기반 AI 장애 분석 시나리오",
+            "questionExample": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+            "toolPlanAliases": [
+              "event_tool",
+              "snapshot_tool",
+              "grep_tool",
+              "metric_tool"
+            ],
+            "requiredToolAliases": [
+              "event_tool",
+              "grep_tool",
+              "metric_tool",
+              "snapshot_tool"
+            ],
+            "rcaContextContract": {
+              "mustStructure": [
+                "collected evidence",
+                "root cause candidates",
+                "confidence",
+                "action candidates",
+                "lightspeed handoff"
+              ],
+              "rootCauseCandidates": [
+                "OOMKilled",
+                "Eviction",
+                "NodePressure",
+                "application error pattern",
+                "configuration or dependency failure"
+              ],
+              "actionCandidateMode": "proposal_only_read_only",
+              "lightspeedHandoff": {
+                "includeRcaContext": true,
+                "includeRunbook": "when available"
+              },
+              "finalAnswerSections": [
+                "RCA",
+                "즉시 조치",
+                "재발 방지책",
+                "참고 증적"
+              ]
+            }
+          }
+        },
+        "name": "official_scene_embedded_in_rca_context",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "actionCandidateCount": 2,
+          "causeCandidateCount": 3,
+          "confidence": {
+            "level": "evidence_based",
+            "reason": "runtime evidence references are attached"
+          }
+        },
+        "name": "rca_context_structures_cause_confidence_action",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "podLogRefs": [
+            {
+              "collectedAt": "2026-06-25T00:00:00Z",
+              "contentDigest": "sha256:official-grep-tool",
+              "evidenceId": "official-grep-tool",
+              "evidenceType": "pod_log",
+              "lineCount": 0,
+              "matchedPatternIds": [
+                "OOMKilled",
+                "Exception",
+                "Back-off"
+              ],
+              "patternCounts": {
+                "Back-off": 1,
+                "Exception": 0,
+                "OOMKilled": 1
+              },
+              "rawLogDisclosure": false,
+              "sourceType": "gateway-official-scene-fixture",
+              "status": "success",
+              "summary": "grep_tool: raw logs withheld; pattern counts extracted for OOMKilled, Exception, Back-off",
+              "type": "pod_log"
+            }
+          ]
+        },
+        "name": "pod_log_is_pattern_digest_not_raw_text",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "mode": "read-only",
+          "submittedMode": "unrestricted"
+        },
+        "name": "server_forces_readonly_for_readonly_demo_context",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "requiredSections": [
+            "RCA",
+            "즉시 조치",
+            "재발 방지책",
+            "참고 증적"
+          ]
+        },
+        "name": "official_final_answer_sections_present",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "rawLogCommandPattern": "(?im)^\\s*oc\\s+logs\\b"
+        },
+        "name": "official_answer_contract_has_no_raw_log_dump_command",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "mutationCommandPattern": "(?im)^\\s*(?:oc|kubectl)\\s+(?:apply|delete|patch|scale|exec|replace|create|edit|set|adm\\s+drain|rollout\\s+restart)\\b"
+        },
+        "name": "official_answer_contract_has_no_mutation_command",
+        "ok": true
+      },
+      {
+        "evidence": {
+          "missingSourceTokens": [],
+          "source": "komsco-ai-gateway/komsco_ai_gateway/main.py"
+        },
+        "name": "runtime_snapshot_evidence_collector_wired",
+        "ok": true
+      }
+    ],
+    "officialQuestion": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+    "rcaContextDigest": "sha256:dfb9ad66129074fb726c5333a5f4cc21b44d597df8e718c420f9006a38f69d56",
+    "toolAliases": [
+      "event_tool",
+      "grep_tool",
+      "metric_tool",
+      "snapshot_tool"
+    ]
+  },
+  "status": "pass"
+}

@@ -12,6 +12,10 @@ is_wsl() {
 
 # Plugin metadata is declared in package.json
 PLUGIN_NAME=${npm_package_consolePlugin_name:-komsco-ai-console-plugin-kugnus}
+PLUGIN_DEV_SERVER_PATH=${PLUGIN_DEV_SERVER_PATH:-}
+if [ -z "$PLUGIN_DEV_SERVER_PATH" ]; then
+    PLUGIN_DEV_SERVER_PATH="/api/plugins/${PLUGIN_NAME}"
+fi
 
 echo "Starting local OpenShift console..."
 
@@ -73,18 +77,18 @@ echo "Console Platform: $CONSOLE_IMAGE_PLATFORM"
 if [ -x "$(command -v podman)" ]; then
     if [ "$(uname -s)" = "Linux" ] && ! is_wsl; then
         # Use host networking on Linux since host.containers.internal is unreachable in some environments.
-        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://localhost:9001"
+        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://localhost:9001${PLUGIN_DEV_SERVER_PATH}"
         podman run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm --network=host --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
     else
-        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://host.containers.internal:9001"
+        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://host.containers.internal:9001${PLUGIN_DEV_SERVER_PATH}"
         podman run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm -p "$CONSOLE_PORT":9000 --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
     fi
 else
     if [ "$(uname -s)" = "Linux" ] && ! is_wsl; then
-        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://localhost:9001"
+        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://localhost:9001${PLUGIN_DEV_SERVER_PATH}"
         docker run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm --network=host --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
     else
-        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://host.docker.internal:9001"
+        export BRIDGE_PLUGINS="${PLUGIN_NAME}=http://host.docker.internal:9001${PLUGIN_DEV_SERVER_PATH}"
         docker run --pull always --platform $CONSOLE_IMAGE_PLATFORM --rm -p "$CONSOLE_PORT":9000 --env-file <(env | grep '^BRIDGE_') $CONSOLE_IMAGE
     fi
 fi

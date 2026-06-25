@@ -28,6 +28,7 @@ import {
   fetchClusterSummary,
 } from '../services/aiGateway';
 import AssistantLauncher from '../components/AssistantLauncher';
+import { safeEvidenceText } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
 import './aiops-pages.css';
 
@@ -41,6 +42,13 @@ type AiopsPageData = {
 };
 
 type Tone = 'danger' | 'info' | 'success' | 'warning';
+
+type AssistantDraftPromptRequest = {
+  id: string;
+  pageContext: Record<string, unknown>;
+  prompt: string;
+  taskMode: 'troubleshooting';
+};
 
 const ProductIcon: React.FC = () => (
   <img alt="" className="komsco-ai-page__product-icon" src={kIcon} />
@@ -408,7 +416,116 @@ const actionCandidateTargetLabel = (candidate: AiopsActionCandidate): string => 
   return `${namespace}/${kind}/${name}`;
 };
 
-const AnomalySummaryBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
+const findingTargetParts = (finding: AiopsAnomalyFinding): { kind: string; name: string; namespace: string } => {
+  const resource = finding.resource ?? {};
+  return {
+    kind: resource.kind || finding.category || 'Resource',
+    name: resource.name || finding.title,
+    namespace: finding.namespace || resource.namespace || 'cluster-scoped',
+  };
+};
+
+const isCrashLoopFinding = (finding: AiopsAnomalyFinding): boolean => {
+  const haystack = [
+    finding.type,
+    finding.reason,
+    finding.title,
+    finding.message,
+    finding.evidence,
+    finding.statusLabel,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return haystack.includes('crashloop') || finding.type === 'pod_crashloop';
+};
+
+const actionCandidateMatchesFinding = (
+  candidate: AiopsActionCandidate,
+  finding: AiopsAnomalyFinding,
+): boolean => {
+  if (candidate.sourceFindingId && candidate.sourceFindingId === finding.id) {
+    return true;
+  }
+
+  const target = candidate.target ?? {};
+  const findingTarget = findingTargetParts(finding);
+  return (
+    target.namespace === findingTarget.namespace &&
+    target.name === findingTarget.name &&
+    (!target.kind || !findingTarget.kind || target.kind === findingTarget.kind)
+  );
+};
+
+const findingEvidenceText = (finding: AiopsAnomalyFinding, fallback = '근거 수집 중'): string =>
+  safeEvidenceText(finding.evidence || finding.message, fallback);
+
+const findingNextCheckText = (
+  finding: AiopsAnomalyFinding,
+  fallback = '관련 Pod 상태, 이벤트, 로그 가능 여부 확인',
+): string => safeEvidenceText(finding.nextCheck, fallback);
+
+const buildFindingDemoPrompt = (
+  finding: AiopsAnomalyFinding,
+  candidate?: AiopsActionCandidate,
+): string => {
+  const target = anomalyResourceLabel(finding);
+  const candidateLine = candidate
+    ? `연결된 조치 후보: ${candidate.title} / ${candidate.statusLabel || '제안만 함 / 실행 안 함'}`
+    : '연결된 조치 후보: 아직 특정 후보와 강하게 묶이지 않았으니 확인 필요로 표시';
+
+  return [
+    '다음 OpenShift 이상 징후를 read-only로 RCA 분석해줘.',
+    '',
+    `시나리오: CrashLoopBackOff 원인 분석`,
+    `findingId: ${finding.id}`,
+    `대상: ${target}`,
+    `심각도: ${finding.severity}`,
+    `원인 후보: ${finding.candidateCause || finding.reason || '추가 확인 필요'}`,
+    `현재 근거: ${findingEvidenceText(finding)}`,
+    `다음 확인: ${findingNextCheckText(finding)}`,
+    candidateLine,
+    '',
+    '답변 형식:',
+    '1. 확인된 근거',
+    '2. 가능한 원인 후보',
+    '3. 추가 확인 필요 근거',
+    '4. 실행하지 않는 read-only 확인 순서',
+    '5. 금지된 mutation 동작과 승인 필요 여부',
+    '',
+    '주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. apply/delete/patch/scale/exec 같은 실행성 조치는 제안만 하고 실행하지 마.',
+  ].join('\n');
+};
+
+const buildFindingDemoDraft = (
+  finding: AiopsAnomalyFinding,
+  candidate?: AiopsActionCandidate,
+): AssistantDraftPromptRequest => {
+  const target = findingTargetParts(finding);
+  return {
+    id: `${finding.id}-${Date.now()}`,
+    pageContext: {
+      candidateId: candidate?.id,
+      candidateStatusLabel: candidate?.statusLabel,
+      findingId: finding.id,
+      findingTitle: finding.title,
+      readOnlyOnly: true,
+      scenarioId: isCrashLoopFinding(finding) ? 'crashloop' : finding.type,
+      selectedAt: new Date().toISOString(),
+      source: 'aiops-dashboard-anomaly-board',
+      target,
+    },
+    prompt: buildFindingDemoPrompt(finding, candidate),
+    taskMode: 'troubleshooting',
+  };
+};
+
+const AnomalySummaryBoard: React.FC<{
+  activeFindingId?: string;
+  onAnalyzeFinding?: (finding: AiopsAnomalyFinding) => void;
+  overview: AiopsOverview | null;
+}> = ({ activeFindingId, onAnalyzeFinding, overview }) => {
   const anomalies = overview?.spec.anomalies?.spec;
   const status = anomalies?.status ?? (overview ? 'unknown' : 'loading');
   const tone = anomalyStatusTone(status);
@@ -467,8 +584,15 @@ const AnomalySummaryBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ove
         <div className="komsco-ai-page__anomaly-list" data-visible-anomaly-count={topFindings.length}>
           {topFindings.map((finding) => {
             const findingTone = anomalySeverityTone(finding.severity);
+            const crashLoopDemo = isCrashLoopFinding(finding);
+            const active = activeFindingId === finding.id;
             return (
-              <article className={`komsco-ai-page__anomaly-item is-${findingTone}`} key={finding.id}>
+              <article
+                className={`komsco-ai-page__anomaly-item is-${findingTone}${active ? ' is-active-demo' : ''}`}
+                data-aiops-finding-id={finding.id}
+                data-aiops-scenario={crashLoopDemo ? 'crashloop' : finding.type}
+                key={finding.id}
+              >
                 <div className="komsco-ai-page__anomaly-item-head">
                   <span>{finding.severity}</span>
                   <strong>{finding.title}</strong>
@@ -480,10 +604,24 @@ const AnomalySummaryBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ove
                   <dt>원인 후보</dt>
                   <dd>{finding.candidateCause || finding.reason || '추가 확인 필요'}</dd>
                   <dt>근거</dt>
-                  <dd>{finding.evidence || finding.message || '근거 수집 중'}</dd>
+                  <dd>{findingEvidenceText(finding)}</dd>
                   <dt>다음 확인</dt>
-                  <dd>{finding.nextCheck || '관련 리소스 상태와 이벤트 확인'}</dd>
+                  <dd>{findingNextCheckText(finding, '관련 리소스 상태와 이벤트 확인')}</dd>
                 </dl>
+                <div className="komsco-ai-page__anomaly-actions">
+                  {crashLoopDemo && <span className="komsco-ai-page__demo-badge">0.1.3 demo</span>}
+                  {active && <span className="komsco-ai-page__demo-badge is-active">질문에 연결됨</span>}
+                  {crashLoopDemo && (
+                    <Button
+                      data-aiops-demo-action="seed-chat-prompt"
+                      isInline
+                      onClick={() => onAnalyzeFinding?.(finding)}
+                      variant="link"
+                    >
+                      챗봇으로 RCA 질문 생성
+                    </Button>
+                  )}
+                </div>
               </article>
             );
           })}
@@ -992,6 +1130,9 @@ const RecordTable: React.FC<{
 export const AiopsDashboardPage: React.FC = () => {
   const data = useAiopsPageData();
   const assistantStageRef = React.useRef<HTMLElement | null>(null);
+  const [assistantDraftPrompt, setAssistantDraftPrompt] = React.useState<
+    AssistantDraftPromptRequest | undefined
+  >();
   const actionCount = actionRecords(data.status).length;
   const auditCount = data.status?.spec.records.auditRecords?.length ?? 0;
   const actionCountValue = data.status ? actionCount : '-';
@@ -1006,13 +1147,29 @@ export const AiopsDashboardPage: React.FC = () => {
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
   const controlTower = data.overview?.spec.controlTower;
   const focusAssistant = React.useCallback(() => {
-    assistantStageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    assistantStageRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' });
     window.setTimeout(() => {
       assistantStageRef.current
         ?.querySelector<HTMLElement>('.komsco-ai__input textarea, .komsco-ai__input')
         ?.focus();
     }, 250);
   }, []);
+  const activeDemoFindingId =
+    typeof assistantDraftPrompt?.pageContext.findingId === 'string'
+      ? assistantDraftPrompt.pageContext.findingId
+      : undefined;
+  const seedFindingPrompt = React.useCallback(
+    (finding: AiopsAnomalyFinding) => {
+      const candidates = data.overview?.spec.actionCandidates?.spec?.candidates ?? [];
+      const matchingCandidate = candidates.find((candidate) =>
+        actionCandidateMatchesFinding(candidate, finding),
+      );
+
+      setAssistantDraftPrompt(buildFindingDemoDraft(finding, matchingCandidate));
+      focusAssistant();
+    },
+    [data.overview, focusAssistant],
+  );
 
   return (
     <PageShell data={data} eyebrow="Cywell AI" icon={<ProductIcon />} title="Cywell AI">
@@ -1084,7 +1241,11 @@ export const AiopsDashboardPage: React.FC = () => {
         />
       </div>
 
-      <AnomalySummaryBoard overview={data.overview} />
+      <AnomalySummaryBoard
+        activeFindingId={activeDemoFindingId}
+        onAnalyzeFinding={seedFindingPrompt}
+        overview={data.overview}
+      />
 
       <ActionCandidateBoard overview={data.overview} />
 
@@ -1095,7 +1256,13 @@ export const AiopsDashboardPage: React.FC = () => {
         className="komsco-ai-page__assistant-stage"
         aria-label="Cywell AI assistant"
       >
-        <AssistantLauncher defaultOpen embedded lockOpen />
+        <AssistantLauncher
+          defaultOpen
+          draftPrompt={assistantDraftPrompt}
+          embedded
+          lockOpen
+          onRunComplete={data.refresh}
+        />
       </section>
 
       <div className="komsco-ai-page__dashboard-grid">

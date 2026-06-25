@@ -13,8 +13,10 @@ PRODUCT_CONTRACT = {
 
 READ_ONLY_VERBS = frozenset({"get", "list", "watch"})
 FORBIDDEN_ACTIONS = (
+    "apply",
     "create",
     "update",
+    "replace",
     "patch",
     "delete",
     "exec",
@@ -22,9 +24,28 @@ FORBIDDEN_ACTIONS = (
     "restart",
     "scale",
     "rollout",
+    "label",
+    "annotate",
+    "cordon",
+    "drain",
+    "uncordon",
 )
 
 OPENSHIFT_ADAPTER_TOOLS = (
+    {
+        "tool": "openshift_context_inspection",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["openshift_api"],
+        "description": "Read the current OpenShift console context and accessible resource summary.",
+    },
+    {
+        "tool": "lightspeed_streaming_query",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["openshift"],
+        "description": "Ask OpenShift Lightspeed with Gateway-provided read-only context.",
+    },
     {
         "tool": "openshift_event_lookup",
         "status": "available",
@@ -36,15 +57,29 @@ OPENSHIFT_ADAPTER_TOOLS = (
         "tool": "openshift_pod_status_lookup",
         "status": "available",
         "verbs": ["list"],
-        "evidenceTypes": ["pod_status"],
+        "evidenceTypes": ["pod_status", "snapshot"],
         "description": "Read Pod phase, container readiness, restart counts, and last state.",
     },
     {
-        "tool": "openshift_pod_log_tail",
+        "tool": "openshift_pod_snapshot_lookup",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["snapshot"],
+        "description": "Read a point-in-time Pod/OCP snapshot for Evidence RCA scene context.",
+    },
+    {
+        "tool": "openshift_pod_list",
+        "status": "available",
+        "verbs": ["list"],
+        "evidenceTypes": ["pod_status"],
+        "description": "Read accessible Pods and ready/running status for inventory questions.",
+    },
+    {
+        "tool": "openshift_pod_log_pattern_probe",
         "status": "available",
         "verbs": ["get"],
         "evidenceTypes": ["pod_log"],
-        "description": "Read Pod logs when the user token has log access.",
+        "description": "Probe previous Pod logs for safe pattern/digest evidence without exposing raw log text.",
     },
     {
         "tool": "openshift_deployment_lookup",
@@ -104,6 +139,23 @@ OPENSHIFT_ADAPTER_TOOLS = (
     },
 )
 
+AI_GATEWAY_ADAPTER_TOOLS = (
+    {
+        "tool": "gateway_pending_action_plan_lookup",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["audit"],
+        "description": "Read pending action plans from the local AI Gateway audit context.",
+    },
+    {
+        "tool": "gateway_safety_policy_check",
+        "status": "available",
+        "verbs": ["get"],
+        "evidenceTypes": ["audit"],
+        "description": "Read AI Gateway safety gates before any action candidate is shown.",
+    },
+)
+
 LINUX_ADAPTER_TOOLS = (
     "journalctl_readonly_tail",
     "systemctl_status_readonly",
@@ -132,6 +184,7 @@ EVIDENCE_GROUPS = (
                 "pod_status",
                 "pod_log",
                 "event",
+                "snapshot",
                 "clusterversion",
                 "clusteroperator",
                 "cronjob",
@@ -145,7 +198,17 @@ EVIDENCE_GROUPS = (
     {"type": "audit", "matches": frozenset({"audit", "record", "execution_record"})},
 )
 
-NAMESPACE_MENTION_RE = re.compile(r"\b(?P<namespace>[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?)\s*네임스페이스")
+NAMESPACE_NAME_PATTERN = r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?"
+NAMESPACE_MENTION_RES = (
+    re.compile(
+        rf"\b(?P<namespace>{NAMESPACE_NAME_PATTERN})\s*(?:namespace|네임스페이스)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"(?:namespace|네임스페이스)\s*(?P<namespace>{NAMESPACE_NAME_PATTERN})\b",
+        re.IGNORECASE,
+    ),
+)
 
 
 def build_adapter_registry(
@@ -180,6 +243,17 @@ def build_adapter_registry(
             "supportedTools": [dict(tool) for tool in OPENSHIFT_ADAPTER_TOOLS],
             "disabledReason": "",
             "requirements": ["valid OpenShift user token", "read-only RBAC for requested resource"],
+        },
+        {
+            "name": "AI Gateway",
+            "type": "ai_gateway",
+            "status": "available",
+            "reason": "Local Gateway safety and pending action plan inspection is available.",
+            "detail": "local Gateway read-only audit and safety contract",
+            "nextAction": "Resolve Tool Plan steps to local Gateway read-only audit checks.",
+            "supportedTools": [dict(tool) for tool in AI_GATEWAY_ADAPTER_TOOLS],
+            "disabledReason": "",
+            "requirements": ["local Gateway process", "read-only safety gates"],
         },
         {
             "name": "Linux",
@@ -234,6 +308,10 @@ def _adapter_key(value: Any) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
     if normalized in {"openshift", "ocp"}:
         return "openshift"
+    if normalized in {"openshiftlightspeed", "lightspeed", "ols"}:
+        return "openshift"
+    if normalized in {"aigateway", "gateway", "localgateway"}:
+        return "ai_gateway"
     if normalized in {"linux", "hostlinux"}:
         return "linux"
     if normalized in {"windows", "win"}:
@@ -427,6 +505,8 @@ def _evidence_type_from_ref(ref: Mapping[str, Any]) -> str:
         return "pod_status"
     if "pod_status" in combined or "pod status" in combined:
         return "pod_status"
+    if "snapshot" in combined:
+        return "snapshot"
     if "cronjob" in combined:
         return "cronjob"
     if "deployment" in combined:
@@ -450,13 +530,19 @@ def _normalize_evidence_ref(ref: Mapping[str, Any]) -> dict[str, Any]:
         "evidenceType": ref.get("evidenceType") or ref.get("evidence_type"),
         "freshnessTtl": ref.get("freshnessTtl"),
         "missingReason": ref.get("missingReason") or ref.get("reason"),
+        "byteCount": ref.get("byteCount"),
+        "lineCount": ref.get("lineCount"),
+        "matchedPatternIds": ref.get("matchedPatternIds"),
+        "patternCounts": ref.get("patternCounts"),
+        "rawLogDisclosure": ref.get("rawLogDisclosure"),
         "sourcePath": ref.get("sourcePath"),
         "sourceType": ref.get("sourceType"),
         "status": ref.get("eventStatus") or ref.get("status") or "recorded",
         "summary": ref.get("summary") or ref.get("eventName") or "evidence",
+        "timeWindow": ref.get("timeWindow"),
         "type": _evidence_type_from_ref(ref),
     }
-    return {key: value for key, value in normalized.items() if value not in {None, ""}}
+    return {key: value for key, value in normalized.items() if value is not None and value != ""}
 
 
 def _evidence_ref_status_bucket(ref: Mapping[str, Any]) -> str:
@@ -586,19 +672,44 @@ def build_rca_context(
         }
         for step in tool_steps
     ]
+    official_tool_aliases = [
+        str(step.get("official_tool"))
+        for step in tool_steps
+        if isinstance(step.get("official_tool"), str) and str(step.get("official_tool")).strip()
+    ]
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    demo_cycle_context = page_context.get("aiopsDemoCycle")
+    if not isinstance(demo_cycle_context, Mapping):
+        demo_cycle_context = {}
+    scenario_context = {
+        key: demo_cycle_context.get(key)
+        for key in (
+            "candidateId",
+            "candidateStatusLabel",
+            "findingId",
+            "findingTitle",
+            "readOnlyOnly",
+            "scenarioId",
+            "selectedAt",
+            "source",
+            "target",
+        )
+        if demo_cycle_context.get(key) is not None and demo_cycle_context.get(key) != ""
+    }
     context: dict[str, Any] = {
         "apiVersion": "aiops.komsco/v1alpha1",
         "kind": "RcaContext",
         "metadata": {
             "generatedAt": generated_at,
+            "findingId": demo_cycle_context.get("findingId"),
             "incidentId": incident_id,
             "phase": phase,
             "planner": str(plan.get("metadata", {}).get("planner", "deterministic_gateway_planner"))
             if isinstance(plan.get("metadata"), Mapping)
             else "deterministic_gateway_planner",
             "runId": run_id,
-            "version": "0.1.2",
+            "scenarioId": demo_cycle_context.get("scenarioId"),
+            "version": "0.1.3",
         },
         "question": {
             "digest": _canonical_digest({"message": message}),
@@ -607,6 +718,7 @@ def build_rca_context(
                 for key in ("namespace", "resourceKind", "resourceName", "route", "pathname")
                 if page_context.get(key)
             },
+            "scenarioContext": scenario_context,
             "taskType": plan.get("task_type", "generic_openshift_question"),
             "target": dict(target),
         },
@@ -633,6 +745,34 @@ def build_rca_context(
                 "target resource is not identified",
             ],
         },
+        "officialScene": {
+            "name": "Evidence 기반 AI 장애 분석 시나리오",
+            "questionExample": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+            "toolPlanAliases": official_tool_aliases,
+            "requiredToolAliases": ["event_tool", "grep_tool", "metric_tool", "snapshot_tool"],
+            "rcaContextContract": {
+                "mustStructure": [
+                    "collected evidence",
+                    "root cause candidates",
+                    "confidence",
+                    "action candidates",
+                    "lightspeed handoff",
+                ],
+                "rootCauseCandidates": [
+                    "OOMKilled",
+                    "Eviction",
+                    "NodePressure",
+                    "application error pattern",
+                    "configuration or dependency failure",
+                ],
+                "actionCandidateMode": "proposal_only_read_only",
+                "lightspeedHandoff": {
+                    "includeRcaContext": True,
+                    "includeRunbook": "when available",
+                },
+                "finalAnswerSections": ["RCA", "즉시 조치", "재발 방지책", "참고 증적"],
+            },
+        },
         "evidence": {
             "collectedRefs": collected_refs,
             "partialRefs": partial_refs,
@@ -645,6 +785,46 @@ def build_rca_context(
                 "missingCount": len(missing_evidence),
             },
         },
+        "causeCandidates": [
+            {
+                "basis": ["event_tool", "snapshot_tool", "metric_tool", "grep_tool"],
+                "confidence": "candidate",
+                "evidenceRequired": ["event", "snapshot", "metric", "pod_log"],
+                "id": "oom-or-memory-pressure",
+                "label": "OOMKilled 또는 Memory/Node Pressure",
+                "status": "candidate_until_evidence_confirms",
+            },
+            {
+                "basis": ["grep_tool", "snapshot_tool"],
+                "confidence": "candidate",
+                "evidenceRequired": ["pod_log", "snapshot"],
+                "id": "application-error-pattern",
+                "label": "애플리케이션 예외 또는 실행 명령 오류",
+                "status": "candidate_until_log_pattern_confirms",
+            },
+            {
+                "basis": ["event_tool", "snapshot_tool"],
+                "confidence": "candidate",
+                "evidenceRequired": ["event", "snapshot"],
+                "id": "eviction-or-scheduling-pressure",
+                "label": "Eviction, node pressure, scheduling 관련 영향",
+                "status": "candidate_until_event_confirms",
+            },
+        ],
+        "actionCandidates": [
+            {
+                "approvalRequired": True,
+                "mode": "proposal_only_read_only",
+                "risk": "medium",
+                "title": "Event, snapshot, metric, log-pattern evidence를 먼저 확인",
+            },
+            {
+                "approvalRequired": True,
+                "mode": "proposal_only_read_only",
+                "risk": "high",
+                "title": "원인 확정 전 rollout/delete/patch/scale 실행 금지",
+            },
+        ],
         "evidence_refs": refs,
         "safety": {
             "mode": plan.get("execution_policy", {}).get("mode", "read_only")
@@ -710,8 +890,11 @@ def _namespace_from_message(message: str, page_context: Mapping[str, Any] | None
     if isinstance(context_namespace, str) and context_namespace.strip():
         return context_namespace.strip()
 
-    match = NAMESPACE_MENTION_RE.search(message)
-    return match.group("namespace") if match else None
+    for pattern in NAMESPACE_MENTION_RES:
+        match = pattern.search(message)
+        if match:
+            return match.group("namespace")
+    return None
 
 
 def build_runtime_tool_plan(
@@ -727,8 +910,30 @@ def build_runtime_tool_plan(
         ("restart", "재시작", "crashloop", "crashloopbackoff", "imagepull", "backoff", "oom"),
     )
     asks_operator = _message_has_any(message, ("clusteroperator", "cluster operator", "오퍼레이터"))
-    asks_cronjob = _message_has_any(message, ("cronjob", "cron job", "크론잡", "스케줄", "schedule"))
-    asks_count = _message_has_any(message, ("count", "개수", "몇개", "몇 개", "떠있", "running", "ready"))
+    asks_cronjob = _message_has_any(message, ("cronjob", "cron job", "크론잡", "scheduled job"))
+    asks_count = _message_has_any(
+        message,
+        (
+            "count",
+            "개수",
+            "몇개",
+            "몇 개",
+            "떠있",
+            "running",
+            "ready",
+            "notready",
+            "not ready",
+            "pending",
+            "스케줄링",
+            "scheduling",
+            "scheduler",
+            "taint",
+            "toleration",
+            "pvc",
+            "affinity",
+            "node selector",
+        ),
+    )
     asks_action_followup = message.strip().lower() in {
         "승인",
         "승인해",
@@ -745,7 +950,22 @@ def build_runtime_tool_plan(
     }
     asks_action = _message_has_any(
         message,
-        ("올려", "늘려", "줄여", "변경", "스케일", "scale", "restart", "재시작", "롤백", "rollback"),
+        (
+            "올려",
+            "늘려",
+            "줄여",
+            "변경",
+            "스케일",
+            "scale",
+            "restart",
+            "재시작",
+            "롤백",
+            "rollback",
+            "조치",
+            "대응",
+            "action",
+            "candidate",
+        ),
     )
 
     if (asks_action_followup or asks_action) and not (asks_pod and asks_restart):
@@ -780,6 +1000,7 @@ def build_runtime_tool_plan(
             {
                 "step": 1,
                 "tool": "openshift_event_lookup",
+                "official_tool": "event_tool",
                 "adapter": "OpenShift",
                 "verb": "list",
                 "evidence_type": "event",
@@ -787,6 +1008,15 @@ def build_runtime_tool_plan(
             },
             {
                 "step": 2,
+                "tool": "openshift_pod_snapshot_lookup",
+                "official_tool": "snapshot_tool",
+                "adapter": "OpenShift",
+                "verb": "get",
+                "evidence_type": "snapshot",
+                "reason": "Pod phase, container state, restartCount, lastState를 시점 스냅샷으로 구조화",
+            },
+            {
+                "step": 3,
                 "tool": "openshift_pod_status_lookup",
                 "adapter": "OpenShift",
                 "verb": "list",
@@ -794,15 +1024,16 @@ def build_runtime_tool_plan(
                 "reason": "restartCount, lastState, container 상태 확인",
             },
             {
-                "step": 3,
-                "tool": "openshift_pod_log_tail",
+                "step": 4,
+                "tool": "openshift_pod_log_pattern_probe",
+                "official_tool": "grep_tool",
                 "adapter": "OpenShift",
                 "verb": "get",
                 "evidence_type": "pod_log",
-                "reason": "Event만으로 부족한 애플리케이션 종료 원인 확인",
+                "reason": "Event만으로 부족한 애플리케이션 종료 원인을 원문 저장 없이 오류 패턴 중심으로 확인",
             },
             {
-                "step": 4,
+                "step": 5,
                 "tool": "openshift_clusteroperator_lookup",
                 "adapter": "OpenShift",
                 "verb": "list",
@@ -810,7 +1041,7 @@ def build_runtime_tool_plan(
                 "reason": "관리 namespace 또는 platform component 영향 여부 확인",
             },
             {
-                "step": 5,
+                "step": 6,
                 "tool": "openshift_node_status_lookup",
                 "adapter": "OpenShift",
                 "verb": "list",
@@ -818,7 +1049,7 @@ def build_runtime_tool_plan(
                 "reason": "Node Ready/Pressure 상태가 Pod 이상에 영향을 주는지 확인",
             },
             {
-                "step": 6,
+                "step": 7,
                 "tool": "openshift_alert_lookup",
                 "adapter": "OpenShift",
                 "verb": "list",
@@ -826,8 +1057,9 @@ def build_runtime_tool_plan(
                 "reason": "관련 active alert가 RCA 우선순위에 영향을 주는지 확인",
             },
             {
-                "step": 7,
+                "step": 8,
                 "tool": "openshift_metric_query",
+                "official_tool": "metric_tool",
                 "adapter": "OpenShift",
                 "verb": "get",
                 "evidence_type": "metric",
@@ -835,8 +1067,6 @@ def build_runtime_tool_plan(
             },
         ]
         missing = [
-            {"type": "event", "reason": "Event evidence is planned for Stage 3 RCA preflight expansion"},
-            {"type": "pod_log", "reason": "Pod log evidence is not fetched by the read-only preflight collector yet"},
             {
                 "type": "clusteroperator",
                 "reason": "ClusterOperator evidence may be included in pod status evidence, but is not a separate RCA evidence ref yet",
@@ -934,7 +1164,7 @@ def build_runtime_tool_plan(
         "metadata": {
             "generatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "planner": "deterministic_gateway_planner",
-            "version": "0.1.2",
+            "version": "0.1.3",
         },
         "task_type": task_type,
         "target": {

@@ -7,6 +7,7 @@
 - 현재 개발 방식: 로컬 개발 콘솔과 회사 OCP read-only 연동 중심으로 진행한다.
 - 회사 OCP에 실제 설치, 배포, Subscription 생성, AIOpsInstallation 생성은 별도 승인 전까지 하지 않는다.
 - Windows 자동 업데이트/재부팅으로 로컬 서버는 꺼질 수 있으므로, 다음 작업 시작 시 복구 체크부터 진행한다.
+- 세션 재개, WSL 기준 명령 안내, 빠른 UI 확인/최종 빌드 구분은 [work-session-operating-rules.md](./work-session-operating-rules.md)를 따른다.
 
 ## 재부팅 후 복구 체크리스트
 

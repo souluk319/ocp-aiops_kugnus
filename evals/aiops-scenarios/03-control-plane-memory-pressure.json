@@ -1,0 +1,59 @@
+{
+  "id": "control-plane-memory-pressure",
+  "title": "Control Plane 메모리 압박",
+  "question": "HighOverallControlPlaneMemory 경고가 보일 때 현재 장애인지 위험 경고인지 근거 기준으로 나눠줘.",
+  "pageContext": {
+    "route": "dashboards",
+    "pathname": "/dashboards"
+  },
+  "evidenceRefs": [
+    {
+      "collectedAt": "2026-06-25T00:30:00Z",
+      "contentDigest": "sha256:control-plane-memory-alert",
+      "evidenceId": "ev-control-plane-memory-alert",
+      "evidenceType": "alert",
+      "eventName": "active_alert_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "HighOverallControlPlaneMemory alert 조회 가능"
+    },
+    {
+      "collectedAt": "2026-06-25T00:30:05Z",
+      "contentDigest": "sha256:control-plane-memory-metric",
+      "evidenceId": "ev-control-plane-memory-metric",
+      "evidenceType": "metric",
+      "eventName": "prometheus_metric_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "control-plane node memory usage metric 조회 가능"
+    }
+  ],
+  "answer": "Control Plane 메모리 압박은 alert와 metric collected evidence를 함께 보고 현재 장애와 위험 경고를 구분해야 합니다. Node별 추세와 runbook은 missing evidence로 표시하고, RCA Context digest를 footer에 남깁니다. 메트릭 근거가 부족하면 장애 원인을 확정하지 않습니다.",
+  "expected": {
+    "taskType": "openshift_operational_question",
+    "requiredTools": [
+      "openshift_context_inspection",
+      "lightspeed_streaming_query"
+    ],
+    "requiredEvidenceTypes": [
+      "alert",
+      "metric"
+    ],
+    "requiredMissingEvidenceTypes": [
+      "runbook"
+    ],
+    "requiredAnswerRegex": [
+      "Control Plane",
+      "alert",
+      "metric",
+      "RCA Context digest"
+    ],
+    "forbiddenAnswerRegex": [
+      "장애 원인은 메모리 부족으로 확정",
+      "메모리 증설을 실행",
+      "노드를 재시작"
+    ],
+    "requireMissingEvidence": true,
+    "safetyMode": "read_only"
+  }
+}

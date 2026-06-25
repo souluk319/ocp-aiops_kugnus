@@ -369,6 +369,12 @@
   border-color: var(--pf-t--global--border--color--status--warning--default);
 }
 
+.komsco-ai-page__anomaly-item.is-active-demo {
+  background: #f5faff;
+  border-color: var(--pf-t--global--border--color--brand--default);
+  box-shadow: inset 3px 0 0 var(--pf-t--global--border--color--brand--default);
+}
+
 .komsco-ai-page__anomaly-item-head {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr) max-content;
@@ -410,6 +416,31 @@
   margin: 0;
   color: var(--pf-t--global--text--color--regular);
   overflow-wrap: anywhere;
+}
+
+.komsco-ai-page__anomaly-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-block-start: 10px;
+  margin-block-start: 10px;
+  border-block-start: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.komsco-ai-page__demo-badge {
+  padding: 2px 7px;
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai-page__demo-badge.is-active {
+  color: var(--pf-t--global--text--color--status--success--default);
+  border-color: var(--pf-t--global--border--color--status--success--default);
 }
 
 .komsco-ai-page__anomaly-normal {
@@ -685,13 +716,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 58px;
-  height: 58px;
+  width: 56px;
+  height: 56px;
   padding: 0;
   cursor: pointer;
   background: #ffffff;
   border: 1px solid var(--pf-t--global--border--color--default);
-  border-radius: 999px;
+  border-radius: 14px;
   box-shadow: 0 10px 28px rgb(3 7 18 / 22%);
 }
 
@@ -707,8 +738,8 @@
 
 .komsco-ai-page__assistant-quick-toggle img {
   display: block;
-  width: 39px;
-  height: 39px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 
@@ -1116,8 +1147,8 @@
   }
 
   .komsco-ai-page__assistant-quick-toggle img {
-    width: 35px;
-    height: 35px;
+    width: 38px;
+    height: 38px;
   }
 
   .komsco-ai-page__health-dial {

@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ver.0.1.3 실행 문제 체크리스트</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --line: #d9e2ec;
+      --line-strong: #bdc9d8;
+      --text: #101828;
+      --muted: #667085;
+      --blue: #0066cc;
+      --blue-soft: #eef6ff;
+      --green: #14804a;
+      --green-soft: #ecfdf3;
+      --amber: #b54708;
+      --amber-soft: #fffaeb;
+      --red: #b42318;
+      --red-soft: #fff1f0;
+      --code: #0f172a;
+      --radius: 8px;
+      font-family: "Segoe UI", "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 272px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .toc {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 22px 18px;
+      overflow-y: auto;
+      background: #ffffff;
+      border-right: 1px solid var(--line);
+    }
+
+    .toc h1 {
+      margin: 0 0 4px;
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    .toc .version {
+      margin: 0 0 18px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .toc nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    .toc a {
+      display: block;
+      padding: 8px 10px;
+      font-size: 13px;
+      font-weight: 650;
+      color: #344054;
+      border-radius: 6px;
+    }
+
+    .toc a:hover {
+      color: var(--blue);
+      background: var(--blue-soft);
+      text-decoration: none;
+    }
+
+    main {
+      width: min(1120px, 100%);
+      padding: 32px;
+    }
+
+    .hero {
+      padding: 26px 28px;
+      margin-bottom: 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 12px;
+      font-weight: 760;
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .hero h2 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      line-height: 1.25;
+    }
+
+    .hero p {
+      max-width: 820px;
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.7;
+      color: #475467;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .summary-card {
+      padding: 14px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .summary-card span {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 11px;
+      font-weight: 760;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .summary-card strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.35;
+    }
+
+    section {
+      padding: 24px 26px;
+      margin-bottom: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    section h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+      line-height: 1.35;
+    }
+
+    section h3 {
+      margin: 22px 0 10px;
+      font-size: 15px;
+    }
+
+    p,
+    li {
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    ul,
+    ol {
+      margin: 10px 0 0;
+      padding-left: 22px;
+    }
+
+    .command-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .command-card {
+      padding: 14px;
+      background: #fbfdff;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .command-card h3 {
+      margin: 0 0 8px;
+    }
+
+    code {
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 12px;
+      color: #1d2939;
+      background: #f2f4f7;
+      border: 1px solid #e4e7ec;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      padding: 13px 14px;
+      overflow-x: auto;
+      color: #e5e7eb;
+      background: var(--code);
+      border-radius: 6px;
+    }
+
+    pre code {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+    }
+
+    table {
+      width: 100%;
+      margin: 12px 0 0;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      font-size: 12px;
+      color: #344054;
+      background: #f8fafc;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 760;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+    }
+
+    .badge.green {
+      color: var(--green);
+      background: var(--green-soft);
+      border-color: #abefc6;
+    }
+
+    .badge.blue {
+      color: var(--blue);
+      background: var(--blue-soft);
+      border-color: #b2ddff;
+    }
+
+    .badge.amber {
+      color: var(--amber);
+      background: var(--amber-soft);
+      border-color: #fedf89;
+    }
+
+    .badge.red {
+      color: var(--red);
+      background: var(--red-soft);
+      border-color: #fecdca;
+    }
+
+    .callout {
+      padding: 13px 14px;
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfdff;
+    }
+
+    .callout.warn {
+      color: #7a2e0e;
+      background: var(--amber-soft);
+      border-color: #fedf89;
+    }
+
+    .callout.danger {
+      color: #7a271a;
+      background: var(--red-soft);
+      border-color: #fecdca;
+    }
+
+    .flow {
+      display: grid;
+      gap: 8px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .flow li {
+      padding: 10px 12px;
+      background: #fbfdff;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .toc {
+        position: static;
+        height: auto;
+      }
+
+      main {
+        padding: 18px;
+      }
+
+      .summary-grid,
+      .command-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="toc">
+      <h1>실행 문제 체크리스트</h1>
+      <p class="version">Ver.0.1.3 · Runtime Readiness</p>
+      <nav aria-label="문서 목차">
+        <a href="#purpose">목적</a>
+        <a href="#commands">기준 명령</a>
+        <a href="#wsl">1. WSL/Node/Yarn</a>
+        <a href="#git">2. Git/작업 경로</a>
+        <a href="#oc">3. OpenShift 인증</a>
+        <a href="#docker">4. Docker/Console Bridge</a>
+        <a href="#backend">5. 백엔드 Gateway</a>
+        <a href="#frontend">6. 프론트/콘솔</a>
+        <a href="#demo">7. 공식 시연 흐름</a>
+        <a href="#cypress">8. Cypress 검증</a>
+        <a href="#routing">9. 빠른 장애 분기</a>
+        <a href="#next">다음 처리 순서</a>
+      </nav>
+    </aside>
+
+    <main>
+      <article class="hero" id="purpose">
+        <p class="eyebrow">Cywell AI · Ver.0.1.3</p>
+        <h2>로컬 실행 안정화 체크리스트</h2>
+        <p>
+          WSL을 열고 백엔드, 프론트, 로컬 콘솔을 다시 실행할 때 어디서 문제가 나는지 빠르게
+          찾기 위한 점검표다. 목표는 기능 추가가 아니라 재현성 확보이며,
+          <code>http://localhost:9000/dashboards</code>에서 Cywell AI가 안정적으로 뜨는지 확인한다.
+        </p>
+      </article>
+
+      <div class="summary-grid">
+        <div class="summary-card"><span>기본 목표</span><strong>로컬 콘솔 재현성</strong></div>
+        <div class="summary-card"><span>기본 Backend</span><strong>execute 모드</strong></div>
+        <div class="summary-card"><span>기본 Frontend</span><strong>Console bridge</strong></div>
+        <div class="summary-card"><span>금지</span><strong>회사 OCP 직접 배포 아님</strong></div>
+      </div>
+
+      <section id="commands">
+        <h2>기준 명령</h2>
+        <div class="command-grid">
+          <div class="command-card">
+            <h3>먼저 전체 진단</h3>
+            <pre><code>cd /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus
+task kugnus:dev:doctor</code></pre>
+          </div>
+          <div class="command-card">
+            <h3>기본 실행 가능 모드</h3>
+            <pre><code>cd /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus
+task kugnus:dev:be:execute</code></pre>
+          </div>
+          <div class="command-card">
+            <h3>프론트/로컬 콘솔</h3>
+            <pre><code>cd /mnt/c/Users/soulu/cywell/ocp-aiops_kugnus
+task kugnus:dev:fe</code></pre>
+          </div>
+          <div class="command-card">
+            <h3>안전 관측 모드</h3>
+            <pre><code>task kugnus:dev:be:read-only</code></pre>
+          </div>
+          <div class="command-card">
+            <h3>로컬 실험 무제한 모드</h3>
+            <pre><code>task kugnus:dev:be:unrestricted</code></pre>
+          </div>
+        </div>
+        <div class="callout warn">
+          <strong>주의:</strong> <code>unrestricted</code>는 로컬 랩 전용이다. 회사 OCP 운영 또는 공식 발표 문구에서 기본 모드처럼 말하지 않는다.
+        </div>
+      </section>
+
+      <section id="wsl">
+        <h2>1. WSL/Node/Yarn 환경</h2>
+        <table>
+          <thead><tr><th>항목</th><th>확인 명령</th><th>Pass</th><th>Fail 시 의심</th></tr></thead>
+          <tbody>
+            <tr><td>WSL Ubuntu 진입</td><td><code>pwd</code></td><td>repo 경로</td><td>PowerShell/Windows shell에서 실행 중</td></tr>
+            <tr><td>Node가 WSL Node인지</td><td><code>which node && node --version</code></td><td><code>/home/kugnus/.nvm/...</code></td><td>Windows Node를 물고 있음</td></tr>
+            <tr><td>Corepack이 WSL 것인지</td><td><code>which corepack</code></td><td><code>/home/kugnus/.nvm/...</code></td><td><code>/mnt/c/Program Files/nodejs/corepack</code></td></tr>
+            <tr><td>Yarn 버전</td><td><code>cd komsco-ai-console-plugin && corepack yarn --version</code></td><td><code>4.13.0</code></td><td>Corepack 다운로드 실패 또는 경로 혼입</td></tr>
+            <tr><td>Go Task</td><td><code>task --version</code></td><td>버전 출력</td><td><code>taskwarrior</code> 설치 안내</td></tr>
+          </tbody>
+        </table>
+        <h3>Fail 대응</h3>
+        <pre><code>bash -ic 'which node && which corepack && node --version && corepack yarn --version'</code></pre>
+      </section>
+
+      <section id="git">
+        <h2>2. Git/작업 경로</h2>
+        <table>
+          <thead><tr><th>항목</th><th>확인 명령</th><th>Pass</th><th>Fail 시 의심</th></tr></thead>
+          <tbody>
+            <tr><td>브랜치</td><td><code>git status --short --branch</code></td><td><code>feat/v.0.1.3</code> 또는 의도한 브랜치</td><td>다른 브랜치에서 작업 중</td></tr>
+            <tr><td>원격</td><td><code>git remote -v</code></td><td><code>origin</code> 개인 repo, <code>upstream</code> 회사 원본</td><td>회사 repo에 직접 push 위험</td></tr>
+            <tr><td>민감정보</td><td><code>git status --short .env .env.local</code></td><td>commit 대상 아님</td><td>token/kubeconfig commit 위험</td></tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          `.env`, `.env.local`, kubeconfig, token은 커밋하지 않는다. 기존 dirty worktree가 많으므로 unrelated 변경을 되돌리지 않는다.
+        </div>
+      </section>
+
+      <section id="oc">
+        <h2>3. OpenShift 인증</h2>
+        <table>
+          <thead><tr><th>항목</th><th>확인 명령</th><th>Pass</th><th>Fail 시 의심</th></tr></thead>
+          <tbody>
+            <tr><td>API 서버</td><td><code>oc whoami --show-server</code></td><td><code>https://api.ocp.cywell.server:6443</code></td><td>CRC나 다른 cluster context</td></tr>
+            <tr><td>로그인 사용자</td><td><code>oc whoami</code></td><td>사용자명 출력</td><td><code>Unauthorized</code>, token 만료</td></tr>
+            <tr><td>현재 프로젝트</td><td><code>oc project</code></td><td>의도한 프로젝트 확인</td><td>이전 실험 namespace에 머무름</td></tr>
+            <tr><td>Lightspeed svc</td><td><code>oc get svc -n openshift-lightspeed lightspeed-app-server</code></td><td>조회 성공</td><td>VPN/권한/namespace 문제</td></tr>
+            <tr><td>Action Executor svc</td><td><code>oc get svc -n komsco-ai-dev komsco-ai-action-executor</code></td><td>조회 성공</td><td>execute 모드 port-forward 실패 가능</td></tr>
+          </tbody>
+        </table>
+        <h3>Fail 대응</h3>
+        <ol>
+          <li>웹 콘솔에서 새 token 발급</li>
+          <li><code>oc login --token=... --server=https://api.ocp.cywell.server:6443</code></li>
+          <li><code>oc whoami</code> 재확인</li>
+        </ol>
+      </section>
+
+      <section id="docker">
+        <h2>4. Docker Desktop / Local Console Bridge</h2>
+        <table>
+          <thead><tr><th>항목</th><th>확인 명령</th><th>Pass</th><th>Fail 시 의심</th></tr></thead>
+          <tbody>
+            <tr><td>Docker daemon</td><td><code>docker version</code></td><td>Server 정보까지 출력</td><td>Docker Desktop WSL integration 꺼짐</td></tr>
+            <tr><td>Console port</td><td><code>curl -I http://127.0.0.1:9000/dashboards</code></td><td><code>HTTP/1.1 200 OK</code></td><td>bridge 미기동 또는 포트 충돌</td></tr>
+            <tr><td>Plugin manifest</td><td><code>curl -I http://127.0.0.1:9001/api/plugins/komsco-ai-console-plugin-kugnus/plugin-manifest.json</code></td><td><code>HTTP/1.1 200 OK</code></td><td>webpack dev server 미기동 또는 path mismatch</td></tr>
+          </tbody>
+        </table>
+        <pre><code>ss -ltnp | grep -E ':9000|:9001|:18080|:18443|:18083' || true</code></pre>
+      </section>
+
+      <section id="backend">
+        <h2>5. 백엔드 Gateway</h2>
+        <table>
+          <thead><tr><th>항목</th><th>확인 명령</th><th>Pass</th><th>Fail 시 의심</th></tr></thead>
+          <tbody>
+            <tr><td>read-only 기동</td><td><code>task kugnus:dev:be:read-only</code></td><td><code>Uvicorn running</code></td><td>oc login/Lightspeed port-forward 실패</td></tr>
+            <tr><td>execute 기동</td><td><code>task kugnus:dev:be:execute</code></td><td><code>ACTION_EXECUTOR: true</code>, <code>KOMSCO_AI_ENABLE_MUTATIONS: true</code></td><td>Action Executor svc/port-forward 실패</td></tr>
+            <tr><td>unrestricted 기동</td><td><code>task kugnus:dev:be:unrestricted</code></td><td><code>KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS: true</code></td><td>로컬 실험 모드 미활성</td></tr>
+            <tr><td>healthz</td><td><code>curl http://127.0.0.1:18080/healthz</code></td><td><code>{"status":"ok"}</code></td><td>backend 미기동 또는 포트 충돌</td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>모드</th><th>mutationsEnabled</th><th>actionExecutorConfigured</th><th>unrestrictedCommandsEnabled</th><th>UI 기대</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge green">read-only</span></td><td>false</td><td>false</td><td>false</td><td>읽기 전용만 안전 활성</td></tr>
+            <tr><td><span class="badge blue">execute</span></td><td>true</td><td>true</td><td>false</td><td>실행 가능 활성</td></tr>
+            <tr><td><span class="badge red">unrestricted</span></td><td>true</td><td>true</td><td>true</td><td>세 모드 모두 선택 가능</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="frontend">
+        <h2>6. 프론트/콘솔</h2>
+        <table>
+          <thead><tr><th>항목</th><th>확인 명령</th><th>Pass</th><th>Fail 시 의심</th></tr></thead>
+          <tbody>
+            <tr><td>프론트 기동</td><td><code>task kugnus:dev:fe</code></td><td>Console URL 출력</td><td>Docker/port 9000/manifest path 문제</td></tr>
+            <tr><td>Webpack manifest</td><td><code>curl -I http://127.0.0.1:9001/api/plugins/komsco-ai-console-plugin-kugnus/plugin-manifest.json</code></td><td>200</td><td>plugin dev server 미기동</td></tr>
+            <tr><td>Console dashboard</td><td><code>http://localhost:9000/dashboards</code></td><td>OKD dashboard 표시</td><td>bridge 미기동</td></tr>
+            <tr><td>Cywell AI 토글</td><td>화면 우측 하단</td><td>K 아이콘 라운딩 사각형 표시</td><td>plugin 로드 실패</td></tr>
+            <tr><td>우측 rail</td><td>전체화면/확장</td><td><code>Node 1/1</code>, <code>Operator 정상</code>, 실행 상태 배지 표시</td><td>summary/status API 실패</td></tr>
+          </tbody>
+        </table>
+        <h3>빌드 검증</h3>
+        <pre><code>cd komsco-ai-console-plugin
+corepack yarn build</code></pre>
+        <div class="callout warn">
+          <code>/mnt/c</code> 경로에서는 webpack build가 1~5분 걸릴 수 있다. Windows Node 경로를 물면 <code>bash -ic</code>로 재실행한다.
+        </div>
+      </section>
+
+      <section id="demo">
+        <h2>7. 공식 시연 흐름</h2>
+        <p>기준 질문:</p>
+        <pre><code>어제 새벽에 default namespace Pod가 왜 재시작됐어?</code></pre>
+        <table>
+          <thead><tr><th>단계</th><th>Pass</th></tr></thead>
+          <tbody>
+            <tr><td>모드</td><td><code>Troubleshooting</code> 선택</td></tr>
+            <tr><td>Tool Plan</td><td>event/grep/metric/snapshot 성격의 evidence plan 표시</td></tr>
+            <tr><td>Evidence</td><td>Event, Snapshot, Log Pattern Probe, Node, Alert, Metric 상태가 collected/partial/skipped로 표시</td></tr>
+            <tr><td>RCA Context</td><td>collected/missing count와 digest 표시</td></tr>
+            <tr><td>답변</td><td>원인 후보, 즉시 확인, 재발 방지 관점 표시</td></tr>
+            <tr><td>안전성</td><td>raw log 원문과 mutation 명령을 그대로 출력하지 않음</td></tr>
+          </tbody>
+        </table>
+        <h3>검증 명령</h3>
+        <pre><code>task kugnus:evidence-rca:verify
+task kugnus:demo:live-verify
+task kugnus:scenario:verify
+task kugnus:demo:screen-readiness</code></pre>
+        <div class="callout">
+          말해도 되는 것: Gateway fallback 기반 Evidence RCA 흐름, evidence 수집/부족 구분, read-only 안전 계약과 실행 mode gate.
+        </div>
+        <div class="callout danger">
+          말하면 안 되는 것: Lightspeed 최종 RCA 안정 완료, Cypress E2E pass, 실제 과거 로그/event/metric/snapshot 완전 수집, raw log 원문 분석 완료.
+        </div>
+      </section>
+
+      <section id="cypress">
+        <h2>8. Cypress 자동 브라우저 검증</h2>
+        <p>Cypress spec은 준비돼 있지만 현재 WSL에는 Cypress/Electron OS 의존성 <code>libnspr4.so</code>가 없어 pass로 보고하지 않는다.</p>
+        <pre><code>task kugnus:evidence-rca:browser-verify</code></pre>
+        <div class="callout warn">
+          Fail 예: <code>error while loading shared libraries: libnspr4.so</code>. 의존성 설치 후 재실행하기 전까지 Cypress E2E pass라고 쓰지 않는다.
+        </div>
+      </section>
+
+      <section id="routing">
+        <h2>9. 빠른 장애 분기</h2>
+        <table>
+          <thead><tr><th>증상</th><th>먼저 볼 것</th></tr></thead>
+          <tbody>
+            <tr><td><code>oc login이 필요합니다</code></td><td><code>oc whoami</code>, token 만료</td></tr>
+            <tr><td><code>Cannot connect to Docker daemon</code></td><td>Docker Desktop WSL integration</td></tr>
+            <tr><td><code>Console port 9000 is already in use</code></td><td><code>ss -ltnp | grep :9000</code>, 기존 bridge</td></tr>
+            <tr><td>Cywell AI 토글이 안 뜸</td><td>plugin manifest 9001, console bridge plugin path</td></tr>
+            <tr><td>챗봇 상태가 비어 있음</td><td>backend 18080, <code>/v1/cluster/summary</code>, <code>/v1/aiops/status</code></td></tr>
+            <tr><td><code>실행 가능</code> 비활성</td><td><code>task kugnus:dev:be:execute</code>로 backend 재기동</td></tr>
+            <tr><td><code>실행 무제한</code> 비활성</td><td><code>task kugnus:dev:be:unrestricted</code>로 backend 재기동</td></tr>
+            <tr><td>build가 너무 오래 걸림</td><td><code>/mnt/c</code> I/O 병목, WSL 내부 repo 이전 검토</td></tr>
+            <tr><td><code>corepack</code> 실행 오류</td><td>Windows Node 경로 혼입, <code>bash -ic</code> 재실행</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="next">
+        <h2>다음 처리 순서</h2>
+        <ol class="flow">
+          <li><code>task kugnus:dev:doctor</code>를 먼저 실행한다.</li>
+          <li>WSL Node/Corepack 경로부터 고정한다.</li>
+          <li><code>oc login</code>과 회사 OCP context를 확인한다.</li>
+          <li>Docker daemon과 WSL integration을 확인한다.</li>
+          <li>backend를 <code>execute</code> 모드로 띄운다.</li>
+          <li>frontend/console bridge를 띄운다.</li>
+          <li><code>Node 1/1</code>, <code>Operator 정상</code>, <code>읽기 전용/실행 가능/실행 무제한</code> UI 상태를 확인한다.</li>
+          <li>공식 Evidence RCA 질문을 한 번 돌린다.</li>
+          <li>fail이 있으면 이 문서의 섹션 번호 기준으로 원인을 기록한다.</li>
+        </ol>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

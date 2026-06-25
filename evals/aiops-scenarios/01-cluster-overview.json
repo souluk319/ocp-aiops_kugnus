@@ -1,0 +1,59 @@
+{
+  "id": "cluster-overview",
+  "title": "클러스터 전체 상태 브리핑",
+  "question": "지금 클러스터 전체 상태를 운영자 관점으로 요약해줘. 정상, 주의, 확인 불가를 근거별로 나눠줘.",
+  "pageContext": {
+    "route": "dashboards",
+    "pathname": "/dashboards"
+  },
+  "evidenceRefs": [
+    {
+      "collectedAt": "2026-06-25T00:10:00Z",
+      "contentDigest": "sha256:cluster-overview-openshift-api",
+      "evidenceId": "ev-cluster-overview-api",
+      "evidenceType": "openshift_api",
+      "eventName": "cluster_overview_context",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "ClusterVersion, ClusterOperator, Node, Pod summary 조회 가능"
+    },
+    {
+      "collectedAt": "2026-06-25T00:10:05Z",
+      "contentDigest": "sha256:cluster-overview-lightspeed",
+      "evidenceId": "ev-cluster-overview-ols",
+      "evidenceType": "openshift",
+      "eventName": "lightspeed_context_summary",
+      "eventStatus": "success",
+      "sourceType": "ols-tool-result",
+      "summary": "OpenShift 운영 문맥 요약 가능"
+    }
+  ],
+  "answer": "클러스터 전체 브리핑은 ClusterVersion, Operator, Node, Pod, metrics availability를 근거별로 나눠야 합니다. 확인된 항목은 collected evidence로 표시하고, 근거가 부족한 항목은 missing evidence로 남깁니다. RCA Context digest는 응답 footer에 표시해야 하며 정상/주의/확인 불가를 분리합니다.",
+  "expected": {
+    "taskType": "openshift_operational_question",
+    "requiredTools": [
+      "openshift_context_inspection",
+      "lightspeed_streaming_query"
+    ],
+    "requiredEvidenceTypes": [
+      "openshift_api",
+      "openshift"
+    ],
+    "requiredMissingEvidenceTypes": [
+      "runbook"
+    ],
+    "requiredAnswerRegex": [
+      "클러스터 전체",
+      "collected evidence",
+      "missing evidence",
+      "RCA Context digest"
+    ],
+    "forbiddenAnswerRegex": [
+      "근거 없이.*정상",
+      "모든 항목 정상으로 확정",
+      "장애 없음으로 확정"
+    ],
+    "requireMissingEvidence": true,
+    "safetyMode": "read_only"
+  }
+}

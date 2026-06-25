@@ -1,0 +1,356 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "generatedAt": "2026-06-25T06:30:05.675175Z",
+  "kind": "CrashLoopDemoCycleVerification",
+  "metadata": {
+    "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
+    "branch": "feat/v.0.1.3",
+    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "name": "ver-0.1.3-crashloop-demo-cycle",
+    "scope": "offline-contract-only"
+  },
+  "spec": {
+    "checks": [
+      {
+        "detail": "missing=[]",
+        "name": "source_wiring:komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+        "ok": true
+      },
+      {
+        "detail": "missing=[]",
+        "name": "source_wiring:komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
+        "ok": true
+      },
+      {
+        "detail": "missing=[]",
+        "name": "source_wiring:komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+        "ok": true
+      },
+      {
+        "detail": "missing=[]",
+        "name": "source_wiring:komsco-ai-gateway/komsco_ai_gateway/main.py",
+        "ok": true
+      },
+      {
+        "detail": "missing=[]",
+        "name": "source_wiring:komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context metadata preserves selected findingId",
+        "name": "rca_metadata_finding_id",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context metadata preserves selected scenarioId",
+        "name": "rca_metadata_scenario_id",
+        "ok": true
+      },
+      {
+        "detail": "question.scenarioContext preserves findingId",
+        "name": "rca_question_scenario_context_finding_id",
+        "ok": true
+      },
+      {
+        "detail": "question.scenarioContext preserves target namespace",
+        "name": "rca_question_scenario_context_target",
+        "ok": true
+      },
+      {
+        "detail": "offline CrashLoop verifier exposes pod_log/event as missing evidence, not confirmed RCA",
+        "name": "rca_missing_evidence_for_logs_and_events",
+        "ok": true
+      }
+    ],
+    "rcaContext": {
+      "apiVersion": "aiops.komsco/v1alpha1",
+      "kind": "RcaContext",
+      "metadata": {
+        "generatedAt": "2026-06-25T06:30:05.674650Z",
+        "findingId": "pod-crashloop-demo",
+        "incidentId": "ver-0.1.3-demo-incident",
+        "phase": "pre_answer",
+        "planner": "ver-0.1.3-demo-verifier",
+        "runId": "ver-0.1.3-demo-run",
+        "scenarioId": "crashloop",
+        "version": "0.1.3",
+        "digest": "sha256:0346dd2f4e24c089d02c2f59ffd8d40204e18995c66f82c069cac9972f9e4a58",
+        "contextId": "rca-0346dd2f4e24c089"
+      },
+      "question": {
+        "digest": "sha256:f1a3e8f37b5c88db16dd1cf5506eeee0962e461649707a8ddce23fbb3c35a020",
+        "pageContext": {
+          "pathname": "/dashboards"
+        },
+        "scenarioContext": {
+          "candidateId": "action-candidate-demo",
+          "candidateStatusLabel": "제안만 함 / 실행 안 함",
+          "findingId": "pod-crashloop-demo",
+          "findingTitle": "CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop",
+          "readOnlyOnly": true,
+          "scenarioId": "crashloop",
+          "selectedAt": "2026-06-25T00:00:00Z",
+          "source": "aiops-dashboard-anomaly-board",
+          "target": {
+            "kind": "Pod",
+            "name": "aiops-scenario-1-crashloop-abc",
+            "namespace": "komsco-ai-dev"
+          }
+        },
+        "taskType": "pod_restart_rca",
+        "target": {
+          "kind": "Pod",
+          "name": "aiops-scenario-1-crashloop-abc",
+          "namespace": "komsco-ai-dev"
+        }
+      },
+      "analysisPlan": {
+        "mode": "evidence_first",
+        "evidenceCollectionSteps": [
+          {
+            "step": 1,
+            "tool": "read_pod_logs_previous",
+            "adapter": "openshift",
+            "evidenceType": "pod_log",
+            "reason": "previous container logs are needed to confirm the app-level crash cause",
+            "status": "missing",
+            "evidenceId": null,
+            "contentDigest": null,
+            "missingReason": "pod-specific previous logs are not collected in the offline verifier"
+          },
+          {
+            "step": 2,
+            "tool": "read_pod_events",
+            "adapter": "openshift",
+            "evidenceType": "event",
+            "reason": "events are needed to confirm CrashLoopBackOff/back-off timing",
+            "status": "missing",
+            "evidenceId": null,
+            "contentDigest": null,
+            "missingReason": "pod-specific warning events require live cluster read-only API access"
+          }
+        ],
+        "answerContract": {
+          "format": "operations_rca_report",
+          "requiredSections": [
+            "우선 판단",
+            "수집 근거",
+            "원인 후보",
+            "확인 불가",
+            "다음 확인 명령",
+            "우선순위"
+          ],
+          "mustNotInventEvidence": true,
+          "mustSeparateUnknowns": true,
+          "mustRemainReadOnly": true
+        },
+        "stopConditions": [
+          "required evidence source failed",
+          "user token lacks requested read permission",
+          "target resource is not identified"
+        ]
+      },
+      "officialScene": {
+        "name": "Evidence 기반 AI 장애 분석 시나리오",
+        "questionExample": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+        "toolPlanAliases": [],
+        "requiredToolAliases": [
+          "event_tool",
+          "grep_tool",
+          "metric_tool",
+          "snapshot_tool"
+        ],
+        "rcaContextContract": {
+          "mustStructure": [
+            "collected evidence",
+            "root cause candidates",
+            "confidence",
+            "action candidates",
+            "lightspeed handoff"
+          ],
+          "rootCauseCandidates": [
+            "OOMKilled",
+            "Eviction",
+            "NodePressure",
+            "application error pattern",
+            "configuration or dependency failure"
+          ],
+          "actionCandidateMode": "proposal_only_read_only",
+          "lightspeedHandoff": {
+            "includeRcaContext": true,
+            "includeRunbook": "when available"
+          },
+          "finalAnswerSections": [
+            "RCA",
+            "즉시 조치",
+            "재발 방지책",
+            "참고 증적"
+          ]
+        }
+      },
+      "evidence": {
+        "collectedRefs": [],
+        "partialRefs": [],
+        "failedRefs": [],
+        "missing": [
+          {
+            "reason": "pod-specific previous logs are not collected in the offline verifier",
+            "type": "pod_log"
+          },
+          {
+            "reason": "pod-specific warning events require live cluster read-only API access",
+            "type": "event"
+          },
+          {
+            "type": "openshift",
+            "reason": "no runtime evidence reference has been recorded for this chat run yet"
+          }
+        ],
+        "summary": {
+          "collectedCount": 0,
+          "partialCount": 0,
+          "failedCount": 0,
+          "missingCount": 3
+        }
+      },
+      "causeCandidates": [
+        {
+          "basis": [
+            "event_tool",
+            "snapshot_tool",
+            "metric_tool",
+            "grep_tool"
+          ],
+          "confidence": "candidate",
+          "evidenceRequired": [
+            "event",
+            "snapshot",
+            "metric",
+            "pod_log"
+          ],
+          "id": "oom-or-memory-pressure",
+          "label": "OOMKilled 또는 Memory/Node Pressure",
+          "status": "candidate_until_evidence_confirms"
+        },
+        {
+          "basis": [
+            "grep_tool",
+            "snapshot_tool"
+          ],
+          "confidence": "candidate",
+          "evidenceRequired": [
+            "pod_log",
+            "snapshot"
+          ],
+          "id": "application-error-pattern",
+          "label": "애플리케이션 예외 또는 실행 명령 오류",
+          "status": "candidate_until_log_pattern_confirms"
+        },
+        {
+          "basis": [
+            "event_tool",
+            "snapshot_tool"
+          ],
+          "confidence": "candidate",
+          "evidenceRequired": [
+            "event",
+            "snapshot"
+          ],
+          "id": "eviction-or-scheduling-pressure",
+          "label": "Eviction, node pressure, scheduling 관련 영향",
+          "status": "candidate_until_event_confirms"
+        }
+      ],
+      "actionCandidates": [
+        {
+          "approvalRequired": true,
+          "mode": "proposal_only_read_only",
+          "risk": "medium",
+          "title": "Event, snapshot, metric, log-pattern evidence를 먼저 확인"
+        },
+        {
+          "approvalRequired": true,
+          "mode": "proposal_only_read_only",
+          "risk": "high",
+          "title": "원인 확정 전 rollout/delete/patch/scale 실행 금지"
+        }
+      ],
+      "evidence_refs": [],
+      "safety": {
+        "mode": "read_only",
+        "validation": {
+          "ok": false,
+          "violations": [
+            "tool plan missing"
+          ]
+        }
+      },
+      "confidence": {
+        "level": "insufficient_evidence",
+        "reason": "missing runtime evidence prevents confirmation"
+      }
+    },
+    "sourceChecks": [
+      {
+        "file": "komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+        "missing": [],
+        "needles": [
+          "data-aiops-demo-action=\"seed-chat-prompt\"",
+          "crashLoopDemo && (",
+          "readOnlyOnly: true",
+          "safeEvidenceText(finding.evidence || finding.message",
+          "findingId: finding.id",
+          "scenarioId: isCrashLoopFinding(finding) ? 'crashloop'"
+        ],
+        "ok": true
+      },
+      {
+        "file": "komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
+        "missing": [],
+        "needles": [
+          "draftPrompt?: AssistantDraftPrompt",
+          "onRunComplete?: () => Promise<void> | void",
+          "void onRunComplete?.()",
+          "setExecutionMode('read-only')",
+          "activeDraftPageContext?.readOnlyOnly === true ? 'read-only' : executionMode",
+          "aiopsDemoCycle: activeDraftPageContext"
+        ],
+        "ok": true
+      },
+      {
+        "file": "komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+        "missing": [],
+        "needles": [
+          "onRunComplete={data.refresh}",
+          "data-aiops-demo-action=\"seed-chat-prompt\""
+        ],
+        "ok": true
+      },
+      {
+        "file": "komsco-ai-gateway/komsco_ai_gateway/main.py",
+        "missing": [],
+        "needles": [
+          "\"aiopsDemoCycle\"",
+          "def normalize_aiops_demo_cycle_context",
+          "AIOPS_DEMO_CYCLE_ALLOWED_KEYS",
+          "AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS",
+          "def build_crashloop_demo_answer_contract_text",
+          "def crashloop_demo_prompt_answer_contract",
+          "\"answerContract\": \"crashloop-v0.1.3\""
+        ],
+        "ok": true
+      },
+      {
+        "file": "komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py",
+        "missing": [],
+        "needles": [
+          "\"findingId\": demo_cycle_context.get(\"findingId\")",
+          "\"scenarioId\": demo_cycle_context.get(\"scenarioId\")",
+          "\"scenarioContext\": scenario_context"
+        ],
+        "ok": true
+      }
+    ]
+  },
+  "status": "pass"
+}

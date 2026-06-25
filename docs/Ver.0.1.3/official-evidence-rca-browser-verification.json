@@ -1,0 +1,77 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "generatedAt": "2026-06-25T06:38:32.883Z",
+  "kind": "OfficialEvidenceRcaBrowserVerification",
+  "metadata": {
+    "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
+    "branch": "feat/v.0.1.3",
+    "browser": "iab",
+    "captureMethod": "Codex in-app browser screenshot",
+    "cypressStatus": "blocked: Cypress/Electron OS dependency libnspr4.so is missing in current WSL",
+    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "name": "ver-0.1.3-official-evidence-rca-browser-proof",
+    "source": "Codex in-app browser"
+  },
+  "spec": {
+    "checks": [
+      {
+        "name": "local_console_dashboard_opened",
+        "ok": true,
+        "evidence": {
+          "url": "http://127.0.0.1:9000/dashboards",
+          "title": "개요 · 클러스터 · OKD"
+        }
+      },
+      {
+        "name": "cywell_ai_question_textarea_visible",
+        "ok": true,
+        "evidence": {
+          "textareaVisible": true
+        }
+      },
+      {
+        "name": "official_question_staged",
+        "ok": true,
+        "evidence": {
+          "question": "어제 새벽에 default namespace Pod가 왜 재시작됐어?"
+        }
+      },
+      {
+        "name": "troubleshooting_mode_selected",
+        "ok": true,
+        "evidence": {
+          "mode": "troubleshooting"
+        }
+      },
+      {
+        "name": "send_button_enabled",
+        "ok": true,
+        "evidence": {
+          "sendDisabled": false
+        }
+      },
+      {
+        "name": "screenshot_written",
+        "ok": true,
+        "evidence": {
+          "path": "docs/Ver.0.1.3/official-evidence-rca-browser-screen.png",
+          "sizeBytes": 66152
+        }
+      }
+    ],
+    "claim": "browser proof that the official Evidence RCA question is staged in the local OpenShift console Cywell AI assistant",
+    "officialQuestion": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+    "screenshot": "docs/Ver.0.1.3/official-evidence-rca-browser-screen.png",
+    "state": {
+      "mode": "troubleshooting",
+      "openButtonVisible": false,
+      "question": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+      "sendDisabled": false,
+      "statusText": "연결됨읽기읽기 전용실행무제한",
+      "textareaVisible": true,
+      "title": "개요 · 클러스터 · OKD",
+      "url": "http://127.0.0.1:9000/dashboards"
+    }
+  },
+  "status": "pass"
+}

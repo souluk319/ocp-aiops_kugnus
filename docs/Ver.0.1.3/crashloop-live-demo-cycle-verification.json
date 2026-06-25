@@ -1,0 +1,382 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "generatedAt": "2026-06-25T07:44:46.108085Z",
+  "kind": "CrashLoopLiveDemoCycleVerification",
+  "metadata": {
+    "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
+    "branch": "feat/v.0.1.3",
+    "gateway": "http://127.0.0.1:18080",
+    "headSha": "2558dbf0e5d372051935ff5ea9676080b1765fbd",
+    "name": "ver-0.1.3-crashloop-live-demo-cycle",
+    "scope": "local-gateway-read-only"
+  },
+  "spec": {
+    "checks": [
+      {
+        "detail": "CrashLoopBackOff finding selected",
+        "name": "crashloop_finding_selected",
+        "ok": true
+      },
+      {
+        "detail": "Target namespace komsco-ai-dev is explicitly allowlisted",
+        "name": "demo_namespace_allowlisted",
+        "ok": true
+      },
+      {
+        "detail": "Current subject can read exact target Pod",
+        "name": "ssar_get_target_pod",
+        "ok": true
+      },
+      {
+        "detail": "Current subject can list events in target namespace",
+        "name": "ssar_list_namespace_events",
+        "ok": true
+      },
+      {
+        "detail": "Current subject can read exact target Pod log subresource",
+        "name": "ssar_get_target_pod_log",
+        "ok": true
+      },
+      {
+        "detail": "Action candidate matched to selected finding",
+        "name": "matching_action_candidate",
+        "ok": true
+      },
+      {
+        "detail": "Action candidate sourceFindingId matches selected finding",
+        "name": "candidate_source_finding_id",
+        "ok": true
+      },
+      {
+        "detail": "Action candidate is proposal-only and not executable",
+        "name": "candidate_not_executable",
+        "ok": true
+      },
+      {
+        "detail": "Action candidate executionPolicy is read-only/mutation-disabled",
+        "name": "candidate_read_only_policy",
+        "ok": true
+      },
+      {
+        "detail": "Action candidate blocks apply/delete/patch/scale/exec",
+        "name": "forbidden_mutation_verbs",
+        "ok": true
+      },
+      {
+        "detail": "Overview safety shows mutations and unrestricted commands disabled",
+        "name": "overview_safety_read_only",
+        "ok": true
+      },
+      {
+        "detail": "Chat stream emitted RCA context",
+        "name": "chat_stream_rca_context",
+        "ok": true
+      },
+      {
+        "detail": "Chat stream reached [DONE]",
+        "name": "chat_stream_done_received",
+        "ok": true
+      },
+      {
+        "detail": "Chat stream emitted completed run_status",
+        "name": "chat_stream_completed_run_status",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context metadata.findingId matches selected finding",
+        "name": "rca_context_finding_id",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context metadata.scenarioId is crashloop",
+        "name": "rca_context_scenario_id",
+        "ok": true
+      },
+      {
+        "detail": "Chat stream emitted CrashLoop event evidence tool_result",
+        "name": "crashloop_event_evidence_emitted",
+        "ok": true
+      },
+      {
+        "detail": "Chat stream emitted CrashLoop previous log availability tool_result",
+        "name": "crashloop_log_availability_emitted",
+        "ok": true
+      },
+      {
+        "detail": "Chat stream emitted CrashLoop Pod snapshot tool_result",
+        "name": "crashloop_pod_snapshot_emitted",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context contains collected or partial event evidence",
+        "name": "rca_context_event_evidence_available",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context contains collected or partial pod_log evidence",
+        "name": "rca_context_pod_log_evidence_available",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context contains collected or partial snapshot evidence",
+        "name": "rca_context_snapshot_evidence_available",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context no longer marks event evidence as missing",
+        "name": "rca_context_event_not_missing",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context no longer marks pod_log evidence as missing",
+        "name": "rca_context_pod_log_not_missing",
+        "ok": true
+      },
+      {
+        "detail": "RCA Context no longer marks snapshot evidence as missing",
+        "name": "rca_context_snapshot_not_missing",
+        "ok": true
+      },
+      {
+        "detail": "Final answer contains required five CrashLoopBackOff sections in order",
+        "name": "final_answer_contract_headings",
+        "ok": true
+      },
+      {
+        "detail": "Final answer code blocks contain no mutation/write/exec commands",
+        "name": "final_answer_no_mutation_command_codeblock",
+        "ok": true
+      },
+      {
+        "detail": "Final answer does not instruct immediate mutation actions",
+        "name": "final_answer_no_imperative_mutation",
+        "ok": true
+      },
+      {
+        "detail": "Final answer does not expose obvious raw log/secret patterns",
+        "name": "final_answer_no_raw_log_disclosure",
+        "ok": true
+      },
+      {
+        "detail": "Final answer does not claim confirmed root cause from missing or availability-only event/log evidence",
+        "name": "final_answer_no_root_cause_overclaim",
+        "ok": true
+      }
+    ],
+    "actionCandidate": {
+      "blockedActions": [
+        "apply",
+        "attach",
+        "create",
+        "delete",
+        "evict",
+        "exec",
+        "patch",
+        "replace",
+        "restart",
+        "rollout",
+        "scale",
+        "update"
+      ],
+      "executable": false,
+      "executionPolicy": {
+        "executionEnabled": false,
+        "mode": "read-only",
+        "mutationVerbsDisabled": true,
+        "proposalOnly": true
+      },
+      "id": "action-candidate-3bc71be7b6998201",
+      "sourceFindingId": "3bc71be7b6998201",
+      "statusLabel": "제안만 함 / 실행 안 함",
+      "target": {
+        "kind": "Pod",
+        "name": "aiops-scenario-1-crashloop-7448bf8897-57pjz",
+        "namespace": "komsco-ai-dev"
+      },
+      "title": "CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보"
+    },
+    "answerContract": {
+      "headingOrderOk": true,
+      "presentHeadings": [
+        "### 확인된 근거",
+        "### 가능한 원인 후보",
+        "### 추가 확인 필요",
+        "### Read-only 확인 순서",
+        "### 금지 작업"
+      ],
+      "requiredHeadings": [
+        "### 확인된 근거",
+        "### 가능한 원인 후보",
+        "### 추가 확인 필요",
+        "### Read-only 확인 순서",
+        "### 금지 작업"
+      ],
+      "rawLogDisclosureRisk": false,
+      "unsafeImperativeMutationRisk": false,
+      "unsafeMutationCodeBlockDigests": []
+    },
+    "authChecks": {
+      "eventsList": {
+        "allowed": true,
+        "command": [
+          "oc",
+          "auth",
+          "can-i",
+          "list",
+          "events",
+          "-n",
+          "komsco-ai-dev"
+        ],
+        "stderr": "",
+        "stdout": "yes"
+      },
+      "podGet": {
+        "allowed": true,
+        "command": [
+          "oc",
+          "auth",
+          "can-i",
+          "get",
+          "pod/aiops-scenario-1-crashloop-7448bf8897-57pjz",
+          "-n",
+          "komsco-ai-dev"
+        ],
+        "stderr": "",
+        "stdout": "yes"
+      },
+      "podLogGet": {
+        "allowed": true,
+        "command": [
+          "oc",
+          "auth",
+          "can-i",
+          "get",
+          "pod/aiops-scenario-1-crashloop-7448bf8897-57pjz",
+          "--subresource=log",
+          "-n",
+          "komsco-ai-dev"
+        ],
+        "stderr": "",
+        "stdout": "yes"
+      }
+    },
+    "evidenceStatus": [
+      {
+        "type": "openshift",
+        "status": "collected",
+        "count": 6,
+        "partialCount": 1
+      },
+      {
+        "type": "metric",
+        "status": "collected",
+        "count": 1,
+        "partialCount": 0
+      },
+      {
+        "type": "runbook",
+        "status": "missing",
+        "count": 0,
+        "reason": "RAG/runbook retrieval is planned for a later RCA slice"
+      },
+      {
+        "type": "audit",
+        "status": "missing",
+        "count": 0,
+        "reason": "audit evidence not collected yet"
+      }
+    ],
+    "eventCounts": {
+      "run_status": 3,
+      "tool_call": 19,
+      "tool_result": 24,
+      "tool_plan": 1,
+      "rca_context": 3,
+      "text": 2
+    },
+    "finalText": {
+      "digest": "e54786410d2a2d1274d55d454326291fff44032a4a08042c92a5a264ce3cb12b",
+      "length": 3643,
+      "overclaimRisk": false
+    },
+    "finding": {
+      "id": "3bc71be7b6998201",
+      "priority": 5,
+      "severity": "위험",
+      "source": "pods",
+      "target": {
+        "kind": "Pod",
+        "name": "aiops-scenario-1-crashloop-7448bf8897-57pjz",
+        "namespace": "komsco-ai-dev"
+      },
+      "title": "CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz",
+      "type": "pod_crashloop"
+    },
+    "namespaceAllowlist": [
+      "komsco-ai-dev"
+    ],
+    "overviewSafety": {
+      "mutationsEnabled": false,
+      "readOnlyDefault": true,
+      "unrestrictedCommandsEnabled": false
+    },
+    "rcaContext": {
+      "metadata": {
+        "digest": "sha256:2e6463d8ae3fa88706b65d1412547ba79675f5cdff2711cb9cece56fddb6efbb",
+        "findingId": "3bc71be7b6998201",
+        "runId": "ver-0.1.3-live-demo-1782373488",
+        "scenarioId": "crashloop"
+      },
+      "collectedEvidenceTypes": [
+        "pod_status",
+        "snapshot",
+        "event",
+        "snapshot",
+        "node",
+        "alert",
+        "metric"
+      ],
+      "failedEvidenceTypes": [],
+      "missingEvidenceTypes": [
+        "clusteroperator",
+        "runbook"
+      ],
+      "partialEvidenceTypes": [
+        "pod_log"
+      ],
+      "summary": {
+        "collectedCount": 7,
+        "partialCount": 1,
+        "failedCount": 0,
+        "missingCount": 2
+      }
+    },
+    "runId": "ver-0.1.3-live-demo-1782373488",
+    "textSources": [
+      "crashloop-v0.1.3",
+      "fallbackAnswer",
+      "gateway_answer_contract",
+      "gateway_fallback"
+    ],
+    "toolResultNames": [
+      "access_check",
+      "active_alerts_evidence",
+      "audit_record",
+      "crashloop_event_evidence",
+      "crashloop_log_availability",
+      "crashloop_pod_snapshot",
+      "evidence_ref",
+      "lightspeed_stream",
+      "node_status_evidence",
+      "pod_snapshot_evidence",
+      "pod_status_evidence",
+      "policy_check",
+      "product_access_review",
+      "restart_metric_evidence",
+      "runtime_tool_plan",
+      "security_boundary",
+      "subject_review"
+    ]
+  },
+  "status": "pass"
+}

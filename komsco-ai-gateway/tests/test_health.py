@@ -176,6 +176,19 @@ def test_aiops_contract_rejects_mutating_tool_plan() -> None:
     assert any("forbidden tool" in violation for violation in result["violations"])
 
 
+def test_official_evidence_rca_question_scopes_default_namespace_without_page_context() -> None:
+    plan = build_runtime_tool_plan("어제 새벽에 default namespace Pod가 왜 재시작됐어?")
+
+    assert plan["target"]["namespace"] == "default"
+    assert {step.get("official_tool") for step in plan["tool_plan"]} >= {
+        "event_tool",
+        "grep_tool",
+        "metric_tool",
+        "snapshot_tool",
+    }
+    assert plan["validation"]["ok"]
+
+
 def test_aiops_contract_summarizes_missing_evidence() -> None:
     status = create_evidence_status(
         {
@@ -204,6 +217,7 @@ def test_runtime_safety_contract_defaults_to_read_only() -> None:
     assert contract["toolPlanStatus"]["status"] == "waiting_for_first_question"
     assert contract["lightspeedStatus"]["streamProbe"] == "not_started"
     assert {adapter["name"]: adapter["status"] for adapter in contract["adapterStatus"]} == {
+        "AI Gateway": "available",
         "Linux": "disabled",
         "OpenShift": "available",
         "Windows": "planned",
@@ -211,7 +225,9 @@ def test_runtime_safety_contract_defaults_to_read_only() -> None:
     linux = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "Linux")
     windows = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "Windows")
     openshift = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "OpenShift")
+    gateway = next(adapter for adapter in contract["adapterStatus"] if adapter["name"] == "AI Gateway")
     assert len(openshift["supportedTools"]) >= 3
+    assert len(gateway["supportedTools"]) >= 1
     assert "KOMSCO_AI_DIAGNOSTICS_ENABLED" in linux["disabledReason"]
     assert "runtime collector" in windows["disabledReason"]
 
@@ -228,7 +244,7 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
     assert {item["tool"] for item in resolutions} >= {
         "openshift_event_lookup",
         "openshift_pod_status_lookup",
-        "openshift_pod_log_tail",
+        "openshift_pod_log_pattern_probe",
         "openshift_node_status_lookup",
         "openshift_alert_lookup",
         "openshift_metric_query",
@@ -236,7 +252,7 @@ def test_adapter_registry_resolves_openshift_tool_plan_steps_and_marks_disabled_
     resolution_by_tool = {item["tool"]: item for item in resolutions}
     assert resolution_by_tool["openshift_event_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_pod_status_lookup"]["resolved"] is True
-    assert resolution_by_tool["openshift_pod_log_tail"]["resolved"] is True
+    assert resolution_by_tool["openshift_pod_log_pattern_probe"]["resolved"] is True
     assert resolution_by_tool["openshift_node_status_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_alert_lookup"]["status"] == "resolved"
     assert resolution_by_tool["openshift_metric_query"]["status"] == "resolved"
@@ -283,7 +299,8 @@ def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
     assert {step["adapter"] for step in plan["tool_plan"]} == {"OpenShift"}
     assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
     missing_types = {item["type"] for item in plan["missing_evidence"]}
-    assert {"event", "pod_log", "clusteroperator", "runbook"} <= missing_types
+    assert {"clusteroperator", "runbook"} <= missing_types
+    assert {"event", "pod_log", "snapshot"}.isdisjoint(missing_types)
     assert {"node", "alert", "metric"}.isdisjoint(missing_types)
 
 
@@ -348,8 +365,8 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     }
     assert step_status["pod_status"]["status"] == "collected"
     assert step_status["pod_status"]["evidenceId"] == "ev-abc"
-    assert step_status["event"]["status"] == "missing"
-    assert step_status["pod_log"]["status"] == "missing"
+    assert step_status["event"]["status"] == "not_attempted"
+    assert step_status["pod_log"]["status"] == "not_attempted"
     assert step_status["node"]["status"] == "not_attempted"
     assert step_status["alert"]["status"] == "not_attempted"
     assert step_status["metric"]["status"] == "not_attempted"
@@ -1086,9 +1103,56 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
             "summary": "Restart metric RCA 증거 수집 불가",
         }
 
+    async def fake_official_restart_evidence(
+        _authorization: str,
+        namespace: str,
+        request_id: str,
+    ) -> list[dict]:
+        assert namespace == "default"
+        return [
+            {
+                "type": "tool_result",
+                "detail": '{"eventCount": 2, "rawEventMessages": "omitted"}',
+                "evidenceType": "event",
+                "id": f"{request_id}-official-namespace-restart-events",
+                "name": "official_namespace_restart_event_evidence",
+                "sourcePath": "/api/v1/namespaces/default/events?limit=200",
+                "status": "success",
+                "summary": "공식 Pod 재시작 namespace Event 증거 수집 완료",
+            },
+            {
+                "type": "tool_result",
+                "detail": '{"candidatePods": [{"name": "sample", "restartCount": 3}]}',
+                "evidenceType": "snapshot",
+                "id": f"{request_id}-official-namespace-restart-snapshot",
+                "name": "official_namespace_restart_snapshot",
+                "sourcePath": "/api/v1/namespaces/default/pods?limit=200",
+                "status": "success",
+                "summary": "공식 Pod 재시작 namespace snapshot 증거 수집 완료",
+            },
+            {
+                "type": "tool_result",
+                "detail": '{"rawLogDisclosure": false, "patternCounts": {"OOMKilled": 1}}',
+                "evidenceType": "pod_log",
+                "id": f"{request_id}-official-namespace-restart-log-patterns",
+                "matchedPatternIds": ["OOMKilled"],
+                "name": "official_namespace_restart_log_pattern_probe",
+                "patternCounts": {"OOMKilled": 1},
+                "rawLogDisclosure": False,
+                "sourcePath": "/api/v1/namespaces/default/pods/sample/log?previous=true",
+                "status": "partial",
+                "summary": "공식 Pod 재시작 log pattern 증거 부분 수집",
+            },
+        ]
+
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
     monkeypatch.setattr(gateway_main, "collect_pod_status_evidence", fake_pod_evidence)
+    monkeypatch.setattr(
+        gateway_main,
+        "collect_official_namespace_restart_evidence_events",
+        fake_official_restart_evidence,
+    )
     monkeypatch.setattr(gateway_main, "collect_node_status_rca_evidence", fake_node_evidence)
     monkeypatch.setattr(gateway_main, "collect_active_alerts_rca_evidence", fake_alert_evidence)
     monkeypatch.setattr(gateway_main, "collect_restart_metric_rca_evidence", fake_metric_evidence)
@@ -1100,7 +1164,7 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
                 "/v1/chat/stream",
                 headers={"Authorization": "Bearer test-token"},
                 json={
-                    "message": "default 네임스페이스 pod가 왜 재시작됐어?",
+                    "message": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
                     "runId": "run-stage3-preflight",
                 },
             )
@@ -1135,13 +1199,19 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
         evidence_ref_types = {item.get("evidenceType") for item in evidence_ref_results}
 
         assert result_by_name["node_status_evidence"]["status"] == "success"
+        assert result_by_name["official_namespace_restart_event_evidence"]["status"] == "success"
+        assert result_by_name["official_namespace_restart_snapshot"]["status"] == "success"
+        assert result_by_name["official_namespace_restart_log_pattern_probe"]["status"] == "partial"
         assert result_by_name["active_alerts_evidence"]["status"] == "partial"
         assert result_by_name["restart_metric_evidence"]["status"] == "error"
-        assert {"node", "alert", "metric"} <= evidence_ref_types
+        assert {"node", "alert", "event", "metric", "pod_log", "snapshot"} <= evidence_ref_types
         assert step_status["node"]["status"] == "collected"
         assert step_status["alert"]["status"] == "partial"
+        assert step_status["event"]["status"] == "collected"
+        assert step_status["pod_log"]["status"] == "partial"
+        assert step_status["snapshot"]["status"] == "collected"
         assert step_status["metric"]["status"] == "failed"
-        assert pre_answer["evidence"]["summary"]["partialCount"] == 1
+        assert pre_answer["evidence"]["summary"]["partialCount"] >= 2
         assert "test-token" not in response.text
 
     asyncio.run(run())

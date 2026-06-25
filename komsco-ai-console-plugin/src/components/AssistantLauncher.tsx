@@ -2,30 +2,30 @@ import * as React from 'react';
 import { Button, Card, CardBody, TextArea } from '@patternfly/react-core';
 import * as ReactDOM from 'react-dom';
 import {
-  ArrowDownIcon,
-  BarsIcon,
-  CaretDownIcon,
-  ClipboardIcon,
-  CommentDotsIcon,
-  CompressArrowsAltIcon,
-  ExclamationCircleIcon,
-  ExclamationTriangleIcon,
-  ExpandArrowsAltIcon,
-  GlobeIcon,
-  HistoryIcon,
-  LockIcon,
-  LockOpenIcon,
-  PaperclipIcon,
-  PaperPlaneIcon,
-  PlusIcon,
-  ServerIcon,
-  ShieldAltIcon,
-  StopIcon,
-  TerminalIcon,
-  TimesIcon,
-  UserCircleIcon,
-  WrenchIcon,
-} from '@patternfly/react-icons';
+  CoolArrowDownIcon,
+  CoolCaretDownIcon,
+  CoolChatDotsIcon,
+  CoolClockIcon,
+  CoolCloseIcon,
+  CoolCopyIcon,
+  CoolDesktopTowerIcon,
+  CoolExpandIcon,
+  CoolGlobeIcon,
+  CoolInfoIcon,
+  CoolLockIcon,
+  CoolLockOpenIcon,
+  CoolMenuIcon,
+  CoolPaperclipIcon,
+  CoolPaperPlaneIcon,
+  CoolPlusIcon,
+  CoolSettingsIcon,
+  CoolShieldCheckIcon,
+  CoolShrinkIcon,
+  CoolStopIcon,
+  CoolTerminalIcon,
+  CoolUserCircleIcon,
+  CoolWarningIcon,
+} from './coolicons';
 import {
   type AiopsRecord,
   type AiopsRuntimeStatus,
@@ -49,23 +49,23 @@ import './assistant.css';
 
 const QUICK_PROMPTS = [
   {
-    icon: <ServerIcon />,
+    icon: <CoolDesktopTowerIcon />,
     label: 'Node 상태',
     prompt: '현재 클러스터 노드 상태를 요약하고 이상 징후가 있으면 알려줘.',
   },
   {
-    icon: <ExclamationTriangleIcon />,
+    icon: <CoolWarningIcon />,
     label: '최근 경고',
     prompt:
       '최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.',
   },
   {
-    icon: <TerminalIcon />,
+    icon: <CoolTerminalIcon />,
     label: '조치 절차',
     prompt: '현재 화면 기준으로 안전한 확인 절차를 단계별로 제안해줘.',
   },
   {
-    icon: <ShieldAltIcon />,
+    icon: <CoolShieldCheckIcon />,
     label: '조치 후보 검토',
     prompt:
       '현재 화면의 대상에 대해 가능한 AIOps 조치 후보, 승인 필요 여부, 실행 전 검증 조건을 정리해줘.',
@@ -80,13 +80,13 @@ const ASSISTANT_TASK_MODES: Array<{
 }> = [
   {
     description: '일반 질문과 상태 확인',
-    icon: <CommentDotsIcon />,
+    icon: <CoolChatDotsIcon />,
     label: 'Ask',
     value: 'ask',
   },
   {
     description: '원인 분석과 점검 절차',
-    icon: <WrenchIcon />,
+    icon: <CoolSettingsIcon />,
     label: 'Troubleshooting',
     value: 'troubleshooting',
   },
@@ -140,6 +140,39 @@ type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';
 type AssistantTaskMode = 'ask' | 'troubleshooting';
 type UiLanguage = 'ko' | 'en';
 type PanelResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
+
+type AssistantDraftPrompt = {
+  id: string;
+  pageContext?: Record<string, unknown>;
+  prompt: string;
+  taskMode?: AssistantTaskMode;
+};
+
+const TASK_MODE_EMPTY_COPY: Record<
+  AssistantTaskMode,
+  Record<UiLanguage, { title: string; text: string }>
+> = {
+  ask: {
+    ko: {
+      title: '무엇을 확인할까요?',
+      text: '클러스터 상태, 최근 경고, 노드와 Pod 현황을 읽기 전용으로 확인합니다.',
+    },
+    en: {
+      title: 'What should I check?',
+      text: 'Ask about cluster status, recent alerts, nodes, and pods in read-only mode.',
+    },
+  },
+  troubleshooting: {
+    ko: {
+      title: '문제 원인을 점검합니다',
+      text: 'Event, Pod, Operator, Metrics 근거를 모아 원인 후보와 다음 확인 절차를 정리합니다.',
+    },
+    en: {
+      title: 'Troubleshoot an issue',
+      text: 'I will collect evidence from events, pods, operators, and metrics, then organize likely causes and next checks.',
+    },
+  },
+};
 
 type ProgressStatus = 'running' | 'completed' | 'failed';
 
@@ -407,11 +440,11 @@ const getMessageLabel = (role: Message['role']): string => {
 
 const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
   if (role === 'user') {
-    return <UserCircleIcon />;
+    return <CoolUserCircleIcon />;
   }
 
   if (role === 'system') {
-    return <ExclamationCircleIcon />;
+    return <CoolInfoIcon />;
   }
 
   return <img alt="" className="komsco-ai__message-logo" src={kIcon} />;
@@ -896,7 +929,7 @@ const renderCodeBlock = (lines: string[], key: string, language?: string): React
         }}
         type="button"
       >
-        <ClipboardIcon />
+        <CoolCopyIcon />
       </button>
     </pre>
   );
@@ -1713,15 +1746,152 @@ const getOperatorTone = (
   return 'warn';
 };
 
+const getNodeCompactStatus = (
+  summary: ClusterSummary | null,
+  loading: boolean,
+  error: string,
+): {
+  label: string;
+  title: string;
+  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
+} => {
+  if (summary) {
+    const label = `Node ${summary.nodes.ready}/${summary.nodes.total}`;
+    if (summary.nodes.notReady > 0) {
+      return {
+        label,
+        title: `${summary.nodes.notReady} node(s) are not ready.`,
+        tone: 'danger',
+      };
+    }
+
+    if (summary.nodes.total > 0 && summary.nodes.ready === summary.nodes.total) {
+      return {
+        label,
+        title: 'All reported nodes are Ready.',
+        tone: 'ok',
+      };
+    }
+
+    return {
+      label,
+      title: 'Node readiness is partially available.',
+      tone: 'warn',
+    };
+  }
+
+  if (error) {
+    return {
+      label: 'Node 확인 필요',
+      title: error,
+      tone: 'danger',
+    };
+  }
+
+  return {
+    label: loading ? 'Node 수집 중' : 'Node 대기',
+    title: 'Cluster node summary is not available yet.',
+    tone: 'neutral',
+  };
+};
+
+const getOperatorCompactStatus = (
+  summary: ClusterSummary | null,
+  loading: boolean,
+  error: string,
+): {
+  label: string;
+  title: string;
+  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
+} => {
+  if (summary) {
+    const faultCount = getClusterFaultCount(summary);
+    if (faultCount > 0) {
+      return {
+        label: `Operator 장애 ${faultCount}`,
+        title: `${faultCount} degraded/unavailable operator issue(s) need attention.`,
+        tone: 'danger',
+      };
+    }
+
+    if (summary.operators.progressing > 0) {
+      return {
+        label: `Operator 진행 ${summary.operators.progressing}`,
+        title: `${summary.operators.progressing} operator(s) are progressing.`,
+        tone: 'warn',
+      };
+    }
+
+    if (
+      summary.operators.total > 0 &&
+      summary.operators.available === summary.operators.total
+    ) {
+      return {
+        label: 'Operator 정상',
+        title: `All ${summary.operators.total} ClusterOperators are available.`,
+        tone: 'ok',
+      };
+    }
+
+    return {
+      label: `Operator ${summary.operators.available}/${summary.operators.total}`,
+      title: 'ClusterOperator summary is partially available.',
+      tone: 'warn',
+    };
+  }
+
+  if (error) {
+    return {
+      label: 'Operator 확인 필요',
+      title: error,
+      tone: 'danger',
+    };
+  }
+
+  return {
+    label: loading ? 'Operator 수집 중' : 'Operator 대기',
+    title: 'ClusterOperator summary is not available yet.',
+    tone: 'neutral',
+  };
+};
+
 const renderStatusTag = (
   label: string,
   tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral' = 'neutral',
   title?: string,
+  icon?: React.ReactNode,
 ) => (
   <span className={`komsco-ai__scope-tag komsco-ai__scope-tag--${tone}`} title={title}>
+    {icon && <span className="komsco-ai__scope-tag-icon">{icon}</span>}
     {label}
   </span>
 );
+
+const renderRailSummaryBadges = (
+  summary: ClusterSummary | null,
+  loading: boolean,
+  error: string,
+) => {
+  const nodeStatus = getNodeCompactStatus(summary, loading, error);
+  const operatorStatus = getOperatorCompactStatus(summary, loading, error);
+
+  return (
+    <div className="komsco-ai__rail-status-pair" aria-label="클러스터 핵심 상태">
+      {renderStatusTag(
+        nodeStatus.label,
+        nodeStatus.tone,
+        nodeStatus.title,
+        <CoolDesktopTowerIcon />,
+      )}
+      {renderStatusTag(
+        operatorStatus.label,
+        operatorStatus.tone,
+        operatorStatus.title,
+        <CoolWarningIcon />,
+      )}
+    </div>
+  );
+};
 
 const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolean =>
   Boolean(
@@ -1763,12 +1933,12 @@ const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
 
 const getExecutionModeLabel = (mode: AiopsExecutionMode): string => {
   if (mode === 'unrestricted') {
-    return 'UI 실험 무제한';
+    return '실행 무제한';
   }
   if (mode === 'execute') {
-    return 'UI 실행 가능';
+    return '실행 가능';
   }
-  return 'UI 읽기 전용';
+  return '읽기 전용';
 };
 
 const getExecutionModeShortLabel = (mode: AiopsExecutionMode): string => {
@@ -1779,16 +1949,6 @@ const getExecutionModeShortLabel = (mode: AiopsExecutionMode): string => {
     return '실행';
   }
   return '읽기';
-};
-
-const getExecutionModeTone = (mode: AiopsExecutionMode): 'ok' | 'review' | 'danger' => {
-  if (mode === 'unrestricted') {
-    return 'danger';
-  }
-  if (mode === 'execute') {
-    return 'review';
-  }
-  return 'ok';
 };
 
 const getClusterHost = (apiUrl?: string): string => {
@@ -1822,7 +1982,7 @@ const renderExecutionModeToggle = (
       title="읽기 전용 모드"
       type="button"
     >
-      <ShieldAltIcon />
+      <CoolShieldCheckIcon />
       <span>읽기 전용</span>
     </button>
     <button
@@ -1841,8 +2001,8 @@ const renderExecutionModeToggle = (
       }
       type="button"
     >
-      <TerminalIcon />
-      <span>실행</span>
+      <CoolTerminalIcon />
+      <span>실행 가능</span>
     </button>
     <button
       aria-label="실험 무제한 모드"
@@ -1860,8 +2020,8 @@ const renderExecutionModeToggle = (
       }
       type="button"
     >
-      <ExclamationCircleIcon />
-      <span>무제한</span>
+      <CoolInfoIcon />
+      <span>실행 무제한</span>
     </button>
   </div>
 );
@@ -2143,6 +2303,46 @@ const getActionLifecycleSummary = (
   };
 };
 
+const renderExecutionCapabilityBadges = (
+  status: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+) => {
+  const actionExecutionAvailable = canUseActionExecution(status);
+  const unrestrictedAvailable = canUseUnrestrictedCommands(status);
+  const readOnlyActive = executionMode === 'read-only';
+  const executeActive = executionMode === 'execute';
+  const unrestrictedActive = executionMode === 'unrestricted';
+
+  return (
+    <div className="komsco-ai__scope-list komsco-ai__scope-list--execution">
+      {renderStatusTag(
+        '읽기 전용',
+        readOnlyActive ? 'ok' : 'neutral',
+        readOnlyActive
+          ? '현재 UI는 조회와 분석 중심의 read-only 모드입니다.'
+          : '언제든 read-only 모드로 되돌릴 수 있습니다.',
+        <CoolShieldCheckIcon />,
+      )}
+      {renderStatusTag(
+        '실행 가능',
+        actionExecutionAvailable ? (executeActive ? 'review' : 'ok') : 'warn',
+        actionExecutionAvailable
+          ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
+          : getActionExecutionDisabledReason(status),
+        <CoolTerminalIcon />,
+      )}
+      {renderStatusTag(
+        '실행 무제한',
+        unrestrictedAvailable ? (unrestrictedActive ? 'danger' : 'review') : 'neutral',
+        unrestrictedAvailable
+          ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
+          : getUnrestrictedDisabledReason(status),
+        <CoolInfoIcon />,
+      )}
+    </div>
+  );
+};
+
 const renderActionLifecycle = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
@@ -2327,7 +2527,7 @@ const renderActionRecordRows = (
               variant="secondary"
             >
               <span className="komsco-ai__rail-action-icon">
-                <TerminalIcon />
+                <CoolTerminalIcon />
               </span>
               {action.label}
             </Button>
@@ -2391,6 +2591,7 @@ const renderInsightRail = (
             : 'Gateway와 cluster summary를 가져오는 중입니다.'}
       </div>
     </div>
+    {renderRailSummaryBadges(summary, loading, error)}
     <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
       <div className="komsco-ai__health-head">
         <span>Cluster health score</span>
@@ -2428,13 +2629,7 @@ const renderInsightRail = (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>노드 상태</strong>
-        <span>
-          {summary
-            ? `${summary.nodes.ready}/${summary.nodes.total} Ready`
-            : loading
-              ? '수집 중'
-              : '대기'}
-        </span>
+        <span>{getNodeCompactStatus(summary, loading, error).label}</span>
       </div>
       {(summary?.nodes.items ?? []).slice(0, 5).map((node) => (
         <div className="komsco-ai__alert-mini" key={node.name}>
@@ -2517,7 +2712,7 @@ const renderInsightRail = (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>Operator 이슈</strong>
-        <span>{summary ? `${summary.operators.issues.length}건` : '대기'}</span>
+        <span>{getOperatorCompactStatus(summary, loading, error).label}</span>
       </div>
       {(summary?.operators.issues ?? []).slice(0, 5).map((operator) => (
         <div
@@ -2540,7 +2735,8 @@ const renderInsightRail = (
         <strong>AIOps 실행 상태</strong>
         <span>{aiopsStatus ? '연결됨' : aiopsStatusError ? '확인 필요' : '수집 중'}</span>
       </div>
-      <div className="komsco-ai__scope-list">
+      {renderExecutionCapabilityBadges(aiopsStatus, executionMode)}
+      <div className="komsco-ai__scope-list komsco-ai__scope-list--secondary">
         {renderStatusTag(
           aiopsStatus
             ? aiopsStatus.spec.capabilities.diagnosticsEnabled
@@ -2562,22 +2758,6 @@ const renderInsightRail = (
           aiopsStatus
             ? aiopsStatus.spec.capabilities.mutationsEnabled
               ? 'review'
-              : 'neutral'
-            : 'neutral',
-        )}
-        {renderStatusTag(
-          getExecutionModeLabel(executionMode),
-          getExecutionModeTone(executionMode),
-        )}
-        {renderStatusTag(
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.unrestrictedCommandsEnabled
-            ? 'Unrestricted on'
-              : 'Unrestricted off'
-            : 'Unrestricted pending',
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.unrestrictedCommandsEnabled
-              ? 'danger'
               : 'neutral'
             : 'neutral',
         )}
@@ -2693,8 +2873,10 @@ const renderInsightRail = (
 
 type AssistantLauncherProps = {
   defaultOpen?: boolean;
+  draftPrompt?: AssistantDraftPrompt;
   embedded?: boolean;
   lockOpen?: boolean;
+  onRunComplete?: () => Promise<void> | void;
   overlayId?: string;
   closeOverlay?: () => void;
 };
@@ -2712,12 +2894,15 @@ const FullscreenPortal: React.FC<{ active: boolean; children: React.ReactNode }>
 
 const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   defaultOpen = false,
+  draftPrompt,
   embedded = false,
   lockOpen = false,
+  onRunComplete,
 }) => {
   const [open, setOpen] = React.useState(defaultOpen || embedded || lockOpen);
   const [fullScreen, setFullScreen] = React.useState(false);
   const [input, setInput] = React.useState('');
+  const [draftPageContext, setDraftPageContext] = React.useState<Record<string, unknown> | undefined>();
   const [pendingAttachments, setPendingAttachments] = React.useState<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = React.useState('');
   const [clusterSummary, setClusterSummary] = React.useState<ClusterSummary | null>(null);
@@ -2760,6 +2945,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const consumedDraftPromptIdRef = React.useRef('');
   const quickPromptMenuRef = React.useRef<HTMLDivElement | null>(null);
   const taskModeMenuRef = React.useRef<HTMLDivElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
@@ -2789,6 +2975,31 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const selectedTaskMode =
     ASSISTANT_TASK_MODES.find((item) => item.value === assistantTaskMode) ||
     ASSISTANT_TASK_MODES[0];
+  const emptyStateCopy =
+    TASK_MODE_EMPTY_COPY[assistantTaskMode]?.[uiLanguage] ?? TASK_MODE_EMPTY_COPY.ask[uiLanguage];
+
+  React.useEffect(() => {
+    if (!draftPrompt || consumedDraftPromptIdRef.current === draftPrompt.id) {
+      return;
+    }
+
+    consumedDraftPromptIdRef.current = draftPrompt.id;
+    setInput(draftPrompt.prompt);
+    setDraftPageContext(draftPrompt.pageContext);
+    setAssistantTaskMode(draftPrompt.taskMode ?? 'troubleshooting');
+    if (draftPrompt.pageContext?.readOnlyOnly === true) {
+      setExecutionMode('read-only');
+    }
+    setQuickPromptMenuOpen(false);
+    setTaskModeMenuOpen(false);
+    setOpen(true);
+    window.setTimeout(() => {
+      surfaceRef.current
+        ?.querySelector<HTMLTextAreaElement>('textarea')
+        ?.focus();
+    }, 0);
+  }, [draftPrompt]);
+
   const surfaceStyle = React.useMemo<React.CSSProperties>(() => {
     if (fullScreen) {
       return {};
@@ -3553,6 +3764,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     async (prompt?: string) => {
       const question = (prompt ?? input).trim();
       const attachments = [...pendingAttachments];
+      const activeDraftPageContext = draftPageContext;
+      const requestExecutionMode =
+        activeDraftPageContext?.readOnlyOnly === true ? 'read-only' : executionMode;
 
       if ((!question && attachments.length === 0) || loading) {
         return;
@@ -3562,6 +3776,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setShowScrollToBottom(false);
       setInput('');
       setPendingAttachments([]);
+      setDraftPageContext(undefined);
       setAttachmentError('');
       setQuickPromptMenuOpen(false);
       setTaskModeMenuOpen(false);
@@ -3585,7 +3800,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         const runId = createRunId();
         const pageContext = {
           ...buildConsolePageContext(),
-          aiopsExecutionMode: executionMode,
+          aiopsExecutionMode: requestExecutionMode,
+          aiopsDemoCycle: activeDraftPageContext,
           aiopsTaskMode: assistantTaskMode,
           aiopsTaskModeLabel: selectedTaskMode.label,
         };
@@ -3598,6 +3814,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         let responseWaitSequence = 0;
         let answerStreamStartedAt: number | undefined;
         let runLoopStartedAt: number | undefined;
+        let runCompleted = false;
         let fallbackAnswerSeen = false;
         let lightspeedStageSeen = false;
         let stepSequence = 0;
@@ -3726,6 +3943,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           const completed = event.stage === 'completed';
 
           runLoopStartedAt = startedAt;
+          if (completed) {
+            runCompleted = true;
+          }
 
           upsertProgressStep({
             detail: event.message,
@@ -3981,6 +4201,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         finishResponseWaitStep('스트림 종료');
         await waitForAssistantTextQueue();
         finishAnswerStreamStep();
+        if (runCompleted) {
+          void onRunComplete?.();
+        }
       } catch (error) {
         const stopped =
           stopRequestedRef.current ||
@@ -4017,11 +4240,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [
       enqueueAssistantText,
       assistantTaskMode,
+      draftPageContext,
       executionMode,
       flushAssistantTextQueueNow,
       input,
       loading,
       markRunningProgressFailed,
+      onRunComplete,
       scrollToBottom,
       conversationId,
       messages,
@@ -4060,11 +4285,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         onClick={startNewConversation}
         variant="secondary"
       >
-        <PlusIcon />
+        <CoolPlusIcon />
         <span>{copy.newChat}</span>
       </Button>
       <div className="komsco-ai__history-title">
-        <HistoryIcon />
+        <CoolClockIcon />
         <span>{copy.history}</span>
       </div>
       <div className="komsco-ai__history-list">
@@ -4090,7 +4315,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       </div>
       <div className="komsco-ai__history-user" aria-label="현재 OpenShift 사용자">
         <div className="komsco-ai__history-user-avatar">
-          <UserCircleIcon />
+          <CoolUserCircleIcon />
         </div>
         <div className="komsco-ai__history-user-main">
           <strong title={authSubject?.username || authSubjectError || '사용자 확인 중'}>
@@ -4130,6 +4355,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       {(open || embedded || lockOpen) && (
         <FullscreenPortal active={fullScreen}>
         <div
+          aria-label="Cywell AI assistant"
           ref={surfaceRef}
           className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
             historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
@@ -4148,7 +4374,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               title={copy.openSidebar}
               variant="plain"
             >
-              <BarsIcon />
+              <CoolMenuIcon />
             </Button>
             <div className="komsco-ai__brand">
               <div className="komsco-ai__brand-mark">
@@ -4193,7 +4419,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 title={copy.switchLanguage}
                 variant="plain"
               >
-                <GlobeIcon />
+                <CoolGlobeIcon />
                 <span className="komsco-ai__language-code">
                   {uiLanguage === 'ko' ? 'EN' : 'KO'}
                 </span>
@@ -4204,7 +4430,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 onClick={() => setFullScreen((value) => !value)}
                 variant="plain"
               >
-                {fullScreen ? <CompressArrowsAltIcon /> : <ExpandArrowsAltIcon />}
+                {fullScreen ? <CoolShrinkIcon /> : <CoolExpandIcon />}
               </Button>
               <Button
                 aria-label={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
@@ -4215,7 +4441,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
                 variant="plain"
               >
-                {panelResizeUnlocked ? <LockOpenIcon /> : <LockIcon />}
+                {panelResizeUnlocked ? <CoolLockOpenIcon /> : <CoolLockIcon />}
               </Button>
               {!lockOpen && (
                 <Button
@@ -4224,7 +4450,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   onClick={closeAssistant}
                   variant="plain"
                 >
-                  <TimesIcon />
+                  <CoolCloseIcon />
                 </Button>
               )}
             </div>
@@ -4244,10 +4470,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                       <div className="komsco-ai__empty-mark">
                         <img alt="" className="komsco-ai__empty-logo" src={kIcon} />
                       </div>
-                      <div className="komsco-ai__empty-title">운영 확인 항목을 정리합니다</div>
-                      <div className="komsco-ai__empty-text">
-                        현재 콘솔 맥락과 OLS 조회 결과를 기준으로 안전한 점검 순서를 구성합니다.
-                      </div>
+                      <div className="komsco-ai__empty-title">{emptyStateCopy.title}</div>
+                      <div className="komsco-ai__empty-text">{emptyStateCopy.text}</div>
                     </div>
                   )}
 
@@ -4293,7 +4517,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 title="답변 복사"
                                 type="button"
                               >
-                                <ClipboardIcon />
+                                <CoolCopyIcon />
                                 <span>{copiedMessageIndex === index ? '복사됨' : '복사'}</span>
                               </button>
                             )}
@@ -4351,7 +4575,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     }}
                     variant="secondary"
                   >
-                    <ArrowDownIcon />
+                    <CoolArrowDownIcon />
                   </Button>
                 )}
                 <div className="komsco-ai__input">
@@ -4393,7 +4617,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               }}
                               variant="plain"
                             >
-                              <TimesIcon />
+                              <CoolCloseIcon />
                             </Button>
                           </div>
                         ))}
@@ -4438,7 +4662,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                             }}
                             variant="plain"
                           >
-                            <PlusIcon />
+                            <CoolPlusIcon />
                           </Button>
                           {quickPromptMenuOpen && (
                             <div className="komsco-ai__quick-menu-panel" role="menu">
@@ -4470,7 +4694,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           onClick={() => fileInputRef.current?.click()}
                           variant="plain"
                         >
-                          <PaperclipIcon />
+                          <CoolPaperclipIcon />
                         </Button>
                         <div className="komsco-ai__task-mode" ref={taskModeMenuRef}>
                           <button
@@ -4487,7 +4711,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           >
                             <span className="komsco-ai__task-mode-icon">{selectedTaskMode.icon}</span>
                             <span className="komsco-ai__task-mode-label">{selectedTaskMode.label}</span>
-                            <CaretDownIcon />
+                            <CoolCaretDownIcon />
                           </button>
                           {taskModeMenuOpen && (
                             <div className="komsco-ai__task-mode-menu" role="listbox">
@@ -4528,7 +4752,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         }}
                         variant="plain"
                       >
-                        {loading ? <StopIcon /> : <PaperPlaneIcon />}
+                        {loading ? <CoolStopIcon /> : <CoolPaperPlaneIcon />}
                       </Button>
                     </div>
                   </div>
@@ -4595,7 +4819,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 onClick={() => setPreviewAttachment(null)}
                 variant="plain"
               >
-                <TimesIcon />
+                <CoolCloseIcon />
               </Button>
             </div>
             <div className="komsco-ai__image-lightbox-body">

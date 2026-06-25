@@ -135,9 +135,14 @@ tasks:
       - ./scripts/kugnus-olm.sh status
 
   kugnus:evaluate:
-    desc: Run local offline AIOps scenario evaluator and write a pass/fail report
+    desc: Run Ver.0.1.3 offline AIOps scenario evaluator and write a pass/fail report
     cmds:
-      - python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json || python scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.1/aiops-evaluation-report.json
+      - python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.3/aiops-scenario-evaluation-report.json
+
+  kugnus:scenario:verify:
+    desc: Verify the Ver.0.1.3 ten-scenario operations contract without cluster access
+    cmds:
+      - task: kugnus:evaluate
 
   kugnus:stage6:verify:
     desc: Run Ver.0.1.2 Stage 6 local verification without OCP install/deploy/mutation
@@ -145,14 +150,34 @@ tasks:
       - ./scripts/kugnus-stage6-verify.sh
 
   kugnus:dev:be:
-    desc: Run read-only Gateway on 0.0.0.0 so the Docker local console can reach it from WSL
+    desc: Run executable Gateway on 0.0.0.0 so the Docker local console can reach it from WSL
+    cmds:
+      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE="${AIOPS_GATEWAY_MODE:-execute}" ./scripts/dev-gateway-lightspeed.sh
+
+  kugnus:dev:be:read-only:
+    desc: Run Gateway in read-only mode for safe observation
     cmds:
       - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=read-only ./scripts/dev-gateway-lightspeed.sh
+
+  kugnus:dev:be:execute:
+    desc: Run Gateway in approved execution mode with Action Executor port-forward
+    cmds:
+      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=execute ./scripts/dev-gateway-lightspeed.sh
+
+  kugnus:dev:be:unrestricted:
+    desc: Run Gateway in local lab unrestricted mode so all three UI execution modes are selectable
+    cmds:
+      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=unrestricted ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:dev:fe:
     desc: Run local console bridge using the current WSL IP as Gateway endpoint
     cmds:
       - GATEWAY_ENDPOINT="http://$(hostname -I | awk '{print $1}'):18080" ./scripts/dev-console-plugin.sh
+
+  kugnus:dev:doctor:
+    desc: Diagnose WSL, Node, oc, Docker, ports, backend, and console readiness without changing state
+    cmds:
+      - ./scripts/kugnus-dev-doctor.sh
 
   kugnus:stage1:verify:
     desc: Verify local Stage 1 evidence/RCA context events and write a JSON evidence report
@@ -163,3 +188,29 @@ tasks:
     desc: Verify local Cywell AI chat UI layout, header, sidebar, fullscreen, and resize controls
     cmds:
       - node ./scripts/verify-kugnus-ui.mjs
+
+  kugnus:demo:verify:
+    desc: Verify Ver.0.1.3 CrashLoopBackOff demo-cycle source and RCA context contract without OCP mutation
+    cmds:
+      - python3 scripts/verify-crashloop-demo-cycle.py --report docs/Ver.0.1.3/crashloop-demo-cycle-verification.json || python scripts/verify-crashloop-demo-cycle.py --report docs/Ver.0.1.3/crashloop-demo-cycle-verification.json
+
+  kugnus:demo:live-verify:
+    desc: Verify Ver.0.1.3 CrashLoopBackOff demo-cycle against the local read-only gateway
+    cmds:
+      - python3 scripts/verify-crashloop-live-demo-cycle.py --report docs/Ver.0.1.3/crashloop-live-demo-cycle-verification.json || python scripts/verify-crashloop-live-demo-cycle.py --report docs/Ver.0.1.3/crashloop-live-demo-cycle-verification.json
+
+  kugnus:demo:screen-readiness:
+    desc: Verify Ver.0.1.3 CrashLoopBackOff screen-cycle readiness without browser mutation
+    cmds:
+      - python3 scripts/verify-crashloop-screen-cycle-readiness.py --report docs/Ver.0.1.3/crashloop-screen-cycle-readiness-verification.json
+
+  kugnus:evidence-rca:verify:
+    desc: Verify the official Ver.0.1.3 Evidence RCA demo scene contract without cluster mutation
+    cmds:
+      - komsco-ai-gateway/.venv/bin/python scripts/verify-evidence-rca-scene.py --report docs/Ver.0.1.3/evidence-rca-scene-verification.json
+
+  kugnus:evidence-rca:browser-verify:
+    desc: Capture browser proof that the local console stages the official Ver.0.1.3 Evidence RCA question
+    cmds:
+      - bash -ic 'cd komsco-ai-console-plugin && rm -rf integration-tests/screenshots/screenshots/official-evidence-rca.cy.ts && BRIDGE_BASE_ADDRESS=http://localhost:9000/ node --max-old-space-size=4096 ./node_modules/.bin/cypress run --browser electron --spec integration-tests/tests/official-evidence-rca.cy.ts'
+      - python3 scripts/collect-official-evidence-rca-browser-report.py --report docs/Ver.0.1.3/official-evidence-rca-browser-verification.json --screenshot docs/Ver.0.1.3/official-evidence-rca-browser-screen.png

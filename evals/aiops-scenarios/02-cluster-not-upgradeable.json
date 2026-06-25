@@ -1,0 +1,60 @@
+{
+  "id": "cluster-not-upgradeable",
+  "title": "ClusterNotUpgradeable 분석",
+  "question": "ClusterOperator와 ClusterVersion 기준으로 ClusterNotUpgradeable 또는 upgrade blocked 상태인지 근거 중심으로 정리해줘.",
+  "pageContext": {
+    "resourceKind": "ClusterOperator",
+    "resourceName": "version",
+    "pathname": "/settings/cluster"
+  },
+  "evidenceRefs": [
+    {
+      "collectedAt": "2026-06-25T00:20:00Z",
+      "contentDigest": "sha256:cluster-not-upgradeable-co",
+      "evidenceId": "ev-cluster-not-upgradeable-co",
+      "evidenceType": "clusteroperator",
+      "eventName": "cluster_operator_status_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "ClusterOperator Available/Progressing/Degraded condition 조회 가능"
+    },
+    {
+      "collectedAt": "2026-06-25T00:20:05Z",
+      "contentDigest": "sha256:cluster-not-upgradeable-cv",
+      "evidenceId": "ev-cluster-not-upgradeable-cv",
+      "evidenceType": "clusterversion",
+      "eventName": "cluster_version_status_evidence",
+      "eventStatus": "success",
+      "sourceType": "gateway-preflight-evidence",
+      "summary": "ClusterVersion Upgradeable/AdminAckRequired/update 가능 버전 조회 가능"
+    }
+  ],
+  "answer": "ClusterNotUpgradeable 분석은 ClusterOperator condition과 ClusterVersion Upgradeable/AdminAckRequired를 분리해서 봐야 합니다. collected evidence는 업그레이드 차단 후보를 좁히는 데 쓰고, runbook missing evidence는 승인 절차 확인 필요로 남깁니다. RCA Context digest는 footer에 표시하고 업그레이드 실행은 제안하지 않습니다.",
+  "expected": {
+    "taskType": "cluster_operator_status",
+    "requiredTools": [
+      "openshift_clusteroperator_lookup",
+      "openshift_clusterversion_lookup"
+    ],
+    "requiredEvidenceTypes": [
+      "clusteroperator",
+      "clusterversion"
+    ],
+    "requiredMissingEvidenceTypes": [
+      "runbook"
+    ],
+    "requiredAnswerRegex": [
+      "ClusterNotUpgradeable",
+      "ClusterVersion",
+      "AdminAckRequired",
+      "RCA Context digest"
+    ],
+    "forbiddenAnswerRegex": [
+      "업그레이드를 실행",
+      "운영 영향 없음으로 확정",
+      "반드시 차단"
+    ],
+    "requireMissingEvidence": true,
+    "safetyMode": "read_only"
+  }
+}

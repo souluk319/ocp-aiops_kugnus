@@ -1,0 +1,72 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "generatedAt": "2026-06-25T07:32:41.904Z",
+  "kind": "OfficialEvidenceRcaBrowserAnswerVerification",
+  "metadata": {
+    "captureMethod": "in-app-browser-local-console",
+    "name": "ver-0.1.3-official-evidence-rca-browser-answer-proof",
+    "url": "http://localhost:9000/dashboards"
+  },
+  "spec": {
+    "checks": [
+      {
+        "name": "assistant_surface_visible",
+        "ok": true
+      },
+      {
+        "name": "official_question_submitted",
+        "ok": true
+      },
+      {
+        "name": "troubleshooting_mode_visible",
+        "ok": true
+      },
+      {
+        "name": "official_namespace_restart_event_evidence_visible",
+        "ok": true
+      },
+      {
+        "name": "official_namespace_restart_snapshot_visible",
+        "ok": true
+      },
+      {
+        "name": "official_namespace_restart_log_pattern_probe_visible",
+        "ok": true
+      },
+      {
+        "name": "node_alert_metric_pre_answer_evidence_visible",
+        "ok": true
+      },
+      {
+        "name": "pre_answer_context_before_post_answer",
+        "ok": true
+      },
+      {
+        "name": "latest_rca_context_available",
+        "ok": true
+      },
+      {
+        "name": "read_only_safety_visible",
+        "ok": true
+      },
+      {
+        "name": "stale_pod_log_missing_wording_absent_in_latest_segment",
+        "ok": true
+      }
+    ],
+    "evidenceLabels": [
+      "Official Namespace Restart Event Evidence",
+      "Official Namespace Restart Snapshot",
+      "Official Namespace Restart Log Pattern Probe",
+      "Node Status Evidence",
+      "Active Alerts Evidence",
+      "Restart Metric Evidence"
+    ],
+    "latestRunExcerpt": "Official Namespace Restart Evidence·공식 Evidence RCA namespace 재시작 증거 수집: `default`33초Official Namespace Restart Event Evidence·공식 Pod 재시작 namespace Event 증거 수집 완료1msAI 응답 대기·증거 참조 기록 시작5ms증거 참조 기록·ev-977157e9e505e455 기록8msAI 응답 대기·Official Namespace Restart Snapshot 완료8msOfficial Namespace Restart Snapshot·공식 Pod 재시작 namespace snapshot 증거 수집 완료1msAI 응답 대기·증거 참조 기록 시작7ms증거 참조 기록·ev-7a9739817072269a 기록8msAI 응답 대기·Official Namespace Restart Log Pattern Probe 완료8msOfficial Namespace Restart Log Pattern Probe·공식 Pod 재시작 log pattern 증거 수집 불가1msAI 응답 대기·증거 참조 기록 시작9ms증거 참조 기록·ev-006c32c8e5fb785e 기록8msAI 응답 대기·Node Status Evidence 시작9msNode Status Evidence·Node 상태 RCA 증거 수집 완료8msAI 응답 대기·증거 참조 기록 시작7ms증거 참조 기록·ev-966ba4833994c004 기록7msAI 응답 대기·Active Alerts Evidence 시작8msActive Alerts Evidence·Active Alert RCA 증거 수집 완료13msAI 응답 대기·증거 참조 기록 시작7ms증거 참조 기록·ev-7d7938224efca172 기록7msAI 응답 대기·Restart Metric Evidence 시작6msRestart Metric Evidence·Restart metric RCA 증거 수집 완료16msAI 응답 대기·증거 참조 기록 시작7ms증거 참조 기록·ev-4caea70512693b10 기록8msAI 응답 대기·Lightspeed Stream 완료49msRCA 근거 문맥·RCA 문맥 연결: pre_answer1msLightspeed Stream·오류 확인 필요1msAI 응답 대기·본문 스트리밍 시작24msRCA 근거 문맥·RCA 문맥 연결: post_answer1msTroubleshooting현재 클러스터 컨텍스트회사 OCP 연결됨https://api.ocp.cywell.server:64431/1 Ready · CPU 2.0 cores · 메모리 35.8 GiBCluster health score마지막 갱신 오후 04:3292 / 100노드 상태1/1 Ready52-54-00-a1-f8-7ccontrol-plane, master, worker · v1.33.11CPU 2.0 cores · 메모리 35.8 GiBREADY클러스터 상태4.20.23Available 34/34장애 0건Progressing 0건Channel unknownUpdate availableUpgrade blockedMetrics availableOperator 이슈0건주요 Operator 이슈가 없습니다.AIOps 실행 상태연결됨Diagnostics offMutations offUI 읽기 전용Unrestricted offLedger offRAG not configuredRCA ContextavailableCollected 5Missing 2sha256:ec2748edf0760dcd2904d8a078301704af052d0b539ddb220b66bc2b05abdc36RCA Context JSON is linked to the latest chat run.최근 진단0건최근 진단 요청이 없습니다.승인·실행0건Proposal0candidate action requestSealed plan0sealed plan digestApproval0approval decisionExecution0execution recordCurrent blockerAction Executor URL not configured; Mutation flag: read-only mode: mutation execution disabled; read-only UI blocks proposal, approval, and execution mutationsnot configuredExecute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure reason; create a new plan and approval.최근 승인 또는 실행 기록이 없습니다.",
+    "officialQuestion": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+    "rcaDigest": "sha256:ec2748edf0760dcd2904d8a078301704af052d0b539ddb220b66bc2b05abdc36",
+    "screenshot": "docs/Ver.0.1.3/official-evidence-rca-browser-answer-screen.png",
+    "taskMode": "Troubleshooting"
+  },
+  "status": "pass"
+}
