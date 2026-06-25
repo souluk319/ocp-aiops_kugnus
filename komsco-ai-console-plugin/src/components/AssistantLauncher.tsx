@@ -3406,8 +3406,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [loading, saveCurrentConversation]);
 
   const startNewConversation = React.useCallback(() => {
-    if (loading) {
-      return;
+    if (loading && chatAbortControllerRef.current) {
+      stopRequestedRef.current = true;
+      chatAbortControllerRef.current.abort();
+      chatAbortControllerRef.current = null;
+      assistantTextQueueRef.current = '';
+      setLoading(false);
     }
 
     saveCurrentConversation();
@@ -4508,7 +4512,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         <button
           aria-label={copy.newChat}
           className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
-          disabled={loading}
           onClick={() => {
             startNewConversation();
             setHistoryPanelView('chats');

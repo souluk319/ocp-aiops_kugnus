@@ -2992,8 +2992,9 @@
 
 .komsco-ai__history-action-button--primary {
   color: #ffffff;
-  background: var(--komsco-blue-700);
-  border-color: var(--komsco-blue-700);
+  background: #0066cc;
+  border-color: #0066cc;
+  box-shadow: 0 4px 10px rgba(0, 102, 204, 0.18);
 }
 
 .komsco-ai__history-action-button--primary:hover:not(:disabled) {
@@ -3031,8 +3032,13 @@
 }
 
 .komsco-ai__history-action-button svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
+}
+
+.komsco-ai__history-action-button--primary svg {
+  width: 17px;
+  height: 17px;
 }
 
 .komsco-ai__history-title {
