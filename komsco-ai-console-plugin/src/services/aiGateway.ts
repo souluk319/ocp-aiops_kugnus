@@ -318,6 +318,16 @@ export type RagDocumentUploadRequest = {
   version?: string;
 };
 
+export type RagDocumentUploadFileMetadata = {
+  customer?: string;
+  labels?: Record<string, string>;
+  namespace?: string;
+  runId?: string;
+  sourceType?: string;
+  sourceUri?: string;
+  version?: string;
+};
+
 export type RagUploadIngestionResult = {
   apiVersion?: string;
   kind?: 'RagUploadIngestionResult' | string;
@@ -336,6 +346,7 @@ export type RagUploadIngestionResult = {
       textHash?: string;
     }>;
     document: RagUploadedDocument;
+    ingestionReport?: Record<string, unknown>;
     reason?: string;
     safety?: Record<string, unknown>;
     status: 'persisted' | 'not_configured' | 'unavailable' | string;
@@ -642,6 +653,44 @@ export async function uploadRagDocument(
 
   if (!response.ok) {
     throw new Error(await gatewayErrorMessage(response, 'RAG document upload failed', true));
+  }
+
+  return (await response.json()) as RagUploadIngestionResult;
+}
+
+export async function uploadRagDocumentFile(
+  file: File,
+  metadata: RagDocumentUploadFileMetadata = {},
+): Promise<RagUploadIngestionResult> {
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  formData.append('labels', JSON.stringify(metadata.labels ?? {}));
+  formData.append('customer', metadata.customer ?? 'komsco');
+  formData.append('namespace', metadata.namespace ?? 'komsco-ai-kugnus');
+  formData.append('source_type', metadata.sourceType ?? 'user-upload');
+  formData.append('version', metadata.version ?? 'v0.1.5');
+
+  if (metadata.runId) {
+    formData.append('run_id', metadata.runId);
+  }
+  if (metadata.sourceUri) {
+    formData.append('source_uri', metadata.sourceUri);
+  }
+
+  const response = await consoleFetch(
+    `${GATEWAY_RAG_UPLOADS_URL}/file`,
+    {
+      body: formData,
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'POST',
+    },
+    120 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'RAG document file upload failed', true));
   }
 
   return (await response.json()) as RagUploadIngestionResult;

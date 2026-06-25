@@ -47,6 +47,7 @@ import {
   fetchUploadedRagDocuments,
   streamChat,
   uploadRagDocument,
+  uploadRagDocumentFile,
 } from '../services/aiGateway';
 import { evidenceCount, redactSensitiveText, safeEvidenceText, shortDigest } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
@@ -243,19 +244,65 @@ const INLINE_PATTERN = /(\[[^\n]+\]\(https?:\/\/[^)]+\)|\*\*[^*]+\*\*|`[^`]+`|ht
 const FAILED_TOOL_STATUSES = new Set(['error', 'failed', 'failure']);
 const ACCEPTED_IMAGE_MIME_TYPES = new Set(['image/gif', 'image/jpeg', 'image/png', 'image/webp']);
 const ACCEPTED_RAG_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
   'application/json',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/x-yaml',
   'text/log',
   'text/markdown',
   'text/plain',
   'text/x-markdown',
 ]);
-const ACCEPTED_RAG_DOCUMENT_EXTENSIONS = ['.json', '.log', '.md', '.markdown', '.txt', '.yaml', '.yml'];
-const FILE_INPUT_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,text/plain,text/markdown,application/json,.md,.markdown,.txt,.yaml,.yml,.log';
+const ACCEPTED_RAG_DOCUMENT_EXTENSIONS = [
+  '.docx',
+  '.json',
+  '.log',
+  '.md',
+  '.markdown',
+  '.pdf',
+  '.pptx',
+  '.txt',
+  '.xlsx',
+  '.yaml',
+  '.yml',
+];
+const MULTIPART_RAG_DOCUMENT_EXTENSIONS = ['.docx', '.pdf', '.pptx', '.xlsx'];
+const MULTIPART_RAG_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+const FILE_INPUT_ACCEPT = [
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'text/plain',
+  'text/markdown',
+  'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.docx',
+  '.json',
+  '.log',
+  '.md',
+  '.markdown',
+  '.pdf',
+  '.pptx',
+  '.txt',
+  '.xlsx',
+  '.yaml',
+  '.yml',
+].join(',');
 const MAX_IMAGE_ATTACHMENTS = 4;
 const MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
-const MAX_RAG_DOCUMENT_UPLOAD_BYTES = 1024 * 1024;
+const MAX_RAG_DOCUMENT_UPLOAD_BYTES = 5 * 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
 const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
@@ -678,6 +725,14 @@ const isRagDocumentFile = (file: File): boolean => {
     ACCEPTED_RAG_DOCUMENT_MIME_TYPES.has(file.type) ||
     file.type.startsWith('text/') ||
     ACCEPTED_RAG_DOCUMENT_EXTENSIONS.some((extension) => loweredName.endsWith(extension))
+  );
+};
+
+const shouldUploadRagDocumentAsFile = (file: File): boolean => {
+  const loweredName = file.name.toLowerCase();
+  return (
+    MULTIPART_RAG_DOCUMENT_MIME_TYPES.has(file.type) ||
+    MULTIPART_RAG_DOCUMENT_EXTENSIONS.some((extension) => loweredName.endsWith(extension))
   );
 };
 
@@ -3856,7 +3911,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       );
 
       if (imageFiles.length === 0 && documentFiles.length === 0) {
-        setAttachmentError('지원 형식: PNG/JPEG/WebP/GIF 이미지 또는 TXT/MD/JSON/YAML/log 문서입니다.');
+        setAttachmentError('지원 형식: PNG/JPEG/WebP/GIF 이미지 또는 PDF/DOCX/PPTX/XLSX/TXT/MD/JSON/YAML/log 문서입니다.');
         return;
       }
 
@@ -3911,17 +3966,21 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         if (documentFiles.length > 0) {
           const uploaded = await Promise.all(
             documentFiles.map(async (file) => {
-              const content = await readRagDocumentContent(file);
-              const result = await uploadRagDocument({
-                content,
-                labels: { source: 'chat-attachment', version: 'v0.1.4' },
-                mimeType: file.type || 'text/plain',
-                name: file.name,
+              const commonMetadata = {
+                labels: { source: 'chat-attachment', version: 'v0.1.5' },
                 namespace: 'komsco-ai-kugnus',
                 runId: activeSessionId,
                 sourceType: 'user-upload',
-                version: 'v0.1.4',
-              });
+                version: 'v0.1.5',
+              };
+              const result = shouldUploadRagDocumentAsFile(file)
+                ? await uploadRagDocumentFile(file, commonMetadata)
+                : await uploadRagDocument({
+                    ...commonMetadata,
+                    content: await readRagDocumentContent(file),
+                    mimeType: file.type || 'text/plain',
+                    name: file.name,
+                  });
               if (result.spec.status !== 'persisted') {
                 throw new Error(result.spec.reason || `${file.name} 문서를 RAG 저장소에 등록하지 못했습니다.`);
               }

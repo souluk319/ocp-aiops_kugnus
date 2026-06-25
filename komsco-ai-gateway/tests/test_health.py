@@ -146,6 +146,91 @@ def test_healthz() -> None:
     asyncio.run(run())
 
 
+def test_rag_pdf_upload_parser_extracts_page_marked_text(monkeypatch) -> None:
+    class FakePage:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+        def extract_text(self) -> str:
+            return self.text
+
+    class FakeReader:
+        is_encrypted = False
+        pages = [FakePage("Cluster upgrade runbook"), FakePage("Check oc get co")]
+
+        def __init__(self, _stream) -> None:
+            pass
+
+    monkeypatch.setattr(gateway_main, "PdfReader", FakeReader)
+
+    content, report = gateway_main.extract_rag_upload_file_content(
+        "운영가이드.pdf",
+        "application/pdf",
+        b"%PDF-1.7 fake",
+    )
+
+    assert "<!-- page: 1 -->" in content
+    assert "Cluster upgrade runbook" in content
+    assert report["parser"] == "pypdf"
+    assert report["documentFormat"] == "pdf"
+    assert report["pageCount"] == 2
+
+
+def test_rag_upload_file_endpoint_uses_multipart_parser_and_existing_rag_contract(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "admin", "uid": "uid-admin", "groups": ["cluster-admins"]}
+
+    def fake_extract(name: str, mime_type: str, raw: bytes) -> tuple[str, dict]:
+        assert name == "runbook.pdf"
+        assert mime_type == "application/pdf"
+        assert raw.startswith(b"%PDF")
+        return (
+            "# Runbook\n\n조치 전 oc get co로 Operator 상태를 확인한다.",
+            {
+                "parser": "pypdf",
+                "documentFormat": "pdf",
+                "originalFileName": name,
+                "originalMimeType": mime_type,
+                "originalBytes": len(raw),
+                "extractedChars": 42,
+                "truncated": False,
+            },
+        )
+
+    def fake_persist(record: dict) -> tuple[str, str, dict]:
+        return "persisted", "stored by test", record["document"]
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "extract_rag_upload_file_content", fake_extract)
+    monkeypatch.setattr(gateway_main, "persist_rag_upload_document", fake_persist)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/rag/uploads/file",
+                headers={"Authorization": "Bearer test-token"},
+                data={
+                    "labels": json.dumps({"source": "chat-attachment", "version": "v0.1.5"}),
+                    "namespace": "komsco-ai-kugnus",
+                    "version": "v0.1.5",
+                },
+                files={"file": ("runbook.pdf", b"%PDF-1.7 fake", "application/pdf")},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "RagUploadIngestionResult"
+        assert payload["spec"]["status"] == "persisted"
+        assert payload["spec"]["document"]["mimeType"] == "application/pdf"
+        assert payload["spec"]["document"]["labels"]["parser"] == "pypdf"
+        assert payload["spec"]["document"]["labels"]["version"] == "v0.1.5"
+        assert payload["spec"]["chunks"]
+        assert payload["spec"]["ingestionReport"]["documentFormat"] == "pdf"
+
+    asyncio.run(run())
+
+
 def test_parse_bool() -> None:
     assert parse_bool("true")
     assert parse_bool("1")

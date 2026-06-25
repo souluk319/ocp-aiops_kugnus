@@ -2,19 +2,23 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import io
 import json
 import math
+import mimetypes
 import os
 import re
 import time
 import uuid
+import zipfile
 from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
+import xml.etree.ElementTree as ET
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,6 +30,11 @@ except ImportError:  # pragma: no cover - optional local RAG backend dependency
     psycopg = None
     dict_row = None
     Jsonb = None
+
+try:
+    from pypdf import PdfReader
+except ImportError:  # pragma: no cover - optional document parser dependency
+    PdfReader = None
 
 from .aiops_core import (
     HOST_DIAGNOSTIC_COLLECTORS,
@@ -51,7 +60,7 @@ from .security import (
     safe_subject,
 )
 
-app = FastAPI(title="KOMSCO AI Gateway", version="0.1.4")
+app = FastAPI(title="KOMSCO AI Gateway", version="0.1.5")
 
 
 def parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -141,7 +150,7 @@ RAG_EMBEDDING_MODEL = os.getenv("KOMSCO_AI_RAG_EMBEDDING_MODEL", "")
 RAG_VECTOR_DIMENSIONS = int(os.getenv("KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "0") or "0")
 RAG_EFFECTIVE_VECTOR_DIMENSIONS = RAG_VECTOR_DIMENSIONS or 64
 RAG_DEMO_SEED_ENABLED = parse_bool(os.getenv("KOMSCO_AI_RAG_DEMO_SEED_ENABLED"), default=True)
-RAG_UPLOAD_MAX_BYTES = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_BYTES", str(1024 * 1024)))
+RAG_UPLOAD_MAX_BYTES = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_BYTES", str(5 * 1024 * 1024)))
 RAG_UPLOAD_MAX_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHARS", "120000"))
 RAG_UPLOAD_MAX_CHUNKS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNKS", "80"))
 RAG_UPLOAD_MAX_CHUNK_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNK_CHARS", "1200"))
@@ -10032,6 +10041,216 @@ def split_rag_upload_chunks(content: str, *, max_chars: int | None = None) -> li
     return chunks[:RAG_UPLOAD_MAX_CHUNKS]
 
 
+def xml_local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
+
+
+def xml_text_content(node: ET.Element) -> str:
+    parts = [
+        str(element.text or "").strip()
+        for element in node.iter()
+        if xml_local_name(str(element.tag)) == "t" and str(element.text or "").strip()
+    ]
+    return " ".join(parts).strip()
+
+
+def parse_rag_upload_form_labels(raw_labels: str | None) -> dict[str, str]:
+    if not raw_labels or not raw_labels.strip():
+        return {}
+
+    try:
+        parsed = json.loads(raw_labels)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="RAG upload labels must be a JSON object") from exc
+
+    if not isinstance(parsed, Mapping):
+        raise HTTPException(status_code=400, detail="RAG upload labels must be a JSON object")
+
+    return {
+        str(key)[:80]: str(value)[:240]
+        for key, value in parsed.items()
+        if str(key).strip()
+    }
+
+
+def detect_rag_upload_file_format(name: str, mime_type: str, raw: bytes) -> str:
+    suffix = os.path.splitext(name.lower())[1]
+    normalized_mime = mime_type.lower()
+    if raw.startswith(b"%PDF-") or suffix == ".pdf" or normalized_mime == "application/pdf":
+        return "pdf"
+    if suffix == ".docx" or normalized_mime.endswith("wordprocessingml.document"):
+        return "docx"
+    if suffix == ".pptx" or normalized_mime.endswith("presentationml.presentation"):
+        return "pptx"
+    if suffix == ".xlsx" or normalized_mime.endswith("spreadsheetml.sheet"):
+        return "xlsx"
+    if normalized_mime.startswith("text/") or suffix in {".md", ".markdown", ".txt", ".yaml", ".yml", ".log"}:
+        return "text"
+    if suffix == ".json" or normalized_mime == "application/json":
+        return "text"
+    return "unknown"
+
+
+def extract_pdf_text(raw: bytes) -> tuple[str, dict[str, Any]]:
+    if PdfReader is None:
+        raise HTTPException(status_code=503, detail="PDF upload parser dependency is not installed")
+
+    try:
+        reader = PdfReader(io.BytesIO(raw))
+        if getattr(reader, "is_encrypted", False):
+            try:
+                reader.decrypt("")
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=400, detail="Encrypted PDF uploads are not supported") from exc
+
+        pages: list[str] = []
+        for page_number, page in enumerate(reader.pages, start=1):
+            text = str(page.extract_text() or "").strip()
+            if text:
+                pages.append(f"<!-- page: {page_number} -->\n{text}")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"PDF text extraction failed: {type(exc).__name__}") from exc
+
+    content = "\n\n".join(pages).strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="PDF text extraction produced no text")
+    return content, {"parser": "pypdf", "documentFormat": "pdf", "pageCount": len(pages)}
+
+
+def extract_docx_text(raw: bytes) -> tuple[str, dict[str, Any]]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            xml_bytes = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail="DOCX text extraction failed") from exc
+
+    root = ET.fromstring(xml_bytes)
+    paragraphs = [xml_text_content(node) for node in root.iter() if xml_local_name(str(node.tag)) == "p"]
+    content = "\n\n".join(part for part in paragraphs if part).strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="DOCX text extraction produced no text")
+    return content, {"parser": "office-xml", "documentFormat": "docx", "paragraphCount": len(paragraphs)}
+
+
+def extract_pptx_text(raw: bytes) -> tuple[str, dict[str, Any]]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            slide_names = sorted(
+                name for name in archive.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", name)
+            )
+            slides: list[str] = []
+            for slide_number, name in enumerate(slide_names, start=1):
+                root = ET.fromstring(archive.read(name))
+                texts = [
+                    str(element.text or "").strip()
+                    for element in root.iter()
+                    if xml_local_name(str(element.tag)) == "t" and str(element.text or "").strip()
+                ]
+                if texts:
+                    slides.append(f"<!-- slide: {slide_number} -->\n" + "\n".join(texts))
+    except (zipfile.BadZipFile, ET.ParseError) as exc:
+        raise HTTPException(status_code=400, detail="PPTX text extraction failed") from exc
+
+    content = "\n\n".join(slides).strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="PPTX text extraction produced no text")
+    return content, {"parser": "office-xml", "documentFormat": "pptx", "slideCount": len(slides)}
+
+
+def extract_xlsx_text(raw: bytes) -> tuple[str, dict[str, Any]]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            shared_strings: list[str] = []
+            if "xl/sharedStrings.xml" in archive.namelist():
+                shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                shared_strings = [
+                    xml_text_content(item)
+                    for item in shared_root.iter()
+                    if xml_local_name(str(item.tag)) == "si"
+                ]
+
+            sheet_names = sorted(
+                name for name in archive.namelist() if re.match(r"xl/worksheets/sheet\d+\.xml$", name)
+            )
+            sheets: list[str] = []
+            for sheet_number, name in enumerate(sheet_names, start=1):
+                root = ET.fromstring(archive.read(name))
+                values: list[str] = []
+                for cell in (node for node in root.iter() if xml_local_name(str(node.tag)) == "c"):
+                    cell_type = str(cell.attrib.get("t") or "")
+                    raw_value = ""
+                    for child in cell:
+                        if xml_local_name(str(child.tag)) == "v":
+                            raw_value = str(child.text or "").strip()
+                            break
+                    if not raw_value:
+                        continue
+                    if cell_type == "s":
+                        try:
+                            values.append(shared_strings[int(raw_value)])
+                        except (ValueError, IndexError):
+                            values.append(raw_value)
+                    else:
+                        values.append(raw_value)
+                if values:
+                    sheets.append(f"<!-- sheet: {sheet_number} -->\n" + "\n".join(values))
+    except (zipfile.BadZipFile, ET.ParseError) as exc:
+        raise HTTPException(status_code=400, detail="XLSX text extraction failed") from exc
+
+    content = "\n\n".join(sheets).strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="XLSX text extraction produced no text")
+    return content, {"parser": "office-xml", "documentFormat": "xlsx", "sheetCount": len(sheets)}
+
+
+def extract_rag_upload_file_content(name: str, mime_type: str, raw: bytes) -> tuple[str, dict[str, Any]]:
+    if not raw:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(raw) > RAG_UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="RAG upload file is too large")
+
+    document_format = detect_rag_upload_file_format(name, mime_type, raw)
+    if document_format == "pdf":
+        content, report = extract_pdf_text(raw)
+    elif document_format == "docx":
+        content, report = extract_docx_text(raw)
+    elif document_format == "pptx":
+        content, report = extract_pptx_text(raw)
+    elif document_format == "xlsx":
+        content, report = extract_xlsx_text(raw)
+    elif document_format == "text":
+        try:
+            content = raw.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Text upload must be UTF-8 encoded") from exc
+        report = {"parser": "utf-8-text", "documentFormat": "text"}
+    else:
+        guessed = mimetypes.guess_type(name)[0] or mime_type or "application/octet-stream"
+        raise HTTPException(status_code=400, detail=f"Unsupported RAG upload file type: {guessed}")
+
+    content = content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="RAG upload parser produced empty content")
+
+    truncated = False
+    if len(content) > RAG_UPLOAD_MAX_CHARS:
+        content = content[:RAG_UPLOAD_MAX_CHARS].rstrip()
+        truncated = True
+
+    report.update(
+        {
+            "originalFileName": name,
+            "originalMimeType": mime_type or "application/octet-stream",
+            "originalBytes": len(raw),
+            "extractedChars": len(content),
+            "truncated": truncated,
+        }
+    )
+    return content, report
+
+
 def decode_rag_upload_content(req: RagDocumentUploadCreate) -> str:
     if req.content and req.data:
         raise HTTPException(status_code=400, detail="Provide either content or base64 data, not both")
@@ -10125,7 +10344,7 @@ def build_rag_upload_document(req: RagDocumentUploadCreate, subject: Mapping[str
     freshness = classify_rag_upload_freshness(req.labels)
     labels = {
         "source": "user-upload",
-        "version": "v0.1.4",
+        "version": req.version,
         **req.labels,
         "freshness": freshness,
         "safetyClass": safety_class,
@@ -11022,6 +11241,80 @@ async def create_rag_upload(
                 "directDatabaseAccessAllowed": False,
                 "rawContentReturned": False,
                 "redactionAppliedBeforeChunking": True,
+            },
+        },
+    }
+
+
+@app.post("/v1/rag/uploads/file")
+async def create_rag_upload_file(
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+    labels: str = Form(default="{}"),
+    customer: str = Form(default="komsco"),
+    namespace: str = Form(default="komsco-ai-kugnus"),
+    run_id: str | None = Form(default=None),
+    source_type: str = Form(default="user-upload"),
+    source_uri: str | None = Form(default=None),
+    version: str = Form(default="v0.1.5"),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    filename = os.path.basename(file.filename or "upload").strip() or "upload"
+    mime_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    raw = await file.read()
+    content, parser_report = extract_rag_upload_file_content(filename, mime_type, raw)
+    requested_labels = parse_rag_upload_form_labels(labels)
+    parser_labels = {
+        key: str(value).lower() if isinstance(value, bool) else str(value)
+        for key, value in parser_report.items()
+        if value is not None
+    }
+    req = RagDocumentUploadCreate(
+        name=filename,
+        mimeType=mime_type,
+        content=content,
+        sourceUri=source_uri,
+        sourceType=source_type,
+        customer=customer,
+        namespace=namespace,
+        version=version,
+        labels={
+            **requested_labels,
+            **parser_labels,
+            "source": requested_labels.get("source", "chat-attachment"),
+        },
+        runId=run_id,
+    )
+    record = build_rag_upload_document(req, subject)
+    status, reason, document = persist_rag_upload_document(record)
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "RagUploadIngestionResult",
+        "metadata": {"name": record["document"]["documentId"], "generatedAt": now_rfc3339()},
+        "spec": {
+            "status": status,
+            "reason": reason,
+            "backend": build_rag_backend_status(),
+            "document": document or record["document"],
+            "ingestionReport": parser_report,
+            "chunks": [
+                {
+                    "chunkId": chunk["chunkId"],
+                    "chunkIndex": chunk["chunkIndex"],
+                    "textHash": chunk["textHash"],
+                    "checksum": chunk["checksum"],
+                    "charLength": len(chunk["content"]),
+                    "sourceUri": chunk["sourceUri"],
+                }
+                for chunk in record["chunks"]
+            ],
+            "safety": {
+                "gatewayOnly": True,
+                "directDatabaseAccessAllowed": False,
+                "rawContentReturned": False,
+                "redactionAppliedBeforeChunking": True,
+                "parserBoundary": "gateway-multipart-upload",
             },
         },
     }
