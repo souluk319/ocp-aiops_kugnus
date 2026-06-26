@@ -28,6 +28,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT = REPO_ROOT / "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json"
 DEFAULT_API_SERVER = "https://api.ocp.cywell.server:6443"
 DEFAULT_GATEWAY = "http://127.0.0.1:18080"
+CHECK_ORDER = [
+    ("dns", "DNS lookup failed"),
+    ("tcp", "TCP 6443 connection failed"),
+    ("tls", "TLS handshake failed"),
+    ("versionEndpoint", "OCP /version did not respond"),
+    ("ocServer", "oc cannot read current server"),
+    ("ocIdentity", "oc whoami did not return a non-empty user"),
+    ("ocToken", "oc token is unavailable"),
+    ("selfSubjectReview", "SelfSubjectReview failed"),
+    ("gatewayStatus", "local Gateway /v1/aiops/status failed"),
+]
 
 
 def now_rfc3339() -> str:
@@ -183,18 +194,7 @@ def parse_host_port(api_server: str) -> tuple[str, int]:
 
 
 def build_summary(results: dict[str, Any]) -> dict[str, Any]:
-    order = [
-        ("dns", "DNS lookup failed"),
-        ("tcp", "TCP 6443 connection failed"),
-        ("tls", "TLS handshake failed"),
-        ("versionEndpoint", "OCP /version did not respond"),
-        ("ocServer", "oc cannot read current server"),
-        ("ocIdentity", "oc whoami did not return a non-empty user"),
-        ("ocToken", "oc token is unavailable"),
-        ("selfSubjectReview", "SelfSubjectReview failed"),
-        ("gatewayStatus", "local Gateway /v1/aiops/status failed"),
-    ]
-    for key, message in order:
+    for key, message in CHECK_ORDER:
         result = results.get(key) or {}
         if result.get("skipped"):
             return {
@@ -215,10 +215,28 @@ def build_summary(results: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def fast_fail_if_needed(results: dict[str, Any], key: str, enabled: bool) -> bool:
+    if not enabled or (results.get(key) or {}).get("ok"):
+        return False
+
+    seen = False
+    for check_key, _message in CHECK_ORDER:
+        if seen and check_key not in results:
+            results[check_key] = {
+                "ok": False,
+                "skipped": True,
+                "reason": f"skipped because {key} failed and fast-fail is enabled",
+            }
+        if check_key == key:
+            seen = True
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-server", default=DEFAULT_API_SERVER)
     parser.add_argument("--gateway", default=DEFAULT_GATEWAY)
+    parser.add_argument("--fast-fail", action="store_true")
     parser.add_argument("--timeout", type=int, default=8)
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     args = parser.parse_args()
@@ -228,52 +246,79 @@ def main() -> int:
     results: dict[str, Any] = {}
 
     results["dns"] = dns_check(api_host, args.timeout)
-    results["tcp"] = tcp_check(api_host, api_port, args.timeout)
-    results["tls"] = tls_check(api_host, api_port, args.timeout)
-    results["versionEndpoint"] = http_json_request(
-        f"{args.api_server.rstrip('/')}/version",
-        timeout=args.timeout,
-    )
-
-    oc_server = run_cmd(["oc", "whoami", "--show-server"], args.timeout)
-    results["ocServer"] = {
-        **oc_server,
-        "matchesExpectedServer": oc_server.get("stdout") == args.api_server.rstrip("/"),
-    }
-
-    oc_identity = run_cmd(["oc", "whoami"], args.timeout)
-    results["ocIdentity"] = {**oc_identity, "identityPresent": bool(oc_identity.get("stdout"))}
-    if not oc_identity.get("stdout"):
-        results["ocIdentity"]["ok"] = False
-        results["ocIdentity"]["reason"] = "oc whoami returned an empty identity"
-
-    oc_token = run_cmd(["oc", "whoami", "--show-token"], args.timeout)
-    token = str(oc_token.get("stdout") or "")
-    results["ocToken"] = {
-        "ok": bool(token) and bool(oc_token.get("ok")),
-        "durationMs": oc_token.get("durationMs"),
-        "returnCode": oc_token.get("returnCode"),
-        "tokenLength": len(token),
-        "timeout": oc_token.get("timeout", False),
-        "stderr": oc_token.get("stderr"),
-    }
-
-    if token:
-        results["selfSubjectReview"] = http_json_request(
-            f"{args.api_server.rstrip('/')}/apis/authentication.k8s.io/v1/selfsubjectreviews",
-            token=token,
-            method="POST",
-            body={"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"},
-            timeout=args.timeout,
-        )
-        results["gatewayStatus"] = http_json_request(
-            f"{args.gateway.rstrip('/')}/v1/aiops/status",
-            token=token,
-            timeout=args.timeout,
-        )
+    if fast_fail_if_needed(results, "dns", args.fast_fail):
+        token = ""
+        goto_report = True
     else:
-        results["selfSubjectReview"] = {"ok": False, "skipped": True, "reason": "no oc token"}
-        results["gatewayStatus"] = {"ok": False, "skipped": True, "reason": "no oc token"}
+        goto_report = False
+
+    if not goto_report:
+        results["tcp"] = tcp_check(api_host, api_port, args.timeout)
+        goto_report = fast_fail_if_needed(results, "tcp", args.fast_fail)
+
+    if not goto_report:
+        results["tls"] = tls_check(api_host, api_port, args.timeout)
+        goto_report = fast_fail_if_needed(results, "tls", args.fast_fail)
+
+    if not goto_report:
+        results["versionEndpoint"] = http_json_request(
+            f"{args.api_server.rstrip('/')}/version",
+            timeout=args.timeout,
+        )
+        goto_report = fast_fail_if_needed(results, "versionEndpoint", args.fast_fail)
+
+    if not goto_report:
+        oc_server = run_cmd(["oc", "whoami", "--show-server"], args.timeout)
+        results["ocServer"] = {
+            **oc_server,
+            "matchesExpectedServer": oc_server.get("stdout") == args.api_server.rstrip("/"),
+        }
+        goto_report = fast_fail_if_needed(results, "ocServer", args.fast_fail)
+
+    if not goto_report:
+        oc_identity = run_cmd(["oc", "whoami"], args.timeout)
+        results["ocIdentity"] = {**oc_identity, "identityPresent": bool(oc_identity.get("stdout"))}
+        if not oc_identity.get("stdout"):
+            results["ocIdentity"]["ok"] = False
+            results["ocIdentity"]["reason"] = "oc whoami returned an empty identity"
+        goto_report = fast_fail_if_needed(results, "ocIdentity", args.fast_fail)
+
+    if not goto_report:
+        oc_token = run_cmd(["oc", "whoami", "--show-token"], args.timeout)
+        token = str(oc_token.get("stdout") or "")
+        results["ocToken"] = {
+            "ok": bool(token) and bool(oc_token.get("ok")),
+            "durationMs": oc_token.get("durationMs"),
+            "returnCode": oc_token.get("returnCode"),
+            "tokenLength": len(token),
+            "timeout": oc_token.get("timeout", False),
+            "stderr": oc_token.get("stderr"),
+        }
+        goto_report = fast_fail_if_needed(results, "ocToken", args.fast_fail)
+
+    if not goto_report:
+        if token:
+            results["selfSubjectReview"] = http_json_request(
+                f"{args.api_server.rstrip('/')}/apis/authentication.k8s.io/v1/selfsubjectreviews",
+                token=token,
+                method="POST",
+                body={"apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview"},
+                timeout=args.timeout,
+            )
+            goto_report = fast_fail_if_needed(results, "selfSubjectReview", args.fast_fail)
+        else:
+            results["selfSubjectReview"] = {"ok": False, "skipped": True, "reason": "no oc token"}
+            goto_report = fast_fail_if_needed(results, "selfSubjectReview", args.fast_fail)
+
+    if not goto_report:
+        if token:
+            results["gatewayStatus"] = http_json_request(
+                f"{args.gateway.rstrip('/')}/v1/aiops/status",
+                token=token,
+                timeout=args.timeout,
+            )
+        else:
+            results["gatewayStatus"] = {"ok": False, "skipped": True, "reason": "no oc token"}
 
     report = {
         "apiVersion": "aiops.komsco/v1alpha1",

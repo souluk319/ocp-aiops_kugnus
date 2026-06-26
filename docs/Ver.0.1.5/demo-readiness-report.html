@@ -87,7 +87,7 @@
     <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. 여기서 UI 검증은 Cypress가 아니라 Chrome CDP 기반 verifier이며, RCA ToolPlan과 Evidence/RCA 시연 사이클 준비 상태를 확인한다.</p>
     <p class="note">2026-06-26 추가: 재부팅/재로그인 이후 복구용 <code>task kugnus:demo:resume</code>을 추가했다. 현재 실행 증거에서는 <code>oc login</code> 또는 OpenShift API 응답이 8초 내 확인되지 않아 fail-fast로 멈춘다. 이는 로컬 시연 자동화가 실패 지점을 인증층으로 좁혔다는 의미이며, Lightspeed 최종 성공 증거는 아니다.</p>
     <p class="note">2026-06-26 추가 진단: <code>task kugnus:ocp:doctor</code>를 추가했다. 최신 <code>ocp-connectivity-ladder-report.json</code> 기준 첫 실패 layer는 <code>tcp</code>이며, <code>api.ocp.cywell.server:6443</code> 연결 timeout이다. 로컬 Gateway <code>/v1/aiops/status</code>는 HTTP 200 degraded로 응답하므로, 현재 병목은 Gateway 코드가 아니라 WSL/VPN/OCP API 네트워크 경로다.</p>
-    <p class="note">2026-06-26 추가 자동화: <code>task kugnus:demo:wait</code>를 추가했다. 이 명령은 <code>ocp:doctor</code>를 반복 실행하다가 OCP connectivity ladder가 PASS되는 순간 <code>demo:resume</code>으로 넘어간다. 네트워크가 불안정한 동안 같은 명령을 사람이 반복하지 않기 위한 시연 재개용 도구다.</p>
+    <p class="note">2026-06-26 추가 자동화: <code>task kugnus:demo:wait</code>를 추가했다. 이 명령은 fast-fail connectivity ladder를 반복 실행하다가 PASS되는 순간 <code>demo:resume</code>으로 넘어간다. 대기 루프 report는 <code>.tmp-kugnus-demo/ocp-connectivity-ladder-wait-report.json</code>에 쓰고, 공식 증거용 full ladder report는 <code>task kugnus:ocp:doctor</code>가 <code>docs/Ver.0.1.5/ocp-connectivity-ladder-report.json</code>에 남긴다.</p>
     <table>
       <tr><th>항목</th><th>상태</th><th>근거</th></tr>
       <tr><td>Gateway runtime</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:runtime:smoke</code></td></tr>

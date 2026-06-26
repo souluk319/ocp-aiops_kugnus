@@ -3,14 +3,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPORT="${KUGNUS_OCP_LADDER_REPORT:-${ROOT_DIR}/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json}"
+REPORT="${KUGNUS_OCP_LADDER_REPORT:-${ROOT_DIR}/.tmp-kugnus-demo/ocp-connectivity-ladder-wait-report.json}"
 ATTEMPTS="${KUGNUS_WAIT_ATTEMPTS:-30}"
 INTERVAL_SECONDS="${KUGNUS_WAIT_INTERVAL_SECONDS:-20}"
 OCP_TIMEOUT_SECONDS="${KUGNUS_WAIT_OCP_TIMEOUT_SECONDS:-8}"
 RUN_RESUME="${KUGNUS_WAIT_RUN_RESUME:-true}"
 
+mkdir -p "$(dirname "$REPORT")"
+
 log() {
-  printf '[%s] %s\n' "$(date -Is)" "$*"
+  printf '[%s] %s\n' "$(date -Is)" "$*" >&2
 }
 
 summary_field() {
@@ -39,6 +41,7 @@ log "attempts=${ATTEMPTS} interval=${INTERVAL_SECONDS}s ocTimeout=${OCP_TIMEOUT_
 for attempt in $(seq 1 "$ATTEMPTS"); do
   log "OCP connectivity attempt ${attempt}/${ATTEMPTS}"
   if python3 scripts/kugnus-ocp-connectivity-ladder.py \
+    --fast-fail \
     --timeout "$OCP_TIMEOUT_SECONDS" \
     --report "$REPORT"; then
     log "OCP connectivity ladder passed"
