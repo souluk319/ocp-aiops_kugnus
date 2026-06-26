@@ -1114,7 +1114,8 @@
           <h3>바로 실행할 기본 순서</h3>
           <ol>
             <li><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
-            <li><code>task kugnus:dev:doctor</code></li>
+            <li><code>task kugnus:demo:resume</code> - 재부팅, VPN 재연결, <code>oc login</code> 이후 로컬 시연 스택을 한 번에 복구하고 strict gate까지 실행한다.</li>
+            <li><code>task kugnus:dev:doctor</code> - resume이 실패하면 어느 층이 끊겼는지 먼저 본다.</li>
             <li><code>task kugnus:runtime:smoke</code></li>
             <li><code>task kugnus:scenario:verify</code></li>
             <li><code>task kugnus:evidence-rca:verify</code></li>
@@ -1180,6 +1181,11 @@
                 <td>분노, 혼란, 긴 대기, 재시작, 인증 문제도 제품 운영 학습으로 남긴다.</td>
                 <td>다음 세션에서 같은 문제를 다시 겪을 때 더 짧은 체크리스트로 복구할 수 있어야 한다.</td>
               </tr>
+              <tr>
+                <td>재개 자동화</td>
+                <td><code>task kugnus:demo:resume</code>은 로컬 WSL 시연 스택만 복구한다. 꺼진 port-forward, Gateway, console bridge를 올리고 smoke와 strict Lightspeed gate를 실행한다.</td>
+                <td>회사 OCP 설치성 변경 없이 로컬 시연 준비 상태가 PASS/FAIL로 기록되면 통과다.</td>
+              </tr>
             </tbody>
           </table>
 
@@ -1194,6 +1200,7 @@
           <ol>
             <li>브라우저에서 공식 시연 질문을 직접 실행하고, 답변 문장 품질과 화면 전환을 사람 눈으로 최종 확인한다.</li>
             <li>Lightspeed stream 경로를 인증, endpoint, TLS, OLS availability, payload schema 단위로 분해해 WARN을 줄인다.</li>
+            <li><code>task kugnus:demo:resume</code> 결과를 기준으로, 재로그인 후에도 strict Lightspeed gate가 어디서 막히는지 반복 증거를 축적한다.</li>
             <li>Prometheus/Thanos 직접 query를 token-safe 방식으로 검증 자동화에 추가한다.</li>
             <li>RAG/Runbook backend의 production 후보 기술, 문서 권한, ingestion/retrieval 품질 기준을 만든다.</li>
             <li>승인형 action execution을 feature flag, approval guard, audit trail, rollback 기준으로 설계한다.</li>

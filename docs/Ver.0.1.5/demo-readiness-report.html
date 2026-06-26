@@ -85,6 +85,7 @@
   <section>
     <h2>현재 판단</h2>
     <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. 여기서 UI 검증은 Cypress가 아니라 Chrome CDP 기반 verifier이며, RCA ToolPlan과 Evidence/RCA 시연 사이클 준비 상태를 확인한다.</p>
+    <p class="note">2026-06-26 추가: 재부팅/재로그인 이후 복구용 <code>task kugnus:demo:resume</code>을 추가했다. 현재 실행 증거에서는 <code>oc login</code> 또는 OpenShift API 응답이 8초 내 확인되지 않아 fail-fast로 멈춘다. 이는 로컬 시연 자동화가 실패 지점을 인증층으로 좁혔다는 의미이며, Lightspeed 최종 성공 증거는 아니다.</p>
     <table>
       <tr><th>항목</th><th>상태</th><th>근거</th></tr>
       <tr><td>Gateway runtime</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:runtime:smoke</code></td></tr>
@@ -210,6 +211,11 @@
         <td><code>task kugnus:dev:doctor</code>로 끊긴 층을 먼저 찾는다. 같은 명령을 반복하기보다 원인 후보를 줄인다.</td>
       </tr>
       <tr>
+        <td>재로그인 후 무엇부터 다시 켜야 할지 헷갈림</td>
+        <td>Gateway, Lightspeed port-forward, Action Executor port-forward, console bridge, plugin webpack이 각각 다른 프로세스다.</td>
+        <td><code>task kugnus:demo:resume</code>을 사용한다. 이 명령은 로컬 WSL 시연 스택만 복구하고, 회사 OCP 설치성 변경은 하지 않는다.</td>
+      </tr>
+      <tr>
         <td>PDF 업로드/RAG가 보이면 운영 RAG가 완성된 것처럼 착각할 수 있음</td>
         <td>현재는 사용자 업로드 chunk 저장, pgvector 검색 계약, citation 연결 smoke가 검증된 상태다.</td>
         <td>운영용 권한, 장기 품질, 문서 lifecycle, 평가 corpus까지 완성됐다고 말하지 않는다.</td>
@@ -247,6 +253,11 @@
         <td>삽질, 혼란, 긴 대기, 인증 문제도 운영 체크리스트로 축적한다.</td>
         <td>다음에는 같은 문제를 더 짧게 복구할 수 있다.</td>
       </tr>
+      <tr>
+        <td>재개 자동화</td>
+        <td><code>task kugnus:demo:resume</code>으로 재로그인 후 local dev stack을 복구하고 smoke plus strict Lightspeed gate를 실행한다.</td>
+        <td>로컬 시연 준비 상태가 report와 terminal PASS/FAIL로 남는다.</td>
+      </tr>
     </table>
   </section>
 
@@ -254,6 +265,7 @@
     <h2>다음부터 바로 쓰는 운영 체크리스트</h2>
     <ol>
       <li>작업 위치 확인: <code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
+      <li>재로그인 후 통합 복구: <code>task kugnus:demo:resume</code></li>
       <li>전체 상태 진단: <code>task kugnus:dev:doctor</code></li>
       <li>런타임 smoke: <code>task kugnus:runtime:smoke</code></li>
       <li>운영 시나리오 계약: <code>task kugnus:scenario:verify</code></li>
