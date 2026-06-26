@@ -965,6 +965,7 @@
             <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 188 passed, 2 warnings.</li>
             <li><code>task kugnus:lightspeed:live-verify</code>: 현재 FAIL. verifier 강화 후 최신 실패 원인은 Gateway/Lightspeed 단계 전 <code>tcp</code> layer 차단이다. report 내부 <code>preflight.ocpConnectivity</code>가 <code>firstFailingLayer=tcp</code>, <code>likelyCause=windows_vpn_adapter_disabled_and_private_route_missing</code>를 기록한다.</li>
             <li><code>task kugnus:ocp:doctor</code>: 현재 FAIL. DNS는 <code>10.0.1.230</code>으로 해석되지만 첫 실패 layer가 <code>tcp</code>이며, 회사 OCP API 6443 연결이 timeout이다. Windows <code>route print 10.0.1.230</code>에는 active route가 없고, Fortinet SSL VPN adapter는 <code>Disabled</code>이며, 로컬 Gateway status는 200 degraded로 응답한다.</li>
+            <li><code>task kugnus:vpn:doctor</code>: READY. Fortinet/company VPN 연결 직후 짧은 timeout과 fast-fail로 Windows private route가 살아났는지 빠르게 확인한다. 이 task는 로컬 진단만 수행하고 회사 OCP에는 변경을 만들지 않는다.</li>
             <li><code>ocp-connectivity-ladder-report.json</code>: <code>interpretation</code>, Windows route snapshot, VPN-like adapter 상태를 추가해 <code>DNS PASS != VPN connected != Windows route PASS != TCP route PASS</code>를 명시했다. 현재 추정 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>이며, token length나 <code>oc whoami --show-server</code>만으로 live OCP 연결 성공을 말하지 않는다.</li>
             <li><code>task kugnus:demo:wait</code>: fast-fail connectivity ladder가 PASS될 때까지 반복 대기한 뒤 <code>task kugnus:demo:resume</code>을 자동 실행하도록 준비됐다. 실패 중에는 <code>likelyCause</code>, Windows hint, next action을 출력한다. 반복용 report는 <code>.tmp-kugnus-demo</code>에 남기고, 공식 증거용 full report는 <code>task kugnus:ocp:doctor</code>가 갱신한다.</li>
           </ul>
@@ -1133,6 +1134,7 @@
           <ol>
             <li><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
             <li><code>task kugnus:demo:wait</code> - OCP 연결이 흔들릴 때 사람이 반복하지 않고, 연결 PASS 순간 local demo resume과 strict gate까지 이어간다. 실패 중에는 현재 원인과 다음 행동을 출력한다.</li>
+            <li><code>task kugnus:vpn:doctor</code> - Fortinet/company VPN 연결 직후 Windows private route가 생겼는지 빠르게 확인한다.</li>
             <li><code>task kugnus:demo:resume</code> - 재부팅, VPN 재연결, <code>oc login</code> 이후 로컬 시연 스택을 한 번에 복구하고 strict gate까지 실행한다.</li>
             <li><code>task kugnus:ocp:doctor</code> - strict gate가 인증/네트워크에서 막히면 DNS, TCP, TLS, API, oc identity, SSR, Gateway status를 사다리식으로 분리한다.</li>
             <li><code>task kugnus:dev:doctor</code> - resume이 실패하면 어느 층이 끊겼는지 먼저 본다.</li>
@@ -1226,7 +1228,7 @@
             <li>브라우저에서 공식 시연 질문을 직접 실행하고, 답변 문장 품질과 화면 전환을 사람 눈으로 최종 확인한다.</li>
             <li>Lightspeed stream 경로를 인증, endpoint, TLS, OLS availability, payload schema 단위로 분해해 WARN을 줄인다.</li>
             <li><code>task kugnus:demo:resume</code> 결과를 기준으로, 재로그인 후에도 strict Lightspeed gate가 어디서 막히는지 반복 증거를 축적한다.</li>
-            <li><code>task kugnus:ocp:doctor</code>의 첫 실패 layer가 <code>tcp</code>에서 사라질 때까지 WSL/VPN/OCP API 경로를 먼저 안정화한다. 현재 다음 확인 지점은 VPN/private route propagation into WSL이다.</li>
+            <li><code>task kugnus:vpn:doctor</code>와 <code>task kugnus:ocp:doctor</code>의 첫 실패 layer가 <code>tcp</code>에서 사라질 때까지 Windows Fortinet/company VPN route를 먼저 안정화한다. 현재 다음 확인 지점은 Fortinet SSL VPN adapter가 연결되고 <code>10.0.1.230</code> active route가 생기는지다.</li>
             <li>장시간 기다려야 하면 <code>task kugnus:demo:wait</code>를 사용해 connectivity PASS 시점에 자동으로 strict gate까지 이어지게 한다.</li>
             <li>Prometheus/Thanos 직접 query를 token-safe 방식으로 검증 자동화에 추가한다.</li>
             <li>RAG/Runbook backend의 production 후보 기술, 문서 권한, ingestion/retrieval 품질 기준을 만든다.</li>

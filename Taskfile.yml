@@ -189,6 +189,12 @@ tasks:
     cmds:
       - bash ./scripts/kugnus-demo-wait-and-resume.sh
 
+  kugnus:vpn:doctor:
+    desc: Quickly check Windows VPN/private route to company OCP before full OCP diagnostics
+    cmds:
+      - mkdir -p .tmp-kugnus-demo
+      - python3 scripts/kugnus-ocp-connectivity-ladder.py --fast-fail --timeout "${KUGNUS_VPN_DOCTOR_TIMEOUT_SECONDS:-3}" --report .tmp-kugnus-demo/ocp-vpn-route-report.json
+
   kugnus:ocp:doctor:
     desc: Diagnose DNS, TCP, TLS, oc identity, SSR, and local Gateway access without persisting tokens
     cmds:
