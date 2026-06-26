@@ -94,6 +94,13 @@ def run_cmd(args: list[str], timeout: int) -> dict[str, Any]:
         }
 
 
+def text_file_preview(path: str, max_chars: int = 1200) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")[:max_chars]
+    except OSError as exc:
+        return f"unavailable: {safe_error(exc)}"
+
+
 def dns_check(host: str, timeout: int) -> dict[str, Any]:
     started = time.monotonic()
     socket.setdefaulttimeout(timeout)
@@ -193,6 +200,31 @@ def parse_host_port(api_server: str) -> tuple[str, int]:
     return trimmed, 443
 
 
+def build_wsl_network_snapshot(api_host: str, dns_result: Mapping[str, Any], timeout: int) -> dict[str, Any]:
+    addresses = dns_result.get("addresses") if isinstance(dns_result.get("addresses"), list) else []
+    target_ip = str(addresses[0]) if addresses else api_host
+    route = run_cmd(["ip", "route", "get", target_ip], timeout)
+    addr = run_cmd(["ip", "-brief", "addr"], timeout)
+    resolv_conf = text_file_preview("/etc/resolv.conf")
+
+    hints: list[str] = []
+    route_stdout = str(route.get("stdout") or "")
+    if target_ip.startswith(("10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.", "192.168.")):
+        hints.append("target IP is private; WSL must receive the VPN/private-network route.")
+    if " dev eth0 " in f" {route_stdout} " and " via " in f" {route_stdout} ":
+        hints.append("route uses WSL eth0 gateway; if TCP times out, check VPN route propagation into WSL.")
+    if "nameserver 10.255.255.254" in resolv_conf:
+        hints.append("WSL DNS is using the WSL-generated resolver; DNS may work even while VPN TCP routing is missing.")
+
+    return {
+        "targetIp": target_ip,
+        "ipRouteGet": route,
+        "ipBriefAddr": addr,
+        "resolvConfPreview": resolv_conf,
+        "hints": hints,
+    }
+
+
 def build_summary(results: dict[str, Any]) -> dict[str, Any]:
     for key, message in CHECK_ORDER:
         result = results.get(key) or {}
@@ -246,6 +278,7 @@ def main() -> int:
     results: dict[str, Any] = {}
 
     results["dns"] = dns_check(api_host, args.timeout)
+    wsl_network = build_wsl_network_snapshot(api_host, results["dns"], args.timeout)
     if fast_fail_if_needed(results, "dns", args.fast_fail):
         token = ""
         goto_report = True
@@ -331,6 +364,7 @@ def main() -> int:
         "timeoutSeconds": args.timeout,
         "summary": build_summary(results),
         "results": results,
+        "wslNetwork": wsl_network,
         "note": "Bearer tokens and full response bodies are intentionally not persisted.",
     }
 
