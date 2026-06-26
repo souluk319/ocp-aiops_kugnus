@@ -211,8 +211,8 @@
             <tr><th>단계</th><th>작업</th><th>산출물</th><th>PASS 기준</th></tr>
           </thead>
           <tbody>
-            <tr><td>1</td><td>시연 Preflight 자동화</td><td>preflight JSON/HTML report</td><td>oc, Docker, RAG, Gateway, Console, Lightspeed, UI route 상태가 한 번에 판정된다.</td></tr>
-            <tr><td>2</td><td>공식 시연 시나리오 고정</td><td>demo-cycle-runbook.html</td><td>질문, 기대 화면, 실패 시 대체 루트가 정리된다.</td></tr>
+            <tr><td>1</td><td>시연 Preflight 자동화</td><td><code>preflight-contract.md</code>, <code>preflight-report.json/html</code></td><td>oc, Docker, RAG, Gateway, Console, Lightspeed, UI route 상태가 한 번에 판정된다.</td></tr>
+            <tr><td>2</td><td>공식 시연 시나리오 고정</td><td><code>official-demo-scenario.md</code></td><td>질문, 기대 화면, 실패 시 대체 루트가 정리된다.</td></tr>
             <tr><td>3</td><td>Docs/RAG 화면 제품화</td><td>Docs route/UI verifier update</td><td>문서 적재와 답변 근거 사용 여부를 사용자가 눈으로 확인한다.</td></tr>
             <tr><td>4</td><td>UI 의미 정돈</td><td>header/composer/sidebar verifier</td><td>상태칩과 버튼 의미가 구겨지거나 헷갈리지 않는다.</td></tr>
             <tr><td>5</td><td>시연 책자 보강</td><td>version-progress-book update</td><td>실행 전 점검, 시연 멘트, 말하면 안 되는 내용이 책자에 연결된다.</td></tr>
@@ -223,11 +223,24 @@
       <section>
         <h2>대표 검증 명령</h2>
         <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:demo:preflight
 task kugnus:dev:doctor
 task kugnus:runtime:smoke
 task kugnus:rag:file-upload:smoke
 task kugnus:rag:chat:smoke
 task kugnus:ui:verify</code></pre>
+      </section>
+
+      <section>
+        <h2>0.1.6 시연 산출물</h2>
+        <table>
+          <tbody>
+            <tr><th>Preflight 계약</th><td><code>docs/Ver.0.1.6/preflight-contract.md</code></td></tr>
+            <tr><th>Preflight report</th><td><code>docs/Ver.0.1.6/preflight-report.json</code>, <code>docs/Ver.0.1.6/preflight-report.html</code></td></tr>
+            <tr><th>공식 시나리오</th><td><code>docs/Ver.0.1.6/official-demo-scenario.md</code></td></tr>
+            <tr><th>실행 명령</th><td><code>task kugnus:demo:preflight</code></td></tr>
+          </tbody>
+        </table>
       </section>
 
       <section>

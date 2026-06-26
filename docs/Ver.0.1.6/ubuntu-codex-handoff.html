@@ -290,15 +290,14 @@ task kugnus:demo:resume</code></pre>
         <section id="next">
           <h2>다음 작업</h2>
           <ol>
-            <li><code>docs/Ver.0.1.6/preflight-contract.md</code> 작성</li>
-            <li><code>scripts/kugnus-demo-preflight.py</code> 또는 <code>.sh</code> 구현</li>
-            <li><code>task kugnus:demo:preflight</code> 추가</li>
-            <li><code>docs/Ver.0.1.6/preflight-report.html/json</code> 생성</li>
-            <li>공식 시연 runbook 작성</li>
-            <li>Docs/RAG 화면과 verifier 보강</li>
+            <li><code>task kugnus:demo:preflight</code>로 현재 작업대 report를 갱신한다.</li>
+            <li><code>docs/Ver.0.1.6/preflight-report.html/json</code>의 blocker를 먼저 해소한다.</li>
+            <li><code>docs/Ver.0.1.6/official-demo-scenario.md</code> 순서로 공식 시연 한 사이클을 재현한다.</li>
+            <li>필요하면 <code>runtime:smoke</code>, <code>rag:file-upload:smoke</code>, <code>rag:chat:smoke</code>, <code>ui:verify</code>로 보강 evidence를 갱신한다.</li>
+            <li>Docs/RAG 화면에서 report와 실제 chunk preview가 어긋나면 UI/verifier를 보강한다.</li>
           </ol>
           <div class="callout">
-            새 Codex에게 첫 지시를 줄 때는 “이 문서를 먼저 읽고, Ver.0.1.6의 첫 작업으로 demo preflight contract와 task를 구현하라”고 말하면 된다.
+            2026-06-26 KST 기준으로 preflight contract/task/scenario 초안은 추가됐다. 새 Codex에게 첫 지시를 줄 때는 “이 문서를 먼저 읽고, task kugnus:demo:preflight report를 갱신하고 blocker를 확인하라”고 말하면 된다.
           </div>
         </section>
       </article>

@@ -58,6 +58,7 @@ Ver.0.1.5까지는 WSL 네이티브 작업대, 로컬 console bridge, Gateway, R
 
 ```bash
 cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:demo:preflight
 task kugnus:dev:doctor
 task kugnus:runtime:smoke
 task kugnus:rag:file-upload:smoke
@@ -65,7 +66,14 @@ task kugnus:rag:chat:smoke
 task kugnus:ui:verify
 ```
 
-추가 구현 후에는 0.1.6 전용 preflight task와 HTML report를 추가한다.
+0.1.6 전용 preflight task는 아래 report를 생성한다.
+
+- `docs/Ver.0.1.6/preflight-report.json`
+- `docs/Ver.0.1.6/preflight-report.html`
+
+공식 시연 순서는 `docs/Ver.0.1.6/official-demo-scenario.md`를 기준으로 한다.
+
+preflight 계약은 `docs/Ver.0.1.6/preflight-contract.md`에 고정했다.
 
 ## 하지 않을 것
 

@@ -140,18 +140,19 @@ KUGNUS_RESUME_RUN_STRICT_GATE=false task kugnus:demo:resume
 
 ## 다음 추천 작업
 
-1. `docs/Ver.0.1.6/preflight-contract.md` 작성
-2. `scripts/kugnus-demo-preflight.py` 또는 `.sh` 구현
-3. `task kugnus:demo:preflight` 추가
-4. `docs/Ver.0.1.6/preflight-report.html/json` 생성
-5. 공식 시연 runbook 작성
-6. Docs/RAG 화면과 verifier 보강
+1. `task kugnus:demo:preflight`로 현재 작업대 report를 갱신한다.
+2. `docs/Ver.0.1.6/preflight-report.html/json`의 blocker를 먼저 해소한다.
+3. `docs/Ver.0.1.6/official-demo-scenario.md` 순서로 공식 시연 한 사이클을 재현한다.
+4. 필요하면 `task kugnus:runtime:smoke`, `task kugnus:rag:file-upload:smoke`, `task kugnus:rag:chat:smoke`, `task kugnus:ui:verify`로 보강 evidence를 갱신한다.
+5. Docs/RAG 화면에서 report와 실제 chunk preview가 어긋나면 UI/verifier를 보강한다.
 
 ## 새 Codex에게 주는 첫 지시 예시
 
 ```text
 이 repo는 WSL native /home/kugnus/cywell/ocp-aiops_kugnus 기준이다.
 먼저 docs/Ver.0.1.6/ubuntu-codex-handoff.md, README.md, demo-readiness-and-rag-docs-plan.html을 읽고
-Ver.0.1.6의 첫 작업으로 demo preflight contract와 task를 구현해라.
+Ver.0.1.6의 첫 작업으로 task kugnus:demo:preflight report를 갱신하고 blocker를 확인해라.
 회사 OCP/OKD 설치나 OLM install은 하지 마라.
 ```
+
+2026-06-26 KST 기준으로 preflight contract/task/scenario 초안은 추가됐다. 새 세션은 먼저 report를 재생성하고 현재 blocker 여부를 확인한다.

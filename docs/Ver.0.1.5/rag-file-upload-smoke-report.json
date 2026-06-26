@@ -1,7 +1,7 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "RagFileUploadSmokeReport",
-  "generatedAt": "2026-06-26T06:27:28.737443+00:00",
+  "generatedAt": "2026-06-26T08:00:53.413707+00:00",
   "gatewayUrl": "http://127.0.0.1:18080",
   "uploadFile": "/home/kugnus/cywell/ocp-aiops_kugnus/docs/Komsco_ai_agent_final.pdf",
   "httpStatus": 200,

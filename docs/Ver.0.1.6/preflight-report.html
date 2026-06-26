@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ver.0.1.6 Demo Preflight Report</title>
+  <style>
+    :root { --bg: #f5f7fb; --paper: #fff; --ink: #111827; --muted: #5f6f86; --line: #d8e0ec; --green: #12805c; --amber: #b7791f; --red: #c9190b; --blue: #0066cc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; }
+    main { max-width: 1180px; margin: 0 auto; padding: 34px 20px 60px; }
+    article { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 32px; box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08); }
+    h1 { margin: 0 0 8px; font-size: 31px; letter-spacing: 0; }
+    h2 { margin: 34px 0 12px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 22px; }
+    p { margin: 0 0 10px; }
+    code { padding: 2px 5px; border-radius: 5px; background: #eef2f7; }
+    table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #f4f7fb; color: #324055; font-size: 13px; }
+    tr:last-child td { border-bottom: 0; }
+    pre { max-width: 360px; overflow: auto; margin: 0; padding: 8px; border-radius: 8px; background: #0f172a; color: #e5edf9; font-size: 12px; }
+    .badge { display: inline-block; min-width: 58px; padding: 3px 7px; border-radius: 999px; color: #fff; text-align: center; font-size: 12px; font-weight: 700; }
+    .badge.pass { background: var(--green); }
+    .badge.warn { background: var(--amber); }
+    .badge.fail { background: var(--red); }
+    .summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+    .tile { border: 1px solid var(--line); border-radius: 8px; padding: 13px; background: #fbfdff; }
+    .tile strong { display: block; font-size: 24px; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>Ver.0.1.6 Demo Preflight Report</h1>
+      <p class="muted">Generated at <code>2026-06-26T08:04:00.004282Z</code></p>
+      <div class="summary">
+        <div class="tile"><span>Result</span><strong>WARN</strong></div>
+        <div class="tile"><span>Ready</span><strong>YES</strong></div>
+        <div class="tile"><span>Blockers</span><strong>0</strong></div>
+        <div class="tile"><span>Warnings</span><strong>1</strong></div>
+      </div>
+      <h2>Blockers</h2>
+      <ul><li>blocker 없음</li></ul>
+      <h2>Warnings</h2>
+      <ul><li><code>workspace.git</code> Git branch and worktree are visible: Commit or review intentional local changes before publishing the demo baseline.</li></ul>
+      <h2>Official Demo</h2>
+      <p>Scenario: <code>docs/Ver.0.1.6/official-demo-scenario.md</code></p>
+      <p>Question: <code>최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.</code></p>
+      <h2>Checks</h2>
+      <table>
+        <thead>
+          <tr><th>Status</th><th>Group</th><th>Check</th><th>Next action</th><th>Details</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>Repository is in native Ubuntu filesystem</strong><br><code>workspace.location</code></td><td>Open the workspace under /home/kugnus/... instead of /mnt/c/...</td><td><pre>{
+  &quot;repo&quot;: &quot;/home/kugnus/cywell/ocp-aiops_kugnus&quot;,
+  &quot;isWsl&quot;: true,
+  &quot;kernelRelease&quot;: &quot;6.6.87.2-microsoft-standard-WSL2&quot;
+}</pre></td></tr><tr><td><span class="badge warn">WARN</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
+  &quot;branch&quot;: &quot;feat/v.0.1.6&quot;,
+  &quot;head&quot;: &quot;a3c5f2e6519a&quot;,
+  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 1]\n M Taskfile.yml\n M docs/Ver.0.1.3/runtime-smoke-report.json\n M docs/Ver.0.1.4/rag-chat-citation-smoke-report.json\n M docs/Ver.0.1.5/rag-file-upload-smoke-report.json\n M docs/Ver.0.1.6/README.md\n M docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html\n M docs/Ver.0.1.6/ubuntu-codex-handoff.html\n M docs/Ver.0.1.6/ubuntu-codex-handoff.md\n M docs/version-progress-book.html\n?? docs/Ver.0.1.6/official-demo-scenario.md\n?? docs/Ver.0.1.6/preflight-contract.md\n?? docs/Ver.0.1.6/preflight-report.html\n?? docs/Ver.0.1.6/preflight-report.json\n?? scripts/kugnus-demo-preflight.py&quot;,
+  &quot;dirtyNonReportLines&quot;: [
+    &quot; M Taskfile.yml&quot;,
+    &quot; M docs/Ver.0.1.3/runtime-smoke-report.json&quot;,
+    &quot; M docs/Ver.0.1.4/rag-chat-citation-smoke-report.json&quot;,
+    &quot; M docs/Ver.0.1.5/rag-file-upload-smoke-report.json&quot;,
+    &quot; M docs/Ver.0.1.6/README.md&quot;,
+    &quot; M docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html&quot;,
+    &quot; M docs/Ver.0.1.6/ubuntu-codex-handoff.html&quot;,
+    &quot; M docs/Ver.0.1.6/ubuntu-codex-handoff.md&quot;,
+    &quot; M docs/version-progress-book.html&quot;,
+    &quot;?? docs/Ver.0.1.6/officia</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
+  &quot;exists&quot;: true,
+  &quot;mode&quot;: &quot;600&quot;,
+  &quot;crlfCount&quot;: 0,
+  &quot;gitIgnored&quot;: true,
+  &quot;activeKeyCount&quot;: 2
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>bash command is available</strong><br><code>tool.bash</code></td><td>Install bash in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/usr/bin/bash&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>curl command is available</strong><br><code>tool.curl</code></td><td>Install curl in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/usr/bin/curl&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>task command is available</strong><br><code>tool.task</code></td><td>Install task in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/usr/bin/task&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>python3 command is available</strong><br><code>tool.python3</code></td><td>Install python3 in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/usr/bin/python3&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>node command is available</strong><br><code>tool.node</code></td><td>Install node in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/home/kugnus/.nvm/versions/node/v24.14.0/bin/node&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>yarn command is available</strong><br><code>tool.yarn</code></td><td>Install yarn in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/home/kugnus/.nvm/versions/node/v24.14.0/bin/yarn&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>docker command is available</strong><br><code>tool.docker</code></td><td>Install docker in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/usr/bin/docker&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>oc command is available</strong><br><code>tool.oc</code></td><td>Install oc in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/usr/local/bin/oc&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>google-chrome command is available</strong><br><code>tool.google-chrome</code></td><td>Install google-chrome in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>Core tool versions are callable from Ubuntu</strong><br><code>tool.versions</code></td><td>Fix nvm/corepack/task availability in the Ubuntu shell.</td><td><pre>{
+  &quot;node&quot;: &quot;v24.14.0&quot;,
+  &quot;yarn&quot;: &quot;1.22.22&quot;,
+  &quot;task&quot;: &quot;3.51.1&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>browser</td><td><strong>Ubuntu Chrome can run headless UI checks</strong><br><code>browser.chrome</code></td><td>Check ~/.local/bin/google-chrome and the Chrome for Testing local library wrapper.</td><td><pre>{
+  &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;,
+  &quot;version&quot;: &quot;Google Chrome for Testing 150.0.7871.24&quot;,
+  &quot;headlessDomContainsOk&quot;: true,
+  &quot;stderrPreview&quot;: &quot;[53059:53078:0626/170355.439168:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[53059:53078:0626/170355.447618:ERROR:dbus/bus.cc:405] Failed to connect&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>docker</td><td><strong>Docker daemon is reachable</strong><br><code>docker.daemon</code></td><td>Start Docker Desktop or the Docker daemon, then rerun preflight.</td><td><pre>{
+  &quot;serverVersion&quot;: &quot;29.4.2&quot;,
+  &quot;stderrPreview&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>rag</td><td><strong>Local pgvector RAG container is running</strong><br><code>rag.container</code></td><td>Run task kugnus:rag:dev:up.</td><td><pre>{
+  &quot;container&quot;: &quot;kugnus-rag-pgvector&quot;,
+  &quot;running&quot;: true
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>rag</td><td><strong>Local pgvector database accepts connections</strong><br><code>rag.pg-isready</code></td><td>Run task kugnus:rag:dev:up and inspect the container logs.</td><td><pre>{
+  &quot;stdout&quot;: &quot;/var/run/postgresql:5432 - accepting connections&quot;,
+  &quot;stderrPreview&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>OpenShift identity and company API server are available</strong><br><code>openshift.identity</code></td><td>Run oc login, then task kugnus:ocp:doctor if the API still does not answer.</td><td><pre>{
+  &quot;user&quot;: &quot;admin&quot;,
+  &quot;server&quot;: &quot;https://api.ocp.cywell.server:6443&quot;,
+  &quot;expectedServer&quot;: &quot;https://api.ocp.cywell.server:6443&quot;,
+  &quot;project&quot;: &quot;gpu-test-kugnus&quot;,
+  &quot;tokenAvailable&quot;: true,
+  &quot;stderrPreview&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Can read openshift-lightspeed/lightspeed-app-server</strong><br><code>openshift.lightspeed-service</code></td><td>Check VPN, oc login, RBAC, namespace, and service name.</td><td><pre>{
+  &quot;namespace&quot;: &quot;openshift-lightspeed&quot;,
+  &quot;service&quot;: &quot;lightspeed-app-server&quot;,
+  &quot;stdout&quot;: &quot;lightspeed-app-server&quot;,
+  &quot;stderrPreview&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Can read komsco-ai-dev/komsco-ai-action-executor</strong><br><code>openshift.action-executor-service</code></td><td>Check VPN, oc login, RBAC, namespace, and service name.</td><td><pre>{
+  &quot;namespace&quot;: &quot;komsco-ai-dev&quot;,
+  &quot;service&quot;: &quot;komsco-ai-action-executor&quot;,
+  &quot;stdout&quot;: &quot;komsco-ai-action-executor&quot;,
+  &quot;stderrPreview&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Lightspeed local port-forward is listening</strong><br><code>openshift.lightspeed-port-forward</code></td><td>Run task kugnus:demo:resume to restore local port-forwarding.</td><td><pre>{
+  &quot;host&quot;: &quot;127.0.0.1&quot;,
+  &quot;port&quot;: 18443,
+  &quot;error&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Action Executor local port-forward is listening</strong><br><code>openshift.action-executor-port-forward</code></td><td>Run task kugnus:demo:resume to restore local port-forwarding.</td><td><pre>{
+  &quot;host&quot;: &quot;127.0.0.1&quot;,
+  &quot;port&quot;: 18083,
+  &quot;error&quot;: &quot;&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway healthz responds</strong><br><code>gateway.healthz</code></td><td>Run task kugnus:demo:resume or inspect .tmp-kugnus-demo/gateway.log.</td><td><pre>{
+  &quot;kind&quot;: &quot;unknown&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway auth subject responds</strong><br><code>gateway.auth-subject</code></td><td>Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.</td><td><pre>{
+  &quot;kind&quot;: null,
+  &quot;username&quot;: &quot;admin&quot;,
+  &quot;authenticatedByCluster&quot;: &quot;api-server&quot;,
+  &quot;groupsDigest&quot;: &quot;sha256:62b9b2ec963022f3da95495e9db0eb0f31fed10cb9183cf455639050dc44c53a&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway AIOps status responds</strong><br><code>gateway.aiops-status</code></td><td>Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.</td><td><pre>{
+  &quot;kind&quot;: &quot;AIOpsRuntimeStatus&quot;,
+  &quot;mode&quot;: &quot;controlled_execution&quot;,
+  &quot;mutationsEnabled&quot;: true,
+  &quot;actionExecutorConfigured&quot;: true,
+  &quot;ragStatus&quot;: &quot;configured&quot;,
+  &quot;lightspeedStatus&quot;: &quot;configured&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway cluster summary responds</strong><br><code>gateway.cluster-summary</code></td><td>Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.</td><td><pre>{
+  &quot;kind&quot;: null,
+  &quot;healthScore&quot;: 92,
+  &quot;apiUrl&quot;: &quot;https://api.ocp.cywell.server:6443&quot;,
+  &quot;readyNodes&quot;: 1,
+  &quot;totalNodes&quot;: 1,
+  &quot;availableOperators&quot;: 34,
+  &quot;totalOperators&quot;: 34,
+  &quot;degradedOperators&quot;: 0
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway AIOps overview responds</strong><br><code>gateway.aiops-overview</code></td><td>Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.</td><td><pre>{
+  &quot;kind&quot;: &quot;AIOpsOverview&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>rag</td><td><strong>Gateway lists uploaded RAG documents without raw content</strong><br><code>rag.uploads</code></td><td>Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.</td><td><pre>{
+  &quot;kind&quot;: &quot;RagUploadedDocumentList&quot;,
+  &quot;status&quot;: &quot;collected&quot;,
+  &quot;reason&quot;: &quot;Uploaded RAG documents retrieved from pgvector.&quot;,
+  &quot;documentCount&quot;: 3,
+  &quot;backendStatus&quot;: &quot;configured&quot;,
+  &quot;rawContentReturned&quot;: false
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>rag</td><td><strong>Gateway retrieves RAG evidence for the demo query</strong><br><code>rag.search</code></td><td>Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.</td><td><pre>{
+  &quot;kind&quot;: &quot;RagSearchResult&quot;,
+  &quot;status&quot;: &quot;collected&quot;,
+  &quot;reason&quot;: &quot;pgvector runbook evidence retrieved from local Gateway-controlled backend.&quot;,
+  &quot;resultCount&quot;: 5,
+  &quot;backendStatus&quot;: &quot;configured&quot;,
+  &quot;mockResultsAreProductionEvidence&quot;: false
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Local console dashboard route responds</strong><br><code>console.dashboard</code></td><td>Run task kugnus:dev:fe or task kugnus:demo:resume.</td><td><pre>{
+  &quot;kind&quot;: &quot;unknown&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Cywell AI route responds</strong><br><code>console.aiops-route</code></td><td>Run task kugnus:dev:fe and verify the local console bridge.</td><td><pre>{
+  &quot;kind&quot;: &quot;unknown&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Plugin manifest responds</strong><br><code>console.plugin-manifest</code></td><td>Run task kugnus:dev:fe or inspect the webpack dev server on 9001.</td><td><pre>{
+  &quot;kind&quot;: &quot;unknown&quot;
+}</pre></td></tr>
+        </tbody>
+      </table>
+    </article>
+  </main>
+</body>
+</html>

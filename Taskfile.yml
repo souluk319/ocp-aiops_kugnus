@@ -184,6 +184,11 @@ tasks:
     cmds:
       - bash ./scripts/kugnus-demo-resume.sh
 
+  kugnus:demo:preflight:
+    desc: Diagnose Ver.0.1.6 local demo readiness and write JSON/HTML reports without OCP mutation
+    cmds:
+      - python3 scripts/kugnus-demo-preflight.py
+
   kugnus:demo:after-vpn:
     desc: After Windows company VPN is connected, prove private route and resume the local strict demo
     cmds:
