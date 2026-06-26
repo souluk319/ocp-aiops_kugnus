@@ -1,0 +1,85 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "LiveLightspeedStreamProof",
+  "generatedAt": "2026-06-26T00:00:55.854849Z",
+  "branch": "feat/v.0.1.5",
+  "headSha": "eb923fd9a419674ca38e320b766fe9ca398bf423",
+  "cases": {
+    "cluster-summary": {
+      "httpStatus": 200,
+      "textEvents": [
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "현재 클러스터는 **일부 관리형 Pod의 비정상 상태(KubePodNotReady)와 etcd 데이터베이스 파편화(High Fragmentation) 경고가 발생 중이며, 클러스터 업그레이드가 차단된 상태**입니다.\n"
+        },
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "## RCA 보고서\n"
+        },
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "### ### 우선 판단\n"
+        },
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "1.  **KubePodNotReady (Warning):** `openshift-marketplace` 네임스페이스의 `appscan360-catalog-457gn` Pod가 15분 이상 Ready 상태가 아님. (근거: Alert `KubePodNotReady`)\n"
+        }
+      ],
+      "fallbackOrErrors": [],
+      "lightspeedStatus": {
+        "status": "configured",
+        "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+        "streamProbe": "succeeded",
+        "lastStatus": "succeeded",
+        "lastContextDigest": "sha256:5f424a3c52d39a2d11b7ed378ef409d5f98defc4dd72adbda8542b28ac67b432",
+        "lastStartedAt": "2026-06-25T23:59:53.430058+00:00",
+        "lastCompletedAt": "2026-06-26T00:00:15.071634+00:00",
+        "lastError": "",
+        "fallbackActive": false
+      }
+    },
+    "official-rca": {
+      "httpStatus": 200,
+      "textEvents": [
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "## RCA 보고서\n"
+        },
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "### 우선 판단\n"
+        },
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "현재 제공된 증거(Metric RCA, Pod Snapshot)를 바탕으로 분석한 결과, **`default` 네임스페이스에서 재시작된 특정 Pod를 식별할 수 없습니다.** \n"
+        },
+        {
+          "fallback": false,
+          "source": "ols_or_plain",
+          "preview": "제공된 Metric RCA 데이터에는 `komsco-ai-dev` 네임스페이스의 Pod 재시작 이력만 포함되어 있으며, `default` 네임스페이스에 대해서는 재시작 후보(Restart candidate)가 발견되지 않았습니다.\n"
+        }
+      ],
+      "fallbackOrErrors": [],
+      "lightspeedStatus": {
+        "status": "configured",
+        "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+        "streamProbe": "succeeded",
+        "lastStatus": "succeeded",
+        "lastContextDigest": "sha256:5f85f159892c848d342b0acf4ee61312a0ef079d566b46057131294ea3ea2505",
+        "lastStartedAt": "2026-06-26T00:00:15.452465+00:00",
+        "lastCompletedAt": "2026-06-26T00:00:55.795429+00:00",
+        "lastError": "",
+        "fallbackActive": false
+      }
+    }
+  },
+  "allSucceeded": true,
+  "note": "OpenShift token and full answer bodies are intentionally not persisted."
+}

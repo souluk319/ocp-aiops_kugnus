@@ -1,8 +1,8 @@
 {
-  "startedAt": "2026-06-25T23:51:16.923950+00:00",
+  "startedAt": "2026-06-26T00:01:11.305230+00:00",
   "metadata": {
     "branch": "feat/v.0.1.5",
-    "headSha": "21e9e65a6f2f4214c6e30d1efaf06e401c93b99b",
+    "headSha": "eb923fd9a419674ca38e320b766fe9ca398bf423",
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae"
   },
   "scenarioDir": "evals/aiops-scenarios",
@@ -66,7 +66,7 @@
     "missingEvidenceTypes": [
       "runbook"
     ],
-    "rcaContextDigest": "sha256:58eb16e0a3ab650c9ca3367fde26af85fe289568b39c65c0589922594208864d",
+    "rcaContextDigest": "sha256:e8a1a97b4865956d79ef3d2c684f26bfaf027c4490dfa62d79c0f03c6c9c09e3",
     "evidenceCounts": {
       "collected": 2,
       "partial": 0,
@@ -113,7 +113,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:aa06c0622de9a76cd934c7e489ff70a50466dddebd84d05eac77ce227f90489c",
+      "rcaContextDigest": "sha256:716e3a1d12d636cb6599a6f8c86aacbf95adf70cea5934341b7ec45ea853219d",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -155,7 +155,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:17db910e40767391f896d07100500ebd9363d60c896a58c313a84f9f2f29027d",
+      "rcaContextDigest": "sha256:1294e56cff822c9d933b693dcf0baedaebe817ba28d6550a6995effdd17ae70d",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -197,7 +197,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:919082f2fc23d8500f5d13f14bf5a9ce63046d2b233753f3d33554aa98672a01",
+      "rcaContextDigest": "sha256:dfd3e4b4676a3e6343dacd1c15268cb3232f370cf83adf31c54953ee36e1f7bc",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -239,7 +239,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:f02500699568845c07812af2471cfec63791c5e777a10f0179e955ab16aef5aa",
+      "rcaContextDigest": "sha256:200075adbb87e7bcab2c6cf9ee0a2b1d0b3fae2f16d70e97931197511aa2d7e6",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -281,7 +281,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:772774281f280a8407e987ae6812c0c134c3e96af0ed82a91aafb32583fc798a",
+      "rcaContextDigest": "sha256:89522b95518a0aab7f279e2bc210a8afcfee14853dea30c40d7f8aa19887b26a",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -329,7 +329,7 @@
       "missingEvidenceTypes": [
         "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:4e28144cdc1783aa7d0c5489853f89969a2ef0ee7d14a66b4f929ded0d7634c8",
+      "rcaContextDigest": "sha256:2605043adea100a51e6539deb05137357323b54b464de6e9d6eb12cf3f358ee6",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
@@ -377,7 +377,7 @@
       "missingEvidenceTypes": [
         "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:3c5c9c48526163465bc4abd07e926c5e86367e751d7f22545e9d46e82efd0790",
+      "rcaContextDigest": "sha256:9327a927c04f7768b0bff909413b0aea48d193dfec16a78b6359d3adbed2e38e",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
@@ -419,7 +419,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:519c38e841bd4745bc867848d176a899e3018fb6442e5c18f4395a59586d7d75",
+      "rcaContextDigest": "sha256:4c8518289106af7b524bb2929f7d3edbd26044cd7af214101b9208adf810b151",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -462,7 +462,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:44209f9fa173b8a6f102f6d95c83ea26aa1e2ee636e353f72431e4becd55b91d",
+      "rcaContextDigest": "sha256:3bed7b100cd9037377de3eb5bbf5199dfd361d9e05a1628b836f9d7a85cf6883",
       "evidenceCounts": {
         "collected": 3,
         "partial": 0,
@@ -503,7 +503,7 @@
       "missingEvidenceTypes": [
         "execution_record"
       ],
-      "rcaContextDigest": "sha256:00babf9d7917c08c19542637a45f53d8db5774ad2bc0a7ecd150a282b06f5845",
+      "rcaContextDigest": "sha256:29aee67b849094dbd78afc56dbd1aaa6ac334048bb81398f9afdd91cd23e50cd",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,

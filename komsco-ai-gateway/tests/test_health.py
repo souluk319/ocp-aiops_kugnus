@@ -2091,7 +2091,7 @@ def test_build_ols_payload_forwards_image_attachments_when_enabled() -> None:
     }
 
 
-def test_build_ols_payload_includes_schema_gateway_context_without_secrets() -> None:
+def test_build_ols_payload_keeps_gateway_context_out_of_ols_body() -> None:
     plan = build_runtime_tool_plan("default 네임스페이스 pod가 왜 재시작됐어?")
     rca_context = build_rca_context(
         message="default 네임스페이스 pod가 왜 재시작됐어?",
@@ -2124,13 +2124,15 @@ def test_build_ols_payload_includes_schema_gateway_context_without_secrets() -> 
     )
     rendered = json.dumps(payload, ensure_ascii=False)
 
-    assert payload["gateway_context"]["kind"] == "GatewayContext"
-    assert payload["gateway_context"]["toolPlan"]["kind"] == "ToolPlan"
-    assert payload["gateway_context"]["rcaContext"]["kind"] == "RcaContext"
-    assert payload["gateway_context"]["safetyContract"]["mode"] == "read_only"
-    assert payload["gateway_context"]["missingEvidence"]
-    assert payload["gateway_context"]["metadata"]["digest"].startswith("sha256:")
-    assert payload["gateway_context"]["metadata"]["rcaContextDigest"] == rca_context["metadata"]["digest"]
+    assert payload == {"query": "질문", "conversation_id": "conversation-1"}
+    assert gateway_context["kind"] == "GatewayContext"
+    assert gateway_context["toolPlan"]["kind"] == "ToolPlan"
+    assert gateway_context["rcaContext"]["kind"] == "RcaContext"
+    assert gateway_context["safetyContract"]["mode"] == "read_only"
+    assert gateway_context["missingEvidence"]
+    assert gateway_context["metadata"]["digest"].startswith("sha256:")
+    assert gateway_context["metadata"]["rcaContextDigest"] == rca_context["metadata"]["digest"]
+    assert "gateway_context" not in payload
     assert "secret-token-value" not in rendered
     assert "Bearer secret" not in rendered
 

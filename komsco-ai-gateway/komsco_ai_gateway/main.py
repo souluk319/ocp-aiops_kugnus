@@ -4640,8 +4640,10 @@ def build_ols_payload(
     if conversation_id:
         payload["conversation_id"] = conversation_id
 
-    if gateway_context:
-        payload["gateway_context"] = redact_sensitive(dict(gateway_context))
+    # OLS 1.1.x rejects unknown request-body fields with 422 extra_forbidden.
+    # Keep gateway_context in the local Gateway status/events and put the
+    # evidence handoff inside the query text instead of adding a non-OLS field.
+    _ = gateway_context
 
     ols_attachments = build_ols_attachments(attachments) if forward_image_attachments else []
     if ols_attachments:

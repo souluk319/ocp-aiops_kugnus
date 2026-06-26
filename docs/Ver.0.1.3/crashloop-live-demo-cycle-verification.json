@@ -1,12 +1,12 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-25T23:51:16.877121Z",
+  "generatedAt": "2026-06-26T00:01:25.277919Z",
   "kind": "CrashLoopLiveDemoCycleVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
     "branch": "feat/v.0.1.5",
     "gateway": "http://127.0.0.1:18080",
-    "headSha": "21e9e65a6f2f4214c6e30d1efaf06e401c93b99b",
+    "headSha": "eb923fd9a419674ca38e320b766fe9ca398bf423",
     "name": "ver-0.1.3-crashloop-live-demo-cycle",
     "scope": "local-gateway-controlled-execution"
   },
@@ -287,16 +287,16 @@
       }
     ],
     "eventCounts": {
-      "run_status": 3,
+      "run_status": 13,
       "tool_call": 21,
-      "tool_result": 26,
+      "tool_result": 25,
       "tool_plan": 1,
       "rca_context": 3,
-      "text": 3
+      "text": 34
     },
     "finalText": {
-      "digest": "c7a4eebd38646ee093f30db9792478e32623b7fd3b86e04c331927020f2e206c",
-      "length": 4095,
+      "digest": "28b24910b24b47cbcc519a9ad1daf8fc7be19563a94ff597df516cba283ef084",
+      "length": 4013,
       "overclaimRisk": false
     },
     "finding": {
@@ -322,9 +322,9 @@
     },
     "rcaContext": {
       "metadata": {
-        "digest": "sha256:604bdf256c40144effa8bb9927b304ed95873cddbf8aceb7bb49b044ab68f70a",
+        "digest": "sha256:7f82b14981ed2c08f17d6529150f68e93d37571a66ba16b3b2d0a1aa0ce9e359",
         "findingId": "3bc71be7b6998201",
-        "runId": "ver-0.1.3-live-demo-1782431478",
+        "runId": "ver-0.1.3-live-demo-1782432087",
         "scenarioId": "crashloop"
       },
       "collectedEvidenceTypes": [
@@ -351,12 +351,10 @@
         "missingCount": 1
       }
     },
-    "runId": "ver-0.1.3-live-demo-1782431478",
+    "runId": "ver-0.1.3-live-demo-1782432087",
     "textSources": [
       "crashloop-v0.1.3",
-      "fallbackAnswer",
       "gateway_answer_contract",
-      "gateway_fallback",
       "gateway_rag_citation"
     ],
     "toolResultNames": [
@@ -367,7 +365,6 @@
       "crashloop_log_availability",
       "crashloop_pod_snapshot",
       "evidence_ref",
-      "lightspeed_stream",
       "node_status_evidence",
       "pod_snapshot_evidence",
       "pod_status_evidence",
