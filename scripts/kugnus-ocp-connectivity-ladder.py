@@ -245,6 +245,31 @@ def sanitize_windows_route_output(stdout: str) -> str:
     return re.sub(r"\b(?:[0-9a-fA-F]{2}\s){5}[0-9a-fA-F]{2}\b", "<mac>", stdout)
 
 
+def normalize_json_array(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if isinstance(value, dict):
+        return [value]
+    return []
+
+
+def run_powershell_json(command: str, timeout: int) -> dict[str, Any]:
+    result = run_cmd(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        timeout,
+        max_chars=8000,
+    )
+    stdout = str(result.get("stdout") or "")
+    payload: Any = None
+    if stdout:
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            result["jsonError"] = safe_error(exc)
+    result["json"] = payload
+    return result
+
+
 def build_windows_network_snapshot(target_ip: str, timeout: int) -> dict[str, Any]:
     if not target_ip:
         return {"ok": False, "skipped": True, "reason": "no target IP"}
@@ -263,6 +288,25 @@ def build_windows_network_snapshot(target_ip: str, timeout: int) -> dict[str, An
     route_print["stdout"] = sanitize_windows_route_output(str(route_print.get("stdout") or ""))
     stdout = str(route_print.get("stdout") or "")
     active_route_present = route_print_has_active_route(stdout)
+    adapter_command = (
+        "[Console]::OutputEncoding=[Text.UTF8Encoding]::UTF8; "
+        "Get-NetAdapter | "
+        "Where-Object { $_.InterfaceDescription -match 'VPN|Tunnel|Fortinet|Tailscale' -or $_.Name -match 'VPN|Tailscale' } | "
+        "Select-Object Name,InterfaceDescription,Status,ifIndex | "
+        "ConvertTo-Json -Depth 3 -Compress"
+    )
+    adapter_result = run_powershell_json(adapter_command, timeout)
+    vpn_adapters = normalize_json_array(adapter_result.get("json"))
+    disabled_vpn_adapters = [
+        adapter
+        for adapter in vpn_adapters
+        if str(adapter.get("Status") or "").lower() == "disabled"
+    ]
+    up_vpn_adapters = [
+        adapter
+        for adapter in vpn_adapters
+        if str(adapter.get("Status") or "").lower() == "up"
+    ]
     hints: list[str] = []
     if route_print.get("ok") and not active_route_present:
         hints.append(
@@ -272,12 +316,21 @@ def build_windows_network_snapshot(target_ip: str, timeout: int) -> dict[str, An
         hints.append(
             "Windows has an active route for the OCP API IP; if WSL TCP still times out, check WSL route propagation or VPN/firewall policy."
         )
+    for adapter in disabled_vpn_adapters:
+        description = str(adapter.get("InterfaceDescription") or adapter.get("Name") or "VPN adapter")
+        hints.append(f"VPN-like adapter is disabled on Windows: {description}.")
+    if up_vpn_adapters and not active_route_present:
+        names = ", ".join(str(adapter.get("InterfaceDescription") or adapter.get("Name")) for adapter in up_vpn_adapters)
+        hints.append(f"VPN-like adapter(s) are up but do not provide the OCP private route: {names}.")
 
     return {
         "ok": bool(route_print.get("ok")),
         "targetIp": target_ip,
         "activeRoutePresent": active_route_present,
         "routePrint": route_print,
+        "vpnAdapters": vpn_adapters,
+        "disabledVpnAdapters": disabled_vpn_adapters,
+        "upVpnAdapters": up_vpn_adapters,
         "hints": hints,
     }
 
@@ -317,6 +370,7 @@ def build_interpretation(
     tcp_ok = bool((results.get("tcp") or {}).get("ok"))
     windows_route_checked = bool(windows_network.get("ok"))
     windows_active_route = bool(windows_network.get("activeRoutePresent"))
+    disabled_vpn_adapters = normalize_json_array(windows_network.get("disabledVpnAdapters"))
 
     if summary.get("readyForStrictLightspeedGate"):
         return {
@@ -327,6 +381,36 @@ def build_interpretation(
         }
 
     if dns_ok and not tcp_ok and first_failing_layer == "tcp" and is_private_ip(target_ip):
+        if windows_route_checked and not windows_active_route and disabled_vpn_adapters:
+            adapter_names = ", ".join(
+                str(adapter.get("InterfaceDescription") or adapter.get("Name") or "VPN adapter")
+                for adapter in disabled_vpn_adapters
+            )
+            return {
+                "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
+                "confidence": "high",
+                "explanation": (
+                    "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. "
+                    "Windows route print shows no active route for that target, and at least one "
+                    f"VPN-like adapter is disabled: {adapter_names}. The next practical check is "
+                    "the Windows-side company VPN client before WSL or Gateway code."
+                ),
+                "nextActions": [
+                    "Connect the Windows-side company VPN client that owns the OCP private route.",
+                    "Confirm Windows route print for the OCP private IP shows an active route.",
+                    "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
+                    "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+                    "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify.",
+                ],
+                "notCodeBlocker": True,
+                "importantDistinctions": [
+                    "A VPN adapter being present is not the same as being connected.",
+                    "DNS PASS does not mean Windows has a route to the private IP.",
+                    "Windows route missing is earlier than WSL route propagation.",
+                    "Gateway health does not prove access to the company OCP API.",
+                ],
+            }
+
         if windows_route_checked and not windows_active_route:
             return {
                 "likelyCause": "windows_host_private_route_missing_or_vpn_disconnected",

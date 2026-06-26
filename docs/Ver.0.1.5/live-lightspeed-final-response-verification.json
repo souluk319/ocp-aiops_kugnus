@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-26T02:52:32.901586Z",
+  "generatedAt": "2026-06-26T02:56:54.197625Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "046f8708949095bc7cb59beee8a8c6774fe2ce08",
+  "headSha": "96bac6f6bacd435fbf161cbed20d9bfdd8420c49",
   "gateway": "http://127.0.0.1:18080",
   "allSucceeded": false,
   "preflight": {
@@ -17,19 +17,20 @@
       "readyForStrictLightspeedGate": false,
       "firstFailingLayer": "tcp",
       "message": "TCP 6443 connection failed",
-      "likelyCause": "windows_host_private_route_missing_or_vpn_disconnected",
+      "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
       "confidence": "high",
-      "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out and Windows route print shows no active route for that target. The next practical check is the Windows-side VPN/private route, before WSL or Gateway code.",
+      "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. Windows route print shows no active route for that target, and at least one VPN-like adapter is disabled: Fortinet SSL VPN Virtual Ethernet Adapter. The next practical check is the Windows-side company VPN client before WSL or Gateway code.",
       "nextActions": [
-        "Verify the Windows-side VPN/private network is connected and owns a route to the OCP private IP.",
+        "Connect the Windows-side company VPN client that owns the OCP private route.",
+        "Confirm Windows route print for the OCP private IP shows an active route.",
         "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
         "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
         "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
       ],
       "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "refreshReturnCode": 1,
-      "refreshDurationMs": 12321,
-      "refreshStdoutPreview": "OCP connectivity ladder: FAIL\n[FAIL] tcp: TCP 6443 connection failed\n[INTERPRETATION] windows_host_private_route_missing_or_vpn_disconnected: DNS resolves the company OCP API to a private IP, but TCP 6443 times out and Windows route print shows no active route for that target. The next practical check is the Windows-side VPN/private route, before WSL or Gateway code.\nReport: /home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
+      "refreshDurationMs": 13500,
+      "refreshStdoutPreview": "OCP connectivity ladder: FAIL\n[FAIL] tcp: TCP 6443 connection failed\n[INTERPRETATION] windows_vpn_adapter_disabled_and_private_route_missing: DNS resolves the company OCP API to a private IP, but TCP 6443 times out. Windows route print shows no active route for that target, and at least one VPN-like adapter is disabled: Fortinet SSL VPN Virtual Ethernet Adapter. The next practical check is the Windows-side company VPN client before WSL or Gateway code.\nReport: /home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "refreshStderrPreview": ""
     }
   },

@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-06-26T02:52:32.886282Z",
+  "generatedAt": "2026-06-26T02:56:54.186552Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "046f8708949095bc7cb59beee8a8c6774fe2ce08",
+  "headSha": "96bac6f6bacd435fbf161cbed20d9bfdd8420c49",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
   "timeoutSeconds": 12,
@@ -13,17 +13,19 @@
     "message": "TCP 6443 connection failed"
   },
   "interpretation": {
-    "likelyCause": "windows_host_private_route_missing_or_vpn_disconnected",
+    "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
     "confidence": "high",
-    "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out and Windows route print shows no active route for that target. The next practical check is the Windows-side VPN/private route, before WSL or Gateway code.",
+    "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. Windows route print shows no active route for that target, and at least one VPN-like adapter is disabled: Fortinet SSL VPN Virtual Ethernet Adapter. The next practical check is the Windows-side company VPN client before WSL or Gateway code.",
     "nextActions": [
-      "Verify the Windows-side VPN/private network is connected and owns a route to the OCP private IP.",
+      "Connect the Windows-side company VPN client that owns the OCP private route.",
+      "Confirm Windows route print for the OCP private IP shows an active route.",
       "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
       "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
       "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
     ],
     "notCodeBlocker": true,
     "importantDistinctions": [
+      "A VPN adapter being present is not the same as being connected.",
       "DNS PASS does not mean Windows has a route to the private IP.",
       "Windows route missing is earlier than WSL route propagation.",
       "Gateway health does not prove access to the company OCP API."
@@ -35,12 +37,12 @@
       "addresses": [
         "10.0.1.230"
       ],
-      "durationMs": 3
+      "durationMs": 4
     },
     "tcp": {
       "ok": false,
       "error": "timed out",
-      "durationMs": 12014
+      "durationMs": 12017
     },
     "tls": {
       "ok": false,
@@ -91,7 +93,7 @@
     "ipBriefAddr": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 1,
+      "durationMs": 0,
       "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:74d9/64",
       "stderr": "",
       "timeoutSeconds": 12
@@ -110,13 +112,45 @@
     "routePrint": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 237,
+      "durationMs": 253,
       "stdout": "===========================================================================\nInterface List\n 20...<mac> ......Realtek USB GbE Family Controller\n 47...........................Tailscale Tunnel\n 21...<mac> ......Intel(R) Ethernet Connection (24) I219-V\n  9...<mac> ......Intel(R) Wi-Fi 6E AX211 160MHz\n 10...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter\n 24...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter #2\n 17...<mac> ......Bluetooth Device (Personal Area Network)\n  1...........................Software Loopback Interface 1\n 11...<mac> ......Hyper-V Virtual Ethernet Adapter\n 53...<mac> ......Hyper-V Virtual Ethernet Adapter #2\n===========================================================================\n\nIPv4 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None\n\nIPv6 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None",
       "stderr": "",
       "timeoutSeconds": 12
     },
+    "vpnAdapters": [
+      {
+        "Name": "이더넷 3",
+        "InterfaceDescription": "Fortinet SSL VPN Virtual Ethernet Adapter",
+        "Status": "Disabled",
+        "ifIndex": 22
+      },
+      {
+        "Name": "Tailscale",
+        "InterfaceDescription": "Tailscale Tunnel",
+        "Status": "Up",
+        "ifIndex": 47
+      }
+    ],
+    "disabledVpnAdapters": [
+      {
+        "Name": "이더넷 3",
+        "InterfaceDescription": "Fortinet SSL VPN Virtual Ethernet Adapter",
+        "Status": "Disabled",
+        "ifIndex": 22
+      }
+    ],
+    "upVpnAdapters": [
+      {
+        "Name": "Tailscale",
+        "InterfaceDescription": "Tailscale Tunnel",
+        "Status": "Up",
+        "ifIndex": 47
+      }
+    ],
     "hints": [
-      "Windows route print has no active route for the private OCP API IP; verify VPN/private route on Windows first."
+      "Windows route print has no active route for the private OCP API IP; verify VPN/private route on Windows first.",
+      "VPN-like adapter is disabled on Windows: Fortinet SSL VPN Virtual Ethernet Adapter.",
+      "VPN-like adapter(s) are up but do not provide the OCP private route: Tailscale Tunnel."
     ]
   },
   "note": "Bearer tokens and full response bodies are intentionally not persisted."
