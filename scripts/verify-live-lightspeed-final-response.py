@@ -24,6 +24,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT = REPO_ROOT / "docs/Ver.0.1.5/live-lightspeed-final-response-verification.json"
+DEFAULT_OCP_LADDER_REPORT = REPO_ROOT / "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json"
 
 CASES = [
     {
@@ -101,6 +102,87 @@ def oc_token(timeout: int) -> str:
 
 def safe_error(exc: BaseException) -> str:
     return str(exc).replace("\n", " ")[:500]
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def report_display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def summarize_ocp_ladder(payload: dict[str, Any], report_path: Path) -> dict[str, Any]:
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    interpretation = (
+        payload.get("interpretation") if isinstance(payload.get("interpretation"), dict) else {}
+    )
+    return {
+        "readyForStrictLightspeedGate": bool(summary.get("readyForStrictLightspeedGate")),
+        "firstFailingLayer": summary.get("firstFailingLayer") or "",
+        "message": summary.get("message") or "",
+        "likelyCause": interpretation.get("likelyCause") or "",
+        "confidence": interpretation.get("confidence") or "",
+        "explanation": interpretation.get("explanation") or "",
+        "nextActions": interpretation.get("nextActions") or [],
+        "report": report_display_path(report_path),
+    }
+
+
+def refresh_ocp_ladder(timeout: int, report_path: Path) -> dict[str, Any]:
+    started = time.monotonic()
+    script = REPO_ROOT / "scripts/kugnus-ocp-connectivity-ladder.py"
+    command = [
+        sys.executable,
+        str(script),
+        "--fast-fail",
+        "--timeout",
+        str(timeout),
+        "--report",
+        str(report_path),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=max(timeout + 10, 20),
+        )
+    except subprocess.TimeoutExpired as exc:
+        payload = load_json(report_path)
+        summary = summarize_ocp_ladder(payload, report_path)
+        summary.update(
+            {
+                "refreshReturnCode": None,
+                "refreshDurationMs": int((time.monotonic() - started) * 1000),
+                "refreshTimeout": True,
+                "refreshStdoutPreview": (exc.stdout or "")[:800]
+                if isinstance(exc.stdout, str)
+                else "",
+                "refreshStderrPreview": (exc.stderr or "")[:800]
+                if isinstance(exc.stderr, str)
+                else "",
+            }
+        )
+        return summary
+    payload = load_json(report_path)
+    summary = summarize_ocp_ladder(payload, report_path)
+    summary.update(
+        {
+            "refreshReturnCode": result.returncode,
+            "refreshDurationMs": int((time.monotonic() - started) * 1000),
+            "refreshStdoutPreview": result.stdout.strip()[:800],
+            "refreshStderrPreview": result.stderr.strip()[:800],
+        }
+    )
+    return summary
 
 
 def request_json_result(url: str, token: str, timeout: int = 45) -> dict[str, Any]:
@@ -302,6 +384,7 @@ def evaluate_case(case_id: str, stream: dict[str, Any], status_result: dict[str,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gateway", default="http://127.0.0.1:18080")
+    parser.add_argument("--ocp-ladder-report", default=str(DEFAULT_OCP_LADDER_REPORT))
     parser.add_argument("--oc-timeout", type=int, default=12)
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--stream-timeout", type=int, default=360)
@@ -312,11 +395,14 @@ def main() -> int:
     identity = ""
     server = ""
 
+    ocp_ladder_report = Path(args.ocp_ladder_report)
+
     try:
         identity = oc_identity(args.oc_timeout)
         server = oc_server(args.oc_timeout)
         token = oc_token(args.oc_timeout)
     except Exception as exc:  # noqa: BLE001 local verifier should persist diagnostics
+        ocp_connectivity = refresh_ocp_ladder(args.oc_timeout, ocp_ladder_report)
         report = {
             "apiVersion": "aiops.komsco/v1alpha1",
             "kind": "LiveLightspeedFinalResponseVerification",
@@ -332,6 +418,7 @@ def main() -> int:
                 "ocTokenAvailable": False,
                 "ocTimeoutSeconds": args.oc_timeout,
                 "error": safe_error(exc),
+                "ocpConnectivity": ocp_connectivity,
             },
             "cases": [],
             "note": "OpenShift token and full answer bodies are intentionally not persisted.",
@@ -340,6 +427,12 @@ def main() -> int:
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print("Live Lightspeed final response: FAIL")
         print(f"[FAIL] oc token unavailable: {safe_error(exc)}")
+        if ocp_connectivity.get("firstFailingLayer"):
+            print(
+                "[OCP] "
+                f"firstFailingLayer={ocp_connectivity.get('firstFailingLayer')} "
+                f"likelyCause={ocp_connectivity.get('likelyCause')}"
+            )
         print(f"Report: {report_path}")
         return 1
 
