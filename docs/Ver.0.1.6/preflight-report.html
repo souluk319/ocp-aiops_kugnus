@@ -33,17 +33,17 @@
   <main>
     <article>
       <h1>Ver.0.1.6 Demo Preflight Report</h1>
-      <p class="muted">Generated at <code>2026-06-26T08:04:00.004282Z</code></p>
+      <p class="muted">Generated at <code>2026-06-26T08:04:37.307237Z</code></p>
       <div class="summary">
-        <div class="tile"><span>Result</span><strong>WARN</strong></div>
+        <div class="tile"><span>Result</span><strong>PASS</strong></div>
         <div class="tile"><span>Ready</span><strong>YES</strong></div>
         <div class="tile"><span>Blockers</span><strong>0</strong></div>
-        <div class="tile"><span>Warnings</span><strong>1</strong></div>
+        <div class="tile"><span>Warnings</span><strong>0</strong></div>
       </div>
       <h2>Blockers</h2>
       <ul><li>blocker 없음</li></ul>
       <h2>Warnings</h2>
-      <ul><li><code>workspace.git</code> Git branch and worktree are visible: Commit or review intentional local changes before publishing the demo baseline.</li></ul>
+      <ul><li>warning 없음</li></ul>
       <h2>Official Demo</h2>
       <p>Scenario: <code>docs/Ver.0.1.6/official-demo-scenario.md</code></p>
       <p>Question: <code>최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.</code></p>
@@ -57,21 +57,12 @@
   &quot;repo&quot;: &quot;/home/kugnus/cywell/ocp-aiops_kugnus&quot;,
   &quot;isWsl&quot;: true,
   &quot;kernelRelease&quot;: &quot;6.6.87.2-microsoft-standard-WSL2&quot;
-}</pre></td></tr><tr><td><span class="badge warn">WARN</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
   &quot;branch&quot;: &quot;feat/v.0.1.6&quot;,
-  &quot;head&quot;: &quot;a3c5f2e6519a&quot;,
-  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 1]\n M Taskfile.yml\n M docs/Ver.0.1.3/runtime-smoke-report.json\n M docs/Ver.0.1.4/rag-chat-citation-smoke-report.json\n M docs/Ver.0.1.5/rag-file-upload-smoke-report.json\n M docs/Ver.0.1.6/README.md\n M docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html\n M docs/Ver.0.1.6/ubuntu-codex-handoff.html\n M docs/Ver.0.1.6/ubuntu-codex-handoff.md\n M docs/version-progress-book.html\n?? docs/Ver.0.1.6/official-demo-scenario.md\n?? docs/Ver.0.1.6/preflight-contract.md\n?? docs/Ver.0.1.6/preflight-report.html\n?? docs/Ver.0.1.6/preflight-report.json\n?? scripts/kugnus-demo-preflight.py&quot;,
-  &quot;dirtyNonReportLines&quot;: [
-    &quot; M Taskfile.yml&quot;,
-    &quot; M docs/Ver.0.1.3/runtime-smoke-report.json&quot;,
-    &quot; M docs/Ver.0.1.4/rag-chat-citation-smoke-report.json&quot;,
-    &quot; M docs/Ver.0.1.5/rag-file-upload-smoke-report.json&quot;,
-    &quot; M docs/Ver.0.1.6/README.md&quot;,
-    &quot; M docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html&quot;,
-    &quot; M docs/Ver.0.1.6/ubuntu-codex-handoff.html&quot;,
-    &quot; M docs/Ver.0.1.6/ubuntu-codex-handoff.md&quot;,
-    &quot; M docs/version-progress-book.html&quot;,
-    &quot;?? docs/Ver.0.1.6/officia</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
+  &quot;head&quot;: &quot;7fa38687c191&quot;,
+  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 2]&quot;,
+  &quot;dirtyNonReportLines&quot;: []
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
   &quot;exists&quot;: true,
   &quot;mode&quot;: &quot;600&quot;,
   &quot;crlfCount&quot;: 0,
@@ -103,7 +94,7 @@
   &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;,
   &quot;version&quot;: &quot;Google Chrome for Testing 150.0.7871.24&quot;,
   &quot;headlessDomContainsOk&quot;: true,
-  &quot;stderrPreview&quot;: &quot;[53059:53078:0626/170355.439168:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[53059:53078:0626/170355.447618:ERROR:dbus/bus.cc:405] Failed to connect&quot;
+  &quot;stderrPreview&quot;: &quot;[54002:54021:0626/170433.479488:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[54002:54021:0626/170433.495455:ERROR:dbus/bus.cc:405] Failed to connect&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>docker</td><td><strong>Docker daemon is reachable</strong><br><code>docker.daemon</code></td><td>Start Docker Desktop or the Docker daemon, then rerun preflight.</td><td><pre>{
   &quot;serverVersion&quot;: &quot;29.4.2&quot;,
   &quot;stderrPreview&quot;: &quot;&quot;
