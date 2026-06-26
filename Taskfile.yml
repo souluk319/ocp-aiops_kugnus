@@ -195,6 +195,11 @@ tasks:
       - mkdir -p .tmp-kugnus-demo
       - python3 scripts/kugnus-ocp-connectivity-ladder.py --fast-fail --timeout "${KUGNUS_VPN_DOCTOR_TIMEOUT_SECONDS:-3}" --report .tmp-kugnus-demo/ocp-vpn-route-report.json
 
+  kugnus:ocp:ladder:verify:
+    desc: Verify OCP connectivity ladder parsing and likely-cause contracts without network access
+    cmds:
+      - python3 scripts/verify-ocp-connectivity-ladder-contract.py
+
   kugnus:ocp:doctor:
     desc: Diagnose DNS, TCP, TLS, oc identity, SSR, and local Gateway access without persisting tokens
     cmds:

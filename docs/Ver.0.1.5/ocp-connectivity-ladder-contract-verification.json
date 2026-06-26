@@ -1,0 +1,50 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "OcpConnectivityLadderContractVerification",
+  "generatedAt": "2026-06-26T03:08:44.815106Z",
+  "allPassed": true,
+  "checks": [
+    {
+      "name": "route_print_none_is_not_active",
+      "ok": true,
+      "actual": false,
+      "expected": false
+    },
+    {
+      "name": "route_print_active_route_detected",
+      "ok": true,
+      "actual": true,
+      "expected": true
+    },
+    {
+      "name": "windows_mac_addresses_are_sanitized",
+      "ok": true,
+      "actual": "20...<mac> ......Adapter",
+      "expected": "20...<mac> ......Adapter"
+    },
+    {
+      "name": "disabled_vpn_adapter_cause",
+      "ok": true,
+      "actual": "windows_vpn_adapter_disabled_and_private_route_missing",
+      "expected": "windows_vpn_adapter_disabled_and_private_route_missing"
+    },
+    {
+      "name": "windows_route_missing_cause",
+      "ok": true,
+      "actual": "windows_host_private_route_missing_or_vpn_disconnected",
+      "expected": "windows_host_private_route_missing_or_vpn_disconnected"
+    },
+    {
+      "name": "wsl_route_stale_cause_when_windows_unchecked",
+      "ok": true,
+      "actual": "wsl_vpn_private_route_missing_or_stale",
+      "expected": "wsl_vpn_private_route_missing_or_stale"
+    },
+    {
+      "name": "ready_ladder_allows_strict_gate",
+      "ok": true,
+      "actual": "none_detected",
+      "expected": "none_detected"
+    }
+  ]
+}
