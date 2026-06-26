@@ -923,6 +923,8 @@ const getUiState = async (cdp) =>
           borderTopLeftRadius: style.borderTopLeftRadius,
           borderTopRightRadius: style.borderTopRightRadius,
           boxShadow: style.boxShadow,
+          backgroundColor: style.backgroundColor,
+          color: style.color,
           display: style.display,
           outlineStyle: style.outlineStyle,
           outlineWidth: style.outlineWidth,
@@ -1052,6 +1054,8 @@ const getUiState = async (cdp) =>
         headerStatus: rectOf('.komsco-ai__header-status'),
         headerActions: rectOf('.komsco-ai__header-actions'),
         history: rectOf('.komsco-ai__history-sidebar'),
+        historyActionPrimary: rectOf('.komsco-ai__history-action-button--primary'),
+        historyActionGroup: rectOf('.komsco-ai__history-action-group'),
         composerWrap: rectOf('.komsco-ai__composer-wrap'),
         inputBox: rectOf('.komsco-ai__input'),
         textarea: rectOf('.komsco-ai__input textarea'),
@@ -1688,6 +1692,32 @@ const run = async () => {
         !state.historyUserText.includes('확인 중'),
       {
         historyUserText: state.historyUserText,
+      },
+    );
+    assertCheck(
+      'history new-chat button matches history toggle visual system',
+      Boolean(state.historyActionPrimary && state.historyActionGroup) &&
+        Math.abs(state.historyActionPrimary.height - state.historyActionGroup.height) <= 1 &&
+        Math.abs(state.historyActionPrimary.width - state.historyActionGroup.height) <= 1 &&
+        state.historyActionPrimary.borderTopLeftRadius === state.historyActionGroup.borderTopLeftRadius &&
+        state.historyActionPrimary.borderTopRightRadius === state.historyActionGroup.borderTopRightRadius &&
+        state.historyActionPrimary.borderBottomRightRadius === state.historyActionGroup.borderBottomRightRadius &&
+        state.historyActionPrimary.borderBottomLeftRadius === state.historyActionGroup.borderBottomLeftRadius &&
+        state.historyActionPrimary.backgroundColor === state.historyActionGroup.backgroundColor &&
+        state.historyActionPrimary.boxShadow === state.historyActionGroup.boxShadow,
+      {
+        groupBackground: state.historyActionGroup?.backgroundColor,
+        groupRadius: state.historyActionGroup?.borderTopLeftRadius,
+        groupShadow: state.historyActionGroup?.boxShadow,
+        groupSize: state.historyActionGroup
+          ? `${Math.round(state.historyActionGroup.width)}x${Math.round(state.historyActionGroup.height)}`
+          : null,
+        primaryBackground: state.historyActionPrimary?.backgroundColor,
+        primaryRadius: state.historyActionPrimary?.borderTopLeftRadius,
+        primaryShadow: state.historyActionPrimary?.boxShadow,
+        primarySize: state.historyActionPrimary
+          ? `${Math.round(state.historyActionPrimary.width)}x${Math.round(state.historyActionPrimary.height)}`
+          : null,
       },
     );
     assertCheck(

@@ -2991,16 +2991,19 @@
 }
 
 .komsco-ai__history-action-button--primary {
-  color: #ffffff;
-  background: #0066cc;
-  border-color: #0066cc;
-  box-shadow: 0 4px 10px rgba(0, 102, 204, 0.18);
+  width: 36px;
+  height: 36px;
+  color: var(--komsco-blue-700);
+  background: #eaf1f9;
+  border-color: #d8e4f0;
+  border-radius: 10px;
+  box-shadow: none;
 }
 
 .komsco-ai__history-action-button--primary:hover:not(:disabled) {
-  color: #ffffff;
-  background: #005ea8;
-  border-color: #005ea8;
+  color: #174ea6;
+  background: #ffffff;
+  border-color: #8abff5;
 }
 
 .komsco-ai__history-action-group .komsco-ai__history-action-button {
@@ -3037,8 +3040,8 @@
 }
 
 .komsco-ai__history-action-button--primary svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
 }
 
 .komsco-ai__history-title {
