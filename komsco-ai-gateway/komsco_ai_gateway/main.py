@@ -49,6 +49,7 @@ from .aiops_core import (
     target_from_plan,
 )
 from .aiops_contracts import build_rca_context, build_runtime_safety_contract, build_runtime_tool_plan
+from .answer_planning import build_gateway_fallback_answer_plan, render_answer_plan
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -9091,6 +9092,15 @@ def build_empty_answer_fallback(
 ) -> str:
     if policy.get("decision") == "action_proposal_only":
         return build_action_proposal_fallback(req, policy)
+
+    answer_plan = build_gateway_fallback_answer_plan(
+        req.message,
+        policy,
+        tool_results,
+        gateway_evidence,
+    )
+    if answer_plan:
+        return render_answer_plan(answer_plan)
 
     pod_list_fallback = build_pod_list_fallback(req, gateway_evidence)
     if pod_list_fallback:

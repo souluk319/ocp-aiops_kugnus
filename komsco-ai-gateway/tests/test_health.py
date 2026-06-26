@@ -9,6 +9,12 @@ from fastapi import HTTPException
 
 import komsco_ai_gateway.main as gateway_main
 import komsco_ai_gateway.olm_operator as olm_operator
+from komsco_ai_gateway.answer_planning import (
+    ANSWER_KIND_RCA,
+    ANSWER_KIND_RUNTIME_HEALTH,
+    build_gateway_evidence_snapshot,
+    classify_fallback_answer_kind,
+)
 from komsco_ai_gateway.host_diagnostics_collector import collect_host_diagnostics
 from komsco_ai_gateway.host_diagnostics_controller import build_diagnostic_job_manifest
 from komsco_ai_gateway.main import (
@@ -2424,6 +2430,58 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "Gateway가 수집한 증거 기준" in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
+
+
+def test_fallback_answer_planner_separates_health_from_rca_contract() -> None:
+    health_policy = classify_request_policy("작동하는가")
+    rca_policy = classify_request_policy("Failed Pod를 현재 장애로 봐도 되는지 판단해줘")
+
+    assert classify_fallback_answer_kind("작동하는가", health_policy) == ANSWER_KIND_RUNTIME_HEALTH
+    assert (
+        classify_fallback_answer_kind("Failed Pod를 현재 장애로 봐도 되는지 판단해줘", rca_policy)
+        == ANSWER_KIND_RCA
+    )
+
+
+def test_gateway_evidence_snapshot_models_component_statuses() -> None:
+    snapshot = build_gateway_evidence_snapshot(
+        [
+            {
+                "name": "lightspeed_stream",
+                "status": "error",
+                "summary": "OpenShift Lightspeed stream failed",
+            }
+        ],
+        "Gateway-collected RAG evidence from `/v1/rag/search`.",
+    )
+
+    components = {component.id: component for component in snapshot.components}
+    assert components["gateway_fallback"].status == "ok"
+    assert components["lightspeed_stream"].status == "failed"
+    assert components["rag_search"].status == "ok"
+
+
+def test_generic_runtime_health_fallback_does_not_force_rca_template() -> None:
+    policy = classify_request_policy("작동하는가")
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="작동하는가"),
+        policy,
+        [
+            {
+                "name": "lightspeed_stream",
+                "status": "error",
+                "summary": "OpenShift Lightspeed stream failed; Gateway fallback will answer from collected evidence",
+            }
+        ],
+        "Gateway-collected RAG evidence from `/v1/rag/search`.",
+    )
+
+    assert "## RCA 보고서" not in fallback
+    assert "### 상태 확인" in fallback
+    assert "부분적으로 작동합니다" in fallback
+    assert "Gateway fallback" in fallback
+    assert "Lightspeed stream: 실패" in fallback
+    assert "RAG 검색 결과가 있다는 사실만으로 전체 서비스가 정상이라고 단정하지 않습니다" in fallback
 
 
 def test_chat_stream_marks_lightspeed_context_digest_on_gateway_fallback(monkeypatch) -> None:
