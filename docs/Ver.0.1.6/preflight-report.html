@@ -33,7 +33,7 @@
   <main>
     <article>
       <h1>Ver.0.1.6 Demo Preflight Report</h1>
-      <p class="muted">Generated at <code>2026-06-26T08:04:37.307237Z</code></p>
+      <p class="muted">Generated at <code>2026-06-26T08:06:53.506626Z</code></p>
       <div class="summary">
         <div class="tile"><span>Result</span><strong>PASS</strong></div>
         <div class="tile"><span>Ready</span><strong>YES</strong></div>
@@ -59,8 +59,8 @@
   &quot;kernelRelease&quot;: &quot;6.6.87.2-microsoft-standard-WSL2&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
   &quot;branch&quot;: &quot;feat/v.0.1.6&quot;,
-  &quot;head&quot;: &quot;7fa38687c191&quot;,
-  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 2]&quot;,
+  &quot;head&quot;: &quot;2f833f9cd2d1&quot;,
+  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 4]&quot;,
   &quot;dirtyNonReportLines&quot;: []
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
   &quot;exists&quot;: true,
@@ -94,7 +94,7 @@
   &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;,
   &quot;version&quot;: &quot;Google Chrome for Testing 150.0.7871.24&quot;,
   &quot;headlessDomContainsOk&quot;: true,
-  &quot;stderrPreview&quot;: &quot;[54002:54021:0626/170433.479488:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[54002:54021:0626/170433.495455:ERROR:dbus/bus.cc:405] Failed to connect&quot;
+  &quot;stderrPreview&quot;: &quot;[56453:56474:0626/170649.951986:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[56453:56474:0626/170649.955925:ERROR:dbus/bus.cc:405] Failed to connect&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>docker</td><td><strong>Docker daemon is reachable</strong><br><code>docker.daemon</code></td><td>Start Docker Desktop or the Docker daemon, then rerun preflight.</td><td><pre>{
   &quot;serverVersion&quot;: &quot;29.4.2&quot;,
   &quot;stderrPreview&quot;: &quot;&quot;
@@ -171,6 +171,8 @@
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Local console dashboard route responds</strong><br><code>console.dashboard</code></td><td>Run task kugnus:dev:fe or task kugnus:demo:resume.</td><td><pre>{
   &quot;kind&quot;: &quot;unknown&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Cywell AI route responds</strong><br><code>console.aiops-route</code></td><td>Run task kugnus:dev:fe and verify the local console bridge.</td><td><pre>{
+  &quot;kind&quot;: &quot;unknown&quot;
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Cywell AI Docs/RAG route responds</strong><br><code>console.docs-route</code></td><td>Run task kugnus:dev:fe and verify the Docs route registration.</td><td><pre>{
   &quot;kind&quot;: &quot;unknown&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Plugin manifest responds</strong><br><code>console.plugin-manifest</code></td><td>Run task kugnus:dev:fe or inspect the webpack dev server on 9001.</td><td><pre>{
   &quot;kind&quot;: &quot;unknown&quot;

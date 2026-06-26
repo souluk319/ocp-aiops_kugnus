@@ -1,7 +1,7 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "KugnusDemoPreflightReport",
-  "generatedAt": "2026-06-26T08:04:37.307237Z",
+  "generatedAt": "2026-06-26T08:06:53.506626Z",
   "summary": {
     "result": "pass",
     "readyForOfficialDemo": true,
@@ -14,6 +14,7 @@
     "gatewayUrl": "http://127.0.0.1:18080",
     "consoleUrl": "http://127.0.0.1:9000/dashboards",
     "aiopsRouteUrl": "http://127.0.0.1:9000/aiops-kugnus",
+    "docsRouteUrl": "http://127.0.0.1:9000/aiops-kugnus/docs",
     "pluginManifestUrl": "http://127.0.0.1:9001/plugin-manifest.json",
     "expectedOpenShiftServer": "https://api.ocp.cywell.server:6443"
   },
@@ -38,12 +39,12 @@
       "title": "Git branch and worktree are visible",
       "status": "pass",
       "required": false,
-      "durationMs": 12,
+      "durationMs": 9,
       "nextAction": "Commit or review intentional local changes before publishing the demo baseline.",
       "details": {
         "branch": "feat/v.0.1.6",
-        "head": "7fa38687c191",
-        "statusShort": "## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 2]",
+        "head": "2f833f9cd2d1",
+        "statusShort": "## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 4]",
         "dirtyNonReportLines": []
       }
     },
@@ -53,7 +54,7 @@
       "title": ".env exists, is LF-only, private, and ignored",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 3,
       "nextAction": "Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.",
       "details": {
         "exists": true,
@@ -177,7 +178,7 @@
       "title": "Core tool versions are callable from Ubuntu",
       "status": "pass",
       "required": true,
-      "durationMs": 1176,
+      "durationMs": 1082,
       "nextAction": "Fix nvm/corepack/task availability in the Ubuntu shell.",
       "details": {
         "node": "v24.14.0",
@@ -191,13 +192,13 @@
       "title": "Ubuntu Chrome can run headless UI checks",
       "status": "pass",
       "required": true,
-      "durationMs": 930,
+      "durationMs": 1017,
       "nextAction": "Check ~/.local/bin/google-chrome and the Chrome for Testing local library wrapper.",
       "details": {
         "path": "/home/kugnus/.local/bin/google-chrome",
         "version": "Google Chrome for Testing 150.0.7871.24",
         "headlessDomContainsOk": true,
-        "stderrPreview": "[54002:54021:0626/170433.479488:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[54002:54021:0626/170433.495455:ERROR:dbus/bus.cc:405] Failed to connect"
+        "stderrPreview": "[56453:56474:0626/170649.951986:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[56453:56474:0626/170649.955925:ERROR:dbus/bus.cc:405] Failed to connect"
       }
     },
     {
@@ -206,7 +207,7 @@
       "title": "Docker daemon is reachable",
       "status": "pass",
       "required": true,
-      "durationMs": 787,
+      "durationMs": 826,
       "nextAction": "Start Docker Desktop or the Docker daemon, then rerun preflight.",
       "details": {
         "serverVersion": "29.4.2",
@@ -219,7 +220,7 @@
       "title": "Local pgvector RAG container is running",
       "status": "pass",
       "required": true,
-      "durationMs": 65,
+      "durationMs": 52,
       "nextAction": "Run task kugnus:rag:dev:up.",
       "details": {
         "container": "kugnus-rag-pgvector",
@@ -232,7 +233,7 @@
       "title": "Local pgvector database accepts connections",
       "status": "pass",
       "required": true,
-      "durationMs": 300,
+      "durationMs": 155,
       "nextAction": "Run task kugnus:rag:dev:up and inspect the container logs.",
       "details": {
         "stdout": "/var/run/postgresql:5432 - accepting connections",
@@ -245,7 +246,7 @@
       "title": "OpenShift identity and company API server are available",
       "status": "pass",
       "required": true,
-      "durationMs": 475,
+      "durationMs": 554,
       "nextAction": "Run oc login, then task kugnus:ocp:doctor if the API still does not answer.",
       "details": {
         "user": "admin",
@@ -277,7 +278,7 @@
       "title": "Can read komsco-ai-dev/komsco-ai-action-executor",
       "status": "pass",
       "required": true,
-      "durationMs": 185,
+      "durationMs": 145,
       "nextAction": "Check VPN, oc login, RBAC, namespace, and service name.",
       "details": {
         "namespace": "komsco-ai-dev",
@@ -292,7 +293,7 @@
       "title": "Lightspeed local port-forward is listening",
       "status": "pass",
       "required": true,
-      "durationMs": 1,
+      "durationMs": 2,
       "nextAction": "Run task kugnus:demo:resume to restore local port-forwarding.",
       "details": {
         "host": "127.0.0.1",
@@ -320,7 +321,7 @@
       "title": "Gateway healthz responds",
       "status": "pass",
       "required": true,
-      "durationMs": 48,
+      "durationMs": 31,
       "nextAction": "Run task kugnus:demo:resume or inspect .tmp-kugnus-demo/gateway.log.",
       "details": {
         "url": "http://127.0.0.1:18080/healthz",
@@ -337,7 +338,7 @@
       "title": "Gateway auth subject responds",
       "status": "pass",
       "required": true,
-      "durationMs": 46,
+      "durationMs": 48,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/auth/subject",
@@ -357,7 +358,7 @@
       "title": "Gateway AIOps status responds",
       "status": "pass",
       "required": true,
-      "durationMs": 132,
+      "durationMs": 69,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/aiops/status",
@@ -379,7 +380,7 @@
       "title": "Gateway cluster summary responds",
       "status": "pass",
       "required": true,
-      "durationMs": 136,
+      "durationMs": 64,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/cluster/summary",
@@ -403,7 +404,7 @@
       "title": "Gateway AIOps overview responds",
       "status": "pass",
       "required": true,
-      "durationMs": 618,
+      "durationMs": 452,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/aiops/overview",
@@ -420,7 +421,7 @@
       "title": "Gateway lists uploaded RAG documents without raw content",
       "status": "pass",
       "required": true,
-      "durationMs": 36,
+      "durationMs": 32,
       "nextAction": "Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/rag/uploads",
@@ -442,7 +443,7 @@
       "title": "Gateway retrieves RAG evidence for the demo query",
       "status": "pass",
       "required": true,
-      "durationMs": 52,
+      "durationMs": 46,
       "nextAction": "Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/rag/search",
@@ -464,7 +465,7 @@
       "title": "Local console dashboard route responds",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 1,
       "nextAction": "Run task kugnus:dev:fe or task kugnus:demo:resume.",
       "details": {
         "url": "http://127.0.0.1:9000/dashboards",
@@ -481,10 +482,27 @@
       "title": "Cywell AI route responds",
       "status": "pass",
       "required": true,
-      "durationMs": 1,
+      "durationMs": 2,
       "nextAction": "Run task kugnus:dev:fe and verify the local console bridge.",
       "details": {
         "url": "http://127.0.0.1:9000/aiops-kugnus",
+        "statusCode": 200,
+        "summary": {
+          "kind": "unknown"
+        },
+        "error": ""
+      }
+    },
+    {
+      "id": "console.docs-route",
+      "group": "console",
+      "title": "Cywell AI Docs/RAG route responds",
+      "status": "pass",
+      "required": true,
+      "durationMs": 1,
+      "nextAction": "Run task kugnus:dev:fe and verify the Docs route registration.",
+      "details": {
+        "url": "http://127.0.0.1:9000/aiops-kugnus/docs",
         "statusCode": 200,
         "summary": {
           "kind": "unknown"
@@ -498,7 +516,7 @@
       "title": "Plugin manifest responds",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 1,
       "nextAction": "Run task kugnus:dev:fe or inspect the webpack dev server on 9001.",
       "details": {
         "url": "http://127.0.0.1:9001/plugin-manifest.json",
