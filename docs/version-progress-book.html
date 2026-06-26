@@ -967,6 +967,7 @@
             <li><code>task kugnus:ocp:doctor</code>: 현재 FAIL. DNS는 <code>10.0.1.230</code>으로 해석되지만 첫 실패 layer가 <code>tcp</code>이며, 회사 OCP API 6443 연결이 timeout이다. Windows <code>route print 10.0.1.230</code>에는 active route가 없고, Fortinet SSL VPN adapter는 <code>Disabled</code>이며, 로컬 Gateway status는 200 degraded로 응답한다.</li>
             <li><code>task kugnus:ocp:ladder:verify</code>: PASS. 네트워크 접속 없이 route parsing, MAC masking, likelyCause 판정 계약을 검증한다.</li>
             <li><code>task kugnus:vpn:doctor</code>: READY. Fortinet/company VPN 연결 직후 짧은 timeout과 fast-fail로 Windows private route가 살아났는지 빠르게 확인한다. 이 task는 로컬 진단만 수행하고 회사 OCP에는 변경을 만들지 않는다.</li>
+            <li><code>task kugnus:demo:after-vpn</code>: READY. Windows company VPN 연결 후 <code>vpn:doctor</code>, <code>ocp:doctor</code>, <code>demo:resume</code>을 순서대로 실행하는 원샷 재개 task다.</li>
             <li><code>ocp-connectivity-ladder-report.json</code>: <code>interpretation</code>, Windows route snapshot, VPN-like adapter 상태를 추가해 <code>DNS PASS != VPN connected != Windows route PASS != TCP route PASS</code>를 명시했다. 현재 추정 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>이며, token length나 <code>oc whoami --show-server</code>만으로 live OCP 연결 성공을 말하지 않는다.</li>
             <li><code>task kugnus:demo:wait</code>: fast-fail connectivity ladder가 PASS될 때까지 반복 대기한 뒤 <code>task kugnus:demo:resume</code>을 자동 실행하도록 준비됐다. 실패 중에는 <code>likelyCause</code>, Windows hint, next action을 출력한다. 반복용 report는 <code>.tmp-kugnus-demo</code>에 남기고, 공식 증거용 full report는 <code>task kugnus:ocp:doctor</code>가 갱신한다.</li>
           </ul>
@@ -1135,6 +1136,7 @@
           <ol>
             <li><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
             <li><code>task kugnus:demo:wait</code> - OCP 연결이 흔들릴 때 사람이 반복하지 않고, 연결 PASS 순간 local demo resume과 strict gate까지 이어간다. 실패 중에는 현재 원인과 다음 행동을 출력한다.</li>
+            <li><code>task kugnus:demo:after-vpn</code> - Windows company VPN 연결 후 route 확인부터 strict demo resume까지 한 번에 실행한다.</li>
             <li><code>task kugnus:vpn:doctor</code> - Fortinet/company VPN 연결 직후 Windows private route가 생겼는지 빠르게 확인한다.</li>
             <li><code>task kugnus:ocp:ladder:verify</code> - 실제 네트워크 접속 없이 connectivity ladder 판정 로직이 깨지지 않았는지 확인한다.</li>
             <li><code>task kugnus:demo:resume</code> - 재부팅, VPN 재연결, <code>oc login</code> 이후 로컬 시연 스택을 한 번에 복구하고 strict gate까지 실행한다.</li>

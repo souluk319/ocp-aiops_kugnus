@@ -1,7 +1,7 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderContractVerification",
-  "generatedAt": "2026-06-26T03:08:44.815106Z",
+  "generatedAt": "2026-06-26T03:11:28.543189Z",
   "allPassed": true,
   "checks": [
     {

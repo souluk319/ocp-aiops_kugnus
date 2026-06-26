@@ -184,6 +184,13 @@ tasks:
     cmds:
       - bash ./scripts/kugnus-demo-resume.sh
 
+  kugnus:demo:after-vpn:
+    desc: After Windows company VPN is connected, prove private route and resume the local strict demo
+    cmds:
+      - task: kugnus:vpn:doctor
+      - task: kugnus:ocp:doctor
+      - task: kugnus:demo:resume
+
   kugnus:demo:wait:
     desc: Wait for company OCP connectivity, then run the local demo resume loop
     cmds:
