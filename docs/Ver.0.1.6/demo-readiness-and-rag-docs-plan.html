@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ver.0.1.6 Demo Readiness & RAG Docs Control</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #607089;
+      --line: #d8e0ec;
+      --blue: #0066cc;
+      --green: #12805c;
+      --amber: #b7791f;
+      --red: #c9190b;
+      --soft: #f3f8ff;
+      --code: #0f172a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 36px 20px 60px;
+    }
+
+    article {
+      padding: 40px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 20px 42px rgba(15, 23, 42, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 40px 0 14px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      font-size: 23px;
+    }
+
+    h3 {
+      margin: 26px 0 8px;
+      font-size: 18px;
+    }
+
+    p { margin: 0 0 14px; }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #eef2f7;
+      color: #172033;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border-radius: 12px;
+      background: var(--code);
+      color: #e5edf9;
+      font-size: 13px;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 26px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f4f7fb;
+      color: #324055;
+      font-size: 13px;
+    }
+
+    tr:last-child th, tr:last-child td { border-bottom: 0; }
+
+    .hero {
+      padding: 24px;
+      border: 1px solid #c8dcf4;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #eef6ff, #fbfdff);
+    }
+
+    .badge {
+      display: inline-flex;
+      margin: 4px 6px 4px 0;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pass { color: var(--green); border-color: #b7e4cb; background: #effaf3; }
+    .warn { color: var(--amber); border-color: #f0d6a6; background: #fff8e8; }
+    .stop { color: var(--red); border-color: #f4c7c3; background: #fff1f0; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border: 1px solid #c8dcf4;
+      border-left: 5px solid var(--blue);
+      border-radius: 12px;
+      background: var(--soft);
+    }
+
+    @media (max-width: 800px) {
+      article { padding: 24px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <div class="hero">
+        <span class="badge pass">Ver.0.1.6</span>
+        <span class="badge">branch feat/v.0.1.6</span>
+        <span class="badge warn">local demo first</span>
+        <h1>Demo Readiness & RAG Docs Control</h1>
+        <p>
+          0.1.6의 핵심은 기능 추가 경쟁이 아니라, 공식 시연 한 사이클을 안정적으로 재현하는 것이다.
+          목표는 재부팅 후 10분 안에 환경을 복구하고, 운영 장애 질문에서 Evidence/RAG/ToolPlan/Runbook까지 한 번에 보여주는 흐름을 잠그는 것이다.
+        </p>
+      </div>
+
+      <section>
+        <h2>현재 기준점</h2>
+        <table>
+          <tbody>
+            <tr><th>시작 브랜치</th><td><code>feat/v.0.1.6</code></td></tr>
+            <tr><th>기준 커밋</th><td><code>1351dfc complete ver.0.1.5 docs rag controls</code></td></tr>
+            <tr><th>작업대</th><td><code>/home/kugnus/cywell/ocp-aiops_kugnus</code> WSL native repo</td></tr>
+            <tr><th>시연 URL</th><td><code>http://localhost:9000/dashboards</code></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>목표</h2>
+        <div class="grid">
+          <div class="card"><strong>복구 가능성</strong>재부팅 후에도 짧은 순서로 로컬 시연 환경을 다시 띄운다.</div>
+          <div class="card"><strong>시연 가능성</strong>운영 질문 하나로 상태 확인, 근거, 조치 후보까지 이어지는 한 사이클을 고정한다.</div>
+          <div class="card"><strong>설명 가능성</strong>무엇이 로컬이고 무엇이 회사 OCP 연결인지 발표자가 말로 설명할 수 있게 한다.</div>
+          <div class="card"><strong>검증 가능성</strong>성공/실패를 화면 느낌이 아니라 report와 verifier로 남긴다.</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>작업 단계</h2>
+        <table>
+          <thead>
+            <tr><th>단계</th><th>작업</th><th>산출물</th><th>PASS 기준</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>시연 Preflight 자동화</td><td>preflight JSON/HTML report</td><td>oc, Docker, RAG, Gateway, Console, Lightspeed, UI route 상태가 한 번에 판정된다.</td></tr>
+            <tr><td>2</td><td>공식 시연 시나리오 고정</td><td>demo-cycle-runbook.html</td><td>질문, 기대 화면, 실패 시 대체 루트가 정리된다.</td></tr>
+            <tr><td>3</td><td>Docs/RAG 화면 제품화</td><td>Docs route/UI verifier update</td><td>문서 적재와 답변 근거 사용 여부를 사용자가 눈으로 확인한다.</td></tr>
+            <tr><td>4</td><td>UI 의미 정돈</td><td>header/composer/sidebar verifier</td><td>상태칩과 버튼 의미가 구겨지거나 헷갈리지 않는다.</td></tr>
+            <tr><td>5</td><td>시연 책자 보강</td><td>version-progress-book update</td><td>실행 전 점검, 시연 멘트, 말하면 안 되는 내용이 책자에 연결된다.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>대표 검증 명령</h2>
+        <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:dev:doctor
+task kugnus:runtime:smoke
+task kugnus:rag:file-upload:smoke
+task kugnus:rag:chat:smoke
+task kugnus:ui:verify</code></pre>
+      </section>
+
+      <section>
+        <h2>안전 경계</h2>
+        <div class="callout">
+          0.1.6에서도 기본 원칙은 로컬 시연 환경 우선이다. 회사 OCP/OKD에 제품을 설치하거나 배포하는 작업은 별도 승인 전까지 하지 않는다.
+        </div>
+        <pre><code>task catalog:deploy
+task catalog:release
+task olm:install
+task olm:deploy
+task kugnus:install</code></pre>
+      </section>
+
+      <section>
+        <h2>버전 상승 규칙</h2>
+        <p>
+          앞으로 버전이 올라갈 때는 사용자가 따로 말하지 않아도 현재 버전 커밋/푸시 후 새 브랜치 <code>feat/v.X.Y.Z</code>를 먼저 만들고,
+          새 버전 폴더에 목표/완료조건/검증방법/하지 않을 것을 남긴 뒤 구현을 시작한다.
+        </p>
+      </section>
+    </article>
+  </main>
+</body>
+</html>

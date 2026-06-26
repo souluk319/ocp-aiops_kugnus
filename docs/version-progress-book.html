@@ -387,7 +387,7 @@
   <div class="layout">
     <aside class="sidebar">
       <h1>Kugnus OCP AIOps</h1>
-      <p class="meta">버전별 작업 기록<br />갱신일: 2026-06-26 KST<br />브랜치: <code>feat/v.0.1.5</code><br />최신 증거: 각 report JSON과 HTML 참조</p>
+      <p class="meta">버전별 작업 기록<br />갱신일: 2026-06-26 KST<br />브랜치: <code>feat/v.0.1.6</code><br />최신 증거: 각 report JSON과 HTML 참조</p>
 
       <nav aria-label="문서 목차">
         <div class="nav-group">
@@ -406,6 +406,7 @@
           <a class="nav-link" href="#v013">Ver.0.1.3</a>
           <a class="nav-link" href="#v014">Ver.0.1.4</a>
           <a class="nav-link" href="#v015">Ver.0.1.5</a>
+          <a class="nav-link" href="#v016">Ver.0.1.6</a>
         </div>
 
         <div class="nav-group">
@@ -433,7 +434,7 @@
           <p class="eyebrow">Fact-based Version Book</p>
           <h2>Kugnus OCP AIOps 버전별 작업 기록</h2>
           <p>
-            이 문서는 <code>Ver.0.1.0</code>부터 <code>Ver.0.1.5</code>까지의 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
+            이 문서는 <code>Ver.0.1.0</code>부터 <code>Ver.0.1.6</code>까지의 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
             목적은 처음 pull 받은 시점부터 지금까지 어떤 작업이 실제로 이루어졌는지, 어떤 문제를 겪었고 어떻게 해결했는지,
             앞으로 어떤 방식으로 테스트하고 학습하면 되는지를 꾸밈없이 정리하는 것이다.
           </p>
@@ -447,9 +448,9 @@
             로컬 WSL 개발환경에서 Gateway와 console plugin을 띄우고, 회사 OCP는 read-only 관측 대상으로 연결한다.
           </p>
           <div class="callout">
-            현재 확인된 최종 작업선은 <code>feat/v.0.1.5</code>, 최신 커밋은 <code>45a13fe align history new chat control</code>이다.
-            0.1.4에서 PBS 계열 사용자 업로드/RAG 기능을 선별 이식했고, 0.1.5에서 RCA ToolPlan, runbook evidence, Lightspeed payload boundary, UI verifier 증거 저장까지 시연 하드닝을 진행했다.
-            최신 증거 기준 <code>task kugnus:ui:verify</code>는 <code>107 checked / 0 failed</code>이고, strict Lightspeed 최종 응답과 strict demo audit도 PASS다.
+            현재 확인된 최종 작업선은 <code>feat/v.0.1.6</code>이고, <code>Ver.0.1.5</code> 마감 기준 커밋은 <code>1351dfc complete ver.0.1.5 docs rag controls</code>이다.
+            0.1.4에서 PBS 계열 사용자 업로드/RAG 기능을 선별 이식했고, 0.1.5에서 RCA ToolPlan, runbook evidence, Lightspeed payload boundary, UI verifier 증거 저장, Docs/RAG 관리 화면, 직접 실행 안내서까지 시연 하드닝을 진행했다.
+            0.1.6은 그 위에서 demo readiness와 RAG Docs control을 잠그는 시작 단계다.
             단, 이는 로컬 WSL 개발 콘솔 기반 시연 준비이며 회사 OCP 신규 runtime 설치 완료를 뜻하지 않는다.
           </div>
         </section>
@@ -511,6 +512,11 @@
                 <td><code>Ver.0.1.5</code></td>
                 <td>시연 직전 RCA/Runbook ToolPlan, Lightspeed boundary, fallback 표현, UI verifier evidence를 하드닝</td>
                 <td>시연 멘트 안전선과 검증 증거를 고정한 demo readiness 단계</td>
+              </tr>
+              <tr>
+                <td><code>Ver.0.1.6</code></td>
+                <td>재부팅 후 복구, preflight, 공식 시연 한 사이클, Docs/RAG control을 잠그는 계획 수립</td>
+                <td>기능 추가보다 시연 재현성과 설명 가능성을 우선하는 단계</td>
               </tr>
             </tbody>
           </table>
@@ -1017,6 +1023,45 @@
             <code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code>,
             <code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>,
             <code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>
+          </div>
+        </section>
+
+        <section id="v016">
+          <div class="version-header">
+            <h2>Ver.0.1.6</h2>
+            <div>
+              <span class="tag pending">Demo readiness 계획</span>
+              <span class="tag pending">RAG Docs control</span>
+              <span class="tag pass">브랜치 분리 완료</span>
+            </div>
+          </div>
+
+          <h3>개요</h3>
+          <p>
+            0.1.6은 새 기능을 무작정 늘리는 단계가 아니라, 0.1.5에서 만든 로컬 시연 기반을
+            <strong>재부팅 후 복구 가능하고 발표자가 설명 가능한 한 사이클</strong>로 잠그는 단계다.
+            목표는 <code>http://localhost:9000/dashboards</code>에서 Cywell AI를 열고,
+            운영 질문 하나로 Evidence/RAG/ToolPlan/Runbook/조치 후보까지 이어지는 흐름을 안정적으로 보여주는 것이다.
+          </p>
+
+          <h3>작업 방향</h3>
+          <ul>
+            <li>시연 Preflight 자동화: <code>oc login</code>, Docker, RAG DB, Gateway, Console, Lightspeed, ActionExecutor, UI route 상태를 한 번에 점검한다.</li>
+            <li>공식 시연 시나리오 고정: 장애 징후 확인, Cywell AI 질문, 근거 확인, 조치 후보 확인까지 한 흐름으로 문서화한다.</li>
+            <li>Docs/RAG 화면 제품화: 업로드 문서가 실제 RAG 근거로 쓰였는지 운영자가 화면에서 확인할 수 있게 다듬는다.</li>
+            <li>UI 의미 정돈: 헤더 상태칩, 실행 모드칩, Docs 탭, 새 대화 버튼, 전송/정지 버튼의 의미와 형태를 통일한다.</li>
+            <li>시연 책자 보강: 실행 전 점검, 시연 멘트, 실패 시 복구 루트, 말하면 안 되는 내용을 책자에 연결한다.</li>
+          </ul>
+
+          <h3>버전 상승 규칙</h3>
+          <p>
+            앞으로 버전이 올라갈 때는 사용자가 매번 따로 말하지 않아도 현재 버전을 커밋/푸시한 뒤
+            새 브랜치 <code>feat/v.X.Y.Z</code>를 만들고, 새 버전 폴더에 목표/완료조건/검증방법/하지 않을 것을 먼저 남긴다.
+          </p>
+
+          <div class="source-list">
+            근거: <code>docs/Ver.0.1.6/README.md</code>,
+            <code>docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html</code>
           </div>
         </section>
 
@@ -1610,6 +1655,13 @@
               <li><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code></li>
               <li><code>docs/Ver.0.1.5/ui-verifier-report.json</code></li>
               <li><code>docs/Ver.0.1.5/zero-base-setup-and-reboot-recovery-guide.html</code></li>
+            </ul>
+          </details>
+          <details open>
+            <summary><strong>Ver.0.1.6</strong> 산출물</summary>
+            <ul>
+              <li><code>docs/Ver.0.1.6/README.md</code></li>
+              <li><code>docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html</code></li>
             </ul>
           </details>
           <div class="warning">
