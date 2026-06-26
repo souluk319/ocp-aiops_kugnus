@@ -84,7 +84,7 @@
 
   <section>
     <h2>현재 판단</h2>
-    <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. RCA ToolPlan과 Evidence/RCA 시연 사이클은 준비되어 있다.</p>
+    <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. 여기서 UI 검증은 Cypress가 아니라 Chrome CDP 기반 verifier이며, RCA ToolPlan과 Evidence/RCA 시연 사이클 준비 상태를 확인한다.</p>
     <table>
       <tr><th>항목</th><th>상태</th><th>근거</th></tr>
       <tr><td>Gateway runtime</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:runtime:smoke</code></td></tr>
@@ -95,14 +95,14 @@
       <tr><td>OpenShift Lightspeed stream</td><td><span class="badge warn">WARN</span></td><td>현재 화면과 증거에서는 Gateway fallback 경로로 표시될 수 있으므로, Lightspeed 최종 응답 완전 성공으로 보고하지 않는다.</td></tr>
       <tr><td>PDF upload RAG to pgvector</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:rag:file-upload:smoke</code>, 15 chunks persisted</td></tr>
       <tr><td>Backend unit tests</td><td><span class="badge pass">PASS</span></td><td><code>python -m pytest komsco-ai-gateway -q</code>, 183 passed</td></tr>
-      <tr><td>Frontend UI verifier</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed</td></tr>
+      <tr><td>Frontend UI verifier</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed, <code>ui-verifier-report.json</code></td></tr>
       <tr><td>Frontend production build</td><td><span class="badge pass">PASS</span></td><td><code>corepack yarn build</code></td></tr>
     </table>
   </section>
 
   <section>
     <h2>RCA ToolPlan 준비 상태</h2>
-    <p>RCA 질문은 Gateway에서 ToolPlan으로 분해된다. 현재 CrashLoopBackOff/Pod restart 계열은 <code>pod_restart_rca</code>로 분류되고, event, pod snapshot, previous log probe, metric probe, RAG runbook evidence가 read-only 근거로 연결된다.</p>
+    <p>RCA 질문은 Gateway에서 ToolPlan으로 분해된다. 현재 CrashLoopBackOff/Pod restart 계열은 <code>pod_restart_rca</code>로 분류되고, event, pod snapshot, previous log probe, metric probe, RAG runbook evidence를 read-only 근거로 연결한다. 단, 실제 응답에서는 각 evidence를 collected, partial, failed, skipped/missing으로 구분해 보여주며 previous log가 항상 수집된다고 말하지 않는다.</p>
     <ul>
       <li>ToolPlan schema, task type, read-only invariant, adapter resolution은 scenario evaluator에서 검증된다.</li>
       <li><code>runbook_tool</code>은 <code>gateway_rag_runbook_search</code>로 해석되며, Gateway-controlled pgvector/RAG runbook evidence를 RCA 조치 후보와 재발 방지 근거에 연결한다.</li>
@@ -121,7 +121,7 @@
       <tr><td>UI verifier가 데이터 로딩 전 dashboard state를 검사함</td><td>Gateway data load 대기 후 검사하도록 수정</td><td>health score 92 확인 PASS</td></tr>
       <tr><td>HMR 후 local console bridge가 stale chunk를 물어 404 발생</td><td>webpack dev server와 console bridge 재시작 후 proxy chunk 200 확인</td><td>UI verifier PASS</td></tr>
       <tr><td>중지된 답변에 collected evidence footer가 붙어 실제 근거처럼 보임</td><td>명시적 stop/no-evidence 답변은 evidence footer를 제거하고, verifier가 이를 회귀 검증하도록 수정</td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed</td></tr>
-      <tr><td>UI verifier가 Lightspeed 결과를 Gateway fallback으로만 기대해 현재 stream 성공/장기 대기 상태를 잘못 실패 처리함</td><td>최종 RCA 본문 렌더링 또는 명시적 Gateway fallback을 모두 검증하고, 장기 대기 시 stop 복구 가능성을 검증</td><td><code>task kugnus:ui:verify</code>, direct stream probe HTTP 200 / RCA text generated</td></tr>
+      <tr><td>UI verifier가 Lightspeed 결과를 Gateway fallback으로만 기대해 현재 stream 성공/장기 대기 상태를 잘못 실패 처리함</td><td>최종 RCA 본문 렌더링 또는 명시적 Gateway fallback을 모두 검증하고, 장기 대기 시 stop 복구 가능성을 검증</td><td><code>task kugnus:ui:verify</code>, Gateway stream probe HTTP 200 / RCA text generated. 이것은 Lightspeed 최종 성공 주장 근거가 아니다.</td></tr>
       <tr><td>RCA ToolPlan에서 RAG/runbook이 정식 evidence step이 아니라 missing gap처럼 보임</td><td><code>gateway_rag_runbook_search</code>와 <code>runbook_tool</code>을 RCA ToolPlan에 편입</td><td><code>evidence-rca-runbook-toolplan-verification.json</code>, scenario 10/10, pytest 183 PASS</td></tr>
       <tr><td>Gateway가 OLS request body에 <code>gateway_context</code> extra field를 넣어 Lightspeed가 422로 거절함</td><td>OLS payload는 공식 schema 필드만 보내고, Gateway evidence handoff는 query 본문과 local digest/status로 유지</td><td><code>live-lightspeed-stream-proof.json</code>은 참고 증거로만 유지하며, 최종 Lightspeed 응답 완전 성공으로 보고하지 않는다.</td></tr>
     </table>

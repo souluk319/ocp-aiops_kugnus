@@ -8,20 +8,45 @@ import { fileURLToPath } from 'node:url';
 
 const escapePwshSingleQuoted = (value) => String(value).replace(/'/g, "''");
 
+const safeExec = (command, args) => {
+  try {
+    return execFileSync(command, args, { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+};
+
 const delegateWslRunToWindowsNode = async () => {
   const cwd = execFileSync('wslpath', ['-w', process.cwd()], { encoding: 'utf8' }).trim();
   const script = execFileSync('wslpath', ['-w', fileURLToPath(import.meta.url)], {
     encoding: 'utf8',
   }).trim();
+  const delegatedGitEnv = {
+    KUGNUS_GIT_BRANCH: process.env.KUGNUS_GIT_BRANCH || safeExec('git', ['branch', '--show-current']),
+    KUGNUS_GIT_HEAD: process.env.KUGNUS_GIT_HEAD || safeExec('git', ['rev-parse', '--short=12', 'HEAD']),
+    KUGNUS_GIT_HEAD_FULL: process.env.KUGNUS_GIT_HEAD_FULL || safeExec('git', ['rev-parse', 'HEAD']),
+    KUGNUS_GIT_STATUS_SHORT:
+      process.env.KUGNUS_GIT_STATUS_SHORT || safeExec('git', ['status', '--short', '--branch']),
+  };
   const forwardedEnv = [
     'KUGNUS_UI_WINDOWS_DELEGATED',
     'KUGNUS_UI_URL',
     'KUGNUS_UI_VERIFY_MODE',
+    'KUGNUS_UI_VERIFY_REPORT',
     'KUGNUS_CHROME_DEBUG_HOST',
     'KUGNUS_CHROME_DEBUG_PORT',
     'KUGNUS_UI_SCREENSHOT_DIR',
     'KUGNUS_UI_AUTOSTART_CHROME',
+    'KUGNUS_GIT_BRANCH',
+    'KUGNUS_GIT_HEAD',
+    'KUGNUS_GIT_HEAD_FULL',
+    'KUGNUS_GIT_STATUS_SHORT',
   ];
+  for (const [name, value] of Object.entries(delegatedGitEnv)) {
+    if (value && process.env[name] === undefined) {
+      process.env[name] = value;
+    }
+  }
   const envAssignments = forwardedEnv
     .filter((name) => process.env[name] !== undefined)
     .map((name) => `$env:${name}='${escapePwshSingleQuoted(process.env[name])}'`)
@@ -56,6 +81,7 @@ const verifyMode =
   (new URL(uiUrl).pathname === '/aiops-kugnus' ? 'dashboard' : 'overlay');
 const screenshotDir = process.env.KUGNUS_UI_SCREENSHOT_DIR || process.cwd();
 const autostartChrome = process.env.KUGNUS_UI_AUTOSTART_CHROME !== 'false';
+const reportPath = process.env.KUGNUS_UI_VERIFY_REPORT || '';
 
 const results = [];
 const browserDiagnostics = {
@@ -99,6 +125,41 @@ const assertCheck = (name, condition, evidence = {}) => {
   if (!condition) {
     throw new Error(name);
   }
+};
+
+const gitValue = (args) => {
+  return safeExec('git', args);
+};
+
+const verifierReport = () => {
+  const failed = results.filter((item) => !item.ok);
+  return {
+    generatedAt: new Date().toISOString(),
+    git: {
+      branch: gitValue(['branch', '--show-current']) || process.env.KUGNUS_GIT_BRANCH || '',
+      head: gitValue(['rev-parse', '--short=12', 'HEAD']) || process.env.KUGNUS_GIT_HEAD || '',
+      headFull: gitValue(['rev-parse', 'HEAD']) || process.env.KUGNUS_GIT_HEAD_FULL || '',
+      statusShort:
+        gitValue(['status', '--short', '--branch']) || process.env.KUGNUS_GIT_STATUS_SHORT || '',
+    },
+    ok: failed.length === 0,
+    checked: results.length,
+    failed: failed.map((item) => item.name),
+    url: uiUrl,
+    verifyMode,
+    results,
+    browserDiagnostics,
+  };
+};
+
+const writeVerifierReport = async () => {
+  if (!reportPath) {
+    return;
+  }
+
+  const target = path.resolve(reportPath);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, `${JSON.stringify(verifierReport(), null, 2)}\n`, 'utf8');
 };
 
 const counterAfterLabel = (text, label) => {
@@ -2372,6 +2433,21 @@ const run = async () => {
       })()`,
       60000,
     );
+    if (fallbackCheckFinished.matched) {
+      await waitForOptional(
+        cdp,
+        `(() => {
+          const surface = ${activeSurfaceExpression};
+          const messages = [...(surface?.querySelectorAll('.komsco-ai__message--assistant') || [])];
+          const latest = messages[messages.length - 1];
+          const text = latest?.textContent || '';
+          const fallback = latest?.querySelector('.komsco-ai__message-fallback')?.textContent || '';
+          return /Gateway fallback|RCA 보고서|우선 판단|수집 근거|원인 후보|우선 확인|응답 생성을 중지했습니다/.test(text)
+            || /Gateway fallback/.test(fallback);
+        })()`,
+        15000,
+      );
+    }
     state = await getUiState(cdp);
     chatState = await getChatInteractionState(cdp);
     const fallbackAssistantMessage = [...chatState.messages]
@@ -2586,41 +2662,21 @@ const run = async () => {
     await cdp.close();
   }
 
-  const failed = results.filter((item) => !item.ok);
-  console.log(
-    JSON.stringify(
-      {
-        ok: failed.length === 0,
-        checked: results.length,
-        failed: failed.map((item) => item.name),
-        url: uiUrl,
-      },
-      null,
-      2,
-    ),
-  );
+  const report = verifierReport();
+  await writeVerifierReport();
+  console.log(JSON.stringify(report, null, 2));
 
-  if (failed.length > 0) {
+  if (!report.ok) {
     process.exitCode = 1;
   }
 };
 
-run().catch((error) => {
+run().catch(async (error) => {
   record('kugnus ui verifier crashed', false, {
     message: error.message,
     stack: error.stack ? String(error.stack).split('\n').slice(0, 4).join(' | ') : '',
   });
-  console.log(
-    JSON.stringify(
-      {
-        ok: false,
-        checked: results.length,
-        failed: results.filter((item) => !item.ok).map((item) => item.name),
-        url: uiUrl,
-      },
-      null,
-      2,
-    ),
-  );
+  await writeVerifierReport();
+  console.log(JSON.stringify(verifierReport(), null, 2));
   process.exitCode = 1;
 });
