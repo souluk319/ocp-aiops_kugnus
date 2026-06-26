@@ -66,10 +66,13 @@ task kugnus:rag:chat:smoke
 task kugnus:ui:verify
 ```
 
-0.1.6 전용 preflight task는 아래 report를 생성한다.
+0.1.6 검증 task는 아래 report를 생성한다.
 
 - `docs/Ver.0.1.6/preflight-report.json`
 - `docs/Ver.0.1.6/preflight-report.html`
+- `docs/Ver.0.1.6/runtime-smoke-report.json`
+- `docs/Ver.0.1.6/rag-file-upload-smoke-report.json`
+- `docs/Ver.0.1.6/rag-chat-citation-smoke-report.json`
 
 공식 시연 순서는 `docs/Ver.0.1.6/official-demo-scenario.md`를 기준으로 한다.
 

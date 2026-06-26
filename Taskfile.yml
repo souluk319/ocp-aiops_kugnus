@@ -220,7 +220,7 @@ tasks:
   kugnus:runtime:smoke:
     desc: Verify local Gateway auth, OCP summary, overview, runbook, and RAG contract through WSL oc token
     cmds:
-      - bash ./scripts/kugnus-runtime-smoke.sh
+      - REPORT=docs/Ver.0.1.6/runtime-smoke-report.json bash ./scripts/kugnus-runtime-smoke.sh
 
   kugnus:rag:dev:up:
     desc: Start local PostgreSQL pgvector backend for RAG demo and print Gateway env
@@ -235,12 +235,12 @@ tasks:
   kugnus:rag:file-upload:smoke:
     desc: Upload a PDF through multipart RAG ingestion and verify parser, chunks, and pgvector persistence
     cmds:
-      - komsco-ai-gateway/.venv/bin/python scripts/kugnus-rag-file-upload-smoke.py
+      - REPORT=docs/Ver.0.1.6/rag-file-upload-smoke-report.json KUGNUS_RAG_FILE_SMOKE_VERSION=v0.1.6 komsco-ai-gateway/.venv/bin/python scripts/kugnus-rag-file-upload-smoke.py
 
   kugnus:rag:chat:smoke:
     desc: Verify chat SSE exposes retrieved RAG evidence and answer citation text
     cmds:
-      - bash ./scripts/kugnus-rag-chat-citation-smoke.sh
+      - REPORT=docs/Ver.0.1.6/rag-chat-citation-smoke-report.json KUGNUS_RAG_CHAT_SMOKE_RUN_ID=ver-0.1.6-rag-chat-citation-smoke bash ./scripts/kugnus-rag-chat-citation-smoke.sh
 
   kugnus:dev:be:execute:rag:
     desc: Run executable Gateway with the local pgvector RAG demo backend

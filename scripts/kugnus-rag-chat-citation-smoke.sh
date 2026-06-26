@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:18080}"
 REPORT="${REPORT:-${ROOT_DIR}/docs/Ver.0.1.4/rag-chat-citation-smoke-report.json}"
+RUN_ID="${KUGNUS_RAG_CHAT_SMOKE_RUN_ID:-ver-0.1.4-rag-chat-citation-smoke}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
@@ -16,15 +17,16 @@ fi
 
 BODY="${TMP_DIR}/chat-body.json"
 OUT="${TMP_DIR}/chat-stream.sse"
-python3 - "${BODY}" <<'PY'
+python3 - "${BODY}" "${RUN_ID}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
+run_id = sys.argv[2]
 body = {
     "message": "KUGNUS_UPLOAD_RAG_SMOKE uploaded runbook 근거를 참고해서 사용자 업로드 RAG 동작을 요약해줘",
-    "runId": "ver-0.1.4-rag-chat-citation-smoke",
-    "conversationId": "ver-0.1.4-rag-chat-citation-smoke",
+    "runId": run_id,
+    "conversationId": run_id,
     "pageContext": {"aiopsExecutionMode": "read-only"},
 }
 Path(sys.argv[1]).write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")

@@ -77,10 +77,12 @@ def main() -> int:
     gateway_url = os.getenv("GATEWAY_URL", "http://127.0.0.1:18080").rstrip("/")
     upload_file = Path(os.getenv("RAG_UPLOAD_FILE", str(DEFAULT_UPLOAD_FILE))).resolve()
     report_path = Path(os.getenv("REPORT", str(DEFAULT_REPORT))).resolve()
+    smoke_version = os.getenv("KUGNUS_RAG_FILE_SMOKE_VERSION", "v0.1.5")
     if not upload_file.is_file():
         raise RuntimeError(f"upload file not found: {upload_file}")
 
     token = get_oc_token()
+    labels = {"source": "demo-pdf-smoke", "version": smoke_version}
     curl = run(
         [
             "curl",
@@ -92,11 +94,11 @@ def main() -> int:
             "-F",
             f"file=@{upload_file};type=application/pdf",
             "-F",
-            'labels={"source":"demo-pdf-smoke","version":"v0.1.5"}',
+            f"labels={json.dumps(labels, separators=(',', ':'))}",
             "-F",
             "namespace=komsco-ai-kugnus",
             "-F",
-            "version=v0.1.5",
+            f"version={smoke_version}",
             f"{gateway_url}/v1/rag/uploads/file",
         ]
     )
