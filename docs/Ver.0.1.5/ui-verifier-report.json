@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-06-26T00:49:17.324Z",
+  "generatedAt": "2026-06-26T04:21:37.850Z",
   "git": {
     "branch": "feat/v.0.1.5",
-    "head": "40dae7f4e62c",
-    "headFull": "40dae7f4e62c1c29f021df5ed8c23115369044dd",
-    "statusShort": "## feat/v.0.1.5...origin/feat/v.0.1.5"
+    "head": "08875689900e",
+    "headFull": "08875689900e9290228fa3bdc6ede06d5d1b6bb8",
+    "statusShort": "## feat/v.0.1.5...origin/feat/v.0.1.5\n M komsco-ai-console-plugin/src/components/assistant.css\n M scripts/verify-kugnus-ui.mjs"
   },
   "ok": true,
-  "checked": 105,
+  "checked": 106,
   "failed": [],
   "url": "http://localhost:9000/aiops-kugnus",
   "verifyMode": "dashboard",
@@ -57,7 +57,7 @@
       "name": "dashboard overview side shows API, version, safety, and Lightspeed values",
       "ok": true,
       "evidence": {
-        "overviewSideText": "ViewCywell AI 관제탑 / OpenShift 기본 대시보드와 분리APIhttps://api.ocp.cywell.server:6443Version4.20.23Safetycontrolled_executionLightspeed streamstarted"
+        "overviewSideText": "ViewCywell AI 관제탑 / OpenShift 기본 대시보드와 분리APIhttps://api.ocp.cywell.server:6443Version4.20.23Safetycontrolled_executionLightspeed streamsucceeded"
       }
     },
     {
@@ -83,7 +83,7 @@
           "감사·대화",
           "안전 정책"
         ],
-        "operatorFlowText": "Operator flow운영 흐름클러스터 상태위험 이상 징후 2건1/1 ready이상 징후위험 이상 징후 2건총 57건RCA 근거RCA 근거 확인 중근거 4 collected조치 후보read-only 조치 후보 24건제안만 함 / 실행 안 함감사·대화감사 12건대화 기록 기본 접힘안전 정책controlled_executionmutation enabled",
+        "operatorFlowText": "Operator flow운영 흐름클러스터 상태위험 이상 징후 2건1/1 ready이상 징후위험 이상 징후 2건총 61건RCA 근거RCA 근거 확인 중근거 8 collected조치 후보read-only 조치 후보 24건제안만 함 / 실행 안 함감사·대화감사 12건대화 기록 기본 접힘안전 정책controlled_executionmutation enabled",
         "overviewBottom": -1985
       }
     },
@@ -161,7 +161,7 @@
       "ok": true,
       "evidence": {
         "anomalyStatus": "risk",
-        "anomalyText": "Cywell AI 이상 징후 자동 정리위험 이상 징후 2건9/10 sourcesread-only위험 2확인 필요 14주의 41총 57위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=948, message=back-off 5m0s re다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성위험ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gnP8대상openshift-marketplace/Pod/appscan360-catalog-457gn원인 후보이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이"
+        "anomalyText": "Cywell AI 이상 징후 자동 정리위험 이상 징후 2건9/10 sourcesread-only위험 2확인 필요 14주의 45총 61위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=989, message=back-off 5m0s re다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성위험ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gnP8대상openshift-marketplace/Pod/appscan360-catalog-457gn원인 후보이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이"
       }
     },
     {
@@ -187,7 +187,7 @@
       "name": "dashboard anomaly totals expose severity buckets",
       "ok": true,
       "evidence": {
-        "anomalyTotalsText": "위험 2확인 필요 14주의 41총 57"
+        "anomalyTotalsText": "위험 2확인 필요 14주의 45총 61"
       }
     },
     {
@@ -195,7 +195,7 @@
       "ok": true,
       "evidence": {
         "anomalyItemTexts": [
-          "위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=948, message=back-off 5m0s re다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성",
+          "위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=989, message=back-off 5m0s re다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성",
           "위험ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gnP8대상openshift-marketplace/Pod/appscan360-catalog-457gn원인 후보이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이 우선입니다.근거container=registry-server, waiting.reason=ImagePullBackOff, restartCount=0, message=Back-off pul다음 확인oc describe pod appscan360-catalog-457gn -n openshift-marketplace",
           "확인 필요Recent restart increase: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP10대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보최근 1시간 restart 증가가 관측되었습니다. 현재 CrashLoop인지 복구된 이력인지는 Pod 상태와 lastState로 확정해야 합니다.근거increase([redacted-token][1h])=11.3793, container=crashloop다음 확인oc get pod [redacted-token] -n komsco-ai-dev -o jsonpath='{.status.containerStatuses}'0.1.3 demo챗봇으로 RCA 질문 생성"
         ]
@@ -351,7 +351,7 @@
       "name": "dashboard Lightspeed panel exposes stream status without stale not-probed placeholder",
       "ok": true,
       "evidence": {
-        "lightspeedPanelText": "Lightspeed linkGateway status loadedstarted / startedGateway contextsha256:b40088080ff6584b9...Lightspeed serviceopenshift-lightspeed/lightspeed-app-server:8443Console pluginkomsco-ai-console-plugin-kugnus"
+        "lightspeedPanelText": "Lightspeed linkGateway status loadedsucceeded / succeededGateway contextsha256:78090e0460c23d1f4...Lightspeed serviceopenshift-lightspeed/lightspeed-app-server:8443Console pluginkomsco-ai-console-plugin-kugnus"
       }
     },
     {
@@ -867,6 +867,20 @@
       }
     },
     {
+      "name": "composer stop state keeps send button visual system",
+      "ok": true,
+      "evidence": {
+        "idleBackground": "rgba(0, 0, 0, 0)",
+        "idleBoxShadow": "none",
+        "idleRadius": "6px",
+        "idleSize": "31x31",
+        "stopBackground": "rgba(0, 0, 0, 0)",
+        "stopBoxShadow": "none",
+        "stopRadius": "6px",
+        "stopSize": "31x31"
+      }
+    },
+    {
       "name": "composer stop returns control to normal send button",
       "ok": true,
       "evidence": {
@@ -942,7 +956,7 @@
               "top": 875.375,
               "width": 760
             },
-            "text": "KOMSCO AI AGENT복사응답 생성을 중지했습니다.760ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인5msAI 응답 대기·사용자 주체 확인 시작56ms요청 준비·요청 준비 완료34ms사용자 주체 확인·주체 확인 완료79msAI 응답 대기·제품 접근 권한 확인 시작25ms제품 접근 권한 확인·제품 접근 확인 완료18msAI 응답 대기·정책 확인 시작16ms정책 확인·조회/증거 수집 허용16msAI 응답 대기·증거 수집 계획 시작21ms증거 수집 계획·read-only Tool Plan 검증 완료49ms증거 수집 계획·증거 수집 계획 생성1msAI 응답 대기·감사 기록 완료61msRCA 근거 문맥·RCA 문맥 연결: plan_ready1ms감사 기록·감사 레코드 기록1msAI 응답 대기·Rag Context Evidence 시작19msRag Context Evidence·RAG 근거 3건 검색18msAI 응답 대기·증거 참조 기록 시작20ms증거 참조 기록·ev-42ef9b4595380576 기록16msAI 응답 대기·오류 확인 필요114msRCA 근거 문맥·RCA 문맥 연결: pre_answer1ms"
+            "text": "KOMSCO AI AGENT복사응답 생성을 중지했습니다.830ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인6msAI 응답 대기·사용자 주체 확인 시작61ms요청 준비·요청 준비 완료38ms사용자 주체 확인·주체 확인 완료77msAI 응답 대기·제품 접근 권한 확인 시작19ms제품 접근 권한 확인·제품 접근 확인 완료17msAI 응답 대기·정책 확인 시작20ms정책 확인·조회/증거 수집 허용19msAI 응답 대기·증거 수집 계획 시작20ms증거 수집 계획·read-only Tool Plan 검증 완료59ms증거 수집 계획·증거 수집 계획 생성1msAI 응답 대기·감사 기록 완료76msRCA 근거 문맥·RCA 문맥 연결: plan_ready1ms감사 기록·감사 레코드 기록1msAI 응답 대기·Rag Context Evidence 시작18msRag Context Evidence·RAG 근거 3건 검색18msAI 응답 대기·증거 참조 기록 시작19ms증거 참조 기록·ev-42ef9b4595380576 기록25msAI 응답 대기·오류 확인 필요131msRCA 근거 문맥·RCA 문맥 연결: pre_answer1ms"
           }
         ]
       }
@@ -970,7 +984,7 @@
       "evidence": {
         "railCollectedCount": 1,
         "railMissingCount": 3,
-        "railTextPreview": "현재 클러스터 컨텍스트회사 OCP 연결됨https://api.ocp.cywell.server:64431/1 Ready · CPU 2.4 cores · 메모리 37.8 GiBNode 1/1 · ReadyOperator 34/34 정상Cluster health score마지막 갱신 오전 09:4892 / 100노드 상태Node 1/1 · Ready52-54-00-a1-f8-7ccontrol-plane, master, worker · v1.33.11CPU 2.4 cores · 메모리 37.8 GiBREADY클러스터 상태4.20.23Available 34/34장애 0건Progressing 0건Channel unknownUpdate availab"
+        "railTextPreview": "현재 클러스터 컨텍스트회사 OCP 연결됨https://api.ocp.cywell.server:64431/1 Ready · CPU 2.1 cores · 메모리 37.2 GiBNode 1/1 · ReadyOperator 34/34 정상Cluster health score마지막 갱신 오후 01:2192 / 100노드 상태Node 1/1 · Ready52-54-00-a1-f8-7ccontrol-plane, master, worker · v1.33.11CPU 2.1 cores · 메모리 37.2 GiBREADY클러스터 상태4.20.23Available 34/34장애 0건Progressing 0건Channel unknownUpdate availab"
       }
     },
     {
@@ -993,23 +1007,23 @@
         ],
         "structuredBlockCount": 1,
         "tables": 1,
-        "textPreview": "KOMSCO AI AGENT복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.NamespaceTargetDesiredCurrent PodsRunningReadyTerminatingPod detailskomsco-ai-devDeployment/aiops-two-pod-exec3333/30aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 80), aiops-two-pod-exec-9f57c7f74-hkqnd(Running, ready 1/1, restarts 80), aiops-two-pod-exec-9f57c"
+        "textPreview": "KOMSCO AI AGENT복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.NamespaceTargetDesiredCurrent PodsRunningReadyTerminatingPod detailskomsco-ai-devDeployment/aiops-two-pod-exec3333/30aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c7f74-hkqnd(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c"
       }
     },
     {
       "name": "assistant RCA answer keeps mutation commands out of read-only guidance",
       "ok": true,
       "evidence": {
-        "textPreview": "KOMSCO AI AGENT복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.NamespaceTargetDesiredCurrent PodsRunningReadyTerminatingPod detailskomsco-ai-devDeployment/aiops-two-pod-exec3333/30aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 80), aiops-two-pod-exec-9f57c7f74-hkqnd(Running, ready 1/1, restarts 80), aiops-two-pod-exec-9f57c7f74-qpjpp(Running, ready 1/1, restarts 80)근거수집 1추가 확인 1rca-0923aba7c28b0390pod_statusPod 개수 직접 조회 완"
+        "textPreview": "KOMSCO AI AGENT복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.NamespaceTargetDesiredCurrent PodsRunningReadyTerminatingPod detailskomsco-ai-devDeployment/aiops-two-pod-exec3333/30aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c7f74-hkqnd(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c7f74-qpjpp(Running, ready 1/1, restarts 83)근거수집 1추가 확인 1rca-b8214b2026d0da0bpod_statusPod 개수 직접 조회 완"
       }
     },
     {
       "name": "assistant answer exposes compact evidence footer with trace id",
       "ok": true,
       "evidence": {
-        "contextId": "rca-0923aba7c28b0390",
-        "digestPreview": "sha256:0923aba7c28b0390e",
-        "footerText": "근거수집 1추가 확인 1rca-0923aba7c28b0390pod_statusPod 개수 직접 조회 완료ev-37d643ab286abe94metric: pod usage metrics are optional for inventory questions"
+        "contextId": "rca-b8214b2026d0da0b",
+        "digestPreview": "sha256:b8214b2026d0da0be",
+        "footerText": "근거수집 1추가 확인 1rca-b8214b2026d0da0bpod_statusPod 개수 직접 조회 완료ev-2cd5cfe930bbedeemetric: pod usage metrics are optional for inventory questions"
       }
     },
     {
@@ -1036,14 +1050,14 @@
       "ok": true,
       "evidence": {
         "stoppedMessagesWithCollectedEvidence": 0,
-        "withEvidenceFooterText": "근거수집 1추가 확인 1rca-0923aba7c28b0390pod_statusPod 개수 직접 조회 완료ev-37d643ab286abe94metric: pod usage metrics are optional for inventory questions"
+        "withEvidenceFooterText": "근거수집 1추가 확인 1rca-b8214b2026d0da0bpod_statusPod 개수 직접 조회 완료ev-2cd5cfe930bbedeemetric: pod usage metrics are optional for inventory questions"
       }
     },
     {
       "name": "assistant evidence footer redacts sensitive identity and token-like values",
       "ok": true,
       "evidence": {
-        "footerText": "근거수집 1추가 확인 1rca-0923aba7c28b0390pod_statusPod 개수 직접 조회 완료ev-37d643ab286abe94metric: pod usage metrics are optional for inventory questions"
+        "footerText": "근거수집 1추가 확인 1rca-b8214b2026d0da0bpod_statusPod 개수 직접 조회 완료ev-2cd5cfe930bbedeemetric: pod usage metrics are optional for inventory questions"
       }
     },
     {
@@ -1070,7 +1084,7 @@
       "name": "dashboard RCA Context JSON keeps real trace fields for collected, failed, and missing evidence",
       "ok": true,
       "evidence": {
-        "rcaContextTextPreview": "RCA Context JSON{\n  \"apiVersion\": \"aiops.komsco/v1alpha1\",\n  \"kind\": \"RcaContext\",\n  \"metadata\": {\n    \"generatedAt\": \"2026-06-26T00:48:49.537702Z\",\n    \"findingId\": null,\n    \"incidentId\": \"inc-4c541642-7211-4a59-9e50-d5e2248c9f10\",\n    \"phase\": \"post_answer\",\n    \"planner\": \"deterministic_gateway_planner\",\n    \"runId\": \"run-mqu7qhid-yqy3k6\",\n    \"scenarioId\": null,\n    \"version\": \"0.1.3\",\n    \"digest\": \"sha256:0923aba7c28b0390ed9deb807c9d417a96cff10995ce1ea681afce70ef652326\",\n    \"contextId\": \"rca-0923aba7c28b0390\"\n  },\n  \"question\": {\n    \"digest\": \"sha256:fd5269f36fe3d35564695504f676de01771d297793ab26fb3770548a282e4a90\",\n    \"pageContext\": {\n      \"route\": \"aiops-kugnus\",\n      \"pathname\": \"/aiops-kugnus\"\n "
+        "rcaContextTextPreview": "RCA Context JSON{\n  \"apiVersion\": \"aiops.komsco/v1alpha1\",\n  \"kind\": \"RcaContext\",\n  \"metadata\": {\n    \"generatedAt\": \"2026-06-26T04:21:09.587740Z\",\n    \"findingId\": null,\n    \"incidentId\": \"inc-a9f0f31b-f865-47dd-8251-faad15fd7b70\",\n    \"phase\": \"post_answer\",\n    \"planner\": \"deterministic_gateway_planner\",\n    \"runId\": \"run-mqufbjn0-b4xklj\",\n    \"scenarioId\": null,\n    \"version\": \"0.1.3\",\n    \"digest\": \"sha256:b8214b2026d0da0be27343a12c8d237407992b04acad860d1060afc5651d7571\",\n    \"contextId\": \"rca-b8214b2026d0da0b\"\n  },\n  \"question\": {\n    \"digest\": \"sha256:fd5269f36fe3d35564695504f676de01771d297793ab26fb3770548a282e4a90\",\n    \"pageContext\": {\n      \"route\": \"aiops-kugnus\",\n      \"pathname\": \"/aiops-kugnus\"\n "
       }
     },
     {
@@ -1167,13 +1181,23 @@
     "console": [
       {
         "label": "fresh-target",
-        "type": "info",
-        "text": "loaded config.openshift.io~v1~ClusterOperator"
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/apis/apiextensions.k8s.io/v1/customresourcedefinitions?watch=true&resourceVersion=18146081"
       },
       {
         "label": "fresh-target",
-        "type": "info",
-        "text": "loaded operators.coreos.com~v1alpha1~Subscription"
+        "type": "warning",
+        "text": "Attempted to create multiple websockets for core~v1~Event."
+      },
+      {
+        "label": "fresh-target",
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/apis/storage.k8s.io/v1/storageclasses?watch=true&resourceVersion=18146130"
+      },
+      {
+        "label": "fresh-target",
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/api/v1/nodes?watch=true&resourceVersion=18146130"
       },
       {
         "label": "fresh-target",
@@ -1183,47 +1207,37 @@
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/apiextensions.k8s.io/v1/customresourcedefinitions?watch=true&resourceVersion=17961504"
+        "text": "websocket open: /api/kubernetes/api/v1/persistentvolumeclaims?watch=true&resourceVersion=18146130"
       },
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/nodes?watch=true&resourceVersion=17961564"
+        "text": "websocket open: /api/kubernetes/apis/console.openshift.io/v1/consoleplugins?watch=true&resourceVersion=18146142"
       },
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/storage.k8s.io/v1/storageclasses?watch=true&resourceVersion=17961564"
+        "text": "websocket open: /api/kubernetes/apis/config.openshift.io/v1/clusteroperators?watch=true&resourceVersion=18146143"
       },
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/persistentvolumeclaims?watch=true&resourceVersion=17961564"
+        "text": "websocket open: /api/kubernetes/apis/operators.coreos.com/v1alpha1/subscriptions?watch=true&resourceVersion=18146143"
       },
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/console.openshift.io/v1/consoleplugins?watch=true&resourceVersion=17961565"
+        "text": "websocket open: /api/kubernetes/api/v1/events?watch=true&resourceVersion=18146122"
       },
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/config.openshift.io/v1/clusteroperators?watch=true&resourceVersion=17961565"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/operators.coreos.com/v1alpha1/subscriptions?watch=true&resourceVersion=17961565"
+        "text": "websocket open: /api/kubernetes/api/v1/pods?watch=true&resourceVersion=18146130"
       },
       {
         "label": "fresh-target",
         "type": "info",
         "text": "loaded operators.coreos.com~v1alpha1~ClusterServiceVersion"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/pods?watch=true&resourceVersion=17961564"
       }
     ],
     "exceptions": [],
@@ -1231,7 +1245,7 @@
       {
         "label": "fresh-target",
         "errorText": "net::ERR_ABORTED",
-        "requestId": "19876.215",
+        "requestId": "22076.217",
         "type": "Fetch"
       }
     ],

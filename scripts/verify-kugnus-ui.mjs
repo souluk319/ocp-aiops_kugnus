@@ -798,11 +798,26 @@ const getChatInteractionState = async (cdp) =>
         };
       });
 
+      const sendStyle = send ? window.getComputedStyle(send) : null;
+      const sendRect = rect(send);
+
       return {
         inputValue: textarea?.value || '',
         sendAria: send?.getAttribute('aria-label') || '',
         sendClass: String(send?.className || ''),
         sendDisabled: send ? send.disabled || send.getAttribute('aria-disabled') === 'true' : null,
+        sendRect,
+        sendStyle: sendStyle ? {
+          backgroundColor: sendStyle.backgroundColor,
+          borderBottomLeftRadius: sendStyle.borderBottomLeftRadius,
+          borderBottomRightRadius: sendStyle.borderBottomRightRadius,
+          borderTopLeftRadius: sendStyle.borderTopLeftRadius,
+          borderTopRightRadius: sendStyle.borderTopRightRadius,
+          boxShadow: sendStyle.boxShadow,
+          color: sendStyle.color,
+          height: sendStyle.height,
+          width: sendStyle.width,
+        } : null,
         messageCount: messages.length,
         messages,
       };
@@ -2065,6 +2080,8 @@ const run = async () => {
     });
 
     const messageCountBeforeSend = chatState.messageCount;
+    const idleSendStyle = chatState.sendStyle;
+    const idleSendRect = chatState.sendRect;
     await click(cdp, '.komsco-ai__send');
     await waitFor(
       cdp,
@@ -2082,6 +2099,30 @@ const run = async () => {
       sendAria: chatState.sendAria,
       sendClass: chatState.sendClass,
     });
+    const stopSendStyle = chatState.sendStyle;
+    const stopSendRect = chatState.sendRect;
+    assertCheck(
+      'composer stop state keeps send button visual system',
+      Boolean(idleSendStyle && stopSendStyle && idleSendRect && stopSendRect) &&
+        Math.abs(stopSendRect.width - idleSendRect.width) <= 1 &&
+        Math.abs(stopSendRect.height - idleSendRect.height) <= 1 &&
+        stopSendStyle.borderTopLeftRadius === idleSendStyle.borderTopLeftRadius &&
+        stopSendStyle.borderTopRightRadius === idleSendStyle.borderTopRightRadius &&
+        stopSendStyle.borderBottomRightRadius === idleSendStyle.borderBottomRightRadius &&
+        stopSendStyle.borderBottomLeftRadius === idleSendStyle.borderBottomLeftRadius &&
+        stopSendStyle.boxShadow === idleSendStyle.boxShadow &&
+        stopSendStyle.backgroundColor === idleSendStyle.backgroundColor,
+      {
+        idleBackground: idleSendStyle?.backgroundColor,
+        idleBoxShadow: idleSendStyle?.boxShadow,
+        idleRadius: idleSendStyle?.borderTopLeftRadius,
+        idleSize: idleSendRect ? `${Math.round(idleSendRect.width)}x${Math.round(idleSendRect.height)}` : null,
+        stopBackground: stopSendStyle?.backgroundColor,
+        stopBoxShadow: stopSendStyle?.boxShadow,
+        stopRadius: stopSendStyle?.borderTopLeftRadius,
+        stopSize: stopSendRect ? `${Math.round(stopSendRect.width)}x${Math.round(stopSendRect.height)}` : null,
+      },
+    );
 
     await click(cdp, '.komsco-ai__send');
     await waitFor(

@@ -4166,10 +4166,14 @@
   opacity: 0.65;
 }
 
-.komsco-ai__surface .komsco-ai__send--stop,
-.komsco-ai__surface .komsco-ai__send--stop:hover {
-  color: #ffffff;
-  background: #c9190b;
+.komsco-ai__surface .komsco-ai__send--stop {
+  color: #c9190b;
+  background: transparent;
+}
+
+.komsco-ai__surface .komsco-ai__send--stop:hover:not(:disabled) {
+  color: #a30000;
+  background: #fff1f0;
 }
 
 .komsco-ai__surface .komsco-ai__send svg {
