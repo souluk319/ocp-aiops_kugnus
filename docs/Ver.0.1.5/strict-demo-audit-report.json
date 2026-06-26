@@ -1,0 +1,127 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "StrictDemoAuditReport",
+  "generatedAt": "2026-06-26T03:22:51.524687Z",
+  "branch": "feat/v.0.1.5",
+  "headSha": "c1d55a6e3456371aa937ba285fa5f1530b945e8a",
+  "localRcaReady": true,
+  "strictLightspeedReady": false,
+  "successClaimAllowed": false,
+  "blockingGates": [
+    "ocp_connectivity",
+    "strict_lightspeed"
+  ],
+  "gates": [
+    {
+      "name": "runtime_smoke",
+      "ok": true,
+      "requirement": "local Gateway runtime smoke checks all pass",
+      "report": "docs/Ver.0.1.3/runtime-smoke-report.json",
+      "details": {
+        "failedChecks": []
+      }
+    },
+    {
+      "name": "scenario_contract",
+      "ok": true,
+      "requirement": "10/10 operation scenarios pass and negative controls pass",
+      "report": "docs/Ver.0.1.3/aiops-scenario-evaluation-report.json",
+      "details": {
+        "scenarioCount": 10,
+        "expectedScenarioCount": 10,
+        "passed": 10,
+        "failed": 0,
+        "negativeControlsPassed": true
+      }
+    },
+    {
+      "name": "evidence_rca_scene",
+      "ok": true,
+      "requirement": "official Evidence/RCA scene checks all pass",
+      "report": "docs/Ver.0.1.3/evidence-rca-scene-verification.json",
+      "details": {
+        "failedChecks": []
+      }
+    },
+    {
+      "name": "live_demo_cycle",
+      "ok": true,
+      "requirement": "CrashLoop live demo cycle checks all pass",
+      "report": "docs/Ver.0.1.3/crashloop-live-demo-cycle-verification.json",
+      "details": {
+        "failedChecks": []
+      }
+    },
+    {
+      "name": "screen_readiness",
+      "ok": true,
+      "requirement": "CrashLoop screen readiness checks all pass",
+      "report": "docs/Ver.0.1.3/crashloop-screen-cycle-readiness-verification.json",
+      "details": {
+        "failedChecks": []
+      }
+    },
+    {
+      "name": "rag_file_upload",
+      "ok": true,
+      "requirement": "PDF upload RAG smoke checks all pass",
+      "report": "docs/Ver.0.1.5/rag-file-upload-smoke-report.json",
+      "details": {
+        "failedChecks": []
+      }
+    },
+    {
+      "name": "ui_verifier",
+      "ok": true,
+      "requirement": "UI verifier passes at least 100 checks with zero failures",
+      "report": "docs/Ver.0.1.5/ui-verifier-report.json",
+      "details": {
+        "ok": true,
+        "checked": 105,
+        "failedCount": 0
+      }
+    },
+    {
+      "name": "ocp_ladder_contract",
+      "ok": true,
+      "requirement": "OCP ladder parsing and likely-cause contract passes",
+      "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-contract-verification.json",
+      "details": {
+        "allPassed": true,
+        "checkCount": 7
+      }
+    },
+    {
+      "name": "ocp_connectivity",
+      "ok": false,
+      "requirement": "OCP connectivity ladder is ready for strict Lightspeed gate",
+      "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
+      "details": {
+        "readyForStrictLightspeedGate": false,
+        "firstFailingLayer": "tcp",
+        "message": "TCP 6443 connection failed",
+        "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
+        "nextActions": [
+          "Connect the Windows-side company VPN client that owns the OCP private route.",
+          "Confirm Windows route print for the OCP private IP shows an active route.",
+          "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
+          "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+          "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
+        ]
+      }
+    },
+    {
+      "name": "strict_lightspeed",
+      "ok": false,
+      "requirement": "fallback-free Lightspeed final response allSucceeded=true",
+      "report": "docs/Ver.0.1.5/live-lightspeed-final-response-verification.json",
+      "details": {
+        "allSucceeded": false,
+        "preflightError": "Command '['oc', 'whoami']' timed out after 12 seconds",
+        "ocpFirstFailingLayer": "tcp",
+        "ocpLikelyCause": "windows_vpn_adapter_disabled_and_private_route_missing"
+      }
+    }
+  ],
+  "rule": "Do not claim Lightspeed final-response success unless successClaimAllowed=true."
+}

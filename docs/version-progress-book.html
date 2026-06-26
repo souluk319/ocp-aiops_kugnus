@@ -413,6 +413,7 @@
           <a class="nav-link" href="#implemented">구현된 것</a>
           <a class="nav-link" href="#gaps">남은 것</a>
           <a class="nav-link" href="#lessons">작업 회고</a>
+          <a class="nav-link" href="#operator-learning">운영 학습</a>
           <a class="nav-link" href="#working-principles">작업 원칙</a>
           <a class="nav-link" href="#next">다음 작업</a>
           <a class="nav-link" href="#evidence">근거 파일</a>
@@ -970,6 +971,7 @@
             <li><code>task kugnus:demo:after-vpn</code>: READY. Windows company VPN 연결 후 <code>vpn:doctor</code>, <code>ocp:doctor</code>, <code>demo:resume</code>을 순서대로 실행하는 원샷 재개 task다.</li>
             <li><code>ocp-connectivity-ladder-report.json</code>: <code>interpretation</code>, Windows route snapshot, VPN-like adapter 상태를 추가해 <code>DNS PASS != VPN connected != Windows route PASS != TCP route PASS</code>를 명시했다. 현재 추정 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>이며, token length나 <code>oc whoami --show-server</code>만으로 live OCP 연결 성공을 말하지 않는다.</li>
             <li><code>task kugnus:demo:wait</code>: fast-fail connectivity ladder가 PASS될 때까지 반복 대기한 뒤 <code>task kugnus:demo:resume</code>을 자동 실행하도록 준비됐다. 실패 중에는 <code>likelyCause</code>, Windows hint, next action을 출력한다. 반복용 report는 <code>.tmp-kugnus-demo</code>에 남기고, 공식 증거용 full report는 <code>task kugnus:ocp:doctor</code>가 갱신한다.</li>
+            <li><code>task kugnus:strict:audit</code>: local RCA 준비와 fallback 없는 Lightspeed 최종 응답을 한 번에 판정하는 최종 검수 task다. 현재 기대 결과는 FAIL이며, 이는 local RCA가 실패했다는 뜻이 아니라 <code>ocp_connectivity</code>와 <code>strict_lightspeed</code>가 아직 회사 VPN route 때문에 막혀 있다는 뜻이다.</li>
           </ul>
 
           <h3>이번 단계에서 잠근 표현</h3>
@@ -980,6 +982,7 @@
             <li>말하면 안 되는 것: production RAG 품질과 장기 검색 품질까지 완성됐다.</li>
             <li>말하면 안 되는 것: Lightspeed 최종 응답까지 완전 성공했다.</li>
             <li>김성욱봇 기준: <code>live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code> 전까지 RCA 흐름 완성으로 보고하지 않는다.</li>
+            <li>최종 감사 기준: <code>strict-demo-audit-report.json</code>의 <code>successClaimAllowed=true</code> 전까지 Lightspeed 최종 응답 완전 성공으로 말하지 않는다.</li>
           </ul>
 
           <div class="source-list">
@@ -988,7 +991,8 @@
             <code>docs/Ver.0.1.5/ui-verifier-report.json</code>,
             <code>docs/Ver.0.1.5/evidence-rca-runbook-toolplan-verification.json</code>,
             <code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code>,
-            <code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>
+            <code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>,
+            <code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>
           </div>
         </section>
 
@@ -1149,6 +1153,105 @@
             <li><code>task kugnus:demo:screen-readiness</code></li>
             <li><code>KUGNUS_UI_VERIFY_REPORT=docs/Ver.0.1.5/ui-verifier-report.json task kugnus:ui:verify</code></li>
           </ol>
+        </section>
+
+
+        <section id="operator-learning">
+          <h2>운영 학습 기록</h2>
+          <p>
+            이 장은 단순한 작업 로그가 아니다. 사용자가 기술시연에서 흔들리지 않도록, 우리가 작업 중 겪은 혼선과 복구 과정을
+            원인, 판단, 다음 행동으로 정리한 학습용 기록이다. 같은 문제가 다시 나오면 감으로 헤매지 않고 먼저 어떤 증거를 볼지 결정하는 데 목적이 있다.
+          </p>
+
+          <h3>이번 작업에서 단단해진 판단</h3>
+          <table>
+            <thead>
+              <tr><th>상황</th><th>처음 헷갈린 지점</th><th>지금의 판단 기준</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>CRC, 회사 OCP, 로컬 개발환경 구분</td>
+                <td>repo가 CRC 전용인지 회사 서버 작업인지 섞여 보였다.</td>
+                <td>작업대는 WSL 로컬이고 회사 OCP는 read-only 관측 및 port-forward 대상이다. 회사 OCP 설치성 변경은 별도 승인 전 금지다.</td>
+              </tr>
+              <tr>
+                <td>터미널 context와 oc context</td>
+                <td>VS Code 창, SSH, WSL, PowerShell이 섞이면서 어느 서버를 보는지 헷갈렸다.</td>
+                <td><code>oc whoami --show-server</code>, repo path, branch/head, doctor report를 같이 본다. 서버 URL만 보고 인증 성공으로 말하지 않는다.</td>
+              </tr>
+              <tr>
+                <td>Docker/WSL 연동 문제</td>
+                <td>Docker Desktop이 켜져 있어도 WSL daemon 접근이 안 될 수 있었다.</td>
+                <td><code>docker version</code>의 server 응답과 WSL integration을 확인한다. Windows 앱이 켜진 것과 WSL socket 연결은 다른 문제다.</td>
+              </tr>
+              <tr>
+                <td>느린 frontend build</td>
+                <td>아이콘 하나 바꾸는데 왜 오래 걸리는지 납득하기 어려웠다.</td>
+                <td>Windows mount 경로와 webpack/Yarn build 비용을 분리해서 본다. 반복 개발은 WSL native repo와 dev server hot reload를 기준으로 한다.</td>
+              </tr>
+              <tr>
+                <td>UI 완성 기준</td>
+                <td>보이기만 하는 UI와 운영자가 해석 가능한 UI가 섞였다.</td>
+                <td>노드 수, Operator 상태, 실행 모드, RAG evidence, ToolPlan 상태는 한 문장으로 의미를 설명할 수 있어야 한다.</td>
+              </tr>
+              <tr>
+                <td>검증 PASS의 범위</td>
+                <td>runtime smoke PASS와 Lightspeed 최종 응답 PASS가 같은 의미처럼 보일 수 있었다.</td>
+                <td>각 검증은 질문이 다르다. local RCA는 PASS일 수 있지만, strict Lightspeed gate는 VPN route 때문에 FAIL일 수 있다.</td>
+              </tr>
+              <tr>
+                <td>VPN route 장애</td>
+                <td>DNS가 풀리면 회사 OCP에 연결된 것으로 오해할 수 있었다.</td>
+                <td>DNS PASS, Windows route PASS, TCP 6443 PASS, oc identity PASS를 따로 본다. 현재 핵심 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>다.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>AGENTS.md에서 책자로 편입한 운영 계약</h3>
+          <ul>
+            <li>Codex는 수동 집행기가 아니라 제품을 함께 완성하는 작업 파트너로 움직인다.</li>
+            <li>먼저 <code>목표</code>, <code>완료 조건</code>, <code>검증 방법</code>, <code>하지 않을 것</code>을 잠근다.</li>
+            <li>acceptance criteria는 가능하면 pass/fail, 측정 방법, evidence, 현재 gap까지 함께 남긴다.</li>
+            <li>오래된 설명보다 현재 계약 문서, 실제 코드 상태, 최신 verifier report를 더 신뢰한다.</li>
+            <li>문제는 도구 탓으로 뭉개지 않고 <code>route missing</code>, <code>manifest mismatch</code>, <code>stale state</code>, <code>data contamination</code> 같은 원인 단위로 명명한다.</li>
+            <li>코드 상태가 중요한 보고에는 branch, head sha, base ref, report 파일명을 남긴다.</li>
+            <li>검증 없는 완료 보고는 하지 않는다. 성공이라고 말해도 되는 것과 아직 말하면 안 되는 것을 분리한다.</li>
+            <li>사용자가 겪은 혼란, 긴 대기, 재부팅, 로그인 실패, route 장애도 다음 복구를 위한 제품 운영 지식으로 축적한다.</li>
+          </ul>
+
+          <h3>다음 세션에서 바로 쓰는 말하기 규칙</h3>
+          <table>
+            <thead>
+              <tr><th>질문을 받으면</th><th>먼저 말할 것</th><th>피할 말</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>지금 어디까지 됐나?</td>
+                <td>로컬 WSL 시연 스택의 RCA/RAG/UI 검증은 PASS이고, strict Lightspeed 최종 응답은 VPN route 때문에 아직 FAIL이다.</td>
+                <td>다 됐다, Lightspeed까지 완전 성공했다.</td>
+              </tr>
+              <tr>
+                <td>왜 회사 서버에 안 박았나?</td>
+                <td>이번 단계는 로컬 개발 콘솔과 read-only 관측 검증이며, install/deploy는 별도 승인 전 금지선으로 분리했다.</td>
+                <td>회사 OCP에 설치 완료했다.</td>
+              </tr>
+              <tr>
+                <td>왜 실패했나?</td>
+                <td>최신 report 기준 DNS는 되지만 TCP 6443 route가 없고 Fortinet adapter가 Disabled라 OCP API에 닿지 못한다.</td>
+                <td>그냥 Docker나 터미널이 이상하다.</td>
+              </tr>
+              <tr>
+                <td>어떻게 다시 시작하나?</td>
+                <td>Fortinet/company VPN 연결 후 <code>task kugnus:demo:after-vpn</code>을 실행한다.</td>
+                <td>터미널을 여러 개 켜서 감으로 반복한다.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout">
+            <strong>학습 목표:</strong>
+            앞으로는 명령을 외우는 사람이 아니라, 어떤 layer가 PASS이고 어떤 layer가 FAIL인지 설명하는 운영자가 되는 것이다.
+          </div>
         </section>
 
         <section id="working-principles">

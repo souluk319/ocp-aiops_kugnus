@@ -89,6 +89,7 @@
     <p class="note">2026-06-26 추가 진단: <code>task kugnus:ocp:doctor</code>를 추가했다. 최신 <code>ocp-connectivity-ladder-report.json</code> 기준 첫 실패 layer는 <code>tcp</code>이며, <code>api.ocp.cywell.server:6443</code> 연결 timeout이다. DNS는 <code>10.0.1.230</code>으로 풀리지만 Windows route에는 해당 사설 IP active route가 없고 Fortinet SSL VPN adapter가 <code>Disabled</code>다. 로컬 Gateway <code>/v1/aiops/status</code>는 HTTP 200 degraded로 응답하므로, 현재 병목은 Gateway 코드가 아니라 Windows 회사 VPN/private route다.</p>
     <p class="note">2026-06-26 추가 해석: <code>ocp-connectivity-ladder-report.json</code>에 <code>interpretation</code> 필드를 추가했다. DNS PASS와 TCP FAIL이 동시에 나오면 이름 해석은 된 것이고, 실제 사설망 경로가 열렸다는 뜻은 아니다. 현재 report는 Windows route snapshot까지 확인해 <code>10.0.1.230</code>에 대한 active route가 없고, <code>Fortinet SSL VPN Virtual Ethernet Adapter</code>가 <code>Disabled</code>라고 기록한다. 따라서 최신 추정 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>이며, <code>oc whoami --show-server</code>나 token length만 보고 연결 성공으로 판단하지 않는다.</p>
     <p class="note">2026-06-26 추가 자동화: <code>task kugnus:vpn:doctor</code>와 <code>task kugnus:demo:wait</code>를 추가했다. <code>vpn:doctor</code>는 짧은 timeout으로 Windows VPN/private route를 빠르게 본다. <code>demo:wait</code>는 fast-fail connectivity ladder를 반복 실행하다가 PASS되는 순간 <code>demo:resume</code>으로 넘어간다. 실패 중에는 <code>likelyCause</code>, Windows hint, next action을 같이 출력한다. 대기 루프 report는 <code>.tmp-kugnus-demo/ocp-connectivity-ladder-wait-report.json</code>에 쓰고, 공식 증거용 full ladder report는 <code>task kugnus:ocp:doctor</code>가 <code>docs/Ver.0.1.5/ocp-connectivity-ladder-report.json</code>에 남긴다.</p>
+    <p class="note">2026-06-26 추가 검수: <code>task kugnus:strict:audit</code>를 추가했다. 이 task는 local RCA 준비와 strict Lightspeed 최종 응답을 한 번에 묶어 <code>successClaimAllowed</code>를 판정한다. 현재 기대 결과는 FAIL이며, 이는 <code>ocp_connectivity</code>와 <code>strict_lightspeed</code> gate가 회사 VPN/private route 문제로 막혀 있기 때문이다.</p>
     <table>
       <tr><th>항목</th><th>상태</th><th>근거</th></tr>
       <tr><td>Gateway runtime</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:runtime:smoke</code></td></tr>
@@ -107,6 +108,7 @@
       <tr><td>VPN/private route quick check</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:vpn:doctor</code>. Fortinet/company VPN 연결 직후 빠른 route 확인용이다. 실패해도 회사 OCP에는 아무 변경을 하지 않는다.</td></tr>
       <tr><td>Post-VPN one-shot resume</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:after-vpn</code>. VPN 연결 후 private route, full OCP ladder, local demo resume, strict Lightspeed gate를 순서대로 실행한다.</td></tr>
       <tr><td>OCP wait-and-resume loop</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:wait</code>. connectivity가 PASS되면 자동으로 <code>task kugnus:demo:resume</code>을 실행한다. 실패 중에는 현재 원인과 다음 행동을 출력한다.</td></tr>
+      <tr><td>Strict demo audit</td><td><span class="badge warn">FAIL EXPECTED</span></td><td><code>task kugnus:strict:audit</code>. local RCA 준비는 통과 가능하지만 <code>successClaimAllowed=false</code>다. <code>strict-demo-audit-report.json</code>을 기준으로 아직 Lightspeed 최종 응답 완전 성공이라고 말하지 않는다.</td></tr>
     </table>
   </section>
 
@@ -153,6 +155,7 @@
       <tr><td>최종 OLS text 수신</td><td>source 없는 OLS text event가 1개 이상이고, 답변 본문 digest가 생성되어야 한다.</td><td><span class="badge warn">FAIL</span> 현재 OLS text 0개.</td></tr>
       <tr><td>runtime status 증명</td><td><code>/v1/aiops/status</code>의 <code>streamProbe=succeeded</code>, <code>fallbackActive=false</code>, <code>lastError=""</code>.</td><td><span class="badge warn">UNVERIFIED</span> 코드상 status endpoint는 access review timeout을 degraded로 분리하도록 개선됐다. 재로그인 후 Gateway 재시작과 strict live verifier 재실행이 필요하다.</td></tr>
       <tr><td>최종 report</td><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code>.</td><td><span class="badge warn">FAIL</span> 현재 <code>allSucceeded=false</code>.</td></tr>
+      <tr><td>최종 감사 report</td><td><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>의 <code>successClaimAllowed=true</code>.</td><td><span class="badge warn">FAIL EXPECTED</span> local RCA 준비와 strict Lightspeed gate를 분리해 판정한다.</td></tr>
     </table>
   </section>
 
@@ -289,6 +292,21 @@
         <td><code>task kugnus:demo:resume</code>으로 재로그인 후 local dev stack을 복구하고 smoke plus strict Lightspeed gate를 실행한다.</td>
         <td>로컬 시연 준비 상태가 report와 terminal PASS/FAIL로 남는다.</td>
       </tr>
+    </table>
+  </section>
+
+
+  <section>
+    <h2>작업 원칙과 학습 기록</h2>
+    <p class="note">이번 산출물은 기능 목록만이 아니라 사용자가 작업 과정에서 단단해지기 위한 운영 학습 자료다. AGENTS.md의 원칙과 실제 시행착오를 합쳐 다음 기준을 고정한다.</p>
+    <table>
+      <tr><th>학습 항목</th><th>이번에 겪은 일</th><th>다음 판단 기준</th></tr>
+      <tr><td>목표 고정</td><td>로컬 개발, 회사 OCP 관측, Software Catalog, 설치가 여러 번 섞였다.</td><td>작업 전 목표, 완료 조건, 검증 방법, 하지 않을 것을 먼저 잠근다.</td></tr>
+      <tr><td>검증 범위 구분</td><td>runtime smoke PASS와 strict Lightspeed FAIL이 동시에 존재했다.</td><td>검증 이름과 범위를 같이 말한다. PASS라고 말할 때 무엇이 PASS인지 같이 말한다.</td></tr>
+      <tr><td>원인 단위 진단</td><td>Docker, WSL, oc, VPN 문제가 한 덩어리처럼 느껴졌다.</td><td>route missing, stale server, token expired, port occupied, manifest mismatch처럼 실제 원인 단위로 쪼갠다.</td></tr>
+      <tr><td>WSL native 기준</td><td>Windows mount에서 느린 build와 WSL/Docker 경계 문제가 있었다.</td><td>기본 작업대는 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>다.</td></tr>
+      <tr><td>성공 과장 금지</td><td>local RCA는 준비됐지만 Lightspeed 최종 응답은 아직 route 문제로 막혔다.</td><td><code>task kugnus:strict:audit</code>가 <code>successClaimAllowed=true</code>를 쓰기 전까지 최종 성공이라고 말하지 않는다.</td></tr>
+      <tr><td>사용자 경험의 산출물화</td><td>긴 대기, 재부팅, 인증 실패, UI 혼란이 반복됐다.</td><td>사람이 다음에 덜 흔들리도록 체크리스트와 HTML 책자로 축적한다.</td></tr>
     </table>
   </section>
 
