@@ -234,6 +234,11 @@
         <td><code>task kugnus:demo:resume</code>을 사용한다. 이 명령은 로컬 WSL 시연 스택만 복구하고, 회사 OCP 설치성 변경은 하지 않는다.</td>
       </tr>
       <tr>
+        <td><code>dev:doctor</code>와 <code>ocp:doctor</code> 중 무엇을 봐야 할지 헷갈림</td>
+        <td><code>dev:doctor</code>는 전체 로컬 작업대 상태를 보고, <code>ocp:doctor</code>는 회사 OCP API까지의 DNS/TCP/TLS/auth ladder를 본다.</td>
+        <td><code>dev:doctor</code>가 <code>oc whoami</code> 실패를 만나면 최신 <code>ocp:doctor</code>의 <code>interpretation</code>을 함께 보여주도록 했다.</td>
+      </tr>
+      <tr>
         <td>PDF 업로드/RAG가 보이면 운영 RAG가 완성된 것처럼 착각할 수 있음</td>
         <td>현재는 사용자 업로드 chunk 저장, pgvector 검색 계약, citation 연결 smoke가 검증된 상태다.</td>
         <td>운영용 권한, 장기 품질, 문서 lifecycle, 평가 corpus까지 완성됐다고 말하지 않는다.</td>

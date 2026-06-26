@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_API_SERVER="${EXPECTED_API_SERVER:-https://api.ocp.cywell.server:6443}"
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
 OC_TIMEOUT_SECONDS="${KUGNUS_DOCTOR_OC_TIMEOUT_SECONDS:-10}"
+OCP_LADDER_REPORT="${KUGNUS_OCP_LADDER_REPORT:-${ROOT_DIR}/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json}"
 
 PASS_COUNT=0
 WARN_COUNT=0
@@ -125,6 +126,40 @@ check_http_get() {
   fi
 }
 
+print_ocp_ladder_interpretation() {
+  if [ ! -f "$OCP_LADDER_REPORT" ] || ! have_cmd python3; then
+    info "Run task kugnus:ocp:doctor for DNS/TCP/TLS/auth layer details."
+    return
+  fi
+
+  python3 - "$OCP_LADDER_REPORT" <<'PY'
+import json
+import sys
+import textwrap
+
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+
+summary = payload.get("summary") or {}
+interpretation = payload.get("interpretation") or {}
+first = summary.get("firstFailingLayer") or "unknown"
+message = summary.get("message") or "unknown"
+likely = interpretation.get("likelyCause") or "unknown"
+explanation = interpretation.get("explanation") or ""
+
+print(f"       latest ocp ladder: firstFailingLayer={first} message={message}")
+print(f"       latest interpretation: {likely}")
+if explanation:
+    for line in textwrap.wrap(explanation, width=92):
+        print(f"       {line}")
+PY
+  info "Rerun task kugnus:ocp:doctor to refresh this diagnosis."
+}
+
 run_oc() {
   timeout "${OC_TIMEOUT_SECONDS}" oc "$@" 2>/dev/null || true
 }
@@ -199,6 +234,7 @@ fi
 print_section "OpenShift context"
 if have_cmd oc; then
   pass "oc found: $(oc version --client 2>/dev/null | sed -n '1p')"
+  OCP_IDENTITY_OK=false
   current_server="$(run_oc whoami --show-server)"
   if [ "$current_server" = "$EXPECTED_API_SERVER" ]; then
     pass "oc server is company OCP: $current_server"
@@ -212,10 +248,12 @@ if have_cmd oc; then
 
   current_user="$(run_oc whoami)"
   if [ -n "$current_user" ]; then
+    OCP_IDENTITY_OK=true
     pass "oc login user: $current_user"
   else
-    fail "oc whoami failed; token likely expired"
-    info "Run oc login again, then rerun: task kugnus:dev:doctor"
+    fail "oc whoami failed; live OpenShift API or CLI auth is not healthy"
+    info "Run oc login if the API route is reachable; if this repeats, diagnose the network/auth ladder."
+    print_ocp_ladder_interpretation
   fi
 
   current_project="$(run_oc project | sed -n '1p')"
@@ -229,12 +267,18 @@ if have_cmd oc; then
     pass "Lightspeed service is readable"
   else
     fail "cannot read openshift-lightspeed/lightspeed-app-server"
+    if [ "$OCP_IDENTITY_OK" != "true" ]; then
+      info "This is expected while oc identity/API connectivity is unhealthy."
+    fi
   fi
 
   if oc_ok -n komsco-ai-dev get svc/komsco-ai-action-executor; then
     pass "Action Executor service is readable"
   else
     warn "cannot read komsco-ai-dev/komsco-ai-action-executor; execute mode may fail"
+    if [ "$OCP_IDENTITY_OK" != "true" ]; then
+      info "This is expected while oc identity/API connectivity is unhealthy."
+    fi
   fi
 else
   fail "oc not found"

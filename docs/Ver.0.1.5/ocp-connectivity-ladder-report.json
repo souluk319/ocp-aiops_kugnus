@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-06-26T02:31:16.424272Z",
+  "generatedAt": "2026-06-26T02:33:24.001006Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "cedba94cc3f1425301295ca4c0a71e2d6f7a106a",
+  "headSha": "b1a267472524a6573a113600c0447938083042db",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
   "timeoutSeconds": 8,
@@ -35,17 +35,17 @@
       "addresses": [
         "10.0.1.230"
       ],
-      "durationMs": 5
+      "durationMs": 3
     },
     "tcp": {
       "ok": false,
       "error": "timed out",
-      "durationMs": 8012
+      "durationMs": 8010
     },
     "tls": {
       "ok": false,
       "error": "timed out",
-      "durationMs": 8036
+      "durationMs": 8026
     },
     "versionEndpoint": {
       "ok": false,
@@ -56,7 +56,7 @@
     "ocServer": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 72,
+      "durationMs": 69,
       "stdout": "https://api.ocp.cywell.server:6443",
       "stderr": "",
       "timeoutSeconds": 8,
@@ -65,7 +65,7 @@
     "ocIdentity": {
       "ok": false,
       "returnCode": null,
-      "durationMs": 8015,
+      "durationMs": 8027,
       "stdout": "",
       "stderr": "",
       "timeout": true,
@@ -75,7 +75,7 @@
     },
     "ocToken": {
       "ok": true,
-      "durationMs": 106,
+      "durationMs": 146,
       "returnCode": 0,
       "tokenLength": 50,
       "timeout": false,
@@ -84,13 +84,13 @@
     "selfSubjectReview": {
       "ok": false,
       "statusCode": 0,
-      "durationMs": 8015,
+      "durationMs": 8016,
       "error": "<urlopen error timed out>"
     },
     "gatewayStatus": {
       "ok": true,
       "statusCode": 200,
-      "durationMs": 5010,
+      "durationMs": 5007,
       "jsonKind": "AIOpsRuntimeStatus",
       "jsonApiVersion": "aiops.komsco/v1",
       "accessReviewStatus": {
@@ -120,7 +120,7 @@
         "lastError": "",
         "fallbackActive": false
       },
-      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-26T02:31:16.422150+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
+      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-26T02:33:23.998695+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
     }
   },
   "wslNetwork": {
@@ -128,7 +128,7 @@
     "ipRouteGet": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 6,
+      "durationMs": 1,
       "stdout": "10.0.1.230 via 172.29.160.1 dev eth0 src 172.29.163.203 uid 1001 \n    cache",
       "stderr": "",
       "timeoutSeconds": 8
@@ -136,7 +136,7 @@
     "ipBriefAddr": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 1,
+      "durationMs": 2,
       "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:74d9/64",
       "stderr": "",
       "timeoutSeconds": 8

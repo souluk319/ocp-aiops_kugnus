@@ -1121,6 +1121,11 @@
                 <td>CLI login, Docker WSL integration, port 9000/9001/18080/18443, local gateway 상태를 순서대로 분해한다.</td>
                 <td>큰 문제처럼 보이면 먼저 <code>task kugnus:dev:doctor</code>로 현재 끊긴 지점을 찾는다. 반복 실행 전에 같은 명령을 또 시키지 않는다.</td>
               </tr>
+              <tr>
+                <td><code>dev:doctor</code>와 <code>ocp:doctor</code>의 역할이 헷갈림</td>
+                <td><code>dev:doctor</code>는 WSL, Docker, port, local endpoint까지 포함한 전체 작업대 점검이고, <code>ocp:doctor</code>는 회사 OCP API 경로만 사다리식으로 분해한다.</td>
+                <td><code>dev:doctor</code>가 <code>oc whoami</code> 실패를 만나면 최신 <code>ocp:doctor</code> 해석을 같이 출력한다.</td>
+              </tr>
             </tbody>
           </table>
 
