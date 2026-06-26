@@ -96,3 +96,17 @@ task kugnus:ui:verify
 - 기준 커밋: `1351dfc complete ver.0.1.5 docs rag controls`
 - 작업대: WSL native repo `/home/kugnus/cywell/ocp-aiops_kugnus`
 - 시연 기준: 로컬 console `http://localhost:9000/dashboards`
+
+## Ubuntu Codex 인수인계
+
+- `ubuntu-codex-handoff.md`
+  - 새 Ubuntu/WSL Codex 세션이 첫 5분 안에 읽어야 할 기준점, 금지선, 검증 명령, 다음 작업 순서를 정리한 텍스트 인수인계 문서다.
+
+- `ubuntu-codex-handoff.html`
+  - 같은 내용을 사용자가 책자처럼 보기 좋게 정리한 HTML 인수인계 문서다.
+
+새 Codex Desktop workspace는 아래 UNC 경로로 여는 것을 권장한다.
+
+```text
+\\wsl.localhost\Ubuntu\home\kugnus\cywell\ocp-aiops_kugnus
+```

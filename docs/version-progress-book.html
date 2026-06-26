@@ -424,6 +424,7 @@
           <a class="nav-link" href="#evidence">근거 파일</a>
           <a class="nav-link" href="#night-handoff-book">야간 인수인계</a>
           <a class="nav-link" href="#hands-on-runbook">직접 실행 안내서</a>
+          <a class="nav-link" href="#ubuntu-codex-handoff">Ubuntu Codex 인수인계</a>
         </div>
       </nav>
     </aside>
@@ -1533,6 +1534,28 @@
           </div>
         </section>
 
+        <section id="ubuntu-codex-handoff">
+          <h2>Ubuntu Codex 인수인계</h2>
+          <p>
+            Windows 폴더와 WSL 폴더가 섞이면서 생긴 혼선을 끊기 위해, 새 Ubuntu/WSL Codex 세션이 바로 이어받을 수 있는
+            인수인계 문서를 <code>Ver.0.1.6</code> 산출물로 추가했다. 핵심은 새 세션이 먼저 읽을 문서 순서, 현재 브랜치,
+            절대 실행하지 말아야 할 설치 명령, 검증 명령, 다음 작업 순서를 한 곳에 고정하는 것이다.
+          </p>
+          <table>
+            <tbody>
+              <tr><th>새 Codex workspace</th><td><code>\\wsl.localhost\Ubuntu\home\kugnus\cywell\ocp-aiops_kugnus</code></td></tr>
+              <tr><th>현재 브랜치</th><td><code>feat/v.0.1.6</code></td></tr>
+              <tr><th>첫 확인 명령</th><td><code>pwd</code>, <code>git status --short --branch</code>, <code>git log -1 --oneline</code></td></tr>
+              <tr><th>다음 작업</th><td><code>demo preflight contract</code>와 <code>task kugnus:demo:preflight</code> 구현부터 시작</td></tr>
+              <tr><th>금지선</th><td>회사 OCP/OKD 설치, OLM install, runtime deploy는 별도 승인 전까지 하지 않는다.</td></tr>
+            </tbody>
+          </table>
+          <div class="source-list">
+            전문: <code>docs/Ver.0.1.6/ubuntu-codex-handoff.md</code>,
+            <code>docs/Ver.0.1.6/ubuntu-codex-handoff.html</code>
+          </div>
+        </section>
+
         <section id="artifact-atlas">
           <h2>산출물 지도</h2>
           <p>
@@ -1662,6 +1685,8 @@
             <ul>
               <li><code>docs/Ver.0.1.6/README.md</code></li>
               <li><code>docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html</code></li>
+              <li><code>docs/Ver.0.1.6/ubuntu-codex-handoff.html</code></li>
+              <li><code>docs/Ver.0.1.6/ubuntu-codex-handoff.md</code></li>
             </ul>
           </details>
           <div class="warning">

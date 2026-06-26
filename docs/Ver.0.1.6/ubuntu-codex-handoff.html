@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ubuntu Codex Handoff - Ver.0.1.6</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #5f6f86;
+      --line: #d8e0ec;
+      --blue: #0066cc;
+      --green: #12805c;
+      --amber: #b7791f;
+      --red: #c9190b;
+      --code: #0f172a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      background: #111827;
+      color: #e5edf9;
+    }
+    aside h1 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+    aside p {
+      margin: 0 0 20px;
+      color: #aab6c8;
+      font-size: 13px;
+    }
+    aside a {
+      display: block;
+      padding: 8px 0;
+      color: #dbeafe;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 14px;
+    }
+    main { padding: 36px; }
+    article {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 42px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
+    }
+    h2 {
+      margin: 42px 0 14px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      font-size: 24px;
+    }
+    h3 { margin: 26px 0 8px; font-size: 18px; }
+    p { margin: 0 0 14px; }
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #eef2f7;
+      color: #172033;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border-radius: 12px;
+      background: var(--code);
+      color: #e5edf9;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    pre code { padding: 0; background: transparent; color: inherit; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 26px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      width: 220px;
+      background: #f4f7fb;
+      color: #324055;
+      font-size: 13px;
+    }
+    tr:last-child th, tr:last-child td { border-bottom: 0; }
+    .hero {
+      padding: 24px;
+      border: 1px solid #c8dcf4;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #eef6ff, #fbfdff);
+    }
+    .hero h2 { margin-top: 0; padding-top: 0; border-top: 0; }
+    .badge {
+      display: inline-flex;
+      margin: 4px 6px 4px 0;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .pass { color: var(--green); border-color: #b7e4cb; background: #effaf3; }
+    .warn { color: var(--amber); border-color: #f0d6a6; background: #fff8e8; }
+    .stop { color: var(--red); border-color: #f4c7c3; background: #fff1f0; }
+    .callout {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border: 1px solid #c8dcf4;
+      border-left: 5px solid var(--blue);
+      border-radius: 12px;
+      background: #f3f8ff;
+    }
+    .danger {
+      border-color: #f4c7c3;
+      border-left-color: var(--red);
+      background: #fff7f6;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; height: auto; }
+      main { padding: 18px; }
+      article { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <h1>Ubuntu Codex Handoff</h1>
+      <p>새 WSL Codex가 바로 이어받기 위한 기준점, 안전 경계, 검증 루프, 다음 작업.</p>
+      <a href="#baseline">현재 기준점</a>
+      <a href="#first">첫 5분</a>
+      <a href="#done">완료된 것</a>
+      <a href="#goal">0.1.6 목표</a>
+      <a href="#safety">안전 경계</a>
+      <a href="#verify">검증 명령</a>
+      <a href="#failures">실패 원인</a>
+      <a href="#workflow">작업 방식</a>
+      <a href="#next">다음 작업</a>
+    </aside>
+    <main>
+      <article>
+        <div class="hero">
+          <span class="badge pass">feat/v.0.1.6</span>
+          <span class="badge">WSL native repo</span>
+          <span class="badge warn">local demo only</span>
+          <h2>Ubuntu Codex 인수인계</h2>
+          <p>
+            이 문서는 Windows 폴더 혼선을 끊고 새 Ubuntu/WSL Codex 세션이 현재 작업을 바로 이어받기 위한 인수인계다.
+            새 Codex는 먼저 기준점과 금지선을 확인하고 Ver.0.1.6의 demo readiness 작업을 이어간다.
+          </p>
+        </div>
+
+        <section id="baseline">
+          <h2>현재 기준점</h2>
+          <table>
+            <tbody>
+              <tr><th>실제 작업 repo</th><td><code>/home/kugnus/cywell/ocp-aiops_kugnus</code></td></tr>
+              <tr><th>Codex Desktop workspace</th><td><code>\\wsl.localhost\Ubuntu\home\kugnus\cywell\ocp-aiops_kugnus</code></td></tr>
+              <tr><th>현재 브랜치</th><td><code>feat/v.0.1.6</code></td></tr>
+              <tr><th>Ver.0.1.5 마감 커밋</th><td><code>1351dfc complete ver.0.1.5 docs rag controls</code></td></tr>
+              <tr><th>Ver.0.1.6 시작 커밋</th><td><code>382c885 start ver.0.1.6 demo readiness plan</code></td></tr>
+              <tr><th>로컬 콘솔</th><td><code>http://localhost:9000/dashboards</code></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="first">
+          <h2>첫 5분</h2>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+pwd
+git status --short --branch
+git log -1 --oneline</code></pre>
+          <p>그 다음 아래 문서를 순서대로 읽는다.</p>
+          <ol>
+            <li><code>docs/Ver.0.1.6/README.md</code></li>
+            <li><code>docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html</code></li>
+            <li><code>docs/Ver.0.1.5/zero-base-setup-and-reboot-recovery-guide.html</code></li>
+            <li><code>docs/version-progress-book.html</code></li>
+            <li><code>docs/Ver.0.1.5/docs-rag-management-brief.html</code></li>
+          </ol>
+        </section>
+
+        <section id="done">
+          <h2>완료된 것</h2>
+          <ul>
+            <li>WSL native repo가 실제 작업대가 됐다.</li>
+            <li><code>feat/v.0.1.5</code>에서 Docs/RAG 관리 화면과 직접 실행 안내서를 마감했다.</li>
+            <li><code>feat/v.0.1.6</code> 브랜치를 만들고 demo readiness 계획을 시작했다.</li>
+            <li>앞으로 버전 상승 시 새 브랜치를 먼저 만드는 규칙을 산출물에 고정했다.</li>
+          </ul>
+        </section>
+
+        <section id="goal">
+          <h2>Ver.0.1.6 목표</h2>
+          <table>
+            <tbody>
+              <tr><th>Preflight 자동화</th><td><code>oc login</code>, Docker, RAG DB, Gateway, Console, Lightspeed, ActionExecutor, UI route 상태를 한 번에 점검한다.</td></tr>
+              <tr><th>공식 시나리오</th><td>운영 질문 하나로 상태 확인 -> Evidence/RAG/ToolPlan/Runbook -> 조치 후보까지 이어지는 흐름을 고정한다.</td></tr>
+              <tr><th>Docs/RAG 제품화</th><td>업로드 문서가 실제 답변 근거로 쓰였는지 화면에서 확인 가능하게 만든다.</td></tr>
+              <tr><th>UI 의미 정돈</th><td>헤더 상태칩, 실행 모드칩, Docs 탭, 새 대화 버튼, 전송/정지 버튼의 의미와 형태를 통일한다.</td></tr>
+              <tr><th>시연 책자</th><td>실행 전 점검, 시연 멘트, 실패 시 복구 루트, 말하면 안 되는 내용을 책자에 연결한다.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="safety">
+          <h2>안전 경계</h2>
+          <div class="callout danger">
+            별도 사용자 승인 전까지 회사 OCP/OKD 설치, OLM install, runtime deploy를 실행하지 않는다.
+          </div>
+          <pre><code>task catalog:deploy
+task catalog:release
+task catalog:runtime:apply
+task olm:deploy
+task olm:release
+task olm:install
+task kugnus:install</code></pre>
+        </section>
+
+        <section id="verify">
+          <h2>검증 명령</h2>
+          <pre><code>task kugnus:dev:doctor
+task kugnus:runtime:smoke
+task kugnus:rag:file-upload:smoke
+task kugnus:rag:chat:smoke
+task kugnus:ui:verify</code></pre>
+          <p>로컬 시연 복구:</p>
+          <pre><code>task kugnus:rag:dev:up
+task kugnus:demo:resume</code></pre>
+        </section>
+
+        <section id="failures">
+          <h2>실패 원인 분리</h2>
+          <table>
+            <thead><tr><th>증상</th><th>먼저 볼 원인</th><th>다음 행동</th></tr></thead>
+            <tbody>
+              <tr><td><code>oc login</code> 필요</td><td>토큰 만료, VPN 끊김, 회사 API 접근 불가</td><td><code>oc whoami</code>, 필요 시 재로그인, 반복 시 <code>task kugnus:ocp:doctor</code></td></tr>
+              <tr><td>Docker daemon 연결 불가</td><td>Docker Desktop 미실행 또는 WSL integration 꺼짐</td><td>Docker Desktop 확인 후 WSL에서 <code>docker version</code></td></tr>
+              <tr><td>포트 WARN</td><td>이전 console/webpack/Gateway가 이미 떠 있음</td><td>정상 응답이면 허용, 이상하면 <code>task kugnus:dev:doctor</code>와 로그 확인</td></tr>
+              <tr><td>UI가 안 바뀜</td><td>console bridge와 webpack dev server 불일치</td><td><code>curl -I</code>로 9000/9001 상태 확인</td></tr>
+              <tr><td>RAG 결과 없음</td><td>pgvector 미실행, 업로드 문서 없음, 검색어 불일치</td><td><code>task kugnus:rag:dev:up</code>, <code>task kugnus:rag:file-upload:smoke</code></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="workflow">
+          <h2>작업 방식</h2>
+          <ul>
+            <li>큰 변경 전에는 목표, 완료 조건, 검증 방법, 하지 않을 것을 먼저 잠근다.</li>
+            <li>실패 원인은 실제 단위로 이름 붙인다. 예: <code>manifest mismatch</code>, <code>stale port</code>, <code>auth expired</code>.</li>
+            <li>UI 작업 후에는 <code>task kugnus:ui:verify</code> 또는 해당 route/DOM 검증을 붙인다.</li>
+            <li>새 버전으로 넘어갈 때는 현재 버전 커밋/푸시 후 새 브랜치를 먼저 만든다.</li>
+          </ul>
+        </section>
+
+        <section id="next">
+          <h2>다음 작업</h2>
+          <ol>
+            <li><code>docs/Ver.0.1.6/preflight-contract.md</code> 작성</li>
+            <li><code>scripts/kugnus-demo-preflight.py</code> 또는 <code>.sh</code> 구현</li>
+            <li><code>task kugnus:demo:preflight</code> 추가</li>
+            <li><code>docs/Ver.0.1.6/preflight-report.html/json</code> 생성</li>
+            <li>공식 시연 runbook 작성</li>
+            <li>Docs/RAG 화면과 verifier 보강</li>
+          </ol>
+          <div class="callout">
+            새 Codex에게 첫 지시를 줄 때는 “이 문서를 먼저 읽고, Ver.0.1.6의 첫 작업으로 demo preflight contract와 task를 구현하라”고 말하면 된다.
+          </div>
+        </section>
+      </article>
+    </main>
+  </div>
+</body>
+</html>
