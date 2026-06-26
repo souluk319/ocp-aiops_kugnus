@@ -304,6 +304,58 @@ export type RagUploadedDocument = {
   version?: string;
 };
 
+export type RagSearchResultItem = {
+  content?: string;
+  contentPreview?: string;
+  customer?: string;
+  documentId?: string;
+  evidenceRef?: Record<string, unknown>;
+  id?: string;
+  metadata?: Record<string, unknown>;
+  namespace?: string;
+  score?: number;
+  sourceType?: string;
+  sourceUri?: string;
+  title?: string;
+  version?: string;
+};
+
+export type RagSearchRequest = {
+  filters?: {
+    aclGroups?: string[];
+    customers?: string[];
+    labels?: Record<string, string>;
+    namespaces?: string[];
+    runbookIds?: string[];
+    sourceTypes?: string[];
+    versions?: string[];
+  };
+  includeContent?: boolean;
+  query: string;
+  runId?: string;
+  topK?: number;
+};
+
+export type RagSearchResult = {
+  apiVersion?: string;
+  kind?: 'RagSearchResult' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    evidence?: Record<string, unknown>;
+    filters?: Record<string, unknown>;
+    includeContent?: boolean;
+    query?: string;
+    reason?: string;
+    results: RagSearchResultItem[];
+    safety?: Record<string, unknown>;
+    status: 'collected' | 'empty' | 'not_configured' | 'unavailable' | string;
+    topK?: number;
+  };
+};
+
 export type RagDocumentUploadRequest = {
   aclGroups?: string[];
   content: string;
@@ -530,6 +582,8 @@ const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
 const GATEWAY_RAG_UPLOADS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/uploads';
+const GATEWAY_RAG_SEARCH_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/search';
 const GATEWAY_AUTH_SUBJECT_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/auth/subject';
 const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
@@ -713,6 +767,27 @@ export async function fetchUploadedRagDocuments(): Promise<RagUploadedDocumentLi
   }
 
   return (await response.json()) as RagUploadedDocumentList;
+}
+
+export async function searchRagDocuments(payload: RagSearchRequest): Promise<RagSearchResult> {
+  const response = await consoleFetch(
+    GATEWAY_RAG_SEARCH_URL,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'RAG document search failed'));
+  }
+
+  return (await response.json()) as RagSearchResult;
 }
 
 export async function fetchAuthSubject(): Promise<AuthSubject> {

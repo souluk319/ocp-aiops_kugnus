@@ -422,6 +422,7 @@
           <a class="nav-link" href="#artifact-atlas">산출물 지도</a>
           <a class="nav-link" href="#evidence">근거 파일</a>
           <a class="nav-link" href="#night-handoff-book">야간 인수인계</a>
+          <a class="nav-link" href="#hands-on-runbook">직접 실행 안내서</a>
         </div>
       </nav>
     </aside>
@@ -1466,6 +1467,27 @@
           </div>
         </section>
 
+        <section id="hands-on-runbook">
+          <h2>직접 실행 안내서</h2>
+          <p>
+            재부팅, Docker 재시작, VPN 끊김 이후 사용자가 직접 로컬 시연 환경을 복구할 수 있도록
+            <code>Ver.0.1.5</code> 기준 실행 안내서를 추가했다. 이 안내서는 WSL 네이티브 repo,
+            Docker Desktop WSL integration, <code>oc login</code>, RAG pgvector, 로컬 console bridge,
+            smoke/UI 검증 순서를 한 번에 따라갈 수 있게 정리한다.
+          </p>
+          <table>
+            <tbody>
+              <tr><th>문서 위치</th><td><code>docs/Ver.0.1.5/zero-base-setup-and-reboot-recovery-guide.html</code></td></tr>
+              <tr><th>핵심 실행 경로</th><td><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code> -> <code>task kugnus:rag:dev:up</code> -> <code>task kugnus:demo:resume</code></td></tr>
+              <tr><th>검증 경로</th><td><code>task kugnus:dev:doctor</code>, <code>task kugnus:runtime:smoke</code>, <code>task kugnus:rag:file-upload:smoke</code>, <code>task kugnus:rag:chat:smoke</code>, <code>task kugnus:ui:verify</code></td></tr>
+              <tr><th>보고 경계</th><td>회사 OCP에 제품을 설치한 것이 아니라, 로컬 개발 콘솔에서 회사 OCP/Lightspeed/ActionExecutor/RAG 연결을 검증하는 구조라고 설명한다.</td></tr>
+            </tbody>
+          </table>
+          <div class="source-list">
+            전문: <code>docs/Ver.0.1.5/zero-base-setup-and-reboot-recovery-guide.html</code>
+          </div>
+        </section>
+
         <section id="artifact-atlas">
           <h2>산출물 지도</h2>
           <p>
@@ -1587,6 +1609,7 @@
               <li><code>docs/Ver.0.1.5/README.md</code></li>
               <li><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code></li>
               <li><code>docs/Ver.0.1.5/ui-verifier-report.json</code></li>
+              <li><code>docs/Ver.0.1.5/zero-base-setup-and-reboot-recovery-guide.html</code></li>
             </ul>
           </details>
           <div class="warning">

@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ver.0.1.5 제로베이스 설치와 재부팅 복구 실행 안내서</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #5d6b82;
+      --line: #d8e0ec;
+      --soft: #eef4ff;
+      --good: #12805c;
+      --warn: #b7791f;
+      --bad: #c9190b;
+      --blue: #0066cc;
+      --code: #0f172a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      background: #111827;
+      color: #e5edf9;
+    }
+
+    aside h1 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    aside p {
+      margin: 0 0 22px;
+      color: #aab6c8;
+      font-size: 13px;
+    }
+
+    aside a {
+      display: block;
+      padding: 8px 0;
+      color: #dbeafe;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 14px;
+    }
+
+    main {
+      padding: 36px;
+    }
+
+    article {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 42px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 20px 45px rgba(15, 23, 42, 0.08);
+    }
+
+    h2 {
+      margin: 44px 0 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      font-size: 24px;
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 18px;
+    }
+
+    .hero {
+      padding: 22px 24px;
+      background: linear-gradient(135deg, #eef6ff, #f7fbff);
+      border: 1px solid #c8dcf4;
+      border-radius: 14px;
+    }
+
+    .hero h2 {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin: 4px 6px 4px 0;
+      padding: 4px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pass { color: var(--good); border-color: #b7e4cb; background: #effaf3; }
+    .warn { color: var(--warn); border-color: #f0d6a6; background: #fff8e8; }
+    .stop { color: var(--bad); border-color: #f4c7c3; background: #fff1f0; }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #eef2f7;
+      color: #172033;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border-radius: 12px;
+      background: var(--code);
+      color: #e5edf9;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 26px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      width: 210px;
+      background: #f4f7fb;
+      font-size: 13px;
+      color: #324055;
+    }
+
+    tr:last-child th, tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 14px 16px;
+      border: 1px solid #c8dcf4;
+      border-left: 5px solid var(--blue);
+      border-radius: 12px;
+      background: #f3f8ff;
+    }
+
+    .danger {
+      border-color: #f4c7c3;
+      border-left-color: var(--bad);
+      background: #fff7f6;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfdff;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; height: auto; }
+      main { padding: 18px; }
+      article { padding: 24px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <h1>직접 실행 안내서</h1>
+      <p>Ver.0.1.5 기준. WSL 네이티브 repo에서 로컬 OKD 콘솔과 Cywell AI를 직접 복구하고 검증하는 순서.</p>
+      <a href="#purpose">목적</a>
+      <a href="#mental-model">전체 그림</a>
+      <a href="#one-command-rule">명령 입력 원칙</a>
+      <a href="#zero-base">제로베이스 준비</a>
+      <a href="#reboot">재부팅 후 복구</a>
+      <a href="#manual-run">수동 실행</a>
+      <a href="#verify">검증 순서</a>
+      <a href="#failure-table">실패 원인표</a>
+      <a href="#explain">발표용 설명</a>
+      <a href="#do-not">하지 않을 것</a>
+      <a href="#acceptance">완료 기준</a>
+    </aside>
+
+    <main>
+      <article>
+        <div class="hero">
+          <span class="badge pass">branch feat/v.0.1.5</span>
+          <span class="badge">HEAD 1820e38</span>
+          <span class="badge warn">local demo only</span>
+          <h2>제로베이스 설치와 재부팅 복구 실행 안내서</h2>
+          <p>
+            이 문서는 사용자가 직접 터미널에 입력해서 로컬 개발 콘솔을 복구하고, RAG/챗봇/대시보드 검증까지 갈 수 있게 만든 실행 안내서다.
+            기준 작업대는 Windows 탐색기 경로가 아니라 WSL 네이티브 경로 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>다.
+          </p>
+        </div>
+
+        <section id="purpose">
+          <h2>목적</h2>
+          <table>
+            <tbody>
+              <tr><th>목표</th><td>재부팅, Docker 재시작, VPN 끊김 이후에도 사용자가 스스로 로컬 시연 환경을 다시 띄운다.</td></tr>
+              <tr><th>완료 조건</th><td><code>http://localhost:9000/dashboards</code>에서 Cywell AI 챗봇이 열리고, PDF 업로드 RAG와 RCA 응답 검증이 PASS다.</td></tr>
+              <tr><th>검증 방법</th><td><code>task kugnus:dev:doctor</code>, <code>task kugnus:runtime:smoke</code>, <code>task kugnus:rag:file-upload:smoke</code>, <code>task kugnus:rag:chat:smoke</code>, <code>task kugnus:ui:verify</code>.</td></tr>
+              <tr><th>하지 않을 것</th><td>회사 OCP/OKD 클러스터에 카탈로그 설치, OLM 설치, 런타임 배포를 임의 실행하지 않는다.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="mental-model">
+          <h2>전체 그림</h2>
+          <div class="grid">
+            <div class="card">
+              <strong>WSL Ubuntu</strong>
+              코드, Node/Yarn, Python, Task, Gateway, verifier가 돌아가는 실제 작업대다.
+            </div>
+            <div class="card">
+              <strong>Docker Desktop</strong>
+              로컬 OpenShift console bridge와 pgvector RAG DB가 기대는 컨테이너 실행 기반이다. Windows 앱이지만 WSL integration이 켜져 있어야 한다.
+            </div>
+            <div class="card">
+              <strong>회사 OCP 연결</strong>
+              <code>oc login</code>으로 회사 OCP의 현재 상태와 Lightspeed/ActionExecutor 서비스를 읽고 port-forward한다. 설치 대상이라는 뜻은 아니다.
+            </div>
+            <div class="card">
+              <strong>로컬 콘솔</strong>
+              브라우저의 <code>http://localhost:9000/dashboards</code>에서 OpenShift 콘솔과 Cywell AI plugin을 확인한다.
+            </div>
+          </div>
+          <div class="callout">
+            한 줄로 말하면, <strong>회사의 실제 OCP 상태를 읽어 와서 WSL 로컬 콘솔에서 제품을 개발하고 검증하는 구조</strong>다.
+          </div>
+        </section>
+
+        <section id="one-command-rule">
+          <h2>명령 입력 원칙</h2>
+          <p>헷갈림을 줄이기 위해 명령은 한 번에 하나씩 실행한다. 아래 명령은 모두 <strong>Ubuntu/WSL 터미널</strong>에 입력한다.</p>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></pre>
+          <p>이 경로가 맞는지 먼저 확인한다.</p>
+          <pre><code>pwd
+git status --short --branch
+git log -1 --oneline</code></pre>
+          <div class="callout">
+            정상 기준: <code>pwd</code>가 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>이고, 브랜치는 <code>feat/v.0.1.5</code> 계열이다.
+          </div>
+        </section>
+
+        <section id="zero-base">
+          <h2>제로베이스 준비</h2>
+          <p>아예 새 PC 또는 새 WSL에서 출발한다면 아래 순서로 생각한다. 이미 설치된 것은 재설치하지 않고 version 확인만 해도 된다.</p>
+
+          <h3>1. 필수 도구 확인</h3>
+          <pre><code>python3 --version
+node --version
+corepack --version
+task --version
+oc version --client
+docker version
+rg --version</code></pre>
+          <table>
+            <tbody>
+              <tr><th>Python</th><td>Gateway와 verifier 실행.</td></tr>
+              <tr><th>Node/Corepack/Yarn</th><td>console plugin build와 webpack dev server 실행.</td></tr>
+              <tr><th>Go Task</th><td>repo의 표준 실행 명령 묶음. Ubuntu의 <code>taskwarrior</code>와 다르다.</td></tr>
+              <tr><th>oc</th><td>회사 OCP 상태 조회와 port-forward.</td></tr>
+              <tr><th>Docker</th><td>로컬 console bridge와 pgvector DB 실행.</td></tr>
+              <tr><th>ripgrep rg</th><td>코드와 문서 빠른 검색.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>2. 부족한 apt 도구 설치</h3>
+          <pre><code>sudo apt-get update
+sudo apt-get install -y python3-pip ripgrep gh</code></pre>
+          <p>Node는 현재 이 repo에서 NVM 기반 <code>/home/kugnus/.nvm/versions/node/v24.14.0/bin/node</code>를 정상 기준으로 본다.</p>
+
+          <h3>3. Docker Desktop 확인</h3>
+          <p>Windows Docker Desktop에서 <strong>Settings &gt; Resources &gt; WSL integration</strong>의 Ubuntu 토글이 켜져 있어야 한다.</p>
+          <pre><code>docker version</code></pre>
+          <div class="callout">
+            정상 기준: Client와 Server 정보가 모두 보인다. <code>Cannot connect to the Docker daemon</code>이면 Docker Desktop 또는 WSL integration 문제다.
+          </div>
+
+          <h3>4. OpenShift 로그인</h3>
+          <p>토큰은 웹 콘솔에서 받아서 직접 입력한다. 토큰은 문서나 git에 남기지 않는다.</p>
+          <pre><code>oc login --token=붙여넣은_TOKEN --server=https://api.ocp.cywell.server:6443</code></pre>
+          <pre><code>oc whoami
+oc whoami --show-server</code></pre>
+          <div class="callout">
+            정상 기준: 사용자명이 나오고 서버가 <code>https://api.ocp.cywell.server:6443</code>다.
+          </div>
+
+          <h3>5. RAG pgvector 준비</h3>
+          <p>처음 한 번 또는 Docker 컨테이너가 사라졌을 때 실행한다. 이 명령은 장시간 붙잡고 있지 않고, 컨테이너 준비 후 종료된다.</p>
+          <pre><code>task kugnus:rag:dev:up</code></pre>
+        </section>
+
+        <section id="reboot">
+          <h2>재부팅 후 복구</h2>
+          <p>평소에는 아래 순서만 따르면 된다.</p>
+          <h3>1. Windows에서 Docker Desktop과 VPN 확인</h3>
+          <p>Docker Desktop이 켜져 있고 회사 OCP에 닿아야 하는 VPN/네트워크가 살아 있어야 한다.</p>
+
+          <h3>2. WSL repo로 이동</h3>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></pre>
+
+          <h3>3. oc 로그인 확인</h3>
+          <pre><code>oc whoami
+oc whoami --show-server</code></pre>
+          <p>Unauthorized가 나오면 다시 로그인한다.</p>
+
+          <h3>4. RAG DB 준비</h3>
+          <pre><code>task kugnus:rag:dev:up</code></pre>
+
+          <h3>5. 로컬 시연 스택 복구</h3>
+          <pre><code>task kugnus:demo:resume</code></pre>
+          <p>
+            이 명령은 Lightspeed port-forward, ActionExecutor port-forward, Gateway, console bridge를 가능한 한 복구하고 smoke 검증까지 이어간다.
+            이미 떠 있는 포트가 정상 응답하면 그대로 재사용한다.
+          </p>
+          <div class="callout">
+            엄격한 Lightspeed 최종 응답 게이트만 잠깐 분리하고 싶을 때는 아래처럼 실행한다.
+          </div>
+          <pre><code>KUGNUS_RESUME_RUN_STRICT_GATE=false task kugnus:demo:resume</code></pre>
+        </section>
+
+        <section id="manual-run">
+          <h2>수동 실행</h2>
+          <p><code>demo:resume</code>이 아니라 직접 켜고 싶을 때만 쓴다. 터미널을 나눠서 실행한다.</p>
+
+          <h3>터미널 A: Gateway</h3>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:rag:dev:up
+task kugnus:dev:be:execute:rag</code></pre>
+          <p>이 터미널은 Gateway 서버가 떠 있는 동안 계속 붙잡혀 있는 것이 정상이다.</p>
+
+          <h3>터미널 B: local console bridge</h3>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:dev:fe</code></pre>
+          <p>이 터미널도 console bridge가 떠 있는 동안 계속 붙잡혀 있는 것이 정상이다.</p>
+
+          <h3>브라우저</h3>
+          <pre><code>http://localhost:9000/dashboards</code></pre>
+        </section>
+
+        <section id="verify">
+          <h2>검증 순서</h2>
+          <p>“됐다”라고 말하기 전에 아래를 순서대로 본다.</p>
+          <pre><code>task kugnus:dev:doctor</code></pre>
+          <pre><code>task kugnus:runtime:smoke</code></pre>
+          <pre><code>task kugnus:rag:file-upload:smoke</code></pre>
+          <pre><code>task kugnus:rag:chat:smoke</code></pre>
+          <pre><code>task kugnus:ui:verify</code></pre>
+          <table>
+            <tbody>
+              <tr><th>doctor</th><td>WSL, toolchain, oc, Docker, ports, Gateway, console 상태를 층별로 본다. WARN은 이미 떠 있는 서비스 때문에 나올 수 있다.</td></tr>
+              <tr><th>runtime smoke</th><td>Gateway health, auth subject, cluster summary, overview, runbook, RAG contract HTTP 200 확인.</td></tr>
+              <tr><th>file upload smoke</th><td>PDF multipart 업로드, parser, chunk, pgvector 저장 확인.</td></tr>
+              <tr><th>chat smoke</th><td>채팅 SSE에서 RAG evidence와 citation text가 응답에 붙는지 확인.</td></tr>
+              <tr><th>UI verify</th><td>브라우저 UI에서 챗봇, 토글, 사이드바, Docs 탭, RCA rail, composer가 계약대로 동작하는지 확인.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="failure-table">
+          <h2>실패 원인표</h2>
+          <table>
+            <thead>
+              <tr><th>증상</th><th>먼저 볼 원인</th><th>다음 행동</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>oc login</code> 필요</td><td>토큰 만료, VPN 끊김, 회사 API 접근 불가</td><td><code>oc whoami</code> 확인 후 다시 로그인. 반복되면 <code>task kugnus:ocp:doctor</code>.</td></tr>
+              <tr><td>Docker daemon 연결 불가</td><td>Docker Desktop 미실행 또는 WSL integration 꺼짐</td><td>Docker Desktop 실행, Ubuntu integration 확인 후 WSL에서 <code>docker version</code>.</td></tr>
+              <tr><td>9000/9001/18080 포트 WARN</td><td>이전 console, webpack, Gateway가 이미 떠 있음</td><td>정상 응답이면 문제 아님. 비정상 포트 점유면 <code>task kugnus:dev:doctor</code> 출력과 <code>.tmp-kugnus-demo/*.log</code> 확인.</td></tr>
+              <tr><td>브라우저 404 또는 UI 안 바뀜</td><td>console bridge와 webpack dev server 상태 불일치</td><td><code>curl -I http://127.0.0.1:9000/dashboards</code>, <code>curl -I http://127.0.0.1:9001/plugin-manifest.json</code> 확인.</td></tr>
+              <tr><td>RAG 검색 결과 없음</td><td>pgvector 컨테이너 미실행, 업로드 문서 없음, 검색어와 chunk 불일치</td><td><code>task kugnus:rag:dev:up</code> 후 <code>task kugnus:rag:file-upload:smoke</code> 재실행.</td></tr>
+              <tr><td>직접 Gateway API 401</td><td>console proxy/UserToken 경로가 아닌 직접 호출</td><td>브라우저 plugin 경로 또는 smoke task로 검증한다. 401 자체가 항상 장애는 아니다.</td></tr>
+              <tr><td>Lightspeed stream 실패</td><td>OLS port-forward, 인증, 서비스 상태, 네트워크 문제</td><td>fallback 성공과 OLS 최종 성공을 섞어 말하지 않는다. <code>task kugnus:lightspeed:live-verify</code>와 strict audit로 판정한다.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="explain">
+          <h2>발표용 설명</h2>
+          <div class="callout">
+            “이 프로젝트는 회사 OCP에 바로 설치한 것이 아니라, WSL 로컬에서 OpenShift console dynamic plugin과 Gateway를 띄워 회사 OCP/Lightspeed/ActionExecutor/RAG를 연결 검증하는 구조입니다.”
+          </div>
+          <ul>
+            <li>Frontend는 OpenShift Console dynamic plugin으로 올라가며 로컬 console bridge <code>localhost:9000</code>에서 확인한다.</li>
+            <li>Gateway는 <code>localhost:18080</code>에서 OCP 상태, Lightspeed, ActionExecutor, RAG 저장소를 하나의 AIOps API처럼 정리한다.</li>
+            <li>RAG는 PBS 업로드 파이프라인의 핵심 아이디어를 가져오되, 현재 제품에는 PDF/Office parser 경계와 pgvector 저장/검색 계약만 선별 이식했다.</li>
+            <li>Docs 화면은 원문 전체 노출 뷰어가 아니라, 적재 문서와 redacted chunk preview를 통해 “RAG에 들어갔는지”를 확인하는 운영 화면이다.</li>
+            <li>현재 시연 범위는 로컬 개발 콘솔에서의 관측, RAG 업로드, RCA 응답, UI 검증이다.</li>
+          </ul>
+        </section>
+
+        <section id="do-not">
+          <h2>하지 않을 것</h2>
+          <div class="callout danger">
+            아래 명령은 별도 승인 전까지 실행하지 않는다. 현재 기본 시연은 로컬 개발 콘솔 기준이다.
+          </div>
+          <pre><code>task catalog:deploy
+task catalog:release
+task catalog:runtime:apply
+task olm:deploy
+task olm:release
+task olm:install
+task kugnus:install</code></pre>
+          <p>또한 <code>.env</code>, token, kubeconfig, password, 인증정보는 읽거나 커밋하지 않는다.</p>
+        </section>
+
+        <section id="acceptance">
+          <h2>완료 기준</h2>
+          <table>
+            <thead>
+              <tr><th>항목</th><th>PASS 기준</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>작업대</td><td><code>pwd</code>가 WSL 네이티브 repo이고 <code>git status --short --branch</code>가 의도한 브랜치를 보여준다.</td></tr>
+              <tr><td>도구</td><td><code>task kugnus:dev:doctor</code>에서 FAIL=0. 포트 WARN은 정상 서비스가 이미 떠 있으면 허용한다.</td></tr>
+              <tr><td>로컬 콘솔</td><td><code>http://localhost:9000/dashboards</code> HTTP 200, 챗봇 토글 표시.</td></tr>
+              <tr><td>RAG</td><td><code>task kugnus:rag:file-upload:smoke</code>와 <code>task kugnus:rag:chat:smoke</code> PASS.</td></tr>
+              <tr><td>UI</td><td><code>task kugnus:ui:verify</code> 결과 <code>ok=true</code>, <code>failed=[]</code>.</td></tr>
+              <tr><td>보고 경계</td><td>회사 OCP에 설치했다고 말하지 않고, 로컬 개발 콘솔에서 연결 검증했다고 설명한다.</td></tr>
+            </tbody>
+          </table>
+        </section>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ver.0.1.5 Docs/RAG Management Brief</title>
+  <style>
+    body {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 40px 28px 64px;
+      color: #151515;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+      background: #f7f9fb;
+    }
+    main {
+      padding: 32px;
+      background: #fff;
+      border: 1px solid #d8dee4;
+      border-radius: 10px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      line-height: 1.25;
+    }
+    h2 {
+      margin-top: 30px;
+      padding-top: 22px;
+      font-size: 21px;
+      border-top: 1px solid #d8dee4;
+    }
+    p, li {
+      font-size: 15px;
+    }
+    code {
+      padding: 2px 5px;
+      background: #f1f4f8;
+      border: 1px solid #d8dee4;
+      border-radius: 5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      background: #fff;
+    }
+    th, td {
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      border: 1px solid #d8dee4;
+    }
+    th {
+      background: #f1f4f8;
+    }
+    .meta {
+      color: #667085;
+      font-size: 14px;
+    }
+    .callout {
+      padding: 12px 14px;
+      background: #eef6ff;
+      border: 1px solid #8bc1f7;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Ver.0.1.5 Docs/RAG Management Brief</h1>
+  <p class="meta">Branch: <code>feat/v.0.1.5</code> · Scope: local console plugin UI and Gateway RAG API integration · No OCP/OKD install</p>
+
+  <section>
+    <h2>현재 판단</h2>
+    <p>
+      PBS의 업로드 문서 뷰어 아이디어는 제품 관점에서 맞다. 다만 챗봇 좌측 히스토리 패널 안에
+      전체 뷰어를 넣으면 대화 UI가 무거워지고, RAG 적재 상태를 설명하기도 어렵다.
+      따라서 업로드 문서는 OpenShift 콘솔 좌측 메뉴의 <code>Cywell AI &gt; Docs</code> 정식 화면에서 관리한다.
+    </p>
+    <p class="callout">
+      이번 목표는 "예쁜 파일 뷰어"가 아니라 "업로드 문서가 실제로 RAG 검색 가능한 근거로 적재됐는지 확인 가능한 화면"이다.
+    </p>
+  </section>
+
+  <section>
+    <h2>PBS에서 가져온 것과 바꾼 것</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>구분</th>
+          <th>PBS 구조</th>
+          <th>우리 Ver.0.1.5 적용</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>문서 위치</td>
+          <td>업로드 문서 reader/popover 중심</td>
+          <td><code>Cywell AI &gt; Docs</code> 정식 메뉴 화면으로 분리</td>
+        </tr>
+        <tr>
+          <td>뷰어</td>
+          <td><code>/uploads/documents/{id}/index.html</code> 같은 viewer artifact를 열람</td>
+          <td>현재는 raw 원문 뷰어가 아니라 Gateway가 반환한 redacted RAG chunk preview 표시</td>
+        </tr>
+        <tr>
+          <td>RAG 검증</td>
+          <td>업로드 문서를 보여주는 경험이 강함</td>
+          <td>선택 문서를 <code>/v1/rag/search</code>로 다시 조회해 검색 가능성을 확인</td>
+        </tr>
+        <tr>
+          <td>운영 안전</td>
+          <td>문서 열람 중심</td>
+          <td>raw content는 기본 숨김, preview는 redaction 후 표시</td>
+        </tr>
+        <tr>
+          <td>상태 설명</td>
+          <td>뷰어 성공 여부 중심</td>
+          <td>문서 수, chunk 수, 저장 크기, checksum, ACL, preview status를 함께 표시</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>구현 범위</h2>
+    <ul>
+      <li>콘솔 좌측 메뉴에 <code>Cywell AI &gt; Docs</code> 추가</li>
+      <li>동적 플러그인 route <code>/aiops-kugnus/docs</code> 추가</li>
+      <li>업로드 파일 선택, 목록 새로고침, 업로드 문서 목록 표시</li>
+      <li>선택 문서의 metadata, chunk count, size, checksum, ACL 표시</li>
+      <li>선택 문서를 RAG search로 재조회해 redacted chunk preview 표시</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>아직 하지 않은 것</h2>
+    <ul>
+      <li>PBS 수준의 HTML/PDF full viewer artifact 생성은 아직 하지 않았다.</li>
+      <li>원문 전체 파일을 그대로 노출하지 않는다. 현재 화면은 redacted chunk preview만 보여준다.</li>
+      <li>OKD/OCP 설치나 catalog 등록은 하지 않았다.</li>
+      <li>청킹 알고리즘 자체를 고도화하지는 않았다. 이번 단계는 관리 화면과 검색 검증 연결이다.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>다음 개선 후보</h2>
+    <ul>
+      <li>viewer artifact contract 추가: <code>viewerPath</code>, <code>pageCount</code>, <code>renderStatus</code></li>
+      <li>chunk strategy 개선: heading-aware chunk, table-preserving chunk, page number metadata</li>
+      <li>업로드 후 재색인 버튼과 ingestion report 상세 화면</li>
+      <li>문서별 검색 테스트 패널: query 입력 후 어떤 chunk가 근거로 잡히는지 확인</li>
+      <li>PDF 원문 뷰어와 redacted RAG chunk preview를 나란히 비교하는 split view</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>검증 결과</h2>
+    <ul>
+      <li><code>corepack yarn build</code>: pass</li>
+      <li><code>plugin-manifest.json</code>에 <code>AiopsDocsPage</code> 포함: pass</li>
+      <li><code>plugin-manifest.json</code>에 <code>/aiops-kugnus/docs</code> route 포함: pass</li>
+      <li><code>task kugnus:ui:verify</code>: pass, stdout 기준 <code>ok=true</code>, <code>checked=108</code>, <code>failed=[]</code></li>
+      <li>기존 K quick toggle 스크롤 검증과 RCA Context rail evidence counter 검증도 함께 통과했다.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

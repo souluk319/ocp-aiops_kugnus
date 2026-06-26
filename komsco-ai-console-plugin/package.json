@@ -81,6 +81,7 @@
     "exposedModules": {
       "AiopsAuditPage": "./pages/AiopsAuditPage",
       "AiopsDashboardPage": "./pages/AiopsDashboardPage",
+      "AiopsDocsPage": "./pages/AiopsDocsPage",
       "AiopsExecutionRecordsPage": "./pages/AiopsExecutionRecordsPage",
       "AiopsPolicyPage": "./pages/AiopsPolicyPage",
       "NullContextProvider": "./components/NullContextProvider",

@@ -85,3 +85,8 @@ PBS 로컬 프로젝트 `OCPOps-PBS-Dev-v2`를 확인한 결과, 업로드 RAG�
 1. 실제 PDF를 첨부해 `spec.ingestionReport.parser=pypdf`와 업로드 문서 목록 반영을 확인한다.
 2. 스캔 PDF가 필요한 경우 OCR/parser chain을 별도 stage로 추가한다.
 3. RAG 검색 결과에서 사용자 업로드 문서가 질문 답변 근거로 쓰이는지 화면 시나리오로 검증한다.
+
+## 실행 안내서
+
+- `zero-base-setup-and-reboot-recovery-guide.html`
+  - WSL 네이티브 repo 기준 제로베이스 설치, 재부팅 후 복구, 수동 실행, RAG/챗봇/UI 검증 순서를 사용자가 직접 따라갈 수 있게 정리한 HTML 안내서다.

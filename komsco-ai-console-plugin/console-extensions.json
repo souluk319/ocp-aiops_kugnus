@@ -32,6 +32,17 @@
   {
     "type": "console.navigation/href",
     "properties": {
+      "id": "komsco-aiops-kugnus-docs",
+      "perspective": "admin",
+      "section": "komsco-aiops-kugnus",
+      "name": "Docs",
+      "href": "/aiops-kugnus/docs",
+      "startsWith": ["/aiops-kugnus/docs"]
+    }
+  },
+  {
+    "type": "console.navigation/href",
+    "properties": {
       "id": "komsco-aiops-kugnus-executions",
       "perspective": "admin",
       "section": "komsco-aiops-kugnus",
@@ -67,6 +78,15 @@
       "exact": true,
       "perspective": "admin",
       "component": { "$codeRef": "AiopsAuditPage" }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "path": "/aiops-kugnus/docs",
+      "exact": true,
+      "perspective": "admin",
+      "component": { "$codeRef": "AiopsDocsPage" }
     }
   },
   {

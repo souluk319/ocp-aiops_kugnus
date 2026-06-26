@@ -901,6 +901,27 @@ const buildEvidenceFooter = (
   };
 };
 
+const rcaRailEvidenceCounts = (status: AiopsRuntimeStatus | null | undefined) => {
+  const safetyContract = status?.spec.safetyContract;
+  const statusCounts = evidenceStatusCounts(safetyContract?.evidenceStatus);
+  const contextRecord = asRecord(safetyContract?.rcaContextStatus?.latestContext);
+  const evidence = asRecord(contextRecord.evidence);
+  const summary = asRecord(evidence.summary);
+  const collectedRefs = asRecordArray(evidence.collectedRefs);
+  const missing = asRecordArray(evidence.missing);
+
+  return {
+    collected: Math.max(
+      statusCounts.collected,
+      evidenceCount(summary.collectedCount, statusCounts.collected, collectedRefs.length),
+    ),
+    missing: Math.max(
+      statusCounts.missing,
+      evidenceCount(summary.missingCount, statusCounts.missing, missing.length),
+    ),
+  };
+};
+
 const attachEvidenceFooterToLastAssistant = (
   messages: Message[],
   evidenceFooter: EvidenceFooter | undefined,
@@ -2989,19 +3010,11 @@ const renderInsightRail = (
       </div>
       <div className="komsco-ai__scope-list">
         {renderStatusTag(
-          `Collected ${
-            aiopsStatus?.spec.safetyContract?.evidenceStatus
-              ?.filter((item) => item.status === 'collected')
-              .reduce((total, item) => total + item.count, 0) ?? 0
-          }`,
+          `Collected ${rcaRailEvidenceCounts(aiopsStatus).collected}`,
           'ok',
         )}
         {renderStatusTag(
-          `Missing ${
-            aiopsStatus?.spec.safetyContract?.evidenceStatus
-              ?.filter((item) => item.status === 'missing')
-              .length ?? 0
-          }`,
+          `Missing ${rcaRailEvidenceCounts(aiopsStatus).missing}`,
           'warn',
         )}
       </div>

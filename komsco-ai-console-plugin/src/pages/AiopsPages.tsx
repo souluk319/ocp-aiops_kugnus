@@ -23,9 +23,14 @@ import {
   type AiopsRecord,
   type AiopsRuntimeStatus,
   type ClusterSummary,
+  type RagSearchResultItem,
+  type RagUploadedDocument,
   fetchAiopsOverview,
   fetchAiopsStatus,
   fetchClusterSummary,
+  fetchUploadedRagDocuments,
+  searchRagDocuments,
+  uploadRagDocumentFile,
 } from '../services/aiGateway';
 import AssistantLauncher from '../components/AssistantLauncher';
 import { safeEvidenceText } from '../utils/evidenceDisplay';
@@ -98,6 +103,34 @@ const compactDigest = (value?: string): string => {
 
   return value.length > 28 ? `${value.slice(0, 24)}...` : value;
 };
+
+const DOCS_UPLOAD_ACCEPT = [
+  '.pdf',
+  '.docx',
+  '.pptx',
+  '.xlsx',
+  '.txt',
+  '.md',
+  '.markdown',
+  '.json',
+  '.yaml',
+  '.yml',
+  '.log',
+].join(',');
+
+const formatBytes = (value?: number): string => {
+  const size = typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const uploadedDocumentQuery = (document: RagUploadedDocument): string =>
+  [document.title, document.sourceUri, document.documentId].filter(Boolean).join(' ');
 
 const clampScore = (value?: number): number => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -1147,9 +1180,41 @@ export const AiopsDashboardPage: React.FC = () => {
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
   const controlTower = data.overview?.spec.controlTower;
   const focusAssistant = React.useCallback(() => {
-    assistantStageRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' });
+    const stage = assistantStageRef.current;
+    if (!stage) {
+      return;
+    }
+
+    const alignStage = () => {
+      const rect = stage.getBoundingClientRect();
+      if (rect.top >= 0 && rect.top < window.innerHeight * 0.72) {
+        return;
+      }
+
+      window.scrollTo({
+        behavior: 'auto',
+        top: rect.top + window.scrollY - 96,
+      });
+
+      let parent = stage.parentElement;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        const scrollable =
+          /(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight;
+        if (scrollable) {
+          const parentRect = parent.getBoundingClientRect();
+          const nextRect = stage.getBoundingClientRect();
+          parent.scrollTop += nextRect.top - parentRect.top - 72;
+        }
+        parent = parent.parentElement;
+      }
+    };
+
+    stage.scrollIntoView({ behavior: 'auto', block: 'center' });
+    alignStage();
+    window.requestAnimationFrame(alignStage);
     window.setTimeout(() => {
-      assistantStageRef.current
+      stage
         ?.querySelector<HTMLElement>('.komsco-ai__input textarea, .komsco-ai__input')
         ?.focus();
     }, 250);
@@ -1326,6 +1391,302 @@ export const AiopsDashboardPage: React.FC = () => {
           />
         </section>
       </div>
+    </PageShell>
+  );
+};
+
+export const AiopsDocsPage: React.FC = () => {
+  const data = useAiopsPageData();
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [documents, setDocuments] = React.useState<RagUploadedDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = React.useState(true);
+  const [documentsError, setDocumentsError] = React.useState('');
+  const [selectedDocumentId, setSelectedDocumentId] = React.useState('');
+  const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [previewError, setPreviewError] = React.useState('');
+  const [previewReason, setPreviewReason] = React.useState('');
+  const [previewStatus, setPreviewStatus] = React.useState('idle');
+  const [previewResults, setPreviewResults] = React.useState<RagSearchResultItem[]>([]);
+  const [uploading, setUploading] = React.useState(false);
+  const [uploadMessage, setUploadMessage] = React.useState('');
+
+  const selectedDocument = React.useMemo(
+    () => documents.find((document) => document.documentId === selectedDocumentId) || documents[0] || null,
+    [documents, selectedDocumentId],
+  );
+
+  const loadDocuments = React.useCallback(async () => {
+    setDocumentsLoading(true);
+    setDocumentsError('');
+    try {
+      const payload = await fetchUploadedRagDocuments();
+      const nextDocuments = payload.spec.documents ?? [];
+      setDocuments(nextDocuments);
+      setSelectedDocumentId((current) => {
+        if (current && nextDocuments.some((document) => document.documentId === current)) {
+          return current;
+        }
+        return nextDocuments[0]?.documentId ?? '';
+      });
+    } catch (error) {
+      setDocumentsError(error instanceof Error ? error.message : '업로드 문서 목록을 불러오지 못했습니다.');
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void loadDocuments();
+  }, [loadDocuments]);
+
+  React.useEffect(() => {
+    if (!selectedDocument) {
+      setPreviewStatus('idle');
+      setPreviewReason('');
+      setPreviewResults([]);
+      setPreviewError('');
+      setPreviewLoading(false);
+      return undefined;
+    }
+
+    let disposed = false;
+    setPreviewLoading(true);
+    setPreviewError('');
+    void searchRagDocuments({
+      filters: {
+        runbookIds: [selectedDocument.documentId],
+      },
+      includeContent: true,
+      query: uploadedDocumentQuery(selectedDocument),
+      topK: 8,
+    })
+      .then((payload) => {
+        if (disposed) {
+          return;
+        }
+        setPreviewStatus(payload.spec.status);
+        setPreviewReason(payload.spec.reason ?? '');
+        setPreviewResults(payload.spec.results ?? []);
+      })
+      .catch((error) => {
+        if (disposed) {
+          return;
+        }
+        setPreviewStatus('error');
+        setPreviewReason('');
+        setPreviewResults([]);
+        setPreviewError(error instanceof Error ? error.message : 'RAG 적재 preview를 불러오지 못했습니다.');
+      })
+      .finally(() => {
+        if (!disposed) {
+          setPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [selectedDocument]);
+
+  const handleUploadChange = React.useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.currentTarget.files ?? []);
+      event.currentTarget.value = '';
+      if (files.length === 0) {
+        return;
+      }
+
+      setUploading(true);
+      setUploadMessage('');
+      try {
+        const uploaded = await Promise.all(
+          files.map((file) =>
+            uploadRagDocumentFile(file, {
+              labels: { source: 'docs-page', version: 'v0.1.5' },
+              namespace: 'komsco-ai-kugnus',
+              sourceType: 'user-upload',
+              version: 'v0.1.5',
+            }),
+          ),
+        );
+        const firstDocumentId = uploaded[0]?.spec.document.documentId ?? '';
+        setUploadMessage(`${uploaded.length}개 문서를 RAG 저장소에 등록했습니다.`);
+        await loadDocuments();
+        if (firstDocumentId) {
+          setSelectedDocumentId(firstDocumentId);
+        }
+      } catch (error) {
+        setUploadMessage(error instanceof Error ? error.message : '문서 업로드에 실패했습니다.');
+      } finally {
+        setUploading(false);
+      }
+    },
+    [loadDocuments],
+  );
+
+  const totalChunks = documents.reduce((total, document) => total + (document.chunkCount ?? 0), 0);
+  const totalBytes = documents.reduce((total, document) => total + (document.contentBytes ?? 0), 0);
+
+  return (
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="Docs">
+      <section className="komsco-ai-page__docs-hero">
+        <div>
+          <span className="komsco-ai-page__section-kicker">User upload RAG</span>
+          <h2>업로드 문서 관리</h2>
+          <p>
+            챗봇과 Docs 화면에서 업로드한 문서가 pgvector RAG 저장소에 적재됐는지 확인하고,
+            검색 가능한 chunk preview를 검토합니다.
+          </p>
+        </div>
+        <div className="komsco-ai-page__docs-actions">
+          <input
+            accept={DOCS_UPLOAD_ACCEPT}
+            className="komsco-ai-page__docs-file-input"
+            multiple
+            onChange={handleUploadChange}
+            ref={fileInputRef}
+            type="file"
+          />
+          <Button isDisabled={uploading} onClick={() => fileInputRef.current?.click()} variant="primary">
+            {uploading ? '업로드 중' : '문서 업로드'}
+          </Button>
+          <Button isDisabled={documentsLoading} onClick={() => void loadDocuments()} variant="secondary">
+            목록 새로고침
+          </Button>
+        </div>
+      </section>
+
+      {uploadMessage && <div className="komsco-ai-page__docs-notice">{uploadMessage}</div>}
+      {documentsError && <div className="komsco-ai-page__error">{documentsError}</div>}
+
+      <div className="komsco-ai-page__metrics">
+        <MetricTile
+          detail="visible to current OpenShift subject"
+          icon={<ClipboardCheckIcon />}
+          label="Documents"
+          tone={documents.length > 0 ? 'success' : 'warning'}
+          value={documentsLoading ? '...' : documents.length}
+        />
+        <MetricTile
+          detail="retrievable RAG chunks"
+          icon={<ProjectDiagramIcon />}
+          label="Chunks"
+          tone={totalChunks > 0 ? 'success' : 'warning'}
+          value={documentsLoading ? '...' : totalChunks}
+        />
+        <MetricTile
+          detail="redacted preview only"
+          icon={<ShieldAltIcon />}
+          label="Raw content"
+          tone="success"
+          value="HIDDEN"
+        />
+        <MetricTile
+          detail="stored content size"
+          icon={<ServerIcon />}
+          label="Size"
+          tone={totalBytes > 0 ? 'info' : 'warning'}
+          value={formatBytes(totalBytes)}
+        />
+      </div>
+
+      <section className="komsco-ai-page__docs-layout">
+        <div className="komsco-ai-page__panel komsco-ai-page__docs-list-panel">
+          <div className="komsco-ai-page__panel-heading">
+            <ClipboardCheckIcon />
+            <h2>업로드 목록</h2>
+          </div>
+          {documentsLoading && documents.length === 0 ? (
+            <EmptyState label="업로드 문서를 확인하는 중입니다." />
+          ) : documents.length === 0 ? (
+            <EmptyState label="아직 업로드된 문서가 없습니다." />
+          ) : (
+            <div className="komsco-ai-page__docs-list">
+              {documents.map((document) => (
+                <button
+                  className={`komsco-ai-page__docs-item${
+                    selectedDocument?.documentId === document.documentId ? ' komsco-ai-page__docs-item--active' : ''
+                  }`}
+                  key={document.documentId}
+                  onClick={() => setSelectedDocumentId(document.documentId)}
+                  type="button"
+                >
+                  <strong>{document.title}</strong>
+                  <span>{document.sourceUri || document.documentId}</span>
+                  <small>
+                    {(document.chunkCount ?? 0)} chunks · {formatBytes(document.contentBytes)} ·{' '}
+                    {formatTime(document.updatedAt || document.ingestedAt)}
+                  </small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="komsco-ai-page__panel komsco-ai-page__docs-viewer">
+          <div className="komsco-ai-page__panel-heading">
+            <ProjectDiagramIcon />
+            <h2>적재 문서 뷰어</h2>
+          </div>
+          {!selectedDocument ? (
+            <EmptyState label="문서를 선택하면 RAG 적재 상태가 표시됩니다." />
+          ) : (
+            <>
+              <div className="komsco-ai-page__docs-detail">
+                <div>
+                  <span>문서명</span>
+                  <strong>{selectedDocument.title}</strong>
+                </div>
+                <div>
+                  <span>Document ID</span>
+                  <strong>{selectedDocument.documentId}</strong>
+                </div>
+                <div>
+                  <span>형식</span>
+                  <strong>{selectedDocument.mimeType || selectedDocument.sourceType || '-'}</strong>
+                </div>
+                <div>
+                  <span>Checksum</span>
+                  <strong>{compactDigest(selectedDocument.checksum)}</strong>
+                </div>
+                <div>
+                  <span>권한</span>
+                  <strong>{(selectedDocument.aclGroups ?? []).slice(0, 3).join(', ') || 'current user scope'}</strong>
+                </div>
+                <div>
+                  <span>상태</span>
+                  <strong>{previewLoading ? 'checking' : previewStatus}</strong>
+                </div>
+              </div>
+
+              <div className="komsco-ai-page__docs-safety">
+                원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 redacted RAG chunk preview만 표시합니다.
+              </div>
+
+              {previewLoading ? (
+                <EmptyState label="적재 chunk를 확인하는 중입니다." />
+              ) : previewError ? (
+                <div className="komsco-ai-page__error">{previewError}</div>
+              ) : previewResults.length === 0 ? (
+                <EmptyState label={previewReason || '검색 가능한 적재 chunk가 아직 확인되지 않았습니다.'} />
+              ) : (
+                <div className="komsco-ai-page__docs-preview-list">
+                  {previewResults.map((result, index) => (
+                    <article className="komsco-ai-page__docs-preview" key={result.id || `${result.documentId}-${index}`}>
+                      <div className="komsco-ai-page__docs-preview-head">
+                        <strong>{result.title || selectedDocument.title}</strong>
+                        <span>score {typeof result.score === 'number' ? result.score.toFixed(3) : '-'}</span>
+                      </div>
+                      <p>{safeEvidenceText(result.content || result.contentPreview || 'preview 없음')}</p>
+                      <small>{result.sourceUri || result.id || result.documentId}</small>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
     </PageShell>
   );
 };

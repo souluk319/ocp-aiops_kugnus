@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-25T13:11:14.106230+00:00",
+  "generatedAt": "2026-06-26T05:28:33.402357+00:00",
   "gatewayUrl": "http://127.0.0.1:18080",
   "result": "pass",
   "documentId": "user-upload:3810dda0e9274460",
@@ -39,12 +39,12 @@
     {
       "name": "list-includes-upload",
       "ok": true,
-      "detail": "listCount=1"
+      "detail": "listCount=3"
     },
     {
       "name": "search-finds-upload",
       "ok": true,
-      "detail": "searchStatus=collected resultCount=1"
+      "detail": "searchStatus=collected resultCount=5"
     }
   ],
   "summaries": {
@@ -55,11 +55,11 @@
     },
     "list": {
       "status": "collected",
-      "count": 1
+      "count": 3
     },
     "search": {
       "status": "collected",
-      "count": 1
+      "count": 5
     }
   }
 }
