@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-26T01:32:24.461461Z",
+  "generatedAt": "2026-06-26T01:40:18.811411Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "5049695cb89bd33c2e9ade8639a3b032a017e084",
+  "headSha": "0ee111e0118df760f91f98b9e646acd39d7adfa0",
   "gateway": "http://127.0.0.1:18080",
   "allSucceeded": false,
   "cases": [
@@ -105,7 +105,7 @@
         "answerLength": 0,
         "answerPreviews": [],
         "doneReceived": true,
-        "durationMs": 5008,
+        "durationMs": 5009,
         "eventCounts": {
           "run_status": 2,
           "tool_call": 3,
