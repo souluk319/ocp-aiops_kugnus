@@ -12,6 +12,7 @@ import time
 import uuid
 import zipfile
 from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
@@ -61,7 +62,14 @@ from .security import (
     safe_subject,
 )
 
-app = FastAPI(title="KOMSCO AI Gateway", version="0.1.5")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    await load_record_store()
+    yield
+
+
+app = FastAPI(title="KOMSCO AI Gateway", version="0.1.5", lifespan=lifespan)
 
 
 def parse_bool(value: str | None, *, default: bool = False) -> bool:
@@ -916,11 +924,6 @@ async def bounded_put_record(
     store, limit, _data_key = RECORD_STORES[store_name]
     bounded_put(store, key, value, limit)
     await persist_record_store(store_name)
-
-
-@app.on_event("startup")
-async def startup_load_record_store() -> None:
-    await load_record_store()
 
 
 def enforce_rate_limit(user_auth_header: str) -> None:
