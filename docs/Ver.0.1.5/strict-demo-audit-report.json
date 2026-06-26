@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "StrictDemoAuditReport",
-  "generatedAt": "2026-06-26T03:27:12.101715Z",
+  "generatedAt": "2026-06-26T03:28:23.233761Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "58a36661479f45c62b85e7e2453aad7d1152172c",
+  "headSha": "e9526bf224b18fd4ca25fb55807b32074188de8d",
   "localRcaReady": true,
   "strictLightspeedReady": false,
   "successClaimAllowed": false,
