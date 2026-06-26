@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-06-26T02:41:14.838817Z",
+  "generatedAt": "2026-06-26T02:52:32.886282Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "aaf818ec100c14f247695e2d1b6797730c658ffd",
+  "headSha": "046f8708949095bc7cb59beee8a8c6774fe2ce08",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
   "timeoutSeconds": 12,
@@ -13,20 +13,20 @@
     "message": "TCP 6443 connection failed"
   },
   "interpretation": {
-    "likelyCause": "wsl_vpn_private_route_missing_or_stale",
+    "likelyCause": "windows_host_private_route_missing_or_vpn_disconnected",
     "confidence": "high",
-    "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. That means name resolution is not the blocker; the live network path from WSL to the private OCP API is. If the route leaves through WSL eth0, the next practical check is whether the Windows VPN route is being propagated into WSL.",
+    "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out and Windows route print shows no active route for that target. The next practical check is the Windows-side VPN/private route, before WSL or Gateway code.",
     "nextActions": [
-      "Verify that the Windows-side VPN/private network that owns the OCP route is connected.",
-      "After VPN changes, restart or reopen WSL if it did not inherit the private route.",
+      "Verify the Windows-side VPN/private network is connected and owns a route to the OCP private IP.",
+      "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
       "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
       "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
     ],
     "notCodeBlocker": true,
     "importantDistinctions": [
-      "DNS PASS does not mean TCP route PASS.",
-      "oc whoami --show-server can PASS by reading kubeconfig even when the API is unreachable.",
-      "A token length alone does not prove live OpenShift authentication."
+      "DNS PASS does not mean Windows has a route to the private IP.",
+      "Windows route missing is earlier than WSL route propagation.",
+      "Gateway health does not prove access to the company OCP API."
     ]
   },
   "results": {
@@ -35,12 +35,12 @@
       "addresses": [
         "10.0.1.230"
       ],
-      "durationMs": 4
+      "durationMs": 3
     },
     "tcp": {
       "ok": false,
       "error": "timed out",
-      "durationMs": 12015
+      "durationMs": 12014
     },
     "tls": {
       "ok": false,
@@ -91,7 +91,7 @@
     "ipBriefAddr": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 3,
+      "durationMs": 1,
       "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:74d9/64",
       "stderr": "",
       "timeoutSeconds": 12
@@ -101,6 +101,22 @@
       "target IP is private; WSL must receive the VPN/private-network route.",
       "route uses WSL eth0 gateway; if TCP times out, check VPN route propagation into WSL.",
       "WSL DNS is using the WSL-generated resolver; DNS may work even while VPN TCP routing is missing."
+    ]
+  },
+  "windowsNetwork": {
+    "ok": true,
+    "targetIp": "10.0.1.230",
+    "activeRoutePresent": false,
+    "routePrint": {
+      "ok": true,
+      "returnCode": 0,
+      "durationMs": 237,
+      "stdout": "===========================================================================\nInterface List\n 20...<mac> ......Realtek USB GbE Family Controller\n 47...........................Tailscale Tunnel\n 21...<mac> ......Intel(R) Ethernet Connection (24) I219-V\n  9...<mac> ......Intel(R) Wi-Fi 6E AX211 160MHz\n 10...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter\n 24...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter #2\n 17...<mac> ......Bluetooth Device (Personal Area Network)\n  1...........................Software Loopback Interface 1\n 11...<mac> ......Hyper-V Virtual Ethernet Adapter\n 53...<mac> ......Hyper-V Virtual Ethernet Adapter #2\n===========================================================================\n\nIPv4 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None\n\nIPv6 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None",
+      "stderr": "",
+      "timeoutSeconds": 12
+    },
+    "hints": [
+      "Windows route print has no active route for the private OCP API IP; verify VPN/private route on Windows first."
     ]
   },
   "note": "Bearer tokens and full response bodies are intentionally not persisted."

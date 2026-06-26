@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-26T02:41:14.856839Z",
+  "generatedAt": "2026-06-26T02:52:32.901586Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "aaf818ec100c14f247695e2d1b6797730c658ffd",
+  "headSha": "046f8708949095bc7cb59beee8a8c6774fe2ce08",
   "gateway": "http://127.0.0.1:18080",
   "allSucceeded": false,
   "preflight": {
@@ -17,19 +17,19 @@
       "readyForStrictLightspeedGate": false,
       "firstFailingLayer": "tcp",
       "message": "TCP 6443 connection failed",
-      "likelyCause": "wsl_vpn_private_route_missing_or_stale",
+      "likelyCause": "windows_host_private_route_missing_or_vpn_disconnected",
       "confidence": "high",
-      "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. That means name resolution is not the blocker; the live network path from WSL to the private OCP API is. If the route leaves through WSL eth0, the next practical check is whether the Windows VPN route is being propagated into WSL.",
+      "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out and Windows route print shows no active route for that target. The next practical check is the Windows-side VPN/private route, before WSL or Gateway code.",
       "nextActions": [
-        "Verify that the Windows-side VPN/private network that owns the OCP route is connected.",
-        "After VPN changes, restart or reopen WSL if it did not inherit the private route.",
+        "Verify the Windows-side VPN/private network is connected and owns a route to the OCP private IP.",
+        "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
         "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
         "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
       ],
       "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "refreshReturnCode": 1,
-      "refreshDurationMs": 12105,
-      "refreshStdoutPreview": "OCP connectivity ladder: FAIL\n[FAIL] tcp: TCP 6443 connection failed\n[INTERPRETATION] wsl_vpn_private_route_missing_or_stale: DNS resolves the company OCP API to a private IP, but TCP 6443 times out. That means name resolution is not the blocker; the live network path from WSL to the private OCP API is. If the route leaves through WSL eth0, the next practical check is whether the Windows VPN route is being propagated into WSL.\nReport: /home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
+      "refreshDurationMs": 12321,
+      "refreshStdoutPreview": "OCP connectivity ladder: FAIL\n[FAIL] tcp: TCP 6443 connection failed\n[INTERPRETATION] windows_host_private_route_missing_or_vpn_disconnected: DNS resolves the company OCP API to a private IP, but TCP 6443 times out and Windows route print shows no active route for that target. The next practical check is the Windows-side VPN/private route, before WSL or Gateway code.\nReport: /home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "refreshStderrPreview": ""
     }
   },

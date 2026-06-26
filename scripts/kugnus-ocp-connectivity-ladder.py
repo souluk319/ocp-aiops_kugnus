@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import re
 import socket
 import ssl
 import subprocess
@@ -22,7 +23,7 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -65,7 +66,7 @@ def safe_error(exc: BaseException) -> str:
     return str(exc).replace("\n", " ")[:500]
 
 
-def run_cmd(args: list[str], timeout: int) -> dict[str, Any]:
+def run_cmd(args: list[str], timeout: int, max_chars: int = 1000) -> dict[str, Any]:
     started = time.monotonic()
     try:
         result = subprocess.run(
@@ -79,8 +80,8 @@ def run_cmd(args: list[str], timeout: int) -> dict[str, Any]:
             "ok": result.returncode == 0,
             "returnCode": result.returncode,
             "durationMs": elapsed_ms(started),
-            "stdout": result.stdout.strip()[:1000],
-            "stderr": result.stderr.strip()[:1000],
+            "stdout": result.stdout.strip()[:max_chars],
+            "stderr": result.stderr.strip()[:max_chars],
             "timeoutSeconds": timeout,
         }
     except subprocess.TimeoutExpired as exc:
@@ -88,8 +89,8 @@ def run_cmd(args: list[str], timeout: int) -> dict[str, Any]:
             "ok": False,
             "returnCode": None,
             "durationMs": elapsed_ms(started),
-            "stdout": (exc.stdout or "").strip()[:1000] if isinstance(exc.stdout, str) else "",
-            "stderr": (exc.stderr or "").strip()[:1000] if isinstance(exc.stderr, str) else "",
+            "stdout": (exc.stdout or "").strip()[:max_chars] if isinstance(exc.stdout, str) else "",
+            "stderr": (exc.stderr or "").strip()[:max_chars] if isinstance(exc.stderr, str) else "",
             "timeout": True,
             "timeoutSeconds": timeout,
         }
@@ -233,6 +234,54 @@ def build_wsl_network_snapshot(api_host: str, dns_result: Mapping[str, Any], tim
     }
 
 
+def route_print_has_active_route(stdout: str) -> bool:
+    if "Active Routes:" not in stdout:
+        return False
+    active_section = stdout.split("Active Routes:", 1)[1].split("Persistent Routes:", 1)[0].strip()
+    return bool(active_section) and active_section.lower() != "none"
+
+
+def sanitize_windows_route_output(stdout: str) -> str:
+    return re.sub(r"\b(?:[0-9a-fA-F]{2}\s){5}[0-9a-fA-F]{2}\b", "<mac>", stdout)
+
+
+def build_windows_network_snapshot(target_ip: str, timeout: int) -> dict[str, Any]:
+    if not target_ip:
+        return {"ok": False, "skipped": True, "reason": "no target IP"}
+    if not is_private_ip(target_ip):
+        return {"ok": False, "skipped": True, "reason": "target IP is not private", "targetIp": target_ip}
+
+    command = (
+        "[Console]::OutputEncoding=[Text.UTF8Encoding]::UTF8; "
+        f"route print {target_ip}"
+    )
+    route_print = run_cmd(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+        timeout,
+        max_chars=6000,
+    )
+    route_print["stdout"] = sanitize_windows_route_output(str(route_print.get("stdout") or ""))
+    stdout = str(route_print.get("stdout") or "")
+    active_route_present = route_print_has_active_route(stdout)
+    hints: list[str] = []
+    if route_print.get("ok") and not active_route_present:
+        hints.append(
+            "Windows route print has no active route for the private OCP API IP; verify VPN/private route on Windows first."
+        )
+    elif route_print.get("ok") and active_route_present:
+        hints.append(
+            "Windows has an active route for the OCP API IP; if WSL TCP still times out, check WSL route propagation or VPN/firewall policy."
+        )
+
+    return {
+        "ok": bool(route_print.get("ok")),
+        "targetIp": target_ip,
+        "activeRoutePresent": active_route_present,
+        "routePrint": route_print,
+        "hints": hints,
+    }
+
+
 def build_summary(results: dict[str, Any]) -> dict[str, Any]:
     for key, message in CHECK_ORDER:
         result = results.get(key) or {}
@@ -259,12 +308,15 @@ def build_interpretation(
     summary: dict[str, Any],
     results: dict[str, Any],
     wsl_network: dict[str, Any],
+    windows_network: dict[str, Any],
 ) -> dict[str, Any]:
     first_failing_layer = str(summary.get("firstFailingLayer") or "")
     target_ip = str(wsl_network.get("targetIp") or "")
     route_stdout = str((wsl_network.get("ipRouteGet") or {}).get("stdout") or "")
     dns_ok = bool((results.get("dns") or {}).get("ok"))
     tcp_ok = bool((results.get("tcp") or {}).get("ok"))
+    windows_route_checked = bool(windows_network.get("ok"))
+    windows_active_route = bool(windows_network.get("activeRoutePresent"))
 
     if summary.get("readyForStrictLightspeedGate"):
         return {
@@ -275,6 +327,29 @@ def build_interpretation(
         }
 
     if dns_ok and not tcp_ok and first_failing_layer == "tcp" and is_private_ip(target_ip):
+        if windows_route_checked and not windows_active_route:
+            return {
+                "likelyCause": "windows_host_private_route_missing_or_vpn_disconnected",
+                "confidence": "high",
+                "explanation": (
+                    "DNS resolves the company OCP API to a private IP, but TCP 6443 times out and "
+                    "Windows route print shows no active route for that target. The next practical "
+                    "check is the Windows-side VPN/private route, before WSL or Gateway code."
+                ),
+                "nextActions": [
+                    "Verify the Windows-side VPN/private network is connected and owns a route to the OCP private IP.",
+                    "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
+                    "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+                    "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify.",
+                ],
+                "notCodeBlocker": True,
+                "importantDistinctions": [
+                    "DNS PASS does not mean Windows has a route to the private IP.",
+                    "Windows route missing is earlier than WSL route propagation.",
+                    "Gateway health does not prove access to the company OCP API.",
+                ],
+            }
+
         next_actions = [
             "Verify that the Windows-side VPN/private network that owns the OCP route is connected.",
             "After VPN changes, restart or reopen WSL if it did not inherit the private route.",
@@ -288,7 +363,9 @@ def build_interpretation(
         )
         return {
             "likelyCause": "wsl_vpn_private_route_missing_or_stale",
-            "confidence": "high" if " dev eth0 " in f" {route_stdout} " else "medium",
+            "confidence": "high"
+            if " dev eth0 " in f" {route_stdout} " and not windows_route_checked
+            else "medium",
             "explanation": explanation,
             "nextActions": next_actions,
             "notCodeBlocker": True,
@@ -351,6 +428,7 @@ def main() -> int:
 
     results["dns"] = dns_check(api_host, args.timeout)
     wsl_network = build_wsl_network_snapshot(api_host, results["dns"], args.timeout)
+    windows_network = build_windows_network_snapshot(str(wsl_network.get("targetIp") or ""), args.timeout)
     if fast_fail_if_needed(results, "dns", args.fast_fail):
         token = ""
         goto_report = True
@@ -426,7 +504,7 @@ def main() -> int:
             results["gatewayStatus"] = {"ok": False, "skipped": True, "reason": "no oc token"}
 
     summary = build_summary(results)
-    interpretation = build_interpretation(summary, results, wsl_network)
+    interpretation = build_interpretation(summary, results, wsl_network, windows_network)
     report = {
         "apiVersion": "aiops.komsco/v1alpha1",
         "kind": "OcpConnectivityLadderReport",
@@ -440,6 +518,7 @@ def main() -> int:
         "interpretation": interpretation,
         "results": results,
         "wslNetwork": wsl_network,
+        "windowsNetwork": windows_network,
         "note": "Bearer tokens and full response bodies are intentionally not persisted.",
     }
 
