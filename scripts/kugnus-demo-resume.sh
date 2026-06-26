@@ -216,8 +216,21 @@ run_verification() {
   task kugnus:runtime:smoke
 
   if [ "$RUN_STRICT_GATE" = "true" ]; then
+    local lightspeed_status=0
+    local audit_status=0
+
     log "running strict Lightspeed final response gate"
-    task kugnus:lightspeed:live-verify
+    task kugnus:lightspeed:live-verify || lightspeed_status=$?
+
+    log "running strict demo audit"
+    task kugnus:strict:audit || audit_status=$?
+
+    if [ "$lightspeed_status" -ne 0 ]; then
+      return "$lightspeed_status"
+    fi
+    if [ "$audit_status" -ne 0 ]; then
+      return "$audit_status"
+    fi
   else
     log "strict Lightspeed final response gate skipped by KUGNUS_RESUME_RUN_STRICT_GATE=false"
   fi

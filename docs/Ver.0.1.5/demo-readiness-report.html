@@ -106,7 +106,7 @@
       <tr><td>OCP connectivity ladder</td><td><span class="badge warn">FAIL</span></td><td><code>task kugnus:ocp:doctor</code>. DNS는 성공하지만 TCP 6443 timeout으로 실패한다. Windows <code>route print 10.0.1.230</code>에는 active route가 없고, Fortinet SSL VPN adapter는 <code>Disabled</code>이며, Gateway status는 200 degraded로 응답한다.</td></tr>
       <tr><td>OCP ladder contract</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ocp:ladder:verify</code>. 네트워크 접속 없이 route parsing, MAC masking, likelyCause 판정을 검증한다.</td></tr>
       <tr><td>VPN/private route quick check</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:vpn:doctor</code>. Fortinet/company VPN 연결 직후 빠른 route 확인용이다. 실패해도 회사 OCP에는 아무 변경을 하지 않는다.</td></tr>
-      <tr><td>Post-VPN one-shot resume</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:after-vpn</code>. VPN 연결 후 private route, full OCP ladder, local demo resume, strict Lightspeed gate를 순서대로 실행한다.</td></tr>
+      <tr><td>Post-VPN one-shot resume</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:after-vpn</code>. VPN 연결 후 private route, full OCP ladder, local demo resume, strict Lightspeed gate, strict demo audit를 순서대로 실행한다. strict gate가 실패해도 최종 감사 report는 갱신된다.</td></tr>
       <tr><td>OCP wait-and-resume loop</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:wait</code>. connectivity가 PASS되면 자동으로 <code>task kugnus:demo:resume</code>을 실행한다. 실패 중에는 현재 원인과 다음 행동을 출력한다.</td></tr>
       <tr><td>Strict demo audit</td><td><span class="badge warn">FAIL EXPECTED</span></td><td><code>task kugnus:strict:audit</code>. local RCA 준비는 통과 가능하지만 <code>successClaimAllowed=false</code>다. <code>strict-demo-audit-report.json</code>을 기준으로 아직 Lightspeed 최종 응답 완전 성공이라고 말하지 않는다.</td></tr>
     </table>
@@ -314,7 +314,7 @@
     <h2>다음부터 바로 쓰는 운영 체크리스트</h2>
     <ol>
       <li>작업 위치 확인: <code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
-      <li>VPN 연결 후 원샷 재개: <code>task kugnus:demo:after-vpn</code></li>
+      <li>VPN 연결 후 원샷 재개: <code>task kugnus:demo:after-vpn</code> - strict gate 실패 여부와 상관없이 최종 audit report까지 갱신한다.</li>
       <li>재로그인 후 통합 복구: <code>task kugnus:demo:resume</code></li>
       <li>연결 회복 대기 후 자동 재개: <code>task kugnus:demo:wait</code></li>
       <li>VPN/private route 빠른 확인: <code>task kugnus:vpn:doctor</code></li>
