@@ -1585,6 +1585,89 @@ def test_product_access_review_statuses_are_nonblocking_by_default() -> None:
     assert "required: False" in summarize_product_access_review(review)
 
 
+def test_product_access_review_timeout_is_reported_without_500(monkeypatch) -> None:
+    class TimeoutClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def post(self, *args, **kwargs):
+            raise httpx.ConnectTimeout("connect timed out")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example:6443")
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", TimeoutClient)
+
+    review = asyncio.run(gateway_main.fetch_product_access_review("Bearer test-token"))
+
+    assert review["allowed"] is False
+    assert review["enabled"] is True
+    assert review["reason"] == "OpenShift API unavailable during product access review"
+    assert "openshift_api_unavailable" in review["evaluationError"]
+
+
+def test_self_subject_review_timeout_raises_structured_504(monkeypatch) -> None:
+    class TimeoutClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def post(self, *args, **kwargs):
+            raise httpx.ConnectTimeout("connect timed out")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example:6443")
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", TimeoutClient)
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(gateway_main.fetch_self_subject_review("Bearer test-token"))
+
+    assert exc.value.status_code == 504
+    assert exc.value.detail["code"] == "openshift_api_unavailable"
+    assert exc.value.detail["operation"] == "self_subject_review"
+
+
+def test_required_ocp_json_timeout_raises_structured_504() -> None:
+    class TimeoutClient:
+        async def get(self, *args, **kwargs):
+            raise httpx.ConnectTimeout("connect timed out")
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            gateway_main.fetch_ocp_json(
+                TimeoutClient(),
+                "/api/v1/nodes",
+                "Bearer test-token",
+                required=True,
+            )
+        )
+
+    assert exc.value.status_code == 504
+    assert exc.value.detail["code"] == "openshift_api_unavailable"
+    assert exc.value.detail["operation"] == "fetch_ocp_json:/api/v1/nodes"
+
+
+def test_data_source_status_allows_missing_payload_for_unavailable_source() -> None:
+    status = gateway_main.data_source_status(
+        label="Monitoring public URLs",
+        name="monitoring-shared-config",
+        path="/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
+        reason="OPENSHIFT_API_URL is not configured.",
+        status="unavailable",
+    )
+
+    assert status["status"] == "unavailable"
+    assert status["reason"] == "OPENSHIFT_API_URL is not configured."
+
+
 def test_redact_sensitive_removes_tokens_and_secret_values() -> None:
     raw = {
         "authorization": "Bearer abcdefghijklmnopqrstuvwxyz",

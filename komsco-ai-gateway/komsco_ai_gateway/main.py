@@ -18,8 +18,8 @@ from urllib.parse import unquote
 import xml.etree.ElementTree as ET
 
 import httpx
-from fastapi import FastAPI, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
@@ -3318,7 +3318,7 @@ def data_source_status(
     label: str,
     name: str,
     path: str,
-    payload: Mapping[str, Any] | None,
+    payload: Mapping[str, Any] | None = None,
     required: bool = False,
     reason: str = "",
     status: str | None = None,
@@ -6828,13 +6828,21 @@ async def fetch_ocp_json(
     *,
     required: bool = False,
 ) -> Mapping[str, Any] | None:
-    response = await client.get(
-        f"{OPENSHIFT_API_URL}{path}",
-        headers={
-            "Accept": "application/json",
-            "Authorization": authorization,
-        },
-    )
+    try:
+        response = await client.get(
+            f"{OPENSHIFT_API_URL}{path}",
+            headers={
+                "Accept": "application/json",
+                "Authorization": authorization,
+            },
+        )
+    except httpx.RequestError as exc:
+        if required:
+            raise HTTPException(
+                status_code=504,
+                detail=build_openshift_api_unavailable_detail(f"fetch_ocp_json:{path}", exc),
+            ) from exc
+        return None
     if response.status_code >= 400:
         if required:
             body = response.text[:500]
@@ -8263,19 +8271,37 @@ async def fetch_action_access_review(user_auth_header: str, plan: Mapping[str, A
             "reason": "OPENSHIFT_API_URL is not configured",
         }
 
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(10.0, connect=5.0),
-    ) as client:
-        response = await client.post(
-            f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-            headers={
-                "Accept": "application/json",
-                "Authorization": user_auth_header,
-                "Content-Type": "application/json",
-            },
-            json=review_request,
-        )
+    try:
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        ) as client:
+            response = await client.post(
+                f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": user_auth_header,
+                    "Content-Type": "application/json",
+                },
+                json=review_request,
+            )
+    except httpx.RequestError as exc:
+        return {
+            "allowed": False,
+            "enabled": True,
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+            "reason": "OpenShift API unavailable during action access review",
+            "evaluationError": json.dumps(
+                {
+                    "code": "openshift_api_unavailable",
+                    "message": "OpenShift API 응답 지연 또는 연결 실패로 action access review를 완료하지 못했습니다.",
+                    "operation": "action_access_review",
+                    "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
+                    "upstreamReason": safe_exception_text(exc),
+                },
+                ensure_ascii=False,
+            ),
+        }
 
     if response.status_code >= 400:
         return {
@@ -8334,19 +8360,38 @@ async def fetch_product_access_review(user_auth_header: str) -> dict[str, Any]:
             "reason": "OPENSHIFT_API_URL is not configured",
         }
 
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(10.0, connect=5.0),
-    ) as client:
-        response = await client.post(
-            f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-            headers={
-                "Accept": "application/json",
-                "Authorization": user_auth_header,
-                "Content-Type": "application/json",
-            },
-            json=review_request,
-        )
+    try:
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        ) as client:
+            response = await client.post(
+                f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": user_auth_header,
+                    "Content-Type": "application/json",
+                },
+                json=review_request,
+            )
+    except httpx.RequestError as exc:
+        return {
+            "allowed": False,
+            "enabled": True,
+            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
+            "resourceAttributes": review_request["spec"]["resourceAttributes"],
+            "reason": "OpenShift API unavailable during product access review",
+            "evaluationError": json.dumps(
+                {
+                    "code": "openshift_api_unavailable",
+                    "message": "OpenShift API 응답 지연 또는 연결 실패로 product access review를 완료하지 못했습니다.",
+                    "operation": "product_access_review",
+                    "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
+                    "upstreamReason": safe_exception_text(exc),
+                },
+                ensure_ascii=False,
+            ),
+        }
 
     if response.status_code >= 400:
         return {
@@ -8431,6 +8476,38 @@ def build_openshift_user_auth_failure_detail(status_code: int, body: str) -> dic
     }
 
 
+def build_openshift_api_unavailable_detail(operation: str, exc: BaseException) -> dict[str, Any]:
+    return {
+        "code": "openshift_api_unavailable",
+        "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
+        "operation": operation,
+        "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
+        "upstreamReason": safe_exception_text(exc),
+    }
+
+
+@app.exception_handler(httpx.RequestError)
+async def handle_httpx_request_error(_request: Request, exc: httpx.RequestError) -> JSONResponse:
+    return JSONResponse(
+        status_code=504,
+        content={"detail": build_openshift_api_unavailable_detail("httpx_request", exc)},
+    )
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(_request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "code": "gateway_internal_error",
+                "message": "Gateway 내부 처리 중 예외가 발생했습니다.",
+                "reason": safe_exception_text(exc),
+            }
+        },
+    )
+
+
 def http_exception_message(exc: HTTPException) -> str:
     detail = exc.detail
     if isinstance(detail, Mapping):
@@ -8454,22 +8531,28 @@ async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         return safe_subject(None)
 
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(10.0, connect=5.0),
-    ) as client:
-        response = await client.post(
-            f"{OPENSHIFT_API_URL}/apis/authentication.k8s.io/v1/selfsubjectreviews",
-            headers={
-                "Accept": "application/json",
-                "Authorization": user_auth_header,
-                "Content-Type": "application/json",
-            },
-            json={
-                "apiVersion": "authentication.k8s.io/v1",
-                "kind": "SelfSubjectReview",
-            },
-        )
+    try:
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        ) as client:
+            response = await client.post(
+                f"{OPENSHIFT_API_URL}/apis/authentication.k8s.io/v1/selfsubjectreviews",
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": user_auth_header,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "apiVersion": "authentication.k8s.io/v1",
+                    "kind": "SelfSubjectReview",
+                },
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=build_openshift_api_unavailable_detail("self_subject_review", exc),
+        ) from exc
 
     if response.status_code >= 400:
         body = response.text[:500]
