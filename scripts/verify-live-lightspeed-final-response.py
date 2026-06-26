@@ -63,14 +63,16 @@ def git_value(args: list[str]) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def oc_token() -> str:
+def oc_token(timeout: int) -> str:
     result = subprocess.run(
         ["oc", "whoami", "--show-token"],
-        check=True,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=timeout,
     )
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"oc login required or OpenShift API unavailable: {stderr[:300]}")
     token = result.stdout.strip()
     if not token:
         raise RuntimeError("oc token is empty. Run oc login first.")
@@ -278,6 +280,7 @@ def evaluate_case(case_id: str, stream: dict[str, Any], status_result: dict[str,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gateway", default="http://127.0.0.1:18080")
+    parser.add_argument("--oc-timeout", type=int, default=12)
     parser.add_argument("--report", default=str(DEFAULT_REPORT))
     parser.add_argument("--stream-timeout", type=int, default=360)
     args = parser.parse_args()
@@ -286,7 +289,7 @@ def main() -> int:
     cases: list[dict[str, Any]] = []
 
     try:
-        token = oc_token()
+        token = oc_token(args.oc_timeout)
     except Exception as exc:  # noqa: BLE001 local verifier should persist diagnostics
         report = {
             "apiVersion": "aiops.komsco/v1alpha1",
@@ -298,6 +301,7 @@ def main() -> int:
             "allSucceeded": False,
             "preflight": {
                 "ocTokenAvailable": False,
+                "ocTimeoutSeconds": args.oc_timeout,
                 "error": safe_error(exc),
             },
             "cases": [],

@@ -5,6 +5,7 @@ set -u
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_API_SERVER="${EXPECTED_API_SERVER:-https://api.ocp.cywell.server:6443}"
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
+OC_TIMEOUT_SECONDS="${KUGNUS_DOCTOR_OC_TIMEOUT_SECONDS:-10}"
 
 PASS_COUNT=0
 WARN_COUNT=0
@@ -124,6 +125,14 @@ check_http_get() {
   fi
 }
 
+run_oc() {
+  timeout "${OC_TIMEOUT_SECONDS}" oc "$@" 2>/dev/null || true
+}
+
+oc_ok() {
+  timeout "${OC_TIMEOUT_SECONDS}" oc "$@" >/dev/null 2>&1
+}
+
 cd "$ROOT_DIR" || {
   echo "Cannot enter repo root: $ROOT_DIR" >&2
   exit 1
@@ -190,7 +199,7 @@ fi
 print_section "OpenShift context"
 if have_cmd oc; then
   pass "oc found: $(oc version --client 2>/dev/null | sed -n '1p')"
-  current_server="$(oc whoami --show-server 2>/dev/null || true)"
+  current_server="$(run_oc whoami --show-server)"
   if [ "$current_server" = "$EXPECTED_API_SERVER" ]; then
     pass "oc server is company OCP: $current_server"
   elif [ -n "$current_server" ]; then
@@ -198,29 +207,31 @@ if have_cmd oc; then
     info "expected: $EXPECTED_API_SERVER"
   else
     fail "oc server unavailable; run oc login"
+    info "oc check timeout: ${OC_TIMEOUT_SECONDS}s"
   fi
 
-  current_user="$(oc whoami 2>/dev/null || true)"
+  current_user="$(run_oc whoami)"
   if [ -n "$current_user" ]; then
     pass "oc login user: $current_user"
   else
     fail "oc whoami failed; token likely expired"
+    info "Run oc login again, then rerun: task kugnus:dev:doctor"
   fi
 
-  current_project="$(oc project 2>/dev/null | sed -n '1p' || true)"
+  current_project="$(run_oc project | sed -n '1p')"
   if [ -n "$current_project" ]; then
     pass "$current_project"
   else
     warn "oc project unavailable"
   fi
 
-  if oc -n openshift-lightspeed get svc/lightspeed-app-server >/dev/null 2>&1; then
+  if oc_ok -n openshift-lightspeed get svc/lightspeed-app-server; then
     pass "Lightspeed service is readable"
   else
     fail "cannot read openshift-lightspeed/lightspeed-app-server"
   fi
 
-  if oc -n komsco-ai-dev get svc/komsco-ai-action-executor >/dev/null 2>&1; then
+  if oc_ok -n komsco-ai-dev get svc/komsco-ai-action-executor; then
     pass "Action Executor service is readable"
   else
     warn "cannot read komsco-ai-dev/komsco-ai-action-executor; execute mode may fail"
