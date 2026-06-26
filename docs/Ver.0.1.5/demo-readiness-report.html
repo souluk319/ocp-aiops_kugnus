@@ -87,6 +87,7 @@
     <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. 여기서 UI 검증은 Cypress가 아니라 Chrome CDP 기반 verifier이며, RCA ToolPlan과 Evidence/RCA 시연 사이클 준비 상태를 확인한다.</p>
     <p class="note">2026-06-26 추가: 재부팅/재로그인 이후 복구용 <code>task kugnus:demo:resume</code>을 추가했다. 현재 실행 증거에서는 <code>oc login</code> 또는 OpenShift API 응답이 8초 내 확인되지 않아 fail-fast로 멈춘다. 이는 로컬 시연 자동화가 실패 지점을 인증층으로 좁혔다는 의미이며, Lightspeed 최종 성공 증거는 아니다.</p>
     <p class="note">2026-06-26 추가 진단: <code>task kugnus:ocp:doctor</code>를 추가했다. 최신 <code>ocp-connectivity-ladder-report.json</code> 기준 첫 실패 layer는 <code>tcp</code>이며, <code>api.ocp.cywell.server:6443</code> 연결 timeout이다. 로컬 Gateway <code>/v1/aiops/status</code>는 HTTP 200 degraded로 응답하므로, 현재 병목은 Gateway 코드가 아니라 WSL/VPN/OCP API 네트워크 경로다.</p>
+    <p class="note">2026-06-26 추가 자동화: <code>task kugnus:demo:wait</code>를 추가했다. 이 명령은 <code>ocp:doctor</code>를 반복 실행하다가 OCP connectivity ladder가 PASS되는 순간 <code>demo:resume</code>으로 넘어간다. 네트워크가 불안정한 동안 같은 명령을 사람이 반복하지 않기 위한 시연 재개용 도구다.</p>
     <table>
       <tr><th>항목</th><th>상태</th><th>근거</th></tr>
       <tr><td>Gateway runtime</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:runtime:smoke</code></td></tr>
@@ -101,6 +102,7 @@
       <tr><td>Frontend production build</td><td><span class="badge pass">PASS</span></td><td><code>corepack yarn build</code></td></tr>
       <tr><td>Strict Lightspeed final response gate</td><td><span class="badge warn">FAIL</span></td><td><code>task kugnus:lightspeed:live-verify</code>. 현재 최신 report는 <code>oc whoami</code> preflight timeout으로 실패한다. 토큰만 있는 상태를 통과시키지 않도록 verifier를 강화했다.</td></tr>
       <tr><td>OCP connectivity ladder</td><td><span class="badge warn">FAIL</span></td><td><code>task kugnus:ocp:doctor</code>. DNS는 성공하지만 TCP 6443 timeout으로 실패한다. Gateway status는 200 degraded로 응답한다.</td></tr>
+      <tr><td>OCP wait-and-resume loop</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:wait</code>. connectivity가 PASS되면 자동으로 <code>task kugnus:demo:resume</code>을 실행한다.</td></tr>
     </table>
   </section>
 
@@ -270,6 +272,7 @@
     <ol>
       <li>작업 위치 확인: <code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
       <li>재로그인 후 통합 복구: <code>task kugnus:demo:resume</code></li>
+      <li>연결 회복 대기 후 자동 재개: <code>task kugnus:demo:wait</code></li>
       <li>OCP 연결층 진단: <code>task kugnus:ocp:doctor</code></li>
       <li>전체 상태 진단: <code>task kugnus:dev:doctor</code></li>
       <li>런타임 smoke: <code>task kugnus:runtime:smoke</code></li>

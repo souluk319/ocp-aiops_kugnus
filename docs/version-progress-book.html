@@ -965,6 +965,7 @@
             <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 188 passed, 2 warnings.</li>
             <li><code>task kugnus:lightspeed:live-verify</code>: 현재 FAIL. verifier 강화 후 최신 실패 원인은 <code>oc whoami</code> preflight timeout이며, Gateway/Lightspeed 단계 진입 전 차단이다. 이전 <code>self_subject_review</code> timeout은 status endpoint degraded 처리로 더 정확히 분리했다.</li>
             <li><code>task kugnus:ocp:doctor</code>: 현재 FAIL. DNS는 <code>10.0.1.230</code>으로 해석되지만 첫 실패 layer가 <code>tcp</code>이며, 회사 OCP API 6443 연결이 timeout이다. 로컬 Gateway status는 200 degraded로 응답한다.</li>
+            <li><code>task kugnus:demo:wait</code>: connectivity ladder가 PASS될 때까지 반복 대기한 뒤 <code>task kugnus:demo:resume</code>을 자동 실행하도록 준비됐다.</li>
           </ul>
 
           <h3>이번 단계에서 잠근 표현</h3>
@@ -1115,6 +1116,7 @@
           <h3>바로 실행할 기본 순서</h3>
           <ol>
             <li><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
+            <li><code>task kugnus:demo:wait</code> - OCP 연결이 흔들릴 때 사람이 반복하지 않고, 연결 PASS 순간 local demo resume과 strict gate까지 이어간다.</li>
             <li><code>task kugnus:demo:resume</code> - 재부팅, VPN 재연결, <code>oc login</code> 이후 로컬 시연 스택을 한 번에 복구하고 strict gate까지 실행한다.</li>
             <li><code>task kugnus:ocp:doctor</code> - strict gate가 인증/네트워크에서 막히면 DNS, TCP, TLS, API, oc identity, SSR, Gateway status를 사다리식으로 분리한다.</li>
             <li><code>task kugnus:dev:doctor</code> - resume이 실패하면 어느 층이 끊겼는지 먼저 본다.</li>
@@ -1204,6 +1206,7 @@
             <li>Lightspeed stream 경로를 인증, endpoint, TLS, OLS availability, payload schema 단위로 분해해 WARN을 줄인다.</li>
             <li><code>task kugnus:demo:resume</code> 결과를 기준으로, 재로그인 후에도 strict Lightspeed gate가 어디서 막히는지 반복 증거를 축적한다.</li>
             <li><code>task kugnus:ocp:doctor</code>의 첫 실패 layer가 <code>tcp</code>에서 사라질 때까지 WSL/VPN/OCP API 경로를 먼저 안정화한다.</li>
+            <li>장시간 기다려야 하면 <code>task kugnus:demo:wait</code>를 사용해 connectivity PASS 시점에 자동으로 strict gate까지 이어지게 한다.</li>
             <li>Prometheus/Thanos 직접 query를 token-safe 방식으로 검증 자동화에 추가한다.</li>
             <li>RAG/Runbook backend의 production 후보 기술, 문서 권한, ingestion/retrieval 품질 기준을 만든다.</li>
             <li>승인형 action execution을 feature flag, approval guard, audit trail, rollback 기준으로 설계한다.</li>
