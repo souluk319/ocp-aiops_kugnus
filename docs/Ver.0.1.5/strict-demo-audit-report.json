@@ -1,16 +1,13 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "StrictDemoAuditReport",
-  "generatedAt": "2026-06-26T03:28:23.233761Z",
+  "generatedAt": "2026-06-26T04:00:02.889333Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "e9526bf224b18fd4ca25fb55807b32074188de8d",
+  "headSha": "e3eb40b694eca73c58567c0fba8847be6f585c6b",
   "localRcaReady": true,
-  "strictLightspeedReady": false,
-  "successClaimAllowed": false,
-  "blockingGates": [
-    "ocp_connectivity",
-    "strict_lightspeed"
-  ],
+  "strictLightspeedReady": true,
+  "successClaimAllowed": true,
+  "blockingGates": [],
   "gates": [
     {
       "name": "runtime_smoke",
@@ -93,33 +90,29 @@
     },
     {
       "name": "ocp_connectivity",
-      "ok": false,
+      "ok": true,
       "requirement": "OCP connectivity ladder is ready for strict Lightspeed gate",
       "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "details": {
-        "readyForStrictLightspeedGate": false,
-        "firstFailingLayer": "tcp",
-        "message": "TCP 6443 connection failed",
-        "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
+        "readyForStrictLightspeedGate": true,
+        "firstFailingLayer": "",
+        "message": "OCP connectivity ladder passed; run task kugnus:lightspeed:live-verify.",
+        "likelyCause": "none_detected",
         "nextActions": [
-          "Connect the Windows-side company VPN client that owns the OCP private route.",
-          "Confirm Windows route print for the OCP private IP shows an active route.",
-          "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
-          "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
-          "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
+          "Run task kugnus:lightspeed:live-verify."
         ]
       }
     },
     {
       "name": "strict_lightspeed",
-      "ok": false,
+      "ok": true,
       "requirement": "fallback-free Lightspeed final response allSucceeded=true",
       "report": "docs/Ver.0.1.5/live-lightspeed-final-response-verification.json",
       "details": {
-        "allSucceeded": false,
-        "preflightError": "Command '['oc', 'whoami']' timed out after 12 seconds",
-        "ocpFirstFailingLayer": "tcp",
-        "ocpLikelyCause": "windows_vpn_adapter_disabled_and_private_route_missing"
+        "allSucceeded": true,
+        "preflightError": null,
+        "ocpFirstFailingLayer": null,
+        "ocpLikelyCause": null
       }
     }
   ],

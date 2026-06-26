@@ -102,13 +102,13 @@
       <tr><td>Backend unit tests</td><td><span class="badge pass">PASS</span></td><td><code>python -m pytest komsco-ai-gateway -q</code>, 188 passed</td></tr>
       <tr><td>Frontend UI verifier</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed, <code>ui-verifier-report.json</code></td></tr>
       <tr><td>Frontend production build</td><td><span class="badge pass">PASS</span></td><td><code>corepack yarn build</code></td></tr>
-      <tr><td>Strict Lightspeed final response gate</td><td><span class="badge warn">FAIL</span></td><td><code>task kugnus:lightspeed:live-verify</code>. 현재 최신 report는 <code>oc whoami</code> preflight timeout으로 실패하며, report 내부 <code>preflight.ocpConnectivity</code>가 첫 실패 layer를 <code>tcp</code>, 추정 원인을 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>로 기록한다.</td></tr>
-      <tr><td>OCP connectivity ladder</td><td><span class="badge warn">FAIL</span></td><td><code>task kugnus:ocp:doctor</code>. DNS는 성공하지만 TCP 6443 timeout으로 실패한다. Windows <code>route print 10.0.1.230</code>에는 active route가 없고, Fortinet SSL VPN adapter는 <code>Disabled</code>이며, Gateway status는 200 degraded로 응답한다.</td></tr>
+      <tr><td>Strict Lightspeed final response gate</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:lightspeed:live-verify</code>. 최신 report는 <code>allSucceeded=true</code>이며, <code>cluster-summary</code>와 <code>official-evidence-rca</code> 두 case 모두 <code>streamProbe=succeeded</code>, <code>fallbackActive=false</code>, <code>runtimeLastStatusSucceeded=true</code>를 기록한다.</td></tr>
+      <tr><td>OCP connectivity ladder</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ocp:doctor</code>. 최신 report는 <code>readyForStrictLightspeedGate=true</code>이며, 회사 OCP API와 oc identity 확인이 strict gate 실행 가능한 상태로 통과했다.</td></tr>
       <tr><td>OCP ladder contract</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ocp:ladder:verify</code>. 네트워크 접속 없이 route parsing, MAC masking, likelyCause 판정을 검증한다.</td></tr>
       <tr><td>VPN/private route quick check</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:vpn:doctor</code>. Fortinet/company VPN 연결 직후 빠른 route 확인용이다. 실패해도 회사 OCP에는 아무 변경을 하지 않는다.</td></tr>
       <tr><td>Post-VPN one-shot resume</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:after-vpn</code>. VPN 연결 후 private route, full OCP ladder, local demo resume, strict Lightspeed gate, strict demo audit를 순서대로 실행한다. strict gate가 실패해도 최종 감사 report는 갱신된다.</td></tr>
       <tr><td>OCP wait-and-resume loop</td><td><span class="badge pass">READY</span></td><td><code>task kugnus:demo:wait</code>. connectivity가 PASS되면 자동으로 <code>task kugnus:demo:resume</code>을 실행한다. 실패 중에는 현재 원인과 다음 행동을 출력한다.</td></tr>
-      <tr><td>Strict demo audit</td><td><span class="badge warn">FAIL EXPECTED</span></td><td><code>task kugnus:strict:audit</code>. local RCA 준비는 통과 가능하지만 <code>successClaimAllowed=false</code>다. <code>strict-demo-audit-report.json</code>을 기준으로 아직 Lightspeed 최종 응답 완전 성공이라고 말하지 않는다.</td></tr>
+      <tr><td>Strict demo audit</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:strict:audit</code>. 최신 report는 <code>localRcaReady=true</code>, <code>strictLightspeedReady=true</code>, <code>successClaimAllowed=true</code>, <code>blockingGates=[]</code>다.</td></tr>
     </table>
   </section>
 
@@ -151,11 +151,11 @@
     <table>
       <tr><th>검수 항목</th><th>PASS 기준</th><th>현재 상태</th></tr>
       <tr><td>Gateway fallback 금지</td><td>SSE text event에 <code>fallbackAnswer=true</code> 또는 <code>source=gateway_fallback</code>가 없어야 한다.</td><td><span class="badge pass">PASS</span> 현재 실패 report에는 fallback text는 없다.</td></tr>
-      <tr><td>Lightspeed 단계 진입</td><td><code>run_status.stage=lightspeed</code>가 발생해야 한다.</td><td><span class="badge warn">FAIL</span> OCP API timeout 때문에 <code>stage=failed</code>에서 종료.</td></tr>
-      <tr><td>최종 OLS text 수신</td><td>source 없는 OLS text event가 1개 이상이고, 답변 본문 digest가 생성되어야 한다.</td><td><span class="badge warn">FAIL</span> 현재 OLS text 0개.</td></tr>
-      <tr><td>runtime status 증명</td><td><code>/v1/aiops/status</code>의 <code>streamProbe=succeeded</code>, <code>fallbackActive=false</code>, <code>lastError=""</code>.</td><td><span class="badge warn">UNVERIFIED</span> 코드상 status endpoint는 access review timeout을 degraded로 분리하도록 개선됐다. 재로그인 후 Gateway 재시작과 strict live verifier 재실행이 필요하다.</td></tr>
-      <tr><td>최종 report</td><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code>.</td><td><span class="badge warn">FAIL</span> 현재 <code>allSucceeded=false</code>.</td></tr>
-      <tr><td>최종 감사 report</td><td><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>의 <code>successClaimAllowed=true</code>.</td><td><span class="badge warn">FAIL EXPECTED</span> local RCA 준비와 strict Lightspeed gate를 분리해 판정한다.</td></tr>
+      <tr><td>Lightspeed 단계 진입</td><td><code>run_status.stage=lightspeed</code>가 발생해야 한다.</td><td><span class="badge pass">PASS</span> 두 검증 case 모두 Lightspeed stage와 completed stage를 확인했다.</td></tr>
+      <tr><td>최종 OLS text 수신</td><td>source 없는 OLS text event가 1개 이상이고, 답변 본문 digest가 생성되어야 한다.</td><td><span class="badge pass">PASS</span> 두 case 모두 답변 본문 digest와 answer length를 기록했다.</td></tr>
+      <tr><td>runtime status 증명</td><td><code>/v1/aiops/status</code>의 <code>streamProbe=succeeded</code>, <code>fallbackActive=false</code>, <code>lastError=""</code>.</td><td><span class="badge pass">PASS</span> 최신 live verifier report가 status endpoint reachable, streamProbe succeeded, fallback inactive, lastError empty를 확인했다.</td></tr>
+      <tr><td>최종 report</td><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code>.</td><td><span class="badge pass">PASS</span> 현재 <code>allSucceeded=true</code>.</td></tr>
+      <tr><td>최종 감사 report</td><td><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>의 <code>successClaimAllowed=true</code>.</td><td><span class="badge pass">PASS</span> local RCA 준비와 strict Lightspeed gate가 모두 통과했다.</td></tr>
     </table>
   </section>
 
@@ -305,7 +305,7 @@
       <tr><td>검증 범위 구분</td><td>runtime smoke PASS와 strict Lightspeed FAIL이 동시에 존재했다.</td><td>검증 이름과 범위를 같이 말한다. PASS라고 말할 때 무엇이 PASS인지 같이 말한다.</td></tr>
       <tr><td>원인 단위 진단</td><td>Docker, WSL, oc, VPN 문제가 한 덩어리처럼 느껴졌다.</td><td>route missing, stale server, token expired, port occupied, manifest mismatch처럼 실제 원인 단위로 쪼갠다.</td></tr>
       <tr><td>WSL native 기준</td><td>Windows mount에서 느린 build와 WSL/Docker 경계 문제가 있었다.</td><td>기본 작업대는 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>다.</td></tr>
-      <tr><td>성공 과장 금지</td><td>local RCA는 준비됐지만 Lightspeed 최종 응답은 아직 route 문제로 막혔다.</td><td><code>task kugnus:strict:audit</code>가 <code>successClaimAllowed=true</code>를 쓰기 전까지 최종 성공이라고 말하지 않는다.</td></tr>
+      <tr><td>성공 과장 금지</td><td>최신 strict audit은 성공했지만, 그 범위는 로컬 WSL 시연 스택의 Lightspeed 최종 응답 검증이다.</td><td><code>successClaimAllowed=true</code>이므로 이 범위 안에서는 최종 성공이라고 말할 수 있다. 회사 OCP 설치 완료나 production RAG 완성으로 확장해서 말하지 않는다.</td></tr>
       <tr><td>사용자 경험의 산출물화</td><td>긴 대기, 재부팅, 인증 실패, UI 혼란이 반복됐다.</td><td>사람이 다음에 덜 흔들리도록 체크리스트와 HTML 책자로 축적한다.</td></tr>
     </table>
   </section>

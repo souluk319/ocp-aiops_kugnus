@@ -1,39 +1,333 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-26T02:56:54.197625Z",
+  "generatedAt": "2026-06-26T04:00:02.112571Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "96bac6f6bacd435fbf161cbed20d9bfdd8420c49",
+  "headSha": "e3eb40b694eca73c58567c0fba8847be6f585c6b",
   "gateway": "http://127.0.0.1:18080",
-  "allSucceeded": false,
   "preflight": {
-    "ocIdentityAvailable": false,
-    "ocIdentity": "",
-    "ocServer": "",
-    "ocTokenAvailable": false,
-    "ocTimeoutSeconds": 12,
-    "error": "Command '['oc', 'whoami']' timed out after 12 seconds",
-    "ocpConnectivity": {
-      "readyForStrictLightspeedGate": false,
-      "firstFailingLayer": "tcp",
-      "message": "TCP 6443 connection failed",
-      "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
-      "confidence": "high",
-      "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. Windows route print shows no active route for that target, and at least one VPN-like adapter is disabled: Fortinet SSL VPN Virtual Ethernet Adapter. The next practical check is the Windows-side company VPN client before WSL or Gateway code.",
-      "nextActions": [
-        "Connect the Windows-side company VPN client that owns the OCP private route.",
-        "Confirm Windows route print for the OCP private IP shows an active route.",
-        "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
-        "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
-        "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
-      ],
-      "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
-      "refreshReturnCode": 1,
-      "refreshDurationMs": 13500,
-      "refreshStdoutPreview": "OCP connectivity ladder: FAIL\n[FAIL] tcp: TCP 6443 connection failed\n[INTERPRETATION] windows_vpn_adapter_disabled_and_private_route_missing: DNS resolves the company OCP API to a private IP, but TCP 6443 times out. Windows route print shows no active route for that target, and at least one VPN-like adapter is disabled: Fortinet SSL VPN Virtual Ethernet Adapter. The next practical check is the Windows-side company VPN client before WSL or Gateway code.\nReport: /home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
-      "refreshStderrPreview": ""
-    }
+    "ocIdentityAvailable": true,
+    "ocIdentity": "admin",
+    "ocServer": "https://api.ocp.cywell.server:6443",
+    "ocTokenAvailable": true,
+    "ocTimeoutSeconds": 12
   },
-  "cases": [],
+  "allSucceeded": true,
+  "cases": [
+    {
+      "caseId": "cluster-summary",
+      "ok": true,
+      "checks": {
+        "doneReceived": true,
+        "lightspeedStageSeen": true,
+        "completedStageSeen": true,
+        "olsTextReceived": true,
+        "noGatewayFallbackText": true,
+        "noGatewayErrorEvent": true,
+        "noLightspeedErrorToolResult": true,
+        "requiredTextPresent": true,
+        "statusEndpointReachable": true,
+        "runtimeStreamProbeSucceeded": true,
+        "runtimeLastStatusSucceeded": true,
+        "runtimeFallbackInactive": true,
+        "runtimeLastErrorEmpty": true
+      },
+      "accessReviewStatus": {
+        "status": "success",
+        "recordsVisible": true,
+        "reason": ""
+      },
+      "lightspeedStatus": {
+        "status": "configured",
+        "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+        "streamProbe": "succeeded",
+        "lastStatus": "succeeded",
+        "lastContextDigest": "sha256:948fcd242a3e6c7112d48c5e6d9d390e28d519f86f378fa9d1ff5a5be8f5c755",
+        "lastStartedAt": "2026-06-26T03:57:35.887307+00:00",
+        "lastCompletedAt": "2026-06-26T03:58:51.849446+00:00",
+        "lastError": "",
+        "fallbackActive": false
+      },
+      "statusEndpoint": {
+        "ok": true,
+        "statusCode": 200,
+        "errorPreview": ""
+      },
+      "stream": {
+        "answerDigest": "4cb4ad24f51faa3488383a2d664304b4095f992bee4aa97056c5d43c720975a7",
+        "answerLength": 2419,
+        "answerPreviews": [
+          "## RCA 보고서",
+          "### ### 우선 판단",
+          "현재 클러스터는 **`komsco-ai-dev` 네임스페이스의 워크로드 불안정(빈번한 재시작)**과 **`openshift-marketplace` 네임스페이스의 Pod 미준비(NotReady)** 상태가 가장 시급한 장애 요소로 판단됩니다. 또한, **etcd 데이터베이스의 파편화(Fragmentation)** 경고가 발생하여 클러스터 안정성에 잠재적 위협이 되고 있습니다.",
+          "### ### 수집 근거",
+          "1.  **워크로드 재시작 (Metric):** `komsco-ai-dev` 네임스페이스의 `aiops-scenario-1-crashloop-7448bf8897-57pjz` Pod 내 `crashloop` 컨테이너가 최근 1시간 동안 약 11.38회 재시작됨."
+        ],
+        "doneReceived": true,
+        "durationMs": 76418,
+        "eventCounts": {
+          "run_status": 14,
+          "tool_call": 14,
+          "tool_result": 15,
+          "tool_plan": 1,
+          "rca_context": 3,
+          "text": 53
+        },
+        "fallbackEvents": [],
+        "gatewayErrors": [],
+        "lightspeedErrors": [],
+        "olsTextEvents": 52,
+        "requiredTextPresent": {
+          "RCA": true,
+          "근거": true
+        },
+        "runStatusStages": [
+          "started",
+          "lightspeed",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "completed"
+        ],
+        "statusEvents": [
+          {
+            "stage": "started",
+            "message": "Gateway 실행 루프 시작",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "lightspeed",
+            "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
+            "gatewayContextDigest": "sha256:948fcd242a3e6c7112d48c5e6d9d390e28d519f86f378fa9d1ff5a5be8f5c755"
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "completed",
+            "message": "Gateway 실행 루프 완료",
+            "gatewayContextDigest": null
+          }
+        ]
+      }
+    },
+    {
+      "caseId": "official-evidence-rca",
+      "ok": true,
+      "checks": {
+        "doneReceived": true,
+        "lightspeedStageSeen": true,
+        "completedStageSeen": true,
+        "olsTextReceived": true,
+        "noGatewayFallbackText": true,
+        "noGatewayErrorEvent": true,
+        "noLightspeedErrorToolResult": true,
+        "requiredTextPresent": true,
+        "statusEndpointReachable": true,
+        "runtimeStreamProbeSucceeded": true,
+        "runtimeLastStatusSucceeded": true,
+        "runtimeFallbackInactive": true,
+        "runtimeLastErrorEmpty": true
+      },
+      "accessReviewStatus": {
+        "status": "success",
+        "recordsVisible": true,
+        "reason": ""
+      },
+      "lightspeedStatus": {
+        "status": "configured",
+        "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+        "streamProbe": "succeeded",
+        "lastStatus": "succeeded",
+        "lastContextDigest": "sha256:e9f63d1356f43232829a353b534c13650467cc720513be3c1750dd97a4879567",
+        "lastStartedAt": "2026-06-26T03:58:52.731382+00:00",
+        "lastCompletedAt": "2026-06-26T04:00:02.033493+00:00",
+        "lastError": "",
+        "fallbackActive": false
+      },
+      "statusEndpoint": {
+        "ok": true,
+        "statusCode": 200,
+        "errorPreview": ""
+      },
+      "stream": {
+        "answerDigest": "3dc8a5b9775a8247b1add7fad70c9ec4ab85e5b7685468b16af0ef8d49db2cf5",
+        "answerLength": 1455,
+        "answerPreviews": [
+          "## RCA 보고서",
+          "### 우선 판단",
+          "**확인 불가**: 현재 수집된 증거(Evidence)상으로는 `default` 네임스페이스 내에서 재시작된 Pod에 대한 기록이나 관련 이벤트를 찾을 수 없습니다.",
+          "### 수집 근거",
+          "* **Pod Snapshot**: `default` 네임스페이스의 Pod 스냅샷 결과, 대상이 되는 Pod가 존재하지 않음 (`candidatePods: []`)."
+        ],
+        "doneReceived": true,
+        "durationMs": 70152,
+        "eventCounts": {
+          "run_status": 14,
+          "tool_call": 21,
+          "tool_result": 25,
+          "tool_plan": 1,
+          "rca_context": 3,
+          "text": 41
+        },
+        "fallbackEvents": [],
+        "gatewayErrors": [],
+        "lightspeedErrors": [],
+        "olsTextEvents": 40,
+        "requiredTextPresent": {
+          "RCA": true,
+          "확인": true
+        },
+        "runStatusStages": [
+          "started",
+          "lightspeed",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
+          "completed"
+        ],
+        "statusEvents": [
+          {
+            "stage": "started",
+            "message": "Gateway 실행 루프 시작",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "lightspeed",
+            "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
+            "gatewayContextDigest": "sha256:e9f63d1356f43232829a353b534c13650467cc720513be3c1750dd97a4879567"
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "Lightspeed 응답 스트림 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "completed",
+            "message": "Gateway 실행 루프 완료",
+            "gatewayContextDigest": null
+          }
+        ]
+      }
+    }
+  ],
   "note": "OpenShift token and full answer bodies are intentionally not persisted."
 }

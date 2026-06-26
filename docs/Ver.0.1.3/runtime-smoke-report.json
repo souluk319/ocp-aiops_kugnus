@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T00:10:23.025857+00:00",
+  "generatedAt": "2026-06-26T03:57:33.875773+00:00",
   "gatewayUrl": "http://127.0.0.1:18080",
   "result": "pass",
   "checks": [
@@ -47,8 +47,8 @@
       "statusCode": 200,
       "summary": {
         "controlTower": {
-          "status": "risk",
-          "statusLabel": "위험 이상 징후 2건",
+          "status": "attention",
+          "statusLabel": "확인 필요 이상 징후 15건",
           "healthScore": 92
         },
         "dataSources": [
