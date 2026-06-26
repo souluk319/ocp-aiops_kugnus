@@ -387,7 +387,7 @@
   <div class="layout">
     <aside class="sidebar">
       <h1>Kugnus OCP AIOps</h1>
-      <p class="meta">버전별 작업 기록<br />작성일: 2026-06-25 KST<br />브랜치: <code>feat/v.0.1.3</code><br />HEAD: <code>29e5e1e</code></p>
+      <p class="meta">버전별 작업 기록<br />갱신일: 2026-06-26 KST<br />브랜치: <code>feat/v.0.1.5</code><br />최신 증거: 각 report JSON과 HTML 참조</p>
 
       <nav aria-label="문서 목차">
         <div class="nav-group">
@@ -404,12 +404,15 @@
           <a class="nav-link" href="#v011">Ver.0.1.1</a>
           <a class="nav-link" href="#v012">Ver.0.1.2</a>
           <a class="nav-link" href="#v013">Ver.0.1.3</a>
+          <a class="nav-link" href="#v014">Ver.0.1.4</a>
+          <a class="nav-link" href="#v015">Ver.0.1.5</a>
         </div>
 
         <div class="nav-group">
           <p class="nav-title">정리</p>
           <a class="nav-link" href="#implemented">구현된 것</a>
           <a class="nav-link" href="#gaps">남은 것</a>
+          <a class="nav-link" href="#lessons">작업 회고</a>
           <a class="nav-link" href="#next">다음 작업</a>
           <a class="nav-link" href="#evidence">근거 파일</a>
           <a class="nav-link" href="#night-handoff-book">야간 인수인계</a>
@@ -423,7 +426,7 @@
           <p class="eyebrow">Fact-based Version Book</p>
           <h2>Kugnus OCP AIOps 버전별 작업 기록</h2>
           <p>
-            이 문서는 <code>Ver.0.1.0</code>, <code>Ver.0.1.1</code>, <code>Ver.0.1.2</code>, <code>Ver.0.1.3</code> 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
+            이 문서는 <code>Ver.0.1.0</code>부터 <code>Ver.0.1.5</code>까지의 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
             목적은 지금까지 어떤 작업이 실제로 이루어졌는지, 어떤 기능이 구현되었는지, 전체 제품 기준으로 어디까지 왔는지를 꾸밈없이 정리하는 것이다.
           </p>
         </header>
@@ -436,8 +439,9 @@
             로컬 WSL 개발환경에서 Gateway와 console plugin을 띄우고, 회사 OCP는 read-only 관측 대상으로 연결한다.
           </p>
           <div class="callout">
-            현재 확인된 최종 상태는 <code>feat/v.0.1.3</code> 브랜치의 <code>29e5e1e</code> 커밋이다.
-            이 커밋은 <code>document ver.0.1.3 night handoff verification</code>으로, 로컬 시연 런타임 정상화, RAG smoke, Evidence/RCA, live demo cycle, screen readiness 검증 결과와 야간 인수인계 산출물을 포함한다.
+            현재 확인된 최종 작업선은 <code>feat/v.0.1.5</code>다.
+            0.1.4에서 PBS 계열 사용자 업로드/RAG 기능을 선별 이식했고, 0.1.5에서 RCA ToolPlan, runbook evidence, Lightspeed payload boundary, UI verifier 증거 저장까지 시연 하드닝을 진행했다.
+            단, 이는 로컬 WSL 개발 콘솔 기반 시연 준비이며 회사 OCP 신규 설치 완료를 뜻하지 않는다.
           </div>
         </section>
 
@@ -473,6 +477,16 @@
                 <td>공식 시연 시나리오 한 사이클: pgvector RAG, Action Executor, Evidence/RCA, 10개 운영 시나리오, 화면 준비도 검증</td>
                 <td>로컬 개발 콘솔 기반 시연 안정화와 야간 인수인계</td>
               </tr>
+              <tr>
+                <td><code>Ver.0.1.4</code></td>
+                <td>PBS 프로젝트의 사용자 업로드/RAG 파이프라인을 분석하고, PDF/MD 업로드와 pgvector citation smoke를 연결</td>
+                <td>사용자 문서 기반 RAG 도입, 업로드 패널/문서 근거 흐름 보강</td>
+              </tr>
+              <tr>
+                <td><code>Ver.0.1.5</code></td>
+                <td>시연 직전 RCA/Runbook ToolPlan, Lightspeed boundary, fallback 표현, UI verifier evidence를 하드닝</td>
+                <td>시연 멘트 안전선과 검증 증거를 고정한 demo readiness 단계</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -486,8 +500,9 @@
             <li>Kugnus 전용 package/catalog/namespace/ConsolePlugin 이름 분리 기준</li>
             <li>Cywell AI 관제탑 UI, 챗봇 shell, 상태 카드, 이상 징후, RCA 근거, read-only 조치 후보</li>
             <li>Tool Plan JSON, RCA Context JSON, Evidence/Missing Evidence 계약</li>
+            <li>PDF/MD 사용자 업로드를 pgvector RAG evidence로 연결하는 local smoke 경로</li>
             <li>OLM/Operator readiness manifest와 local-only 검증</li>
-            <li>UI verifier, Gateway pytest, frontend build, offline scenario evaluator를 묶은 Stage 6 검증 루프</li>
+            <li>UI verifier, Gateway pytest, frontend build, offline scenario evaluator, demo live verifier를 묶은 검증 루프</li>
           </ul>
 
           <h3>현재 포함되지 않은 범위</h3>
@@ -495,8 +510,8 @@
             <li>별도 승인 없는 회사 OCP runtime 설치, Subscription 생성, AIOpsInstallation 생성</li>
             <li>기존 공용 <code>komsco-ai-console-plugin</code> 또는 <code>lightspeed-console-plugin</code> 교체</li>
             <li>실제 mutation 실행: <code>oc apply/delete/patch/scale/exec</code></li>
-            <li>production RAG backend 완성, 모델 학습 파이프라인, 장기 운영 피드백 학습</li>
-            <li>Lightspeed stream 성공 보장. 현재 0.1.2 문서상 stream 실패 시 Gateway fallback을 명시한다.</li>
+            <li>production RAG 품질 보장, 모델 학습 파이프라인, 장기 운영 피드백 학습</li>
+            <li>Lightspeed stream 최종 응답 성공 보장. 현재는 stream 실패나 장기 대기 시 Gateway fallback/stop 복구를 명시한다.</li>
           </ul>
         </section>
 
@@ -504,8 +519,8 @@
           <h2>진행도</h2>
           <p>
             진행도는 세 기준으로 나눠서 봐야 한다. <strong>0.1.2 로컬/read-only 계획 범위</strong>는 Stage 1-6이 완료되어 100%다.
-            <strong>0.1.3 로컬 시연 준비 범위</strong>도 smoke, scenario, Evidence/RCA, live cycle, screen readiness가 모두 PASS라 100%로 본다.
-            반면 <strong>운영 제품 전체</strong> 기준은 회사 OCP 설치/운영 rollout, production RAG, 승인 기반 action execution 운영 검증이 남아 있어 약 75%로 판단한다.
+            <strong>0.1.5 로컬 시연 준비 범위</strong>는 smoke, scenario, Evidence/RCA, live cycle, screen readiness, UI verifier, frontend build, backend tests가 모두 PASS라 100%로 본다.
+            반면 <strong>운영 제품 전체</strong> 기준은 회사 OCP 설치/운영 rollout, production RAG 품질, 승인 기반 action execution 운영 검증이 남아 있어 약 82%로 판단한다.
           </p>
 
           <div class="progress-row">
@@ -514,14 +529,14 @@
             <span>100%</span>
           </div>
           <div class="progress-row">
-            <strong>0.1.3 로컬 시연 준비</strong>
+            <strong>0.1.5 로컬 시연 준비</strong>
             <div class="bar green"><span style="width: 100%"></span></div>
             <span>100%</span>
           </div>
           <div class="progress-row">
             <strong>로컬 관제탑 완성도</strong>
-            <div class="bar green"><span style="width: 92%"></span></div>
-            <span>92%</span>
+            <div class="bar green"><span style="width: 95%"></span></div>
+            <span>95%</span>
           </div>
           <div class="progress-row">
             <strong>카탈로그/OLM 준비도</strong>
@@ -530,12 +545,12 @@
           </div>
           <div class="progress-row">
             <strong>운영 제품 전체</strong>
-            <div class="bar orange"><span style="width: 75%"></span></div>
-            <span>75%</span>
+            <div class="bar orange"><span style="width: 82%"></span></div>
+            <span>82%</span>
           </div>
 
           <div class="warning">
-            75%는 배포 완료율이 아니다. 현재까지 구현/검증된 기능과 남은 운영 리스크를 합산한 제품 관점 추정치다.
+            82%는 배포 완료율이 아니다. 현재까지 구현/검증된 기능과 남은 운영 리스크를 합산한 제품 관점 추정치다.
             회사 서버에 실제 설치를 완료했다는 뜻으로 사용하면 안 된다.
           </div>
         </section>
@@ -880,6 +895,92 @@
           </div>
         </section>
 
+        <section id="v014">
+          <div class="version-header">
+            <h2>Ver.0.1.4</h2>
+            <div>
+              <span class="tag pass">사용자 업로드 RAG</span>
+              <span class="tag pass">pgvector smoke</span>
+              <span class="tag pending">운영 품질 검증 남음</span>
+            </div>
+          </div>
+
+          <h3>개요</h3>
+          <p>
+            0.1.4는 별도 PBS 프로젝트에 있던 사용자 업로드/RAG 흐름을 분석하고, 현재 Kugnus AIOps에 필요한 부분만 가져와 붙인 단계다.
+            채팅창의 파일 첨부가 단순 장식이 아니라 runbook, 운영 매뉴얼, 고객사 문서를 evidence로 쓰기 위한 입구라는 판단을 문서와 코드 흐름에 반영했다.
+          </p>
+
+          <h3>구현된 것</h3>
+          <ul>
+            <li>PBS 사용자 업로드 기능에서 필요한 ingestion/retrieval 관점을 추출했다.</li>
+            <li>PDF/MD 업로드 파일을 정화하고 chunk로 나누어 pgvector backend에 저장하는 smoke 경로를 검증했다.</li>
+            <li>RAG citation이 챗봇 답변의 근거로 붙는지 확인했다.</li>
+            <li>좌측 패널에 지난 대화와 사용자 업로드 자료를 분리해 볼 수 있는 UI 방향을 반영했다.</li>
+          </ul>
+
+          <h3>주의할 점</h3>
+          <ul>
+            <li>0.1.4의 RAG는 local smoke 기준이다. 운영용 검색 품질, 문서 권한 모델, 대량 문서 ingest 성능까지 보장한다는 뜻이 아니다.</li>
+            <li>PDF upload가 된다고 해서 BYOK나 Lightspeed 내장 지식베이스가 완성된 것은 아니다. 현재 구조는 Gateway가 pgvector evidence를 수집해 답변에 붙이는 방식이다.</li>
+          </ul>
+
+          <div class="source-list">
+            근거: <code>docs/Ver.0.1.4/README.md</code>,
+            <code>docs/Ver.0.1.4/pbs-user-upload-rag-import-analysis.html</code>,
+            <code>docs/Ver.0.1.4/rag-architecture-design.html</code>,
+            <code>docs/Ver.0.1.4/rag-upload-smoke-report.json</code>,
+            <code>docs/Ver.0.1.4/rag-chat-citation-smoke-report.json</code>
+          </div>
+        </section>
+
+        <section id="v015">
+          <div class="version-header">
+            <h2>Ver.0.1.5</h2>
+            <div>
+              <span class="tag pass">Demo readiness PASS</span>
+              <span class="tag pass">UI verifier 105/105</span>
+              <span class="tag pending">Lightspeed final stream WARN</span>
+            </div>
+          </div>
+
+          <h3>개요</h3>
+          <p>
+            0.1.5는 "내일 시연에서 실제로 어디까지 말할 수 있는가"를 고정한 단계다.
+            RCA ToolPlan에 runbook/RAG evidence를 정식으로 편입했고, Lightspeed stream 경계와 Gateway fallback 표현을 정리했으며,
+            UI verifier 결과를 branch/head가 찍힌 JSON 산출물로 남겼다.
+          </p>
+
+          <h3>검증 결과</h3>
+          <ul>
+            <li><code>task kugnus:runtime:smoke</code>: PASS.</li>
+            <li><code>task kugnus:scenario:verify</code>: 10/10 PASS.</li>
+            <li><code>task kugnus:evidence-rca:verify</code>: PASS.</li>
+            <li><code>task kugnus:demo:live-verify</code>: PASS.</li>
+            <li><code>task kugnus:demo:screen-readiness</code>: PASS.</li>
+            <li><code>task kugnus:ui:verify</code>: 105 checked / 0 failed. Cypress가 아니라 Chrome CDP 기반 verifier다.</li>
+            <li><code>corepack yarn build</code>: PASS.</li>
+            <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 183 passed, 2 warnings.</li>
+          </ul>
+
+          <h3>이번 단계에서 잠근 표현</h3>
+          <ul>
+            <li>말해도 되는 것: 로컬 WSL 개발 콘솔에서 회사 OCP 상태를 읽고, Gateway/RAG/ToolPlan/RCA/UI 흐름을 검증했다.</li>
+            <li>말하면 안 되는 것: 회사 OCP에 Kugnus runtime을 설치 완료했다.</li>
+            <li>말해도 되는 것: PDF 업로드 RAG smoke와 citation 연결은 확인했다.</li>
+            <li>말하면 안 되는 것: production RAG 품질과 장기 검색 품질까지 완성됐다.</li>
+            <li>말하면 안 되는 것: Lightspeed 최종 응답까지 완전 성공했다.</li>
+          </ul>
+
+          <div class="source-list">
+            근거: <code>docs/Ver.0.1.5/README.md</code>,
+            <code>docs/Ver.0.1.5/demo-readiness-report.html</code>,
+            <code>docs/Ver.0.1.5/ui-verifier-report.json</code>,
+            <code>docs/Ver.0.1.5/evidence-rca-runbook-toolplan-verification.json</code>,
+            <code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code>
+          </div>
+        </section>
+
         <section id="implemented">
           <h2>구현된 것</h2>
           <div class="grid">
@@ -907,6 +1008,14 @@
               <strong>운영 시나리오</strong>
               <span>재기동, 상태 확인, CrashLoopBackOff, ImagePullBackOff, 증거 부족 RCA, read-only action review, 기존 리소스 미변경 시나리오가 정리됐다.</span>
             </div>
+            <div class="card">
+              <strong>사용자 업로드 RAG</strong>
+              <span>PDF/MD 업로드 파일을 정화, chunk, pgvector 저장, citation evidence로 연결하는 local smoke 경로가 생겼다.</span>
+            </div>
+            <div class="card">
+              <strong>시연 증거화</strong>
+              <span>runtime smoke, scenario, Evidence/RCA, live demo, screen readiness, UI verifier 결과가 JSON/HTML 산출물로 남는다.</span>
+            </div>
           </div>
         </section>
 
@@ -922,14 +1031,81 @@
           </ul>
         </section>
 
+        <section id="lessons">
+          <h2>작업 회고</h2>
+          <p>
+            이 프로젝트에서 중요한 학습은 "문제가 생겼다"가 아니라 "어떤 증상이 어떤 원인 후보로 연결되는가"를 남기는 것이다.
+            아래 항목은 앞으로 작업이 끊겼다가 다시 시작될 때 먼저 확인할 기준이다.
+          </p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>증상</th>
+                <th>확인할 것</th>
+                <th>판단 기준</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>빌드가 비정상적으로 느림</td>
+                <td>현재 repo 경로가 <code>/mnt/c</code>인지 <code>/home/kugnus</code>인지 확인</td>
+                <td>기본은 WSL native path다. Windows 파일시스템 위에서 webpack rebuild를 반복하지 않는다.</td>
+              </tr>
+              <tr>
+                <td>Docker가 켜져 있는데 console bridge 실패</td>
+                <td><code>docker version</code>에서 Server 정보가 나오는지 확인</td>
+                <td>Docker Desktop 실행과 WSL integration은 별도다. Server가 안 나오면 bridge가 컨테이너를 못 띄운다.</td>
+              </tr>
+              <tr>
+                <td>페이지가 404거나 UI가 이전 상태처럼 보임</td>
+                <td>9000 console bridge, 9001 webpack, plugin manifest, chunk 응답 확인</td>
+                <td>stale bridge/chunk 문제일 수 있다. 한쪽만 재시작했다고 최신 UI가 보장되지 않는다.</td>
+              </tr>
+              <tr>
+                <td>웹콘솔은 로그인인데 <code>oc</code>가 Unauthorized</td>
+                <td><code>oc whoami</code>, <code>oc whoami --show-server</code></td>
+                <td>브라우저 세션과 CLI 세션은 다르다. token은 저장소에 남기지 않는다.</td>
+              </tr>
+              <tr>
+                <td>테스트 PASS를 말하기가 불안함</td>
+                <td>terminal scroll이 아니라 report JSON/HTML이 있는지 확인</td>
+                <td>시연 증거는 파일로 남긴다. 특히 UI verifier는 branch/head stamp가 필요하다.</td>
+              </tr>
+              <tr>
+                <td>RCA 답변이 좋아 보이지만 증거가 애매함</td>
+                <td>collected, partial, failed, skipped/missing evidence 분리 여부 확인</td>
+                <td>없는 증거를 있는 것처럼 말하지 않는다. previous log가 항상 있다고 가정하지 않는다.</td>
+              </tr>
+              <tr>
+                <td>Lightspeed까지 성공했다고 말하고 싶음</td>
+                <td>Gateway fallback인지, OLS stream 최종 응답인지 구분</td>
+                <td>현재는 fallback 가능성을 말해야 한다. Lightspeed 최종 응답 완전 성공이라고 말하지 않는다.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>바로 실행할 기본 순서</h3>
+          <ol>
+            <li><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
+            <li><code>task kugnus:dev:doctor</code></li>
+            <li><code>task kugnus:runtime:smoke</code></li>
+            <li><code>task kugnus:scenario:verify</code></li>
+            <li><code>task kugnus:evidence-rca:verify</code></li>
+            <li><code>task kugnus:demo:live-verify</code></li>
+            <li><code>task kugnus:demo:screen-readiness</code></li>
+            <li><code>KUGNUS_UI_VERIFY_REPORT=docs/Ver.0.1.5/ui-verifier-report.json task kugnus:ui:verify</code></li>
+          </ol>
+        </section>
+
         <section id="next">
           <h2>다음 작업</h2>
           <ol>
-            <li>현재 0.1.2 로컬 관제탑을 기준으로 실제 화면 시연용 체크리스트를 만든다.</li>
-            <li>Lightspeed stream failure의 원인을 인증, endpoint, TLS, OLS availability 단위로 분해한다.</li>
+            <li>브라우저에서 공식 시연 질문을 직접 실행하고, 답변 문장 품질과 화면 전환을 사람 눈으로 최종 확인한다.</li>
+            <li>Lightspeed stream 경로를 인증, endpoint, TLS, OLS availability, payload schema 단위로 분해해 WARN을 줄인다.</li>
             <li>Prometheus/Thanos 직접 query를 token-safe 방식으로 검증 자동화에 추가한다.</li>
-            <li>RAG/Runbook backend를 production 후보 기술로 선택하고 ingestion/retrieval 품질 기준을 만든다.</li>
-            <li>승인형 action execution을 별도 feature flag와 audit trail로 설계한다.</li>
+            <li>RAG/Runbook backend의 production 후보 기술, 문서 권한, ingestion/retrieval 품질 기준을 만든다.</li>
+            <li>승인형 action execution을 feature flag, approval guard, audit trail, rollback 기준으로 설계한다.</li>
             <li>별도 승인 후에만 Kugnus runtime install을 수행하고, 설치 전/후 기존 공용 plugin 변경 없음 evidence를 남긴다.</li>
           </ol>
         </section>
@@ -1017,9 +1193,34 @@
                 <td>Action Executor port-forward 정상화, 런타임 endpoint, smoke 증거</td>
               </tr>
               <tr>
+                <td>0.1.4</td>
+                <td><code>docs/Ver.0.1.4/pbs-user-upload-rag-import-analysis.html</code></td>
+                <td>PBS 프로젝트에서 가져올 사용자 업로드/RAG 기능 범위와 이식 판단</td>
+              </tr>
+              <tr>
+                <td>0.1.4</td>
+                <td><code>docs/Ver.0.1.4/rag-architecture-design.html</code></td>
+                <td>pgvector 기반 사용자 문서 RAG 구조, 업로드/검색/답변 citation 설계</td>
+              </tr>
+              <tr>
+                <td>0.1.5</td>
+                <td><code>docs/Ver.0.1.5/demo-readiness-report.html</code></td>
+                <td>시연 준비도, 남은 제약, 작업 회고, 시연 멘트 안전선</td>
+              </tr>
+              <tr>
+                <td>0.1.5</td>
+                <td><code>docs/Ver.0.1.5/ui-verifier-report.json</code></td>
+                <td>Chrome CDP 기반 UI verifier 결과, branch/head stamp, 105 checked / 0 failed</td>
+              </tr>
+              <tr>
+                <td>0.1.5</td>
+                <td><code>docs/Ver.0.1.5/evidence-rca-runbook-toolplan-verification.json</code></td>
+                <td>RCA ToolPlan에 RAG/runbook evidence가 포함되는지 검증한 증거</td>
+              </tr>
+              <tr>
                 <td>Git</td>
                 <td><code>git log --oneline</code></td>
-                <td><code>bedb13c</code> Stage 1부터 <code>29e5e1e</code> Ver.0.1.3 야간 인수인계까지 단계 커밋 존재</td>
+                <td><code>bedb13c</code> Stage 1부터 <code>5cd4d78</code> Ver.0.1.5 UI verifier evidence까지 단계 커밋 존재</td>
               </tr>
             </tbody>
           </table>

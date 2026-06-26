@@ -128,6 +128,107 @@
   </section>
 
   <section>
+    <h2>작업 회고: 실제로 겪은 문제와 판단 기준</h2>
+    <p class="note">이 섹션은 단순 회고가 아니라 다음 작업 때 같은 문제를 빨리 식별하기 위한 운영 메모다. 터미널 출력, UI 증상, 검증 결과를 바로 원인 후보로 연결하는 것이 목적이다.</p>
+    <table>
+      <tr><th>겪은 상황</th><th>실제 원인/판단</th><th>다음 기준</th></tr>
+      <tr>
+        <td>빌드와 webpack 반영이 지나치게 느림</td>
+        <td>repo가 <code>/mnt/c</code> 아래 있을 때 WSL 파일 watcher와 Windows 파일시스템 경계 때문에 rebuild가 느려질 수 있었다.</td>
+        <td>기본 작업대는 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>로 둔다. 느려지면 먼저 WSL native path인지 확인한다.</td>
+      </tr>
+      <tr>
+        <td>Docker는 켜져 있는데 console bridge가 Docker daemon에 연결하지 못함</td>
+        <td>Docker Desktop 자체 실행과 WSL integration은 별도다. local console bridge는 WSL 안에서 Docker daemon을 볼 수 있어야 한다.</td>
+        <td><code>docker version</code>에서 Server 정보까지 나오는지 확인한다. client만 나오면 integration/daemon 문제다.</td>
+      </tr>
+      <tr>
+        <td><code>task fe:dev</code>가 9000 port 사용 중으로 실패함</td>
+        <td>이전 local console bridge가 살아 있거나 stale 상태였다. 9000/9001/18080/18443은 이미 떠 있으면 WARN일 수 있지만, 새 실행 시에는 충돌 원인이 된다.</td>
+        <td><code>task kugnus:dev:doctor</code>로 먼저 상태를 본다. WARN은 의도된 기존 서버인지, 낡은 서버인지 구분한다.</td>
+      </tr>
+      <tr>
+        <td>UI가 안 바뀌었거나 chunk 404가 발생함</td>
+        <td>webpack dev server와 console bridge 중 하나만 새 상태라 stale chunk를 물 수 있었다.</td>
+        <td>UI 코드 변경 후 이상하면 plugin dev server <code>9001</code>과 console bridge <code>9000</code>를 함께 확인한다. chunk 200과 manifest 200을 본다.</td>
+      </tr>
+      <tr>
+        <td><code>yarn</code>, <code>corepack</code>, <code>node</code>가 상황마다 다르게 잡힘</td>
+        <td><code>nvm</code> 기반 Node는 interactive shell에서만 PATH가 잡히는 경우가 있었다.</td>
+        <td>자동화 스크립트는 필요 시 <code>bash -ic</code> 경로를 사용한다. doctor에서 node/corepack 위치가 <code>/home/kugnus/.nvm/...</code>인지 본다.</td>
+      </tr>
+      <tr>
+        <td>웹콘솔 로그인은 되어 있는데 <code>oc</code> 명령은 Unauthorized</td>
+        <td>브라우저 console session과 CLI <code>oc login</code> session은 별개다.</td>
+        <td><code>oc whoami</code>, <code>oc whoami --show-server</code>로 CLI context를 따로 확인한다. token/kubeconfig는 commit하지 않는다.</td>
+      </tr>
+      <tr>
+        <td>회사 OCP와 로컬 테스트 경계가 헷갈림</td>
+        <td>현재 시연은 회사 OCP를 read-only 관측 대상으로 쓰는 로컬 WSL 개발 콘솔이다. 회사 OCP에 설치했다고 말하면 안 된다.</td>
+        <td>시연 표현은 "로컬 콘솔에서 회사 OCP 신호를 읽어 AIOps 흐름을 검증했다"로 고정한다.</td>
+      </tr>
+      <tr>
+        <td>RCA 답변이 근거 있는 것처럼 보이지만 실제 evidence가 부족할 수 있음</td>
+        <td>previous log, event, metric, RAG evidence는 collected/partial/failed/skipped/missing이 섞인다.</td>
+        <td>증거 상태를 숨기지 않는다. 특히 default namespace에 과거 재시작 Pod 로그가 항상 있다고 말하지 않는다.</td>
+      </tr>
+      <tr>
+        <td>Lightspeed 연동을 성공으로 말하고 싶어지는 상황</td>
+        <td>Gateway가 RCA 보고서를 만들 수 있어도 Lightspeed 최종 stream 성공과는 다르다. OLS body schema 위반은 422를 만들었다.</td>
+        <td>OLS payload는 공식 필드만 보낸다. 현재는 Gateway fallback 가능성을 명시하고, Lightspeed 최종 응답 완전 성공이라고 말하지 않는다.</td>
+      </tr>
+      <tr>
+        <td>터미널 PASS만 보고 나중에 무엇을 검증했는지 기억하기 어려움</td>
+        <td>스크롤 로그는 증거로 약하다.</td>
+        <td>검증 결과는 JSON/HTML 산출물로 남긴다. UI 검증은 branch/head가 찍힌 <code>ui-verifier-report.json</code>을 보관한다.</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>다음부터 바로 쓰는 운영 체크리스트</h2>
+    <ol>
+      <li>작업 위치 확인: <code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></li>
+      <li>전체 상태 진단: <code>task kugnus:dev:doctor</code></li>
+      <li>런타임 smoke: <code>task kugnus:runtime:smoke</code></li>
+      <li>운영 시나리오 계약: <code>task kugnus:scenario:verify</code></li>
+      <li>Evidence/RCA scene: <code>task kugnus:evidence-rca:verify</code></li>
+      <li>Live demo cycle: <code>task kugnus:demo:live-verify</code></li>
+      <li>화면 준비도: <code>task kugnus:demo:screen-readiness</code></li>
+      <li>UI verifier 증거 저장: <code>KUGNUS_UI_VERIFY_REPORT=docs/Ver.0.1.5/ui-verifier-report.json task kugnus:ui:verify</code></li>
+      <li>Frontend build: <code>cd komsco-ai-console-plugin &amp;&amp; corepack yarn build</code></li>
+      <li>Backend tests: <code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>시연 멘트 안전선</h2>
+    <table>
+      <tr><th>말해도 되는 것</th><th>말하면 안 되는 것</th></tr>
+      <tr>
+        <td>로컬 WSL 개발 콘솔에서 회사 OCP 상태를 읽고, Gateway/RAG/ToolPlan/RCA/UI 흐름을 검증했다.</td>
+        <td>회사 OCP에 Kugnus runtime을 설치 완료했다.</td>
+      </tr>
+      <tr>
+        <td>pgvector 기반 사용자 업로드 RAG smoke가 통과했고, PDF chunk 저장과 citation 연결을 확인했다.</td>
+        <td>운영용 RAG 품질과 장기 검색 품질까지 완성됐다.</td>
+      </tr>
+      <tr>
+        <td>CrashLoop/RCA 시나리오에서 ToolPlan, Evidence 상태, 조치 후보, 누락 근거 표시가 한 사이클로 돈다.</td>
+        <td>모든 실제 장애의 원인을 자동으로 확정한다.</td>
+      </tr>
+      <tr>
+        <td>UI 검증은 Chrome CDP 기반 verifier로 105개 체크 0 failed를 기록했다.</td>
+        <td>Cypress/Electron 브라우저 E2E가 통과했다.</td>
+      </tr>
+      <tr>
+        <td>Lightspeed 연결은 남은 제약이 있으며 Gateway fallback 가능성을 UI와 보고서에 남겼다.</td>
+        <td>Lightspeed 최종 응답까지 완전 성공했다.</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
     <h2>남은 제약</h2>
     <ul>
       <li><strong>Lightspeed stream</strong>: 현재 화면과 증거에서는 아직 Gateway fallback 경로로 표시될 수 있다. 따라서 “Lightspeed 최종 응답까지 완전 성공”이라고 말하면 안 돼. 네트워크/VPN/회사 LLM endpoint 상태에 따라 runtime 장애가 생기면 UI는 fallback 상태를 표시한다.</li>
