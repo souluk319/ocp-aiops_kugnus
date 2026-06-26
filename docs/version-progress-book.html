@@ -413,8 +413,11 @@
           <a class="nav-link" href="#implemented">구현된 것</a>
           <a class="nav-link" href="#gaps">남은 것</a>
           <a class="nav-link" href="#lessons">작업 회고</a>
+          <a class="nav-link" href="#issue-resolution-ledger">문제-해결 연대기</a>
+          <a class="nav-link" href="#weekend-test-master">주말 테스트 마스터</a>
           <a class="nav-link" href="#operator-learning">운영 학습</a>
           <a class="nav-link" href="#working-principles">작업 원칙</a>
+          <a class="nav-link" href="#review-board">검수반장 판정</a>
           <a class="nav-link" href="#next">다음 작업</a>
           <a class="nav-link" href="#evidence">근거 파일</a>
           <a class="nav-link" href="#night-handoff-book">야간 인수인계</a>
@@ -429,7 +432,8 @@
           <h2>Kugnus OCP AIOps 버전별 작업 기록</h2>
           <p>
             이 문서는 <code>Ver.0.1.0</code>부터 <code>Ver.0.1.5</code>까지의 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
-            목적은 지금까지 어떤 작업이 실제로 이루어졌는지, 어떤 기능이 구현되었는지, 전체 제품 기준으로 어디까지 왔는지를 꾸밈없이 정리하는 것이다.
+            목적은 처음 pull 받은 시점부터 지금까지 어떤 작업이 실제로 이루어졌는지, 어떤 문제를 겪었고 어떻게 해결했는지,
+            앞으로 어떤 방식으로 테스트하고 학습하면 되는지를 꾸밈없이 정리하는 것이다.
           </p>
         </header>
 
@@ -441,10 +445,27 @@
             로컬 WSL 개발환경에서 Gateway와 console plugin을 띄우고, 회사 OCP는 read-only 관측 대상으로 연결한다.
           </p>
           <div class="callout">
-            현재 확인된 최종 작업선은 <code>feat/v.0.1.5</code>다.
+            현재 확인된 최종 작업선은 <code>feat/v.0.1.5</code>, 최신 커밋은 <code>45a13fe align history new chat control</code>이다.
             0.1.4에서 PBS 계열 사용자 업로드/RAG 기능을 선별 이식했고, 0.1.5에서 RCA ToolPlan, runbook evidence, Lightspeed payload boundary, UI verifier 증거 저장까지 시연 하드닝을 진행했다.
-            단, 이는 로컬 WSL 개발 콘솔 기반 시연 준비이며 회사 OCP 신규 설치 완료를 뜻하지 않는다.
+            최신 증거 기준 <code>task kugnus:ui:verify</code>는 <code>107 checked / 0 failed</code>이고, strict Lightspeed 최종 응답과 strict demo audit도 PASS다.
+            단, 이는 로컬 WSL 개발 콘솔 기반 시연 준비이며 회사 OCP 신규 runtime 설치 완료를 뜻하지 않는다.
           </div>
+        </section>
+
+        <section id="current-fact-stamp">
+          <h2>현재 기준점</h2>
+          <table>
+            <tbody>
+              <tr><th>작업 브랜치</th><td><code>feat/v.0.1.5</code></td></tr>
+              <tr><th>최신 커밋</th><td><code>45a13fe align history new chat control</code></td></tr>
+              <tr><th>핵심 환경</th><td>WSL native repo <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>, 로컬 콘솔 <code>http://localhost:9000/dashboards</code>, Gateway <code>127.0.0.1:18080</code></td></tr>
+              <tr><th>UI 검증</th><td><code>docs/Ver.0.1.5/ui-verifier-report.json</code>: <code>ok=true</code>, <code>checked=107</code>, <code>failed=[]</code></td></tr>
+              <tr><th>Lightspeed 최종 응답</th><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>: <code>allSucceeded=true</code></td></tr>
+              <tr><th>Strict demo audit</th><td><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>: <code>successClaimAllowed=true</code>, <code>blockingGates=[]</code></td></tr>
+              <tr><th>RAG 업로드</th><td><code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code>: <code>result=pass</code></td></tr>
+              <tr><th>중요한 경계</th><td>회사 OCP에 Kugnus runtime을 새로 설치하는 단계가 아니라, 로컬 WSL 시연 스택에서 회사 OCP를 관측하고 검증하는 단계다.</td></tr>
+            </tbody>
+          </table>
         </section>
 
         <section id="goal">
@@ -505,6 +526,7 @@
             <li>PDF/MD 사용자 업로드를 pgvector RAG evidence로 연결하는 local smoke 경로</li>
             <li>OLM/Operator readiness manifest와 local-only 검증</li>
             <li>UI verifier, Gateway pytest, frontend build, offline scenario evaluator, demo live verifier를 묶은 검증 루프</li>
+            <li>strict verifier 기준 fallback 없는 Lightspeed 최종 응답 확인</li>
           </ul>
 
           <h3>현재 포함되지 않은 범위</h3>
@@ -513,7 +535,7 @@
             <li>기존 공용 <code>komsco-ai-console-plugin</code> 또는 <code>lightspeed-console-plugin</code> 교체</li>
             <li>실제 mutation 실행: <code>oc apply/delete/patch/scale/exec</code></li>
             <li>production RAG 품질 보장, 모델 학습 파이프라인, 장기 운영 피드백 학습</li>
-            <li>Lightspeed stream 최종 응답 성공 보장. 현재는 stream 실패나 장기 대기 시 Gateway fallback/stop 복구를 명시한다.</li>
+            <li>운영망에서 Lightspeed 최종 응답이 항상 성공한다는 SLA 보장. 현재 증거는 로컬 WSL 시연 스택의 strict verifier PASS다.</li>
           </ul>
         </section>
 
@@ -941,7 +963,7 @@
             <h2>Ver.0.1.5</h2>
             <div>
               <span class="tag pass">Demo readiness PASS</span>
-              <span class="tag pass">UI verifier 105/105</span>
+              <span class="tag pass">UI verifier 107/107</span>
               <span class="tag pass">Strict Lightspeed gate PASS</span>
             </div>
           </div>
@@ -961,7 +983,7 @@
             <li><code>task kugnus:evidence-rca:verify</code>: PASS.</li>
             <li><code>task kugnus:demo:live-verify</code>: PASS.</li>
             <li><code>task kugnus:demo:screen-readiness</code>: PASS.</li>
-            <li><code>task kugnus:ui:verify</code>: 105 checked / 0 failed. Cypress가 아니라 Chrome CDP 기반 verifier다.</li>
+            <li><code>task kugnus:ui:verify</code>: 107 checked / 0 failed. Cypress가 아니라 Chrome CDP 기반 verifier다.</li>
             <li><code>corepack yarn build</code>: PASS.</li>
             <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 188 passed, 2 warnings.</li>
             <li><code>task kugnus:lightspeed:live-verify</code>: PASS. 최신 report는 <code>allSucceeded=true</code>이며, <code>cluster-summary</code>와 <code>official-evidence-rca</code> 두 case 모두 Lightspeed stage, completed stage, OLS text, runtime <code>streamProbe=succeeded</code>, <code>fallbackActive=false</code>를 확인했다.</li>
@@ -1038,7 +1060,7 @@
           <h2>남은 것</h2>
           <ul class="plain-list">
             <li><strong>회사 OCP 설치/운영 검증:</strong> 별도 승인 전까지 <code>Subscription</code>, <code>CSV</code>, <code>AIOpsInstallation</code> 생성은 하지 않았다.</li>
-            <li><strong>Lightspeed stream 안정화:</strong> 0.1.2 산출물은 stream failure를 숨기지 않고 fallback으로 표시한다. 성공률과 장애 원인 분석은 후속이다.</li>
+            <li><strong>운영망 회귀검증:</strong> strict Lightspeed gate는 로컬 WSL 시연 스택에서 PASS다. 다만 운영망 장기 안정성, 장애 재시도, SLA 수준의 성공률 검증은 후속이다.</li>
             <li><strong>Production RAG:</strong> RAG/Runbook skeleton과 <code>not_configured</code> 계약은 있으나 운영용 벡터 저장소/검색 품질/수집 파이프라인은 남아 있다.</li>
             <li><strong>승인 기반 action execution:</strong> 현재 조치 후보는 read-only 제안이다. 실제 실행, 승인, 감사, rollback은 별도 stage가 필요하다.</li>
             <li><strong>장기 운영 평가:</strong> offline evaluator는 pass했지만, live OCP/LLM endpoint 기반 품질 평가는 아직 별도다.</li>
@@ -1106,12 +1128,12 @@
               <tr>
                 <td>Lightspeed까지 성공했다고 말하고 싶음</td>
                 <td>Gateway fallback인지, OLS stream 최종 응답인지 구분</td>
-                <td>현재는 fallback 가능성을 말해야 한다. Lightspeed 최종 응답 완전 성공이라고 말하지 않는다.</td>
+                <td>최신 strict verifier가 PASS이면 로컬 WSL 시연 범위에서는 Lightspeed 최종 응답 성공으로 말할 수 있다. 단, fallback인지 OLS stream인지 report로 확인하고 운영망 SLA처럼 확대하지 않는다.</td>
               </tr>
               <tr>
                 <td>검증이 PASS인데도 실제 화면이 불안함</td>
                 <td>어떤 verifier가 무엇을 검증했는지 확인. Cypress, Chrome CDP verifier, backend pytest, runtime smoke는 서로 다른 검증이다.</td>
-                <td>"무엇이 PASS인지"를 같이 말한다. 예: UI verifier 105 checks PASS와 Lightspeed strict gate FAIL은 동시에 참일 수 있다.</td>
+                <td>"무엇이 PASS인지"를 같이 말한다. 예: UI verifier 107 checks PASS, strict Lightspeed gate PASS, production RAG 품질 미검증은 동시에 참일 수 있다.</td>
               </tr>
               <tr>
                 <td>로컬 테스트 서버와 회사 서버 작업 범위가 섞임</td>
@@ -1156,6 +1178,60 @@
         </section>
 
 
+        <section id="issue-resolution-ledger">
+          <h2>문제-해결 연대기</h2>
+          <p>
+            아래 표는 처음 pull 받은 뒤 실제로 겪었던 주요 혼선과 해결을 제품 운영 지식으로 재정리한 것이다.
+            핵심은 "무슨 명령을 쳤다"가 아니라 "어떤 층이 끊겼고, 어떤 증거로 고쳤는가"다.
+          </p>
+          <table>
+            <thead>
+              <tr><th>문제</th><th>실제 원인/판단</th><th>해결 또는 현재 기준</th><th>근거</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>CRC와 회사 OCP 작업 범위 혼선</td><td>repo는 회사 OCP에 바로 설치하는 물건이 아니라 WSL 로컬 개발 콘솔과 회사 OCP read-only 연결을 함께 쓰는 구조였다.</td><td>로컬 WSL 시연과 회사 OCP runtime install을 분리했다. 설치성 작업은 별도 승인 전 금지다.</td><td><code>docs/Ver.0.1.0/README.md</code>, <code>docs/Ver.0.1.2/work-session-operating-rules.md</code></td></tr>
+              <tr><td>Git origin/upstream 혼선</td><td>처음에는 회사 repo가 origin이었고, 개인 repo로 push하려면 remote 분리가 필요했다.</td><td><code>origin</code>은 개인 repo, <code>upstream</code>은 회사 원본 repo로 구분한다.</td><td><code>git remote -v</code>, 초기 0.1.0 커밋 기록</td></tr>
+              <tr><td>WSL/PowerShell 명령 혼선</td><td>Windows host 제어 명령과 WSL 개발 명령을 섞으면 실패 원인이 흐려졌다.</td><td>기본 작업은 WSL, Windows host 제어가 필요한 경우만 PowerShell이라고 명시한다.</td><td><code>docs/Ver.0.1.2/work-session-operating-rules.md</code></td></tr>
+              <tr><td>Docker가 켜졌는데 console bridge 실패</td><td>Docker Desktop 실행과 WSL daemon 접근은 별개였다.</td><td><code>docker version</code>에서 Server 정보까지 확인한다. Docker WSL integration을 먼저 본다.</td><td><code>docs/Ver.0.1.3/runtime-execution-troubleshooting-checklist.md</code></td></tr>
+              <tr><td>빌드가 지나치게 느림</td><td><code>/mnt/c</code> 경로에서 webpack/Yarn이 작은 파일을 많이 읽으며 느려졌다.</td><td>기본 작업대는 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>로 옮겼고, 빠른 UI 확인은 dev server, 최종 잠금만 build로 한다.</td><td><code>task kugnus:dev:doctor</code>, WSL native path PASS</td></tr>
+              <tr><td>페이지 404 또는 UI가 안 바뀜</td><td>9000 console bridge와 9001 webpack dev server 중 하나가 stale 상태일 수 있었다.</td><td>manifest/chunk 200, local console dashboard 200을 확인한다. 필요하면 둘을 같이 재시작한다.</td><td><code>docs/Ver.0.1.5/demo-readiness-report.html</code></td></tr>
+              <tr><td>oc 로그인과 웹콘솔 로그인 혼선</td><td>브라우저 세션과 CLI kubeconfig/token은 별개다.</td><td><code>oc whoami</code>와 <code>oc whoami --show-server</code>를 분리해서 본다. token은 커밋하지 않는다.</td><td><code>task kugnus:dev:doctor</code>, <code>task kugnus:ocp:doctor</code></td></tr>
+              <tr><td>VPN/DNS/TCP 원인 혼선</td><td>DNS가 사설 IP를 반환해도 Windows route와 WSL TCP route가 열린 것은 아니었다.</td><td><code>task kugnus:ocp:doctor</code>, <code>task kugnus:vpn:doctor</code>, <code>task kugnus:demo:after-vpn</code>로 층별 진단한다.</td><td><code>docs/Ver.0.1.5/ocp-connectivity-ladder-report.json</code></td></tr>
+              <tr><td>RAG가 된 것과 운영 RAG 완성 혼동</td><td>PDF/MD 업로드, chunk 저장, pgvector 검색, citation smoke는 통과했지만 권한/품질/대량 ingest는 별도다.</td><td>현재는 local smoke PASS로 말하고 production RAG 품질 보장은 말하지 않는다.</td><td><code>docs/Ver.0.1.4/*.json</code>, <code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code></td></tr>
+              <tr><td>Lightspeed 성공 주장 경계</td><td>Gateway fallback 성공과 OLS stream 최종 응답 성공은 다르다.</td><td>최신 strict verifier에서 <code>allSucceeded=true</code>가 확인되어 로컬 WSL 시연 범위의 Lightspeed 최종 응답은 성공으로 말할 수 있다.</td><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>, <code>strict-demo-audit-report.json</code></td></tr>
+              <tr><td>UI가 계속 어긋남</td><td>보이는 것만 맞추면 버튼, 헤더, 사이드바, composer의 시각 규칙이 서로 달라졌다.</td><td>send/stop 버튼, 새대화/토글 버튼, header status, composer border를 UI verifier 항목으로 고정했다.</td><td><code>docs/Ver.0.1.5/ui-verifier-report.json</code>, commits <code>651f26f</code>, <code>45a13fe</code></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="weekend-test-master">
+          <h2>주말 테스트 마스터 플랜</h2>
+          <p>
+            주말 테스트의 목적은 많은 명령을 외우는 것이 아니다. 각 검증이 무엇을 증명하고, 무엇을 증명하지 않는지 말할 수 있게 되는 것이다.
+            아래 순서대로 한 바퀴 돌리면 로컬 시연 스택, 제품 기능, 발표 멘트 안전선을 동시에 점검할 수 있다.
+          </p>
+          <table>
+            <thead>
+              <tr><th>순서</th><th>명령/행동</th><th>증명하는 것</th><th>증명하지 않는 것</th><th>실패 시 먼저 볼 것</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1</td><td><code>git status --short --branch</code>, <code>git log -1 --oneline</code></td><td>현재 브랜치와 기준 커밋</td><td>서버 실행 상태</td><td>브랜치가 <code>feat/v.0.1.5</code>인지 확인</td></tr>
+              <tr><td>2</td><td><code>task kugnus:dev:doctor</code></td><td>WSL, Node/Corepack, oc, Docker, port, local endpoint 상태</td><td>제품 답변 품질</td><td>첫 FAIL 섹션. WARN은 의도된 실행 중 포트인지 구분</td></tr>
+              <tr><td>3</td><td><code>task kugnus:demo:after-vpn</code></td><td>VPN 후 OCP ladder, local demo resume, strict gate, strict audit 재개</td><td>회사 OCP runtime 설치</td><td><code>ocp-connectivity-ladder-report.json</code>의 first failing layer</td></tr>
+              <tr><td>4</td><td><code>task kugnus:runtime:smoke</code></td><td>Gateway health, auth subject, cluster summary, overview, runbook registry, RAG search contract</td><td>브라우저 UI 품질</td><td>Gateway 18080, oc login, RAG/pgvector 상태</td></tr>
+              <tr><td>5</td><td><code>task kugnus:scenario:verify</code></td><td>10개 운영 시나리오 contract가 깨지지 않음</td><td>실제 화면의 자연스러운 답변 문장</td><td><code>docs/Ver.0.1.3/aiops-scenario-evaluation-report.json</code></td></tr>
+              <tr><td>6</td><td><code>task kugnus:evidence-rca:verify</code></td><td>공식 Evidence/RCA scene 계약</td><td>모든 실제 장애 원인 분석 품질</td><td><code>evidence-rca-scene-verification.json</code></td></tr>
+              <tr><td>7</td><td><code>task kugnus:lightspeed:live-verify</code></td><td>fallback 없는 Lightspeed 최종 응답 strict gate</td><td>운영 SLA, 장시간 성공률</td><td>preflight, stream stage, runtime status</td></tr>
+              <tr><td>8</td><td><code>task kugnus:rag:file-upload:smoke</code></td><td>PDF/문서 업로드, parser, chunk, pgvector 저장 smoke</td><td>OCR, 권한 모델, 대량 문서 품질</td><td>parser report, chunk count, pgvector config</td></tr>
+              <tr><td>9</td><td><code>task kugnus:ui:verify</code></td><td>Chrome CDP 기반 UI 동작/배치/상태 계약</td><td>Cypress E2E 통과</td><td><code>docs/Ver.0.1.5/ui-verifier-report.json</code> 실패 항목</td></tr>
+              <tr><td>10</td><td>브라우저 <code>http://localhost:9000/dashboards</code>에서 직접 질문</td><td>시연자가 보는 실제 제품 흐름</td><td>자동 검증 전체 대체</td><td>챗봇 토글, 모드 토글, evidence footer, RAG citation, stop/send 전환</td></tr>
+            </tbody>
+          </table>
+          <div class="callout">
+            <strong>시연 한 문장:</strong>
+            이 제품은 로컬 WSL 콘솔 브리지 위에서 회사 OCP를 read-only로 관측하고, Gateway가 ToolPlan, Evidence/RCA, RAG, Lightspeed 연결을 묶어 운영자가 해석 가능한 답변과 조치 후보를 보여주는 AIOps 관제탑이다.
+          </div>
+        </section>
         <section id="operator-learning">
           <h2>운영 학습 기록</h2>
           <p>
@@ -1228,7 +1304,7 @@
               <tr>
                 <td>지금 어디까지 됐나?</td>
                 <td>로컬 WSL 시연 스택의 RCA/RAG/UI 검증은 PASS이고, strict Lightspeed 최종 응답도 PASS다. 회사 OCP 설치 완료와는 다른 범위다.</td>
-                <td>다 됐다, Lightspeed까지 완전 성공했다.</td>
+                <td>회사 OCP 설치까지 다 됐다, 운영 제품 SLA까지 보장된다.</td>
               </tr>
               <tr>
                 <td>왜 회사 서버에 안 박았나?</td>
@@ -1329,13 +1405,38 @@
           </div>
         </section>
 
+        <section id="review-board">
+          <h2>검수반장 판정</h2>
+          <p>
+            이번 웹북의 검수반장은 김성욱봇으로 둔다. 역할은 친절한 칭찬이 아니라, 발표장에서 틀린 말을 하게 만들 문장과 증거 없는 완료 주장을 걸러내는 것이다.
+            작업반장들은 테스트, 산출물, UI/제품 흐름을 나눠 본다.
+          </p>
+          <table>
+            <thead>
+              <tr><th>검수자</th><th>담당</th><th>PASS 기준</th><th>현재 판정</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>김성욱봇</td><td>총괄/팩트 검수</td><td>회사 OCP 설치 완료 같은 과장 표현이 없고, 최신 report와 모순되지 않는다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>테스트반장</td><td>주말 테스트 순서</td><td>명령마다 증명하는 것과 증명하지 않는 것이 분리되어 있다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>산출물반장</td><td>흩어진 문서 묶기</td><td>버전별 README, review, smoke report, verifier JSON, HTML 책자가 목적별로 연결된다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>제품반장</td><td>사용자 시연 흐름</td><td>관제탑, 챗봇, RAG, ToolPlan, Lightspeed, 실행모드가 하나의 설명으로 이어진다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+            </tbody>
+          </table>
+          <h3>김성욱봇 빠꾸 기준</h3>
+          <ul>
+            <li>terminal에 PASS가 떴다는 이유만으로 완료라고 쓰면 fail이다. report 파일명을 같이 써야 한다.</li>
+            <li>로컬 WSL 시연 성공을 회사 OCP runtime 설치 완료로 바꾸어 말하면 fail이다.</li>
+            <li>RAG smoke 성공을 production RAG 품질 보장으로 말하면 fail이다.</li>
+            <li>UI verifier PASS를 Cypress E2E PASS처럼 말하면 fail이다.</li>
+            <li>어떤 버튼이나 배지가 무엇을 뜻하는지 한 문장으로 설명하지 못하면 제품 설명 fail이다.</li>
+          </ul>
+        </section>
         <section id="next">
           <h2>다음 작업</h2>
           <ol>
             <li>브라우저에서 공식 시연 질문을 직접 실행하고, 답변 문장 품질과 화면 전환을 사람 눈으로 최종 확인한다.</li>
-            <li>Lightspeed stream 경로를 인증, endpoint, TLS, OLS availability, payload schema 단위로 분해해 WARN을 줄인다.</li>
-            <li><code>task kugnus:demo:resume</code> 결과를 기준으로, 재로그인 후에도 strict Lightspeed gate가 어디서 막히는지 반복 증거를 축적한다.</li>
-            <li><code>task kugnus:vpn:doctor</code>와 <code>task kugnus:ocp:doctor</code>의 첫 실패 layer가 <code>tcp</code>에서 사라질 때까지 Windows Fortinet/company VPN route를 먼저 안정화한다. 현재 다음 확인 지점은 Fortinet SSL VPN adapter가 연결되고 <code>10.0.1.230</code> active route가 생기는지다.</li>
+            <li>Lightspeed strict gate는 이미 PASS이므로, 다음은 같은 검증이 재부팅/VPN 재연결 후에도 반복 PASS되는지 회귀 증거를 축적한다.</li>
+            <li><code>task kugnus:demo:after-vpn</code>을 주말 테스트의 기본 재개 명령으로 사용하고, 실패 시 <code>ocp-connectivity-ladder-report.json</code>의 첫 실패 layer를 먼저 본다.</li>
             <li>장시간 기다려야 하면 <code>task kugnus:demo:wait</code>를 사용해 connectivity PASS 시점에 자동으로 strict gate까지 이어지게 한다.</li>
             <li>Prometheus/Thanos 직접 query를 token-safe 방식으로 검증 자동화에 추가한다.</li>
             <li>RAG/Runbook backend의 production 후보 기술, 문서 권한, ingestion/retrieval 품질 기준을 만든다.</li>
@@ -1444,7 +1545,7 @@
               <tr>
                 <td>0.1.5</td>
                 <td><code>docs/Ver.0.1.5/ui-verifier-report.json</code></td>
-                <td>Chrome CDP 기반 UI verifier 결과, branch/head stamp, 105 checked / 0 failed</td>
+                <td>Chrome CDP 기반 UI verifier 결과, branch/head stamp, 107 checked / 0 failed</td>
               </tr>
               <tr>
                 <td>0.1.5</td>
@@ -1454,17 +1555,17 @@
               <tr>
                 <td>0.1.5</td>
                 <td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code></td>
-                <td>fallback 없는 Lightspeed 최종 응답 strict gate. 현재는 <code>preflight.ocpConnectivity.firstFailingLayer=tcp</code>, <code>likelyCause=windows_vpn_adapter_disabled_and_private_route_missing</code>로 <code>allSucceeded=false</code></td>
+                <td>fallback 없는 Lightspeed 최종 응답 strict gate. 최신 증거는 <code>allSucceeded=true</code>이며 두 검증 case 모두 Lightspeed stage, completed stage, OLS text, <code>fallbackActive=false</code>를 확인했다.</td>
               </tr>
               <tr>
                 <td>0.1.5</td>
                 <td><code>docs/Ver.0.1.5/ocp-connectivity-ladder-report.json</code></td>
-                <td>DNS, TCP, TLS, API, oc identity, SSR, Gateway status 사다리 진단. 현재 첫 실패 layer는 <code>tcp</code>이며 WSL route/DNS snapshot 포함</td>
+                <td>DNS, TCP, TLS, API, oc identity, SSR, Gateway status 사다리 진단. 최신 PASS 상태에서는 strict gate 실행 가능한 회사 OCP 연결을 확인한다. 실패 시 첫 실패 layer를 기준으로 원인을 좁힌다.</td>
               </tr>
               <tr>
                 <td>Git</td>
                 <td><code>git log --oneline</code></td>
-                <td><code>bedb13c</code> Stage 1부터 <code>5cd4d78</code> Ver.0.1.5 UI verifier evidence까지 단계 커밋 존재</td>
+                <td><code>5fa5160</code> 0.1.0 방향 고정부터 <code>45a13fe</code> 새대화 버튼 정렬까지 단계 커밋 존재</td>
               </tr>
             </tbody>
           </table>
