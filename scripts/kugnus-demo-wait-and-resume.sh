@@ -33,6 +33,45 @@ print(value if value is not None else "")
 PY
 }
 
+report_field() {
+  local path_expr="$1"
+  python3 - "$REPORT" "$path_expr" <<'PY'
+import json
+import sys
+
+path, path_expr = sys.argv[1], sys.argv[2]
+try:
+    with open(path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+except FileNotFoundError:
+    print("")
+    raise SystemExit(0)
+
+value = payload
+for part in path_expr.split("."):
+    if not part:
+        continue
+    if isinstance(value, list):
+        try:
+            value = value[int(part)]
+        except (ValueError, IndexError):
+            value = ""
+            break
+    elif isinstance(value, dict):
+        value = value.get(part, "")
+    else:
+        value = ""
+        break
+
+if isinstance(value, (dict, list)):
+    print(json.dumps(value, ensure_ascii=False))
+elif value is None:
+    print("")
+else:
+    print(value)
+PY
+}
+
 cd "$ROOT_DIR"
 
 log "Waiting for OCP connectivity before local demo resume"
@@ -55,7 +94,19 @@ for attempt in $(seq 1 "$ATTEMPTS"); do
 
   first_layer="$(summary_field firstFailingLayer)"
   message="$(summary_field message)"
+  likely_cause="$(report_field interpretation.likelyCause)"
+  next_action="$(report_field interpretation.nextActions.0)"
+  windows_hint="$(report_field windowsNetwork.hints.0)"
   log "Still blocked at layer=${first_layer:-unknown}: ${message:-unknown}"
+  if [ -n "$likely_cause" ]; then
+    log "Likely cause: ${likely_cause}"
+  fi
+  if [ -n "$windows_hint" ]; then
+    log "Windows hint: ${windows_hint}"
+  fi
+  if [ -n "$next_action" ]; then
+    log "Next action: ${next_action}"
+  fi
 
   if [ "$attempt" = "$ATTEMPTS" ]; then
     break
