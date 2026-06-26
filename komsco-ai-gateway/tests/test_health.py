@@ -5305,6 +5305,82 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
     asyncio.run(run())
 
 
+def test_aiops_status_api_degrades_without_exposing_records_when_subject_review_times_out(
+    monkeypatch,
+) -> None:
+    AUDIT_RECORDS.clear()
+    DIAGNOSTIC_REQUESTS.clear()
+    EXECUTION_RECORDS.clear()
+    record_subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    DIAGNOSTIC_REQUESTS["diag-runtime"] = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "DiagnosticRequestRecord",
+        "metadata": {"name": "diag-runtime", "createdAt": "2026-06-21T00:00:00Z"},
+        "spec": {"status": {"phase": "collector_succeeded"}},
+        "subject": record_subject,
+    }
+    EXECUTION_RECORDS["execution-runtime"] = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ExecutionRecord",
+        "metadata": {"name": "execution-runtime", "createdAt": "2026-06-21T00:01:00Z"},
+        "spec": {"mutationOutcome": {"status": "mutation_succeeded"}},
+        "subject": record_subject,
+    }
+    monkeypatch.setattr(
+        gateway_main,
+        "OLS_STREAM_STATUS",
+        {
+            "streamProbe": "succeeded",
+            "lastStatus": "succeeded",
+            "lastContextDigest": "sha256:test",
+            "lastStartedAt": "2026-06-21T00:00:00Z",
+            "lastCompletedAt": "2026-06-21T00:00:05Z",
+            "lastError": "",
+            "fallbackActive": False,
+        },
+    )
+
+    async def failing_subject_review(_user_auth_header: str) -> dict:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "openshift_api_unavailable",
+                "operation": "self_subject_review",
+                "message": "synthetic timeout",
+            },
+        )
+
+    async def product_access_review_should_not_run(_user_auth_header: str) -> dict:
+        raise AssertionError("product access review should be skipped when subject review fails")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", failing_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", product_access_review_should_not_run)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        spec = payload["spec"]
+        assert spec["accessReviewStatus"]["status"] == "degraded"
+        assert spec["accessReviewStatus"]["recordsVisible"] is False
+        assert spec["accessReviewStatus"]["subjectReview"]["statusCode"] == 504
+        assert spec["safetyContract"]["lightspeedStatus"]["streamProbe"] == "succeeded"
+        assert spec["safetyContract"]["lightspeedStatus"]["fallbackActive"] is False
+        assert spec["records"]["diagnosticRequests"] == []
+        assert spec["records"]["executionRecords"] == []
+        assert "diag-runtime" not in json.dumps(payload, ensure_ascii=False)
+        assert "execution-runtime" not in json.dumps(payload, ensure_ascii=False)
+        assert "Bearer" not in json.dumps(payload, ensure_ascii=False)
+
+    asyncio.run(run())
+
+
 def test_rag_search_returns_not_configured_contract_without_backend() -> None:
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)

@@ -248,6 +248,7 @@ def evaluate_case(case_id: str, stream: dict[str, Any], status_result: dict[str,
         .get("safetyContract", {})
         .get("lightspeedStatus", {})
     )
+    access_review_status = status_payload.get("spec", {}).get("accessReviewStatus", {})
     checks = {
         "doneReceived": stream["doneReceived"] is True,
         "lightspeedStageSeen": "lightspeed" in stream["runStatusStages"],
@@ -267,6 +268,7 @@ def evaluate_case(case_id: str, stream: dict[str, Any], status_result: dict[str,
         "caseId": case_id,
         "ok": all(checks.values()),
         "checks": checks,
+        "accessReviewStatus": access_review_status,
         "lightspeedStatus": lightspeed_status,
         "statusEndpoint": {
             "ok": status_result.get("ok") is True,

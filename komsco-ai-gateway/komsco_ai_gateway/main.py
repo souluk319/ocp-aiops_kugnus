@@ -10969,12 +10969,62 @@ def build_rag_backend_status() -> dict[str, Any]:
     }
 
 
+def build_status_access_review_failure(exc: HTTPException) -> dict[str, Any]:
+    detail = exc.detail
+    if isinstance(detail, Mapping):
+        safe_detail: Any = redact_sensitive(dict(detail))
+    else:
+        safe_detail = http_exception_message(exc)
+    return {
+        "status": "degraded",
+        "recordsVisible": False,
+        "reason": "OpenShift subject review unavailable; runtime safety status is returned without user-scoped records.",
+        "subjectReview": {
+            "ok": False,
+            "statusCode": exc.status_code,
+            "detail": safe_detail,
+        },
+    }
+
+
+def build_skipped_product_access_review(reason: str) -> dict[str, Any]:
+    return {
+        "allowed": False,
+        "enabled": PRODUCT_ACCESS_REVIEW_ENABLED,
+        "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
+        "resourceAttributes": build_product_access_review_request()["spec"]["resourceAttributes"],
+        "skipped": True,
+        "reason": reason,
+    }
+
+
 @app.get("/v1/aiops/status")
 async def get_aiops_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    product_access_review = await fetch_product_access_review(user_auth_header)
-    product_access_allowed = bool(product_access_review.get("allowed"))
+    access_review_status: dict[str, Any] = {
+        "status": "success",
+        "recordsVisible": True,
+        "reason": "",
+    }
+    try:
+        subject = await fetch_self_subject_review(user_auth_header)
+    except HTTPException as exc:
+        subject = safe_subject(None)
+        product_access_review = build_skipped_product_access_review(
+            "not evaluated because OpenShift subject review is unavailable"
+        )
+        product_access_allowed = False
+        access_review_status = build_status_access_review_failure(exc)
+    else:
+        product_access_review = await fetch_product_access_review(user_auth_header)
+        product_access_allowed = bool(product_access_review.get("allowed"))
+        if product_access_review.get("evaluationError"):
+            access_review_status = {
+                "status": "degraded",
+                "recordsVisible": product_access_allowed,
+                "reason": "OpenShift product access review returned an evaluation error.",
+                "productAccessReview": redact_sensitive(product_access_review),
+            }
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "AIOpsRuntimeStatus",
@@ -11003,6 +11053,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
                 latest_rca_context=LAST_RCA_CONTEXT,
             ),
+            "accessReviewStatus": access_review_status,
             "productAccessReview": redact_sensitive(product_access_review),
             "subject": redact_sensitive(dict(subject)),
             "records": {
