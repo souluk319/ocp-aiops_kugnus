@@ -16,6 +16,51 @@ const safeExec = (command, args) => {
   }
 };
 
+const isWslRuntime = () => os.release().toLowerCase().includes('microsoft');
+
+const findLinuxChromeCommand = () =>
+  safeExec('bash', [
+    '-lc',
+    "for candidate in google-chrome google-chrome-stable chromium chromium-browser; do command -v \"$candidate\" && exit 0; done; exit 1",
+  ]);
+
+const shouldDelegateWslRunToWindowsNode = () => {
+  if (!isWslRuntime() || process.env.KUGNUS_UI_WINDOWS_DELEGATED === '1') {
+    return false;
+  }
+
+  const browserBackend = String(process.env.KUGNUS_UI_BROWSER_BACKEND || '').toLowerCase();
+  if (['windows', 'win', 'win32'].includes(browserBackend)) {
+    return true;
+  }
+  if (['linux', 'native', 'ubuntu', 'wsl'].includes(browserBackend)) {
+    return false;
+  }
+
+  return !findLinuxChromeCommand();
+};
+
+const browserBackend = () => String(process.env.KUGNUS_UI_BROWSER_BACKEND || '').toLowerCase();
+
+const wantsWindowsBrowserBackend = () =>
+  ['windows', 'win', 'win32'].includes(browserBackend()) ||
+  process.env.KUGNUS_UI_WINDOWS_DELEGATED === '1';
+
+const wantsLinuxBrowserBackend = () =>
+  ['linux', 'native', 'ubuntu', 'wsl'].includes(browserBackend());
+
+const shouldUseWindowsChrome = () => {
+  if (process.platform === 'win32' || wantsWindowsBrowserBackend()) {
+    return true;
+  }
+  if (!isWslRuntime() || wantsLinuxBrowserBackend()) {
+    return false;
+  }
+  return !findLinuxChromeCommand();
+};
+
+const shouldPreferLocalChrome = () => !shouldUseWindowsChrome();
+
 const delegateWslRunToWindowsNode = async () => {
   const cwd = execFileSync('wslpath', ['-w', process.cwd()], { encoding: 'utf8' }).trim();
   const script = execFileSync('wslpath', ['-w', fileURLToPath(import.meta.url)], {
@@ -70,11 +115,12 @@ const delegateWslRunToWindowsNode = async () => {
   process.exit(exitCode);
 };
 
-if (os.release().toLowerCase().includes('microsoft') && process.env.KUGNUS_UI_WINDOWS_DELEGATED !== '1') {
+if (shouldDelegateWslRunToWindowsNode()) {
   await delegateWslRunToWindowsNode();
 }
 
 const chromePort = Number(process.env.KUGNUS_CHROME_DEBUG_PORT || 9231);
+const cdpTimeoutMs = Number(process.env.KUGNUS_CDP_TIMEOUT_MS || 60000);
 const uiUrl = process.env.KUGNUS_UI_URL || 'http://localhost:9000/aiops-kugnus';
 const verifyMode =
   process.env.KUGNUS_UI_VERIFY_MODE ||
@@ -102,7 +148,7 @@ const withTimeout = (promise, timeoutMs, label) =>
     ),
   ]);
 
-const isWsl = () => os.release().toLowerCase().includes('microsoft');
+const isWsl = isWslRuntime;
 
 const detectWindowsHostFromWsl = async () => {
   try {
@@ -215,6 +261,9 @@ const getChromeHostCandidates = async () => {
   }
 
   const windowsHost = await detectWindowsHostFromWsl();
+  if (shouldPreferLocalChrome()) {
+    return ['127.0.0.1', 'localhost', windowsHost, 'host.docker.internal'].filter(Boolean);
+  }
   return [windowsHost, 'host.docker.internal', '127.0.0.1', 'localhost'].filter(Boolean);
 };
 
@@ -273,6 +322,11 @@ const startLinuxChrome = () => {
   const args = [
     '--headless=new',
     '--disable-gpu',
+    '--disable-background-networking',
+    '--disable-dev-shm-usage',
+    '--disable-extensions',
+    '--disable-renderer-backgrounding',
+    '--disable-sync',
     '--no-first-run',
     '--no-default-browser-check',
     '--remote-debugging-address=0.0.0.0',
@@ -305,7 +359,7 @@ const ensureChrome = async () => {
     }
   }
 
-  if (process.platform === 'win32' || isWsl()) {
+  if (shouldUseWindowsChrome()) {
     startWindowsChrome();
   } else {
     startLinuxChrome();
@@ -349,7 +403,7 @@ class CdpClient {
     });
   }
 
-  send(method, params = {}, timeoutMs = 30000) {
+  send(method, params = {}, timeoutMs = cdpTimeoutMs) {
     const id = this.nextId;
     this.nextId += 1;
 
