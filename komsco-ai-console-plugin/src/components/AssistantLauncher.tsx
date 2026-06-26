@@ -2639,6 +2639,21 @@ const renderUploadedDocumentRows = (
   ));
 };
 
+const mergeUploadedDocuments = (
+  preferred: RagUploadedDocument[],
+  fallback: RagUploadedDocument[],
+): RagUploadedDocument[] => {
+  const merged = new Map<string, RagUploadedDocument>();
+
+  [...preferred, ...fallback].forEach((document) => {
+    if (!merged.has(document.documentId)) {
+      merged.set(document.documentId, document);
+    }
+  });
+
+  return Array.from(merged.values());
+};
+
 const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
   if (records.length === 0) {
     return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
@@ -3650,7 +3665,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           return;
         }
         const uploadStatus = payload.spec.status;
-        setUploadedDocuments(payload.spec.documents ?? []);
+        const serverDocuments = payload.spec.documents ?? [];
+        setUploadedDocuments((prev) => mergeUploadedDocuments(serverDocuments, prev));
         setUploadedDocumentsError(
           uploadStatus === 'collected' || uploadStatus === 'empty'
             ? ''
@@ -3989,8 +4005,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             }),
           );
           setUploadedDocuments((prev) => {
-            const existing = new Set(prev.map((item) => item.documentId));
-            return [...uploaded.filter((item) => !existing.has(item.documentId)), ...prev];
+            return mergeUploadedDocuments(uploaded, prev);
           });
           setHistoryPanelView('uploads');
           setHistorySidebarOpen(true);
@@ -4614,9 +4629,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       </div>
       {historyPanelView === 'uploads' ? (
         <div className="komsco-ai__history-list komsco-ai__history-list--uploads">
-          {uploadedDocumentsLoading ? (
+          {uploadedDocumentsLoading && uploadedDocuments.length === 0 ? (
             <div className="komsco-ai__history-empty">{copy.uploadedDocsLoading}</div>
-          ) : uploadedDocumentsError ? (
+          ) : uploadedDocumentsError && uploadedDocuments.length === 0 ? (
             <div className="komsco-ai__history-empty komsco-ai__history-empty--error">
               {uploadedDocumentsError}
             </div>

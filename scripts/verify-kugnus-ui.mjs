@@ -964,6 +964,9 @@ const getUiState = async (cdp) =>
       const historySidebar = surface?.querySelector('.komsco-ai__history-sidebar') || document.querySelector('.komsco-ai__history-sidebar');
       const historyUser = historySidebar?.querySelector('.komsco-ai__history-user');
       const historyItems = [...(historySidebar?.querySelectorAll('.komsco-ai__history-item') || [])];
+      const uploadedDocItems = [...(historySidebar?.querySelectorAll('.komsco-ai__uploaded-doc-item') || [])];
+      const historyTitle = historySidebar?.querySelector('.komsco-ai__history-title');
+      const uploadPanelButton = historySidebar?.querySelector('button[aria-label="업로드 문서 패널"], button[aria-label="Uploaded documents panel"]');
       const historyItemHeights = historyItems.map((item) => item.getBoundingClientRect().height);
       const historySidebarRect = historySidebar?.getBoundingClientRect();
       const historyTopElement =
@@ -995,10 +998,16 @@ const getUiState = async (cdp) =>
         taskModeOptionValues: taskModeOptions.map((item) => item.getAttribute('data-komsco-task-mode') || ''),
         historyUserText: historyUser?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         historyUserExists: Boolean(historyUser),
+        historyTitleText: historyTitle?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         historyTopElementClass: String(historyTopElement?.className || ''),
         historyTopElementText: historyTopElement?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim().slice(0, 80) || '',
         historyItemCount: historyItems.length,
         historyItemMaxHeight: historyItemHeights.length ? Math.max(...historyItemHeights) : 0,
+        uploadPanelPressed: uploadPanelButton?.getAttribute('aria-pressed') || '',
+        uploadedDocItemCount: uploadedDocItems.length,
+        uploadedDocTitles: uploadedDocItems.map((item) =>
+          item.querySelector('.komsco-ai__uploaded-doc-title')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        ),
         headerModeButtonCount: headerModeButtons.length,
         headerModeButtons: headerModeButtons.map((button) => ({
           ariaLabel: button.getAttribute('aria-label') || '',
@@ -1771,6 +1780,33 @@ const run = async () => {
         panelBottomRight: state.panel.borderBottomRightRadius,
         panelTopLeft: state.panel.borderTopLeftRadius,
         panelTopRight: state.panel.borderTopRightRadius,
+      },
+    );
+
+    await click(cdp, 'button[aria-label="업로드 문서 패널"], button[aria-label="Uploaded documents panel"]');
+    await waitFor(
+      cdp,
+      'uploaded documents panel selected',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const sidebar = surface?.querySelector('.komsco-ai__history-sidebar') || document.querySelector('.komsco-ai__history-sidebar');
+        const button = sidebar?.querySelector('button[aria-label="업로드 문서 패널"], button[aria-label="Uploaded documents panel"]');
+        const title = sidebar?.querySelector('.komsco-ai__history-title')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '';
+        return button?.getAttribute('aria-pressed') === 'true' &&
+          (title.includes('업로드 문서') || title.includes('Uploaded documents'));
+      })()`,
+      5000,
+    );
+    await sleep(1800);
+    state = await getUiState(cdp);
+    assertCheck(
+      'uploaded documents tab stays selected after async refresh',
+      state.uploadPanelPressed === 'true' &&
+        (state.historyTitleText.includes('업로드 문서') || state.historyTitleText.includes('Uploaded documents')),
+      {
+        historyTitleText: state.historyTitleText,
+        uploadPanelPressed: state.uploadPanelPressed,
+        uploadedDocItemCount: state.uploadedDocItemCount,
       },
     );
 
