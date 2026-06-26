@@ -5,7 +5,7 @@ export const redactSensitiveText = (value: unknown, fallback = ''): string => {
   }
 
   return raw
-    .replace(/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi, 'Bearer [redacted]')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
     .replace(
       /\b((?:client-key-data|client-certificate-data|certificate-authority-data)[ \t]*:[ \t]*(?:\|[ \t]*)?\r?\n)(?:[ \t]+[A-Za-z0-9+/=]{8,}[ \t]*(?:\r?\n|$))+/gi,
       '$1[redacted-secret]',
@@ -16,9 +16,18 @@ export const redactSensitiveText = (value: unknown, fallback = ''): string => {
     )
     .replace(/sha256~[A-Za-z0-9._~-]+/gi, '[redacted-token]')
     .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, '[redacted-token]')
-    .replace(/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}(?:\.[A-Za-z0-9_-]{8,})?\b/g, '[redacted-token]')
-    .replace(/\b(?:github_pat|gh[pousr]|glpat|sk|xox[baprs])-?[A-Za-z0-9_=-]{16,}\b/gi, '[redacted-token]')
-    .replace(/\b(?=[A-Za-z0-9._~+\/=-]{40,}\b)(?=.*[._~+\/=-])[A-Za-z0-9._~+\/=-]+\b/g, '[redacted-token]')
+    .replace(
+      /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}(?:\.[A-Za-z0-9_-]{8,})?\b/g,
+      '[redacted-token]',
+    )
+    .replace(
+      /\b(?:github_pat|gh[pousr]|glpat|sk|xox[baprs])-?[A-Za-z0-9_=-]{16,}\b/gi,
+      '[redacted-token]',
+    )
+    .replace(
+      /\b(?=[A-Za-z0-9._~+/=-]{40,}\b)(?=.*[._~+/=-])[A-Za-z0-9._~+/=-]+\b/g,
+      '[redacted-token]',
+    )
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
     .replace(/\b(kubeadmin|admin)\b/gi, '[redacted-user]');
 };

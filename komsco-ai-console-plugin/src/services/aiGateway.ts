@@ -573,7 +573,8 @@ type StreamEvent =
   | { type: 'end'; conversationId?: string }
   | { type: 'error'; message: string };
 
-const GATEWAY_STREAM_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/chat/stream';
+const GATEWAY_STREAM_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/chat/stream';
 const GATEWAY_CLUSTER_SUMMARY_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/cluster/summary';
 const GATEWAY_AIOPS_OVERVIEW_URL =
@@ -586,7 +587,8 @@ const GATEWAY_RAG_SEARCH_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/search';
 const GATEWAY_AUTH_SUBJECT_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/auth/subject';
-const GATEWAY_ACTIONS_URL = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
+const GATEWAY_ACTIONS_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
 const CONSOLE_SELF_USER_URL = '/api/kubernetes/apis/user.openshift.io/v1/users/~';
 const GATEWAY_AUTH_ERROR_MESSAGE =
   'OpenShift 콘솔 사용자 인증이 만료되었거나 Gateway로 사용자 토큰이 전달되지 않았습니다. 콘솔을 새로고침하거나 다시 로그인한 뒤 다시 시도하세요.';

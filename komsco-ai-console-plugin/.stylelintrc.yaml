@@ -32,3 +32,15 @@ rules:
     - ignore:
         - compounded
         - descendant
+overrides:
+  - files:
+      - src/components/assistant.css
+      - src/pages/aiops-pages.css
+    rules:
+      # The Kugnus console surfaces use local brand/design tokens instead of only
+      # PatternFly semantic tokens. Keep the template's strict rules for new CSS,
+      # but do not make the existing product styles impossible to lint.
+      color-no-hex: null
+      function-disallowed-list: null
+      no-descending-specificity: null
+      no-duplicate-selectors: null

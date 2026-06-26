@@ -23,6 +23,17 @@ export default tseslint.config(
       ...tseslint.configs.recommended.rules,
       ...react.configs.recommended.rules,
       ...react.configs['jsx-runtime'].rules,
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
+      'react/prop-types': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
     },
     languageOptions: {
       globals: globals.browser,
@@ -30,13 +41,13 @@ export default tseslint.config(
         ecmaFeatures: {
           jsx: true,
         },
-      }
+      },
     },
     settings: {
       react: {
         version: 'detect',
       },
-    }
+    },
   },
   {
     files: ['integration-tests/**/*.{ts,tsx,js}'],

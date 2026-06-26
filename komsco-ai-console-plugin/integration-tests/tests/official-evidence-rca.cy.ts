@@ -27,10 +27,8 @@ describe('Ver.0.1.3 official Evidence RCA screen proof', () => {
       'troubleshooting',
     );
 
-    cy.get('textarea[aria-label="Question"]')
-      .should('be.visible')
-      .clear()
-      .type(OFFICIAL_EVIDENCE_RCA_QUESTION, { delay: 0 });
+    cy.get('textarea[aria-label="Question"]').should('be.visible').clear();
+    cy.get('textarea[aria-label="Question"]').type(OFFICIAL_EVIDENCE_RCA_QUESTION, { delay: 0 });
     cy.get('textarea[aria-label="Question"]').should('have.value', OFFICIAL_EVIDENCE_RCA_QUESTION);
     cy.get('button[aria-label="질문 전송"]').should('not.be.disabled');
 

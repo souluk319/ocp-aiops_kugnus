@@ -49,7 +49,12 @@ import {
   uploadRagDocument,
   uploadRagDocumentFile,
 } from '../services/aiGateway';
-import { evidenceCount, redactSensitiveText, safeEvidenceText, shortDigest } from '../utils/evidenceDisplay';
+import {
+  evidenceCount,
+  redactSensitiveText,
+  safeEvidenceText,
+  shortDigest,
+} from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
 import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
@@ -390,7 +395,14 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
         embeddingModel: 'not_configured',
         endpointConfigured: false,
         reason: 'RAG status is pending until the gateway status call completes.',
-        requiredMetadata: ['documentId', 'sourceUri', 'sourceType', 'checksum', 'version', 'aclGroups'],
+        requiredMetadata: [
+          'documentId',
+          'sourceUri',
+          'sourceType',
+          'checksum',
+          'version',
+          'aclGroups',
+        ],
         status: 'pending',
         vectorDimensions: 0,
       },
@@ -402,7 +414,17 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
       allowedReadOnlyVerbs: ['get', 'list', 'watch'],
       capabilityGates: {},
       evidenceStatus: [],
-      forbiddenActions: ['create', 'update', 'patch', 'delete', 'exec', 'portforward', 'restart', 'scale', 'rollout'],
+      forbiddenActions: [
+        'create',
+        'update',
+        'patch',
+        'delete',
+        'exec',
+        'portforward',
+        'restart',
+        'scale',
+        'rollout',
+      ],
       mode: 'read_only',
       product: {
         mission: 'Evidence-first OpenShift operations assistant',
@@ -495,7 +517,8 @@ const UI_COPY: Record<
   },
   en: {
     emptyHistory: 'No saved conversations yet.',
-    emptyUploadedDocs: 'No uploaded documents yet. They will appear here after file-attachment RAG ingestion is connected.',
+    emptyUploadedDocs:
+      'No uploaded documents yet. They will appear here after file-attachment RAG ingestion is connected.',
     history: 'Recent chats',
     inputPlaceholder: 'Ask about the current screen or cluster state',
     newChat: 'New chat',
@@ -819,10 +842,7 @@ const findLastAssistantIndex = (messages: Message[]): number => {
   return -1;
 };
 
-const setLastAssistantContentIfEmpty = (
-  messages: Message[],
-  content: string,
-): Message[] => {
+const setLastAssistantContentIfEmpty = (messages: Message[], content: string): Message[] => {
   const assistantIndex = findLastAssistantIndex(messages);
   if (assistantIndex < 0 || messages[assistantIndex].content.trim()) {
     return messages;
@@ -839,10 +859,16 @@ const setLastAssistantContentIfEmpty = (
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 
 const asRecordArray = (value: unknown): Record<string, unknown>[] =>
-  Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))) : [];
+  Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> =>
+        Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+      )
+    : [];
 
 const normalizeEvidenceRef = (value: Record<string, unknown>): EvidenceFooterRef => ({
   contentDigest: safeEvidenceText(value.contentDigest),
@@ -888,7 +914,11 @@ const buildEvidenceFooter = (
   const statusCounts = evidenceStatusCounts(evidenceStatus);
 
   return {
-    collectedCount: evidenceCount(summary.collectedCount, statusCounts.collected, collectedRefs.length),
+    collectedCount: evidenceCount(
+      summary.collectedCount,
+      statusCounts.collected,
+      collectedRefs.length,
+    ),
     collectedRefs,
     contextId: safeEvidenceText(metadata.contextId),
     digest: safeEvidenceText(metadata.digest),
@@ -1490,7 +1520,9 @@ const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
   });
 
   footer.missing.slice(0, 3).forEach((item) => {
-    lines.push(`- missing: ${item.type || 'evidence'} ${item.reason || 'additional evidence required'}`);
+    lines.push(
+      `- missing: ${item.type || 'evidence'} ${item.reason || 'additional evidence required'}`,
+    );
   });
 
   return lines.join('\n');
@@ -1525,7 +1557,10 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
       {collectedRefs.length > 0 && (
         <div className="komsco-ai__evidence-list" aria-label="수집된 답변 근거">
           {collectedRefs.map((ref, index) => (
-            <div className="komsco-ai__evidence-ref" key={`${ref.evidenceId || ref.type || 'ref'}-${index}`}>
+            <div
+              className="komsco-ai__evidence-ref"
+              key={`${ref.evidenceId || ref.type || 'ref'}-${index}`}
+            >
               <strong>{ref.type || 'evidence'}</strong>
               <span>{ref.summary || ref.sourceType || 'runtime evidence'}</span>
               <code>{ref.evidenceId || shortDigest(ref.contentDigest) || 'ref'}</code>
@@ -1799,7 +1834,9 @@ const memoryBytesFromUsage = (value?: string): number | null => {
 };
 
 const formatCpuCores = (cores: number): string =>
-  cores >= 1 ? `${cores.toFixed(cores >= 10 ? 0 : 1)} cores` : `${Math.max(1, Math.round(cores * 1000))} m`;
+  cores >= 1
+    ? `${cores.toFixed(cores >= 10 ? 0 : 1)} cores`
+    : `${Math.max(1, Math.round(cores * 1000))} m`;
 
 const formatMemoryBytes = (bytes: number): string => {
   const gib = bytes / 1024 ** 3;
@@ -1953,10 +1990,7 @@ const getOperatorCompactStatus = (
       };
     }
 
-    if (
-      summary.operators.total > 0 &&
-      summary.operators.available === summary.operators.total
-    ) {
+    if (summary.operators.total > 0 && summary.operators.available === summary.operators.total) {
       return {
         label: `Operator ${summary.operators.available}/${summary.operators.total} 정상`,
         title: `All ${summary.operators.total} ClusterOperators are available.`,
@@ -2004,20 +2038,13 @@ const renderHeaderOpsChip = (
   title: string,
   icon: React.ReactNode,
 ) => (
-  <span
-    className={`komsco-ai__header-op-chip komsco-ai__header-op-chip--${tone}`}
-    title={title}
-  >
+  <span className={`komsco-ai__header-op-chip komsco-ai__header-op-chip--${tone}`} title={title}>
     <span className="komsco-ai__header-op-icon">{icon}</span>
     <span>{label}</span>
   </span>
 );
 
-const renderHeaderOpsStatus = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  error: string,
-) => {
+const renderHeaderOpsStatus = (summary: ClusterSummary | null, loading: boolean, error: string) => {
   const nodeStatus = getNodeCompactStatus(summary, loading, error);
   const operatorStatus = getOperatorCompactStatus(summary, loading, error);
 
@@ -2030,7 +2057,9 @@ const renderHeaderOpsStatus = (
       ? `Operator 장애 ${getClusterFaultCount(summary)}`
       : summary && summary.operators.progressing > 0
         ? `Operator 진행 ${summary.operators.progressing}`
-        : summary && summary.operators.total > 0 && summary.operators.available === summary.operators.total
+        : summary &&
+            summary.operators.total > 0 &&
+            summary.operators.available === summary.operators.total
           ? 'Operator 정상'
           : operatorStatus.label.replace(' 확인 필요', ' 확인');
 
@@ -2080,8 +2109,7 @@ const renderRailSummaryBadges = (
 
 const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolean =>
   Boolean(
-    status?.spec.capabilities.mutationsEnabled &&
-      status.spec.capabilities.actionExecutorConfigured,
+    status?.spec.capabilities.mutationsEnabled && status.spec.capabilities.actionExecutorConfigured,
   );
 
 const canUseUnrestrictedCommands = (status: AiopsRuntimeStatus | null): boolean =>
@@ -2567,9 +2595,9 @@ const renderActionLifecycle = (
           {renderStatusTag(summary.value, summary.tone)}
         </div>
         <p className="komsco-ai__action-lifecycle-proof">
-          Execute guard: sealed plan digest, active approval, evidence freshness, SSAR,
-          and mutation flag are checked. Expired or stale evidence blocks execution and is
-          surfaced as a failure reason; create a new plan and approval.
+          Execute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation
+          flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure
+          reason; create a new plan and approval.
         </p>
       </div>
     </div>
@@ -2649,13 +2677,19 @@ const renderUploadedDocumentRows = (
   }
 
   return documents.map((document) => (
-    <div className="komsco-ai__uploaded-doc-item" key={document.documentId} title={document.sourceUri || document.title}>
+    <div
+      className="komsco-ai__uploaded-doc-item"
+      key={document.documentId}
+      title={document.sourceUri || document.title}
+    >
       <div className="komsco-ai__uploaded-doc-title">{document.title}</div>
       <div className="komsco-ai__uploaded-doc-meta">
         <span>{document.chunkCount ?? 0} chunks</span>
         <span>{formatFileSize(document.contentBytes ?? 0)}</span>
       </div>
-      <div className="komsco-ai__uploaded-doc-source">{document.sourceUri || document.documentId}</div>
+      <div className="komsco-ai__uploaded-doc-source">
+        {document.sourceUri || document.documentId}
+      </div>
     </div>
   ));
 };
@@ -2825,9 +2859,7 @@ const renderInsightRail = (
     </div>
 
     {error && (
-      <div className="komsco-ai__rail-error">
-        클러스터 요약을 가져오지 못했습니다. {error}
-      </div>
+      <div className="komsco-ai__rail-error">클러스터 요약을 가져오지 못했습니다. {error}</div>
     )}
 
     {aiopsStatusError && (
@@ -3009,14 +3041,8 @@ const renderInsightRail = (
         <span>{aiopsStatus?.spec.safetyContract?.rcaContextStatus?.status ?? '대기'}</span>
       </div>
       <div className="komsco-ai__scope-list">
-        {renderStatusTag(
-          `Collected ${rcaRailEvidenceCounts(aiopsStatus).collected}`,
-          'ok',
-        )}
-        {renderStatusTag(
-          `Missing ${rcaRailEvidenceCounts(aiopsStatus).missing}`,
-          'warn',
-        )}
+        {renderStatusTag(`Collected ${rcaRailEvidenceCounts(aiopsStatus).collected}`, 'ok')}
+        {renderStatusTag(`Missing ${rcaRailEvidenceCounts(aiopsStatus).missing}`, 'warn')}
       </div>
       <div className="komsco-ai__rail-command">
         <code>
@@ -3034,9 +3060,14 @@ const renderInsightRail = (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>최근 진단</strong>
-        <span>{aiopsStatus ? `${aiopsStatus.spec.records.diagnosticRequests.length}건` : '대기'}</span>
+        <span>
+          {aiopsStatus ? `${aiopsStatus.spec.records.diagnosticRequests.length}건` : '대기'}
+        </span>
       </div>
-      {renderRecordRows(aiopsStatus?.spec.records.diagnosticRequests ?? [], '최근 진단 요청이 없습니다.')}
+      {renderRecordRows(
+        aiopsStatus?.spec.records.diagnosticRequests ?? [],
+        '최근 진단 요청이 없습니다.',
+      )}
     </div>
 
     <div className="komsco-ai__rail-section">
@@ -3104,7 +3135,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [open, setOpen] = React.useState(defaultOpen || embedded || lockOpen);
   const [fullScreen, setFullScreen] = React.useState(false);
   const [input, setInput] = React.useState('');
-  const [draftPageContext, setDraftPageContext] = React.useState<Record<string, unknown> | undefined>();
+  const [draftPageContext, setDraftPageContext] = React.useState<
+    Record<string, unknown> | undefined
+  >();
   const [pendingAttachments, setPendingAttachments] = React.useState<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = React.useState('');
   const [clusterSummary, setClusterSummary] = React.useState<ClusterSummary | null>(null);
@@ -3120,13 +3153,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
     DEFAULT_AIOPS_EXECUTION_MODE,
   );
-  const [executionModeManuallySelected, setExecutionModeManuallySelected] =
-    React.useState(false);
+  const [executionModeManuallySelected, setExecutionModeManuallySelected] = React.useState(false);
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [conversationId, setConversationId] = React.useState<string | undefined>();
   const [activeSessionId, setActiveSessionId] = React.useState(() => createRunId());
-  const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>([]);
+  const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>(
+    [],
+  );
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
   const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
@@ -3195,9 +3229,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setTaskModeMenuOpen(false);
     setOpen(true);
     window.setTimeout(() => {
-      surfaceRef.current
-        ?.querySelector<HTMLTextAreaElement>('textarea')
-        ?.focus();
+      surfaceRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
     }, 0);
   }, [draftPrompt]);
 
@@ -3292,9 +3324,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     };
 
     setHistoryDrawerBounds((prev) =>
-      prev.height === next.height && prev.left === next.left && prev.top === next.top
-        ? prev
-        : next,
+      prev.height === next.height && prev.left === next.left && prev.top === next.top ? prev : next,
     );
   }, [fullScreen, historySidebarOpen]);
 
@@ -3396,7 +3426,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     window.addEventListener('scroll', updateHistoryDrawerBounds, true);
 
     const observer =
-      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateHistoryDrawerBounds);
+      typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(updateHistoryDrawerBounds);
     if (surfaceRef.current) {
       observer?.observe(surfaceRef.current);
     }
@@ -3417,8 +3449,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       const target = event.target as Node | null;
       if (
         target &&
-        (quickPromptMenuRef.current?.contains(target) ||
-          taskModeMenuRef.current?.contains(target))
+        (quickPromptMenuRef.current?.contains(target) || taskModeMenuRef.current?.contains(target))
       ) {
         return;
       }
@@ -3475,10 +3506,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         messages: snapshotMessages,
       };
 
-      setConversationHistory((prev) => [
-        item,
-        ...prev.filter((conversation) => conversation.id !== activeSessionId),
-      ].slice(0, 12));
+      setConversationHistory((prev) =>
+        [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(0, 12),
+      );
     },
     [activeSessionId, conversationId, messages, uiLanguage],
   );
@@ -3538,17 +3568,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     bodyEndRef.current?.scrollIntoView({ block: 'end', behavior });
   }, []);
 
-  const handleConversationScroll = React.useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      const target = event.currentTarget;
-      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-      const nearBottom = distanceToBottom <= SCROLL_BOTTOM_THRESHOLD_PX;
+  const handleConversationScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    const nearBottom = distanceToBottom <= SCROLL_BOTTOM_THRESHOLD_PX;
 
-      setStickToBottom(nearBottom);
-      setShowScrollToBottom(!nearBottom);
-    },
-    [],
-  );
+    setStickToBottom(nearBottom);
+    setShowScrollToBottom(!nearBottom);
+  }, []);
 
   React.useEffect(() => {
     if (stickToBottom) {
@@ -3683,11 +3710,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         setUploadedDocumentsError(
           uploadStatus === 'collected' || uploadStatus === 'empty'
             ? ''
-            : payload.spec.reason ?? copy.uploadedDocsError,
+            : (payload.spec.reason ?? copy.uploadedDocsError),
         );
       } catch (error) {
         if (!disposed) {
-          setUploadedDocumentsError(error instanceof Error ? error.message : copy.uploadedDocsError);
+          setUploadedDocumentsError(
+            error instanceof Error ? error.message : copy.uploadedDocsError,
+          );
         }
       } finally {
         if (!disposed) {
@@ -3709,9 +3738,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setAiopsStatus(status);
       setAiopsStatusError('');
     } catch (error) {
-      setAiopsStatusError(
-        error instanceof Error ? error.message : 'AIOps status request failed.',
-      );
+      setAiopsStatusError(error instanceof Error ? error.message : 'AIOps status request failed.');
     }
   }, []);
 
@@ -3777,7 +3804,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         if (action.step === 'execute-approval') {
           const approvalId = getApprovalId(record);
           const planDigest = getApprovalPlanDigest(record);
-          const plan = findPlanByDigest(aiopsStatus?.spec.records.sealedActionPlans ?? [], planDigest);
+          const plan = findPlanByDigest(
+            aiopsStatus?.spec.records.sealedActionPlans ?? [],
+            planDigest,
+          );
           const planId = plan ? getRecordName(plan) : '';
           if (!approvalId || !planId || !planDigest) {
             throw new Error('Approval 또는 연결된 action plan 정보가 없습니다.');
@@ -3941,7 +3971,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       );
 
       if (imageFiles.length === 0 && documentFiles.length === 0) {
-        setAttachmentError('지원 형식: PNG/JPEG/WebP/GIF 이미지 또는 PDF/DOCX/PPTX/XLSX/TXT/MD/JSON/YAML/log 문서입니다.');
+        setAttachmentError(
+          '지원 형식: PNG/JPEG/WebP/GIF 이미지 또는 PDF/DOCX/PPTX/XLSX/TXT/MD/JSON/YAML/log 문서입니다.',
+        );
         return;
       }
 
@@ -3977,7 +4009,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         }
       }
 
-      const tooLargeDocument = documentFiles.find((file) => file.size > MAX_RAG_DOCUMENT_UPLOAD_BYTES);
+      const tooLargeDocument = documentFiles.find(
+        (file) => file.size > MAX_RAG_DOCUMENT_UPLOAD_BYTES,
+      );
       if (tooLargeDocument) {
         setAttachmentError(
           `${tooLargeDocument.name} 문서가 너무 큽니다. 문서당 최대 ${formatFileSize(
@@ -4012,7 +4046,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     name: file.name,
                   });
               if (result.spec.status !== 'persisted') {
-                throw new Error(result.spec.reason || `${file.name} 문서를 RAG 저장소에 등록하지 못했습니다.`);
+                throw new Error(
+                  result.spec.reason || `${file.name} 문서를 RAG 저장소에 등록하지 못했습니다.`,
+                );
               }
               return result.spec.document;
             }),
@@ -4026,9 +4062,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
         setAttachmentError('');
       } catch (error) {
-        setAttachmentError(
-          error instanceof Error ? error.message : '파일을 처리하지 못했습니다.',
-        );
+        setAttachmentError(error instanceof Error ? error.message : '파일을 처리하지 못했습니다.');
       }
     },
     [activeSessionId, pendingAttachments],
@@ -4324,14 +4358,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           });
         };
 
-        for await (const event of streamChat({
-          attachments,
-          conversationId,
-          message: question,
-          pageContext,
-          recentMessages,
-          runId,
-        }, { signal: abortController.signal })) {
+        for await (const event of streamChat(
+          {
+            attachments,
+            conversationId,
+            message: question,
+            pageContext,
+            recentMessages,
+            runId,
+          },
+          { signal: abortController.signal },
+        )) {
           if (event.type === 'run_status') {
             handleRunStatusEvent(event);
             if (event.stage === 'lightspeed') {
@@ -4429,9 +4466,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                       digest:
                         event.context && typeof event.context === 'object'
                           ? String(
-                              ((event.context as Record<string, unknown>).metadata as
-                                | Record<string, unknown>
-                                | undefined)?.digest ?? '',
+                              (
+                                (event.context as Record<string, unknown>).metadata as
+                                  | Record<string, unknown>
+                                  | undefined
+                              )?.digest ?? '',
                             )
                           : '',
                       latestContext: event.context,
@@ -4519,15 +4558,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         }
       } catch (error) {
         const stopped =
-          stopRequestedRef.current ||
-          (error instanceof Error && error.name === 'AbortError');
+          stopRequestedRef.current || (error instanceof Error && error.name === 'AbortError');
 
         flushAssistantTextQueueNow();
         if (stopped) {
           markRunningProgressFailed('사용자가 응답 생성을 중지했습니다.');
-          setMessages((prev) =>
-            setLastAssistantContentIfEmpty(prev, '응답 생성을 중지했습니다.'),
-          );
+          setMessages((prev) => setLastAssistantContentIfEmpty(prev, '응답 생성을 중지했습니다.'));
         } else {
           markRunningProgressFailed(error instanceof Error ? error.message : 'AI response failed.');
           setMessages((prev) => [
@@ -4596,7 +4632,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
       style={historySidebarStyle}
     >
-      <div className="komsco-ai__history-actions" aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}>
+      <div
+        className="komsco-ai__history-actions"
+        aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
+      >
         <button
           aria-label={copy.newChat}
           className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
@@ -4683,7 +4722,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           <strong title={authSubject?.username || authSubjectError || '사용자 확인 중'}>
             {authSubject?.username || (authSubjectError ? '인증 확인 필요' : '확인 중')}
           </strong>
-          <small title={clusterSummary?.apiUrl || ''}>{getClusterHost(clusterSummary?.apiUrl)}</small>
+          <small title={clusterSummary?.apiUrl || ''}>
+            {getClusterHost(clusterSummary?.apiUrl)}
+          </small>
         </div>
       </div>
     </aside>
@@ -4716,424 +4757,441 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       {(open || embedded || lockOpen) && (
         <FullscreenPortal active={fullScreen}>
-        <div
-          aria-label="Cywell AI assistant"
-          ref={surfaceRef}
-          className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
-            historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
-          }${panelResizeUnlocked ? ' komsco-ai__surface--resize-unlocked' : ''}${
-            !panelResizeUnlocked ? ' komsco-ai__surface--resize-locked' : ''
-          }`}
-          style={surfaceStyle}
-        >
-          {fullScreen ? historySidebar : null}
-          <Card className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}>
-          <div className="komsco-ai__header">
-            <Button
-              aria-label={copy.openSidebar}
-              className="komsco-ai__icon-button komsco-ai__sidebar-toggle"
-              onClick={() => setHistorySidebarOpen((value) => !value)}
-              title={copy.openSidebar}
-              variant="plain"
+          <div
+            aria-label="Cywell AI assistant"
+            ref={surfaceRef}
+            className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
+              historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
+            }${panelResizeUnlocked ? ' komsco-ai__surface--resize-unlocked' : ''}${
+              !panelResizeUnlocked ? ' komsco-ai__surface--resize-locked' : ''
+            }`}
+            style={surfaceStyle}
+          >
+            {fullScreen ? historySidebar : null}
+            <Card
+              className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}
             >
-              <CoolMenuIcon />
-            </Button>
-            <div className="komsco-ai__brand">
-              <div className="komsco-ai__brand-mark">
-                <img alt="" className="komsco-ai__brand-logo" src={komscoLogo} />
-              </div>
-            </div>
-            <div className="komsco-ai__header-status" aria-label="클러스터 운영 상태 및 실행 모드">
-              {renderHeaderOpsStatus(clusterSummary, clusterSummaryLoading, clusterSummaryError)}
-              {renderExecutionModeToggle(
-                executionMode,
-                actionExecutionAvailable,
-                actionExecutionDisabledReason,
-                unrestrictedAvailable,
-                unrestrictedDisabledReason,
-                handleExecutionModeChange,
-              )}
-            </div>
-            <div className="komsco-ai__header-actions">
-              <Button
-                aria-label={copy.switchLanguage}
-                className="komsco-ai__icon-button komsco-ai__language-button"
-                onClick={() => setUiLanguage((value) => (value === 'ko' ? 'en' : 'ko'))}
-                title={copy.switchLanguage}
-                variant="plain"
-              >
-                <CoolGlobeIcon />
-                <span className="komsco-ai__language-code">
-                  {uiLanguage === 'ko' ? 'EN' : 'KO'}
-                </span>
-              </Button>
-              <Button
-                aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'}
-                className="komsco-ai__icon-button"
-                onClick={() => setFullScreen((value) => !value)}
-                variant="plain"
-              >
-                {fullScreen ? <CoolShrinkIcon /> : <CoolExpandIcon />}
-              </Button>
-              <Button
-                aria-label={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
-                className={`komsco-ai__icon-button${
-                  panelResizeUnlocked ? ' komsco-ai__icon-button--active' : ''
-                }`}
-                onClick={togglePanelResizeLock}
-                title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
-                variant="plain"
-              >
-                {panelResizeUnlocked ? <CoolLockOpenIcon /> : <CoolLockIcon />}
-              </Button>
-              {!lockOpen && (
+              <div className="komsco-ai__header">
                 <Button
-                  aria-label="Close Cywell AI"
-                  className="komsco-ai__icon-button"
-                  onClick={closeAssistant}
+                  aria-label={copy.openSidebar}
+                  className="komsco-ai__icon-button komsco-ai__sidebar-toggle"
+                  onClick={() => setHistorySidebarOpen((value) => !value)}
+                  title={copy.openSidebar}
                   variant="plain"
                 >
-                  <CoolCloseIcon />
+                  <CoolMenuIcon />
                 </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="komsco-ai__workspace">
-            <div className="komsco-ai__chat-column">
-              <CardBody
-                className="komsco-ai__body"
-                aria-live="polite"
-                onScroll={handleConversationScroll}
-                ref={bodyRef}
-              >
-                <div className="komsco-ai__conversation-inner">
-                  {messages.length === 0 && (
-                    <div className="komsco-ai__empty">
-                      <div className="komsco-ai__empty-mark">
-                        <img alt="" className="komsco-ai__empty-logo" src={kIcon} />
-                      </div>
-                      <div className="komsco-ai__empty-title">{emptyStateCopy.title}</div>
-                      <div className="komsco-ai__empty-text">{emptyStateCopy.text}</div>
-                    </div>
-                  )}
-
-                  {messages.map((message, index) => {
-                    const hasProgress = (message.progressSteps?.length ?? 0) > 0;
-                    const hasContent = message.content.trim().length > 0;
-                    const activeMessage = loading && index === messages.length - 1;
-                    const waitingForContent =
-                      activeMessage && message.role === 'assistant' && !hasContent;
-
-                    return (
-                      <div
-                        className={`komsco-ai__message komsco-ai__message--${message.role}`}
-                        key={`${message.role}-${index}`}
-                      >
-                        <div className="komsco-ai__message-stack">
-                          <div className="komsco-ai__message-head">
-                            {message.role !== 'user' && (
-                              <div className="komsco-ai__message-avatar">
-                                <MessageIcon role={message.role} />
-                              </div>
-                            )}
-                            <div className="komsco-ai__message-label">
-                              {getMessageLabel(message.role)}
-                            </div>
-                            {message.role === 'assistant' && message.fallbackAnswer && (
-                              <span
-                                className="komsco-ai__message-fallback"
-                                title={
-                                  message.gatewayContextDigest
-                                    ? `Gateway context ${message.gatewayContextDigest}`
-                                    : 'Gateway fallback answer'
-                                }
-                              >
-                                Gateway fallback
-                              </span>
-                            )}
-                            {message.role === 'assistant' && hasContent && (
-                              <button
-                                aria-label="답변 복사"
-                                className="komsco-ai__message-copy"
-                                onClick={() => copyMessage(message, index)}
-                                title="답변 복사"
-                                type="button"
-                              >
-                                <CoolCopyIcon />
-                                <span>{copiedMessageIndex === index ? '복사됨' : '복사'}</span>
-                              </button>
-                            )}
-                          </div>
-                          {waitingForContent && <TypingIndicator />}
-                          {(hasContent || (!hasProgress && !waitingForContent)) && (
-                            <div className="komsco-ai__message-content">
-                              {renderFormattedContent(message, setPreviewAttachment)}
-                            </div>
-                          )}
-                          {message.role === 'assistant' &&
-                            hasContent &&
-                            renderEvidenceFooter(message.evidenceFooter)}
-                          {hasProgress && message.progressSteps && (
-                            <ProgressTimeline active={false} steps={message.progressSteps} />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {loading && messages[messages.length - 1]?.role !== 'assistant' && (
-                    <div className="komsco-ai__loading">
-                      <TypingIndicator />
-                    </div>
-                  )}
-                  <div ref={bodyEndRef} />
+                <div className="komsco-ai__brand">
+                  <div className="komsco-ai__brand-mark">
+                    <img alt="" className="komsco-ai__brand-logo" src={komscoLogo} />
+                  </div>
                 </div>
-              </CardBody>
-
-              <div
-                className={`komsco-ai__composer-wrap${
-                  dragActive ? ' komsco-ai__composer-wrap--drag-active' : ''
-                }`}
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                    setDragActive(false);
-                  }
-                }}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={handleDrop}
-              >
-                {showScrollToBottom && (
+                <div
+                  className="komsco-ai__header-status"
+                  aria-label="클러스터 운영 상태 및 실행 모드"
+                >
+                  {renderHeaderOpsStatus(
+                    clusterSummary,
+                    clusterSummaryLoading,
+                    clusterSummaryError,
+                  )}
+                  {renderExecutionModeToggle(
+                    executionMode,
+                    actionExecutionAvailable,
+                    actionExecutionDisabledReason,
+                    unrestrictedAvailable,
+                    unrestrictedDisabledReason,
+                    handleExecutionModeChange,
+                  )}
+                </div>
+                <div className="komsco-ai__header-actions">
                   <Button
-                    aria-label="최신 답변으로 이동"
-                    className="komsco-ai__scroll-bottom"
-                    onClick={() => {
-                      setStickToBottom(true);
-                      setShowScrollToBottom(false);
-                      scrollToBottom('auto');
-                    }}
-                    variant="secondary"
+                    aria-label={copy.switchLanguage}
+                    className="komsco-ai__icon-button komsco-ai__language-button"
+                    onClick={() => setUiLanguage((value) => (value === 'ko' ? 'en' : 'ko'))}
+                    title={copy.switchLanguage}
+                    variant="plain"
                   >
-                    <CoolArrowDownIcon />
+                    <CoolGlobeIcon />
+                    <span className="komsco-ai__language-code">
+                      {uiLanguage === 'ko' ? 'EN' : 'KO'}
+                    </span>
                   </Button>
-                )}
-                <div className="komsco-ai__input">
-                  <input
-                    accept={FILE_INPUT_ACCEPT}
-                    aria-label="파일 첨부"
-                    className="komsco-ai__file-input"
-                    disabled={loading}
-                    multiple
-                    onChange={handleFileInputChange}
-                    ref={fileInputRef}
-                    type="file"
-                  />
-                  <div className="komsco-ai__composer">
-                    {pendingAttachments.length > 0 && (
-                      <div className="komsco-ai__pending-attachments">
-                        {pendingAttachments.map((attachment) => (
-                          <div className="komsco-ai__pending-attachment" key={attachment.id}>
-                            <button
-                              aria-label={`${attachment.name} 크게 보기`}
-                              className="komsco-ai__pending-attachment-preview"
-                              onClick={() => setPreviewAttachment(attachment)}
-                              title={`${attachment.name} · ${formatFileSize(attachment.size)}`}
-                              type="button"
-                            >
-                              <img
-                                alt={attachment.name}
-                                className="komsco-ai__pending-attachment-image"
-                                src={getAttachmentPreviewUrl(attachment)}
-                              />
-                            </button>
+                  <Button
+                    aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'}
+                    className="komsco-ai__icon-button"
+                    onClick={() => setFullScreen((value) => !value)}
+                    variant="plain"
+                  >
+                    {fullScreen ? <CoolShrinkIcon /> : <CoolExpandIcon />}
+                  </Button>
+                  <Button
+                    aria-label={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
+                    className={`komsco-ai__icon-button${
+                      panelResizeUnlocked ? ' komsco-ai__icon-button--active' : ''
+                    }`}
+                    onClick={togglePanelResizeLock}
+                    title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
+                    variant="plain"
+                  >
+                    {panelResizeUnlocked ? <CoolLockOpenIcon /> : <CoolLockIcon />}
+                  </Button>
+                  {!lockOpen && (
+                    <Button
+                      aria-label="Close Cywell AI"
+                      className="komsco-ai__icon-button"
+                      onClick={closeAssistant}
+                      variant="plain"
+                    >
+                      <CoolCloseIcon />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="komsco-ai__workspace">
+                <div className="komsco-ai__chat-column">
+                  <CardBody
+                    className="komsco-ai__body"
+                    aria-live="polite"
+                    onScroll={handleConversationScroll}
+                    ref={bodyRef}
+                  >
+                    <div className="komsco-ai__conversation-inner">
+                      {messages.length === 0 && (
+                        <div className="komsco-ai__empty">
+                          <div className="komsco-ai__empty-mark">
+                            <img alt="" className="komsco-ai__empty-logo" src={kIcon} />
+                          </div>
+                          <div className="komsco-ai__empty-title">{emptyStateCopy.title}</div>
+                          <div className="komsco-ai__empty-text">{emptyStateCopy.text}</div>
+                        </div>
+                      )}
+
+                      {messages.map((message, index) => {
+                        const hasProgress = (message.progressSteps?.length ?? 0) > 0;
+                        const hasContent = message.content.trim().length > 0;
+                        const activeMessage = loading && index === messages.length - 1;
+                        const waitingForContent =
+                          activeMessage && message.role === 'assistant' && !hasContent;
+
+                        return (
+                          <div
+                            className={`komsco-ai__message komsco-ai__message--${message.role}`}
+                            key={`${message.role}-${index}`}
+                          >
+                            <div className="komsco-ai__message-stack">
+                              <div className="komsco-ai__message-head">
+                                {message.role !== 'user' && (
+                                  <div className="komsco-ai__message-avatar">
+                                    <MessageIcon role={message.role} />
+                                  </div>
+                                )}
+                                <div className="komsco-ai__message-label">
+                                  {getMessageLabel(message.role)}
+                                </div>
+                                {message.role === 'assistant' && message.fallbackAnswer && (
+                                  <span
+                                    className="komsco-ai__message-fallback"
+                                    title={
+                                      message.gatewayContextDigest
+                                        ? `Gateway context ${message.gatewayContextDigest}`
+                                        : 'Gateway fallback answer'
+                                    }
+                                  >
+                                    Gateway fallback
+                                  </span>
+                                )}
+                                {message.role === 'assistant' && hasContent && (
+                                  <button
+                                    aria-label="답변 복사"
+                                    className="komsco-ai__message-copy"
+                                    onClick={() => copyMessage(message, index)}
+                                    title="답변 복사"
+                                    type="button"
+                                  >
+                                    <CoolCopyIcon />
+                                    <span>{copiedMessageIndex === index ? '복사됨' : '복사'}</span>
+                                  </button>
+                                )}
+                              </div>
+                              {waitingForContent && <TypingIndicator />}
+                              {(hasContent || (!hasProgress && !waitingForContent)) && (
+                                <div className="komsco-ai__message-content">
+                                  {renderFormattedContent(message, setPreviewAttachment)}
+                                </div>
+                              )}
+                              {message.role === 'assistant' &&
+                                hasContent &&
+                                renderEvidenceFooter(message.evidenceFooter)}
+                              {hasProgress && message.progressSteps && (
+                                <ProgressTimeline active={false} steps={message.progressSteps} />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {loading && messages[messages.length - 1]?.role !== 'assistant' && (
+                        <div className="komsco-ai__loading">
+                          <TypingIndicator />
+                        </div>
+                      )}
+                      <div ref={bodyEndRef} />
+                    </div>
+                  </CardBody>
+
+                  <div
+                    className={`komsco-ai__composer-wrap${
+                      dragActive ? ' komsco-ai__composer-wrap--drag-active' : ''
+                    }`}
+                    onDragEnter={(event) => {
+                      event.preventDefault();
+                      setDragActive(true);
+                    }}
+                    onDragLeave={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                        setDragActive(false);
+                      }
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={handleDrop}
+                  >
+                    {showScrollToBottom && (
+                      <Button
+                        aria-label="최신 답변으로 이동"
+                        className="komsco-ai__scroll-bottom"
+                        onClick={() => {
+                          setStickToBottom(true);
+                          setShowScrollToBottom(false);
+                          scrollToBottom('auto');
+                        }}
+                        variant="secondary"
+                      >
+                        <CoolArrowDownIcon />
+                      </Button>
+                    )}
+                    <div className="komsco-ai__input">
+                      <input
+                        accept={FILE_INPUT_ACCEPT}
+                        aria-label="파일 첨부"
+                        className="komsco-ai__file-input"
+                        disabled={loading}
+                        multiple
+                        onChange={handleFileInputChange}
+                        ref={fileInputRef}
+                        type="file"
+                      />
+                      <div className="komsco-ai__composer">
+                        {pendingAttachments.length > 0 && (
+                          <div className="komsco-ai__pending-attachments">
+                            {pendingAttachments.map((attachment) => (
+                              <div className="komsco-ai__pending-attachment" key={attachment.id}>
+                                <button
+                                  aria-label={`${attachment.name} 크게 보기`}
+                                  className="komsco-ai__pending-attachment-preview"
+                                  onClick={() => setPreviewAttachment(attachment)}
+                                  title={`${attachment.name} · ${formatFileSize(attachment.size)}`}
+                                  type="button"
+                                >
+                                  <img
+                                    alt={attachment.name}
+                                    className="komsco-ai__pending-attachment-image"
+                                    src={getAttachmentPreviewUrl(attachment)}
+                                  />
+                                </button>
+                                <Button
+                                  aria-label={`${attachment.name} 첨부 제거`}
+                                  className="komsco-ai__attachment-remove"
+                                  isDisabled={loading}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    removeAttachment(attachment.id);
+                                  }}
+                                  variant="plain"
+                                >
+                                  <CoolCloseIcon />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {attachmentError && (
+                          <div className="komsco-ai__attachment-error">{attachmentError}</div>
+                        )}
+                        <TextArea
+                          aria-label="Question"
+                          autoResize
+                          className="komsco-ai__textarea"
+                          onChange={(_, value) => setInput(value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault();
+                              send();
+                            }
+                          }}
+                          onPaste={handlePaste}
+                          placeholder={
+                            uiLanguage === 'ko'
+                              ? TASK_MODE_PLACEHOLDERS[assistantTaskMode]
+                              : copy.inputPlaceholder
+                          }
+                          rows={1}
+                          style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
+                          value={input}
+                        />
+                        <div className="komsco-ai__composer-toolbar">
+                          <div className="komsco-ai__composer-tools">
+                            <div className="komsco-ai__quick-menu" ref={quickPromptMenuRef}>
+                              <Button
+                                aria-expanded={quickPromptMenuOpen}
+                                aria-label="자주 쓰는 점검 질문 열기"
+                                aria-haspopup="menu"
+                                className="komsco-ai__tool-button komsco-ai__quick-menu-trigger"
+                                isDisabled={loading}
+                                onClick={() => {
+                                  setQuickPromptMenuOpen((value) => !value);
+                                  setTaskModeMenuOpen(false);
+                                }}
+                                variant="plain"
+                              >
+                                <CoolPlusIcon />
+                              </Button>
+                              {quickPromptMenuOpen && (
+                                <div className="komsco-ai__quick-menu-panel" role="menu">
+                                  {QUICK_PROMPTS.map((item) => (
+                                    <button
+                                      className="komsco-ai__quick-menu-item"
+                                      key={item.label}
+                                      onClick={() => {
+                                        setQuickPromptMenuOpen(false);
+                                        void send(item.prompt);
+                                      }}
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      <span className="komsco-ai__quick-prompt-icon">
+                                        {item.icon}
+                                      </span>
+                                      <span className="komsco-ai__quick-menu-copy">
+                                        <strong>{item.label}</strong>
+                                        <small>{item.prompt}</small>
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                             <Button
-                              aria-label={`${attachment.name} 첨부 제거`}
-                              className="komsco-ai__attachment-remove"
+                              aria-label="파일 첨부"
+                              className="komsco-ai__tool-button komsco-ai__attach"
                               isDisabled={loading}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                removeAttachment(attachment.id);
-                              }}
+                              onClick={() => fileInputRef.current?.click()}
                               variant="plain"
                             >
-                              <CoolCloseIcon />
+                              <CoolPaperclipIcon />
                             </Button>
+                            <div className="komsco-ai__task-mode" ref={taskModeMenuRef}>
+                              <button
+                                aria-expanded={taskModeMenuOpen}
+                                aria-haspopup="listbox"
+                                className="komsco-ai__task-mode-button"
+                                data-assistant-task-mode={assistantTaskMode}
+                                disabled={loading}
+                                onClick={() => {
+                                  setTaskModeMenuOpen((value) => !value);
+                                  setQuickPromptMenuOpen(false);
+                                }}
+                                type="button"
+                              >
+                                <span className="komsco-ai__task-mode-icon">
+                                  {selectedTaskMode.icon}
+                                </span>
+                                <span className="komsco-ai__task-mode-label">
+                                  {selectedTaskMode.label}
+                                </span>
+                                <CoolCaretDownIcon />
+                              </button>
+                              {taskModeMenuOpen && (
+                                <div className="komsco-ai__task-mode-menu" role="listbox">
+                                  {ASSISTANT_TASK_MODES.map((item) => (
+                                    <button
+                                      aria-selected={assistantTaskMode === item.value}
+                                      className="komsco-ai__task-mode-option"
+                                      data-komsco-task-mode={item.value}
+                                      key={item.value}
+                                      onClick={() => {
+                                        setAssistantTaskMode(item.value);
+                                        setTaskModeMenuOpen(false);
+                                      }}
+                                      role="option"
+                                      type="button"
+                                    >
+                                      <span className="komsco-ai__task-mode-icon">{item.icon}</span>
+                                      <span>
+                                        <strong>{item.label}</strong>
+                                        <small>{item.description}</small>
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                    {attachmentError && (
-                      <div className="komsco-ai__attachment-error">{attachmentError}</div>
-                    )}
-                    <TextArea
-                      aria-label="Question"
-                      autoResize
-                      className="komsco-ai__textarea"
-                      onChange={(_, value) => setInput(value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' && !event.shiftKey) {
-                          event.preventDefault();
-                          send();
-                        }
-                      }}
-                      onPaste={handlePaste}
-                      placeholder={
-                        uiLanguage === 'ko'
-                          ? TASK_MODE_PLACEHOLDERS[assistantTaskMode]
-                          : copy.inputPlaceholder
-                      }
-                      rows={1}
-                      style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
-                      value={input}
-                    />
-                    <div className="komsco-ai__composer-toolbar">
-                      <div className="komsco-ai__composer-tools">
-                        <div className="komsco-ai__quick-menu" ref={quickPromptMenuRef}>
                           <Button
-                            aria-expanded={quickPromptMenuOpen}
-                            aria-label="자주 쓰는 점검 질문 열기"
-                            aria-haspopup="menu"
-                            className="komsco-ai__tool-button komsco-ai__quick-menu-trigger"
-                            isDisabled={loading}
+                            aria-label={loading ? '응답 중지' : '질문 전송'}
+                            className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
+                            isDisabled={
+                              !loading && !input.trim() && pendingAttachments.length === 0
+                            }
                             onClick={() => {
-                              setQuickPromptMenuOpen((value) => !value);
-                              setTaskModeMenuOpen(false);
+                              if (loading) {
+                                cancelAssistantResponse();
+                                return;
+                              }
+                              void send();
                             }}
                             variant="plain"
                           >
-                            <CoolPlusIcon />
+                            {loading ? <CoolStopIcon /> : <CoolPaperPlaneIcon />}
                           </Button>
-                          {quickPromptMenuOpen && (
-                            <div className="komsco-ai__quick-menu-panel" role="menu">
-                              {QUICK_PROMPTS.map((item) => (
-                                <button
-                                  className="komsco-ai__quick-menu-item"
-                                  key={item.label}
-                                  onClick={() => {
-                                    setQuickPromptMenuOpen(false);
-                                    void send(item.prompt);
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  <span className="komsco-ai__quick-prompt-icon">{item.icon}</span>
-                                  <span className="komsco-ai__quick-menu-copy">
-                                    <strong>{item.label}</strong>
-                                    <small>{item.prompt}</small>
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <Button
-                          aria-label="파일 첨부"
-                          className="komsco-ai__tool-button komsco-ai__attach"
-                          isDisabled={loading}
-                          onClick={() => fileInputRef.current?.click()}
-                          variant="plain"
-                        >
-                          <CoolPaperclipIcon />
-                        </Button>
-                        <div className="komsco-ai__task-mode" ref={taskModeMenuRef}>
-                          <button
-                            aria-expanded={taskModeMenuOpen}
-                            aria-haspopup="listbox"
-                            className="komsco-ai__task-mode-button"
-                            data-assistant-task-mode={assistantTaskMode}
-                            disabled={loading}
-                            onClick={() => {
-                              setTaskModeMenuOpen((value) => !value);
-                              setQuickPromptMenuOpen(false);
-                            }}
-                            type="button"
-                          >
-                            <span className="komsco-ai__task-mode-icon">{selectedTaskMode.icon}</span>
-                            <span className="komsco-ai__task-mode-label">{selectedTaskMode.label}</span>
-                            <CoolCaretDownIcon />
-                          </button>
-                          {taskModeMenuOpen && (
-                            <div className="komsco-ai__task-mode-menu" role="listbox">
-                              {ASSISTANT_TASK_MODES.map((item) => (
-                                <button
-                                  aria-selected={assistantTaskMode === item.value}
-                                  className="komsco-ai__task-mode-option"
-                                  data-komsco-task-mode={item.value}
-                                  key={item.value}
-                                  onClick={() => {
-                                    setAssistantTaskMode(item.value);
-                                    setTaskModeMenuOpen(false);
-                                  }}
-                                  role="option"
-                                  type="button"
-                                >
-                                  <span className="komsco-ai__task-mode-icon">{item.icon}</span>
-                                  <span>
-                                    <strong>{item.label}</strong>
-                                    <small>{item.description}</small>
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       </div>
-                      <Button
-                        aria-label={loading ? '응답 중지' : '질문 전송'}
-                        className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
-                        isDisabled={!loading && !input.trim() && pendingAttachments.length === 0}
-                        onClick={() => {
-                          if (loading) {
-                            cancelAssistantResponse();
-                            return;
-                          }
-                          void send();
-                        }}
-                        variant="plain"
-                      >
-                        {loading ? <CoolStopIcon /> : <CoolPaperPlaneIcon />}
-                      </Button>
                     </div>
                   </div>
                 </div>
+                {renderInsightRail(
+                  clusterSummary,
+                  clusterSummaryLoading,
+                  clusterSummaryError,
+                  aiopsStatus,
+                  aiopsStatusError,
+                  executionMode,
+                  aiopsActionBusyId,
+                  aiopsActionError,
+                  aiopsActionNotice,
+                  handleAiopsAction,
+                )}
               </div>
-            </div>
-            {renderInsightRail(
-              clusterSummary,
-              clusterSummaryLoading,
-              clusterSummaryError,
-              aiopsStatus,
-              aiopsStatusError,
-              executionMode,
-              aiopsActionBusyId,
-              aiopsActionError,
-              aiopsActionNotice,
-              handleAiopsAction,
+            </Card>
+            {panelResizeUnlocked && !fullScreen && (
+              <div className="komsco-ai__resize-handles" aria-label="채팅창 크기 조절 핸들">
+                {(['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as PanelResizeDirection[]).map(
+                  (direction) => (
+                    <button
+                      aria-label={`채팅창 ${direction} 방향 크기 조절`}
+                      className={`komsco-ai__resize-handle komsco-ai__resize-handle--${direction}${
+                        direction === 'se' ? ' komsco-ai__resize-grip' : ''
+                      }`}
+                      key={direction}
+                      onMouseDown={(event) => startPanelResize(event, direction)}
+                      type="button"
+                    />
+                  ),
+                )}
+              </div>
             )}
           </div>
-          </Card>
-          {panelResizeUnlocked && !fullScreen && (
-            <div className="komsco-ai__resize-handles" aria-label="채팅창 크기 조절 핸들">
-              {(['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as PanelResizeDirection[]).map(
-                (direction) => (
-                  <button
-                    aria-label={`채팅창 ${direction} 방향 크기 조절`}
-                    className={`komsco-ai__resize-handle komsco-ai__resize-handle--${direction}${
-                      direction === 'se' ? ' komsco-ai__resize-grip' : ''
-                    }`}
-                    key={direction}
-                    onMouseDown={(event) => startPanelResize(event, direction)}
-                    type="button"
-                  />
-                ),
-              )}
-            </div>
-          )}
-        </div>
         </FullscreenPortal>
       )}
       {historySidebarPortal}

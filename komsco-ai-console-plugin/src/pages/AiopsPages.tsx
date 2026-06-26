@@ -233,7 +233,9 @@ const useAiopsPageData = (): AiopsPageData => {
 
     const errors = [overviewResult, statusResult]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
+      .map((result) =>
+        result.reason instanceof Error ? result.reason.message : String(result.reason),
+      );
 
     setError(errors.join('\n'));
     setLoading(false);
@@ -320,13 +322,13 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
           : '질문 후 RCA 근거 생성';
   const flowItems = [
     {
-      detail: summary
-        ? `${summary.nodes.ready}/${summary.nodes.total} ready`
-        : '상태 수집 중',
+      detail: summary ? `${summary.nodes.ready}/${summary.nodes.total} ready` : '상태 수집 중',
       icon: <ServerIcon />,
       label: '클러스터 상태',
       tone: !summary || summary.nodes.notReady ? 'warning' : 'success',
-      value: overview ? overview.spec.controlTower.statusLabel ?? '관제 상태 확인 중' : '관제 상태 확인 중',
+      value: overview
+        ? (overview.spec.controlTower.statusLabel ?? '관제 상태 확인 중')
+        : '관제 상태 확인 중',
     },
     {
       detail: overviewLoaded && anomalies ? `총 ${anomalies.totals?.total ?? 0}건` : '소스 확인 중',
@@ -357,7 +359,9 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       icon: <HistoryIcon />,
       label: '감사·대화',
       tone: statusLoaded ? 'info' : 'warning',
-      value: statusLoaded ? `감사 ${status?.spec.records.auditRecords?.length ?? 0}건` : '감사 상태 확인 중',
+      value: statusLoaded
+        ? `감사 ${status?.spec.records.auditRecords?.length ?? 0}건`
+        : '감사 상태 확인 중',
     },
     {
       detail: statusLoaded
@@ -368,7 +372,9 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       icon: <ShieldAltIcon />,
       label: '안전 정책',
       tone: statusLoaded ? (mutationsEnabled ? 'danger' : 'success') : 'warning',
-      value: statusLoaded ? status?.spec.safetyContract?.mode ?? '정책 확인 중' : '안전 정책 확인 중',
+      value: statusLoaded
+        ? (status?.spec.safetyContract?.mode ?? '정책 확인 중')
+        : '안전 정책 확인 중',
     },
   ] as const;
 
@@ -449,7 +455,9 @@ const actionCandidateTargetLabel = (candidate: AiopsActionCandidate): string => 
   return `${namespace}/${kind}/${name}`;
 };
 
-const findingTargetParts = (finding: AiopsAnomalyFinding): { kind: string; name: string; namespace: string } => {
+const findingTargetParts = (
+  finding: AiopsAnomalyFinding,
+): { kind: string; name: string; namespace: string } => {
   const resource = finding.resource ?? {};
   return {
     kind: resource.kind || finding.category || 'Resource',
@@ -575,7 +583,10 @@ const AnomalySummaryBoard: React.FC<{
 
   if (!overview) {
     return (
-      <section className="komsco-ai-page__anomaly-board is-warning" aria-label="Cywell AI anomaly summary">
+      <section
+        className="komsco-ai-page__anomaly-board is-warning"
+        aria-label="Cywell AI anomaly summary"
+      >
         <div className="komsco-ai-page__anomaly-head">
           <div>
             <span>Cywell AI 이상 징후</span>
@@ -614,7 +625,10 @@ const AnomalySummaryBoard: React.FC<{
       </div>
 
       {topFindings.length > 0 ? (
-        <div className="komsco-ai-page__anomaly-list" data-visible-anomaly-count={topFindings.length}>
+        <div
+          className="komsco-ai-page__anomaly-list"
+          data-visible-anomaly-count={topFindings.length}
+        >
           {topFindings.map((finding) => {
             const findingTone = anomalySeverityTone(finding.severity);
             const crashLoopDemo = isCrashLoopFinding(finding);
@@ -643,7 +657,9 @@ const AnomalySummaryBoard: React.FC<{
                 </dl>
                 <div className="komsco-ai-page__anomaly-actions">
                   {crashLoopDemo && <span className="komsco-ai-page__demo-badge">0.1.3 demo</span>}
-                  {active && <span className="komsco-ai-page__demo-badge is-active">질문에 연결됨</span>}
+                  {active && (
+                    <span className="komsco-ai-page__demo-badge is-active">질문에 연결됨</span>
+                  )}
                   {crashLoopDemo && (
                     <Button
                       data-aiops-demo-action="seed-chat-prompt"
@@ -687,12 +703,21 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
   const totals = actionCandidates?.totals ?? {};
   const status = actionCandidates?.status ?? (overview ? 'unknown' : 'loading');
   const tone = actionCandidateTone(visibleCandidates[0]?.riskLevel, status);
-  const forbiddenVerbs = actionCandidates?.safety?.forbiddenMutationVerbs ?? ['apply', 'delete', 'patch', 'scale', 'exec'];
+  const forbiddenVerbs = actionCandidates?.safety?.forbiddenMutationVerbs ?? [
+    'apply',
+    'delete',
+    'patch',
+    'scale',
+    'exec',
+  ];
   const mode = actionCandidates?.safety?.mode ?? 'read-only';
 
   if (!overview) {
     return (
-      <section className="komsco-ai-page__action-candidate-board is-warning" aria-label="Read-only action candidates">
+      <section
+        className="komsco-ai-page__action-candidate-board is-warning"
+        aria-label="Read-only action candidates"
+      >
         <div className="komsco-ai-page__action-candidate-head">
           <div>
             <span>read-only 조치 후보</span>
@@ -728,9 +753,7 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
 
       <div className="komsco-ai-page__action-candidate-policy">
         <ShieldAltIcon />
-        <span>
-          mutation disabled. 금지 동작: {forbiddenVerbs.join(', ')}
-        </span>
+        <span>mutation disabled. 금지 동작: {forbiddenVerbs.join(', ')}</span>
       </div>
 
       {visibleCandidates.length > 0 ? (
@@ -763,7 +786,10 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
           ))}
         </div>
       ) : (
-        <div className="komsco-ai-page__action-candidate-empty" data-visible-action-candidate-count="0">
+        <div
+          className="komsco-ai-page__action-candidate-empty"
+          data-visible-action-candidate-count="0"
+        >
           <CheckCircleIcon />
           <div>
             <strong>
@@ -771,7 +797,10 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
                 ? '현재 제안할 조치 후보 없음'
                 : '조치 후보를 만들 만큼 근거가 충분하지 않음'}
             </strong>
-            <span>{actionCandidates?.statusLabel ?? '이상 징후 데이터와 필수 소스 상태를 먼저 확인합니다.'}</span>
+            <span>
+              {actionCandidates?.statusLabel ??
+                '이상 징후 데이터와 필수 소스 상태를 먼저 확인합니다.'}
+            </span>
           </div>
         </div>
       )}
@@ -811,7 +840,9 @@ const DataSourceBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overvie
           const reason = source.reason || (source.httpStatus ? `HTTP ${source.httpStatus}` : '');
           return (
             <div className={`komsco-ai-page__source is-${tone}`} key={source.name}>
-              <span className={`komsco-ai-page__status-dot is-${tone === 'success' ? 'ok' : tone === 'danger' ? 'danger' : 'warn'}`} />
+              <span
+                className={`komsco-ai-page__status-dot is-${tone === 'success' ? 'ok' : tone === 'danger' ? 'danger' : 'warn'}`}
+              />
               <div className="komsco-ai-page__source-main">
                 <strong>{source.label}</strong>
                 <span>{source.status}</span>
@@ -825,7 +856,9 @@ const DataSourceBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overvie
         <span>Thanos probe</span>
         <strong>{monitoringProbe?.status ?? 'unknown'}</strong>
         <code>{monitoringProbe?.query ?? 'up'}</code>
-        {typeof monitoringProbe?.resultCount === 'number' && <em>{monitoringProbe.resultCount} series</em>}
+        {typeof monitoringProbe?.resultCount === 'number' && (
+          <em>{monitoringProbe.resultCount} series</em>
+        )}
       </div>
     </section>
   );
@@ -880,9 +913,7 @@ const EvidenceRail: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status 
             <div>
               <strong>{item.type}</strong>
               <span>
-                {collected
-                  ? `${item.count} collected`
-                  : item.reason || 'not collected yet'}
+                {collected ? `${item.count} collected` : item.reason || 'not collected yet'}
               </span>
             </div>
           </div>
@@ -899,12 +930,20 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
   const items = [
     {
       label: 'Mutation gate',
-      value: statusLoaded ? (capabilities?.mutationsEnabled ? 'enabled' : 'read-only') : '상태 확인 중',
+      value: statusLoaded
+        ? capabilities?.mutationsEnabled
+          ? 'enabled'
+          : 'read-only'
+        : '상태 확인 중',
       tone: statusLoaded ? statusTone(!capabilities?.mutationsEnabled) : 'warning',
     },
     {
       label: 'Action executor',
-      value: statusLoaded ? (capabilities?.actionExecutorConfigured ? 'connected' : 'not configured') : '상태 확인 중',
+      value: statusLoaded
+        ? capabilities?.actionExecutorConfigured
+          ? 'connected'
+          : 'not configured'
+        : '상태 확인 중',
       tone: statusLoaded ? statusTone(Boolean(capabilities?.actionExecutorConfigured)) : 'warning',
     },
     {
@@ -949,15 +988,20 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
 const LightspeedLink: React.FC<{ data: AiopsPageData }> = ({ data }) => {
   const lightspeedStatus = data.status?.spec.safetyContract?.lightspeedStatus;
   const gatewayStatusLoaded = Boolean(data.status) && !data.error;
-  const baseService = lightspeedStatus?.baseService ?? 'openshift-lightspeed/lightspeed-app-server:8443';
+  const baseService =
+    lightspeedStatus?.baseService ?? 'openshift-lightspeed/lightspeed-app-server:8443';
   const streamProbe = lightspeedStatus?.streamProbe ?? 'probe pending';
   const fallbackActive = Boolean(lightspeedStatus?.fallbackActive);
   const contextDigest = compactDigest(lightspeedStatus?.lastContextDigest);
 
   return (
     <div className="komsco-ai-page__signal-stack">
-      <div className={`komsco-ai-page__signal is-${fallbackActive || !gatewayStatusLoaded ? 'warning' : 'info'}`}>
-        <span className={`komsco-ai-page__status-dot ${fallbackActive || !gatewayStatusLoaded ? 'is-warn' : 'is-info'}`} />
+      <div
+        className={`komsco-ai-page__signal is-${fallbackActive || !gatewayStatusLoaded ? 'warning' : 'info'}`}
+      >
+        <span
+          className={`komsco-ai-page__status-dot ${fallbackActive || !gatewayStatusLoaded ? 'is-warn' : 'is-info'}`}
+        />
         <div>
           <strong>
             {fallbackActive
@@ -1005,8 +1049,7 @@ const ToolPlanPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status
   }
 
   const plan =
-    toolPlanStatus.latestRuntimePlan &&
-    typeof toolPlanStatus.latestRuntimePlan === 'object'
+    toolPlanStatus.latestRuntimePlan && typeof toolPlanStatus.latestRuntimePlan === 'object'
       ? toolPlanStatus.latestRuntimePlan
       : {
           source: toolPlanStatus.source,
@@ -1150,7 +1193,11 @@ const RecordTable: React.FC<{
                   <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
                 </td>
                 <td>{variant === 'audit' ? textValue(spec.action) : recordPhase(record)}</td>
-                <td>{variant === 'audit' ? textValue(spec.runId ?? spec.requestId) : recordTarget(record)}</td>
+                <td>
+                  {variant === 'audit'
+                    ? textValue(spec.runId ?? spec.requestId)
+                    : recordTarget(record)}
+                </td>
               </tr>
             );
           })}
@@ -1172,9 +1219,7 @@ export const AiopsDashboardPage: React.FC = () => {
   const auditCountValue = data.status ? auditCount : '-';
   const operatorIssueCount = data.summary?.operators.issues.length ?? 0;
   const operatorIssueValue = data.summary ? operatorIssueCount : '-';
-  const readyNodes = data.summary
-    ? `${data.summary.nodes.ready}/${data.summary.nodes.total}`
-    : '-';
+  const readyNodes = data.summary ? `${data.summary.nodes.ready}/${data.summary.nodes.total}` : '-';
   const safetyMode = data.status?.spec.safetyContract?.mode ?? '상태 확인 중';
   const lightspeedProbe =
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
@@ -1214,9 +1259,7 @@ export const AiopsDashboardPage: React.FC = () => {
     alignStage();
     window.requestAnimationFrame(alignStage);
     window.setTimeout(() => {
-      stage
-        ?.querySelector<HTMLElement>('.komsco-ai__input textarea, .komsco-ai__input')
-        ?.focus();
+      stage?.querySelector<HTMLElement>('.komsco-ai__input textarea, .komsco-ai__input')?.focus();
     }, 250);
   }, []);
   const activeDemoFindingId =
@@ -1411,7 +1454,10 @@ export const AiopsDocsPage: React.FC = () => {
   const [uploadMessage, setUploadMessage] = React.useState('');
 
   const selectedDocument = React.useMemo(
-    () => documents.find((document) => document.documentId === selectedDocumentId) || documents[0] || null,
+    () =>
+      documents.find((document) => document.documentId === selectedDocumentId) ||
+      documents[0] ||
+      null,
     [documents, selectedDocumentId],
   );
 
@@ -1429,7 +1475,9 @@ export const AiopsDocsPage: React.FC = () => {
         return nextDocuments[0]?.documentId ?? '';
       });
     } catch (error) {
-      setDocumentsError(error instanceof Error ? error.message : '업로드 문서 목록을 불러오지 못했습니다.');
+      setDocumentsError(
+        error instanceof Error ? error.message : '업로드 문서 목록을 불러오지 못했습니다.',
+      );
     } finally {
       setDocumentsLoading(false);
     }
@@ -1475,7 +1523,9 @@ export const AiopsDocsPage: React.FC = () => {
         setPreviewStatus('error');
         setPreviewReason('');
         setPreviewResults([]);
-        setPreviewError(error instanceof Error ? error.message : 'RAG 적재 preview를 불러오지 못했습니다.');
+        setPreviewError(
+          error instanceof Error ? error.message : 'RAG 적재 preview를 불러오지 못했습니다.',
+        );
       })
       .finally(() => {
         if (!disposed) {
@@ -1534,8 +1584,8 @@ export const AiopsDocsPage: React.FC = () => {
           <span className="komsco-ai-page__section-kicker">User upload RAG</span>
           <h2>업로드 문서 관리</h2>
           <p>
-            챗봇과 Docs 화면에서 업로드한 문서가 pgvector RAG 저장소에 적재됐는지 확인하고,
-            검색 가능한 chunk preview를 검토합니다.
+            챗봇과 Docs 화면에서 업로드한 문서가 pgvector RAG 저장소에 적재됐는지 확인하고, 검색
+            가능한 chunk preview를 검토합니다.
           </p>
         </div>
         <div className="komsco-ai-page__docs-actions">
@@ -1547,10 +1597,18 @@ export const AiopsDocsPage: React.FC = () => {
             ref={fileInputRef}
             type="file"
           />
-          <Button isDisabled={uploading} onClick={() => fileInputRef.current?.click()} variant="primary">
+          <Button
+            isDisabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+            variant="primary"
+          >
             {uploading ? '업로드 중' : '문서 업로드'}
           </Button>
-          <Button isDisabled={documentsLoading} onClick={() => void loadDocuments()} variant="secondary">
+          <Button
+            isDisabled={documentsLoading}
+            onClick={() => void loadDocuments()}
+            variant="secondary"
+          >
             목록 새로고침
           </Button>
         </div>
@@ -1605,7 +1663,9 @@ export const AiopsDocsPage: React.FC = () => {
               {documents.map((document) => (
                 <button
                   className={`komsco-ai-page__docs-item${
-                    selectedDocument?.documentId === document.documentId ? ' komsco-ai-page__docs-item--active' : ''
+                    selectedDocument?.documentId === document.documentId
+                      ? ' komsco-ai-page__docs-item--active'
+                      : ''
                   }`}
                   key={document.documentId}
                   onClick={() => setSelectedDocumentId(document.documentId)}
@@ -1614,7 +1674,7 @@ export const AiopsDocsPage: React.FC = () => {
                   <strong>{document.title}</strong>
                   <span>{document.sourceUri || document.documentId}</span>
                   <small>
-                    {(document.chunkCount ?? 0)} chunks · {formatBytes(document.contentBytes)} ·{' '}
+                    {document.chunkCount ?? 0} chunks · {formatBytes(document.contentBytes)} ·{' '}
                     {formatTime(document.updatedAt || document.ingestedAt)}
                   </small>
                 </button>
@@ -1651,7 +1711,10 @@ export const AiopsDocsPage: React.FC = () => {
                 </div>
                 <div>
                   <span>권한</span>
-                  <strong>{(selectedDocument.aclGroups ?? []).slice(0, 3).join(', ') || 'current user scope'}</strong>
+                  <strong>
+                    {(selectedDocument.aclGroups ?? []).slice(0, 3).join(', ') ||
+                      'current user scope'}
+                  </strong>
                 </div>
                 <div>
                   <span>상태</span>
@@ -1660,7 +1723,8 @@ export const AiopsDocsPage: React.FC = () => {
               </div>
 
               <div className="komsco-ai-page__docs-safety">
-                원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 redacted RAG chunk preview만 표시합니다.
+                원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 redacted RAG chunk preview만
+                표시합니다.
               </div>
 
               {previewLoading ? (
@@ -1668,16 +1732,27 @@ export const AiopsDocsPage: React.FC = () => {
               ) : previewError ? (
                 <div className="komsco-ai-page__error">{previewError}</div>
               ) : previewResults.length === 0 ? (
-                <EmptyState label={previewReason || '검색 가능한 적재 chunk가 아직 확인되지 않았습니다.'} />
+                <EmptyState
+                  label={previewReason || '검색 가능한 적재 chunk가 아직 확인되지 않았습니다.'}
+                />
               ) : (
                 <div className="komsco-ai-page__docs-preview-list">
                   {previewResults.map((result, index) => (
-                    <article className="komsco-ai-page__docs-preview" key={result.id || `${result.documentId}-${index}`}>
+                    <article
+                      className="komsco-ai-page__docs-preview"
+                      key={result.id || `${result.documentId}-${index}`}
+                    >
                       <div className="komsco-ai-page__docs-preview-head">
                         <strong>{result.title || selectedDocument.title}</strong>
-                        <span>score {typeof result.score === 'number' ? result.score.toFixed(3) : '-'}</span>
+                        <span>
+                          score {typeof result.score === 'number' ? result.score.toFixed(3) : '-'}
+                        </span>
                       </div>
-                      <p>{safeEvidenceText(result.content || result.contentPreview || 'preview 없음')}</p>
+                      <p>
+                        {safeEvidenceText(
+                          result.content || result.contentPreview || 'preview 없음',
+                        )}
+                      </p>
                       <small>{result.sourceUri || result.id || result.documentId}</small>
                     </article>
                   ))}
@@ -1715,12 +1790,7 @@ export const AiopsExecutionRecordsPage: React.FC = () => {
   const data = useAiopsPageData();
 
   return (
-    <PageShell
-      data={data}
-      eyebrow="Cywell AI"
-      icon={<ClipboardCheckIcon />}
-      title="실행 기록"
-    >
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="실행 기록">
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <ClipboardCheckIcon />
@@ -1761,7 +1831,13 @@ export const AiopsPolicyPage: React.FC = () => {
           detail="approval execution path"
           icon={<BoltIcon />}
           label="Action Executor"
-          tone={!data.status ? 'warning' : capabilities?.actionExecutorConfigured ? 'success' : 'warning'}
+          tone={
+            !data.status
+              ? 'warning'
+              : capabilities?.actionExecutorConfigured
+                ? 'success'
+                : 'warning'
+          }
           value={
             !data.status
               ? 'PENDING'
@@ -1774,8 +1850,16 @@ export const AiopsPolicyPage: React.FC = () => {
           detail="raw command execution"
           icon={<LockIcon />}
           label="Unrestricted"
-          tone={!data.status ? 'warning' : capabilities?.unrestrictedCommandsEnabled ? 'danger' : 'success'}
-          value={!data.status ? 'PENDING' : capabilities?.unrestrictedCommandsEnabled ? 'ON' : 'OFF'}
+          tone={
+            !data.status
+              ? 'warning'
+              : capabilities?.unrestrictedCommandsEnabled
+                ? 'danger'
+                : 'success'
+          }
+          value={
+            !data.status ? 'PENDING' : capabilities?.unrestrictedCommandsEnabled ? 'ON' : 'OFF'
+          }
         />
       </div>
       <section className="komsco-ai-page__panel">
@@ -1787,18 +1871,22 @@ export const AiopsPolicyPage: React.FC = () => {
           <div>
             <CheckCircleIcon />
             <span>
-              허용 읽기 동작: {(contract?.allowedReadOnlyVerbs ?? ['get', 'list', 'watch']).join(', ')}
+              허용 읽기 동작:{' '}
+              {(contract?.allowedReadOnlyVerbs ?? ['get', 'list', 'watch']).join(', ')}
             </span>
           </div>
           <div>
             <ExclamationTriangleIcon />
             <span>
-              금지 동작: {(contract?.forbiddenActions ?? ['create', 'update', 'patch', 'delete']).join(', ')}
+              금지 동작:{' '}
+              {(contract?.forbiddenActions ?? ['create', 'update', 'patch', 'delete']).join(', ')}
             </span>
           </div>
           <div>
             <HistoryIcon />
-            <span>감사 기록은 Gateway 요청/완료/실패 및 실행 이벤트를 사용자 권한 기준으로 표시합니다.</span>
+            <span>
+              감사 기록은 Gateway 요청/완료/실패 및 실행 이벤트를 사용자 권한 기준으로 표시합니다.
+            </span>
           </div>
         </div>
       </section>
