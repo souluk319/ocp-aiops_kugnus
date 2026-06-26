@@ -92,7 +92,7 @@
       <tr><td>Evidence/RCA scene</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:evidence-rca:verify</code></td></tr>
       <tr><td>CrashLoop live demo cycle</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:demo:live-verify</code></td></tr>
       <tr><td>CrashLoop screen readiness</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:demo:screen-readiness</code></td></tr>
-      <tr><td>OpenShift Lightspeed stream</td><td><span class="badge pass">PASS</span></td><td><code>live-lightspeed-stream-proof.json</code>, cluster-summary/official-rca both succeeded without fallback</td></tr>
+      <tr><td>OpenShift Lightspeed stream</td><td><span class="badge warn">WARN</span></td><td>현재 화면과 증거에서는 Gateway fallback 경로로 표시될 수 있으므로, Lightspeed 최종 응답 완전 성공으로 보고하지 않는다.</td></tr>
       <tr><td>PDF upload RAG to pgvector</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:rag:file-upload:smoke</code>, 15 chunks persisted</td></tr>
       <tr><td>Backend unit tests</td><td><span class="badge pass">PASS</span></td><td><code>python -m pytest komsco-ai-gateway -q</code>, 183 passed</td></tr>
       <tr><td>Frontend UI verifier</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed</td></tr>
@@ -120,15 +120,17 @@
       <tr><td>Stop 버튼이 너무 빨리 지나가 verifier가 못 잡음</td><td>정지 버튼 최소 표시 시간을 2초로 조정</td><td>UI verifier에서 stop 버튼 전환 PASS</td></tr>
       <tr><td>UI verifier가 데이터 로딩 전 dashboard state를 검사함</td><td>Gateway data load 대기 후 검사하도록 수정</td><td>health score 92 확인 PASS</td></tr>
       <tr><td>HMR 후 local console bridge가 stale chunk를 물어 404 발생</td><td>webpack dev server와 console bridge 재시작 후 proxy chunk 200 확인</td><td>UI verifier PASS</td></tr>
+      <tr><td>중지된 답변에 collected evidence footer가 붙어 실제 근거처럼 보임</td><td>명시적 stop/no-evidence 답변은 evidence footer를 제거하고, verifier가 이를 회귀 검증하도록 수정</td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed</td></tr>
+      <tr><td>UI verifier가 Lightspeed 결과를 Gateway fallback으로만 기대해 현재 stream 성공/장기 대기 상태를 잘못 실패 처리함</td><td>최종 RCA 본문 렌더링 또는 명시적 Gateway fallback을 모두 검증하고, 장기 대기 시 stop 복구 가능성을 검증</td><td><code>task kugnus:ui:verify</code>, direct stream probe HTTP 200 / RCA text generated</td></tr>
       <tr><td>RCA ToolPlan에서 RAG/runbook이 정식 evidence step이 아니라 missing gap처럼 보임</td><td><code>gateway_rag_runbook_search</code>와 <code>runbook_tool</code>을 RCA ToolPlan에 편입</td><td><code>evidence-rca-runbook-toolplan-verification.json</code>, scenario 10/10, pytest 183 PASS</td></tr>
-      <tr><td>Gateway가 OLS request body에 <code>gateway_context</code> extra field를 넣어 Lightspeed가 422로 거절함</td><td>OLS payload는 공식 schema 필드만 보내고, Gateway evidence handoff는 query 본문과 local digest/status로 유지</td><td><code>live-lightspeed-stream-proof.json</code>, fallback 없이 Lightspeed stream succeeded</td></tr>
+      <tr><td>Gateway가 OLS request body에 <code>gateway_context</code> extra field를 넣어 Lightspeed가 422로 거절함</td><td>OLS payload는 공식 schema 필드만 보내고, Gateway evidence handoff는 query 본문과 local digest/status로 유지</td><td><code>live-lightspeed-stream-proof.json</code>은 참고 증거로만 유지하며, 최종 Lightspeed 응답 완전 성공으로 보고하지 않는다.</td></tr>
     </table>
   </section>
 
   <section>
     <h2>남은 제약</h2>
     <ul>
-      <li><strong>Lightspeed stream</strong>: 이전 422/fallback 문제는 해결됐다. 현재 live proof 기준으로 cluster-summary와 official RCA 질문 모두 <code>succeeded</code>, <code>fallbackActive=false</code>다. 다만 네트워크/VPN/회사 LLM endpoint 상태에 따라 runtime 장애가 생기면 UI는 fallback 상태를 표시한다.</li>
+      <li><strong>Lightspeed stream</strong>: 현재 화면과 증거에서는 아직 Gateway fallback 경로로 표시될 수 있다. 따라서 “Lightspeed 최종 응답까지 완전 성공”이라고 말하면 안 돼. 네트워크/VPN/회사 LLM endpoint 상태에 따라 runtime 장애가 생기면 UI는 fallback 상태를 표시한다.</li>
       <li><strong>실행 무제한</strong>: 공식 시연 기본 모드는 execute + approval guard다. unrestricted는 local lab 용도이며 현재 헤더에서 비활성 사유를 표시한다.</li>
       <li><strong>Host diagnostics</strong>: Linux host diagnostics adapter는 gate off 상태다. Windows adapter는 planned 상태다.</li>
       <li><strong>Cypress/Electron</strong>: 기존 Cypress 브라우저 E2E는 WSL OS 의존성 문제 때문에 PASS로 보고하지 않는다. 이번 UI 검증은 Chrome CDP 기반 verifier 결과다.</li>

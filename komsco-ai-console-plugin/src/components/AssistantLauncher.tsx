@@ -832,6 +832,7 @@ const setLastAssistantContentIfEmpty = (
   next[assistantIndex] = {
     ...next[assistantIndex],
     content,
+    evidenceFooter: undefined,
   };
 
   return next;

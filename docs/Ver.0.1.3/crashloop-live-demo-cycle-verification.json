@@ -1,12 +1,12 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
-  "generatedAt": "2026-06-26T00:01:25.277919Z",
+  "generatedAt": "2026-06-26T00:10:41.645156Z",
   "kind": "CrashLoopLiveDemoCycleVerification",
   "metadata": {
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae",
     "branch": "feat/v.0.1.5",
     "gateway": "http://127.0.0.1:18080",
-    "headSha": "eb923fd9a419674ca38e320b766fe9ca398bf423",
+    "headSha": "46541241f165c013cb149fcbd178268356d4d7ed",
     "name": "ver-0.1.3-crashloop-live-demo-cycle",
     "scope": "local-gateway-controlled-execution"
   },
@@ -287,16 +287,16 @@
       }
     ],
     "eventCounts": {
-      "run_status": 13,
+      "run_status": 12,
       "tool_call": 21,
       "tool_result": 25,
       "tool_plan": 1,
       "rca_context": 3,
-      "text": 34
+      "text": 35
     },
     "finalText": {
-      "digest": "28b24910b24b47cbcc519a9ad1daf8fc7be19563a94ff597df516cba283ef084",
-      "length": 4013,
+      "digest": "66308242634b0d6b9ab5ba5d0744b752ddfce59cec7ad9e4f439800dd6bccd1d",
+      "length": 4599,
       "overclaimRisk": false
     },
     "finding": {
@@ -322,9 +322,9 @@
     },
     "rcaContext": {
       "metadata": {
-        "digest": "sha256:7f82b14981ed2c08f17d6529150f68e93d37571a66ba16b3b2d0a1aa0ce9e359",
+        "digest": "sha256:e5a9cb5e7e18c60fdcfaf9e4bcea0674e1654a80c0fdb5437a6cc6c501c28e32",
         "findingId": "3bc71be7b6998201",
-        "runId": "ver-0.1.3-live-demo-1782432087",
+        "runId": "ver-0.1.3-live-demo-1782432643",
         "scenarioId": "crashloop"
       },
       "collectedEvidenceTypes": [
@@ -351,7 +351,7 @@
         "missingCount": 1
       }
     },
-    "runId": "ver-0.1.3-live-demo-1782432087",
+    "runId": "ver-0.1.3-live-demo-1782432643",
     "textSources": [
       "crashloop-v0.1.3",
       "gateway_answer_contract",
