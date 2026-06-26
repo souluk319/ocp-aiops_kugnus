@@ -1,0 +1,110 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "OcpConnectivityLadderReport",
+  "generatedAt": "2026-06-26T02:07:50.608373Z",
+  "branch": "feat/v.0.1.5",
+  "headSha": "17d657dfac63d115000ced56084c947040b7dc2b",
+  "apiServer": "https://api.ocp.cywell.server:6443",
+  "gateway": "http://127.0.0.1:18080",
+  "timeoutSeconds": 8,
+  "summary": {
+    "readyForStrictLightspeedGate": false,
+    "firstFailingLayer": "tcp",
+    "message": "TCP 6443 connection failed"
+  },
+  "results": {
+    "dns": {
+      "ok": true,
+      "addresses": [
+        "10.0.1.230"
+      ],
+      "durationMs": 3
+    },
+    "tcp": {
+      "ok": false,
+      "error": "timed out",
+      "durationMs": 8010
+    },
+    "tls": {
+      "ok": false,
+      "error": "timed out",
+      "durationMs": 8028
+    },
+    "versionEndpoint": {
+      "ok": false,
+      "statusCode": 0,
+      "durationMs": 8013,
+      "error": "<urlopen error timed out>"
+    },
+    "ocServer": {
+      "ok": true,
+      "returnCode": 0,
+      "durationMs": 70,
+      "stdout": "https://api.ocp.cywell.server:6443",
+      "stderr": "",
+      "timeoutSeconds": 8,
+      "matchesExpectedServer": true
+    },
+    "ocIdentity": {
+      "ok": false,
+      "returnCode": null,
+      "durationMs": 8017,
+      "stdout": "",
+      "stderr": "",
+      "timeout": true,
+      "timeoutSeconds": 8,
+      "identityPresent": false,
+      "reason": "oc whoami returned an empty identity"
+    },
+    "ocToken": {
+      "ok": true,
+      "durationMs": 132,
+      "returnCode": 0,
+      "tokenLength": 50,
+      "timeout": false,
+      "stderr": ""
+    },
+    "selfSubjectReview": {
+      "ok": false,
+      "statusCode": 0,
+      "durationMs": 8015,
+      "error": "<urlopen error timed out>"
+    },
+    "gatewayStatus": {
+      "ok": true,
+      "statusCode": 200,
+      "durationMs": 5008,
+      "jsonKind": "AIOpsRuntimeStatus",
+      "jsonApiVersion": "aiops.komsco/v1",
+      "accessReviewStatus": {
+        "status": "degraded",
+        "recordsVisible": false,
+        "reason": "OpenShift subject review unavailable; runtime safety status is returned without user-scoped records.",
+        "subjectReview": {
+          "ok": false,
+          "statusCode": 504,
+          "detail": {
+            "code": "openshift_api_unavailable",
+            "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
+            "operation": "self_subject_review",
+            "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
+            "upstreamReason": "ConnectTimeout:"
+          }
+        }
+      },
+      "lightspeedStatus": {
+        "status": "configured",
+        "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+        "streamProbe": "not_started",
+        "lastStatus": "not_started",
+        "lastContextDigest": "",
+        "lastStartedAt": "",
+        "lastCompletedAt": "",
+        "lastError": "",
+        "fallbackActive": false
+      },
+      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-26T02:07:50.606400+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
+    }
+  },
+  "note": "Bearer tokens and full response bodies are intentionally not persisted."
+}

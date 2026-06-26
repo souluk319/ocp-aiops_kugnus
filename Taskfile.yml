@@ -184,6 +184,11 @@ tasks:
     cmds:
       - bash ./scripts/kugnus-demo-resume.sh
 
+  kugnus:ocp:doctor:
+    desc: Diagnose DNS, TCP, TLS, oc identity, SSR, and local Gateway access without persisting tokens
+    cmds:
+      - python3 scripts/kugnus-ocp-connectivity-ladder.py
+
   kugnus:runtime:smoke:
     desc: Verify local Gateway auth, OCP summary, overview, runbook, and RAG contract through WSL oc token
     cmds:

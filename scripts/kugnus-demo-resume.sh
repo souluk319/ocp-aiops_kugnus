@@ -80,13 +80,14 @@ require_oc_login() {
   if ! timeout "$OC_TIMEOUT" oc whoami >/tmp/kugnus-demo-oc-whoami.out 2>/tmp/kugnus-demo-oc-whoami.err; then
     printf '[FAIL] oc login is not valid or OpenShift API did not answer within %ss.\n' "$OC_TIMEOUT" >&2
     printf '       Run oc login first, then rerun: task kugnus:demo:resume\n' >&2
+    printf '       If this repeats, run: task kugnus:ocp:doctor\n' >&2
     sed -n '1,6p' /tmp/kugnus-demo-oc-whoami.err >&2 || true
     exit 1
   fi
 
   user="$(tr -d '\r\n' </tmp/kugnus-demo-oc-whoami.out)"
   if [ -z "$user" ]; then
-    fail "oc whoami returned an empty user. Run oc login again, then rerun: task kugnus:demo:resume"
+    fail "oc whoami returned an empty user. Run oc login again; if it repeats, run: task kugnus:ocp:doctor"
   fi
 
   log "oc login OK: ${user}"
