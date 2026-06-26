@@ -965,6 +965,7 @@
             <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 188 passed, 2 warnings.</li>
             <li><code>task kugnus:lightspeed:live-verify</code>: 현재 FAIL. verifier 강화 후 최신 실패 원인은 <code>oc whoami</code> preflight timeout이며, Gateway/Lightspeed 단계 진입 전 차단이다. 이전 <code>self_subject_review</code> timeout은 status endpoint degraded 처리로 더 정확히 분리했다.</li>
             <li><code>task kugnus:ocp:doctor</code>: 현재 FAIL. DNS는 <code>10.0.1.230</code>으로 해석되지만 첫 실패 layer가 <code>tcp</code>이며, 회사 OCP API 6443 연결이 timeout이다. WSL route는 <code>10.0.1.230 via 172.29.160.1 dev eth0</code>로 기록됐고, 로컬 Gateway status는 200 degraded로 응답한다.</li>
+            <li><code>ocp-connectivity-ladder-report.json</code>: <code>interpretation</code> 필드를 추가해 <code>DNS PASS != TCP route PASS</code>를 명시했다. 현재 추정 원인은 <code>wsl_vpn_private_route_missing_or_stale</code>이며, token length나 <code>oc whoami --show-server</code>만으로 live OCP 연결 성공을 말하지 않는다.</li>
             <li><code>task kugnus:demo:wait</code>: fast-fail connectivity ladder가 PASS될 때까지 반복 대기한 뒤 <code>task kugnus:demo:resume</code>을 자동 실행하도록 준비됐다. 반복용 report는 <code>.tmp-kugnus-demo</code>에 남기고, 공식 증거용 full report는 <code>task kugnus:ocp:doctor</code>가 갱신한다.</li>
           </ul>
 
@@ -1076,6 +1077,16 @@
                 <td>브라우저 세션과 CLI 세션은 다르다. token은 저장소에 남기지 않는다.</td>
               </tr>
               <tr>
+                <td>DNS는 되는데 OCP API가 timeout</td>
+                <td><code>task kugnus:ocp:doctor</code>의 <code>firstFailingLayer</code>와 <code>wslNetwork.ipRouteGet</code></td>
+                <td>DNS가 사설 IP를 반환해도 WSL에서 그 IP:6443까지 TCP route가 살아 있다는 뜻은 아니다. 현재는 VPN/private route propagation into WSL을 먼저 본다.</td>
+              </tr>
+              <tr>
+                <td><code>oc whoami --show-server</code>만 성공</td>
+                <td><code>oc whoami</code>, API <code>/version</code>, SelfSubjectReview, strict verifier</td>
+                <td><code>--show-server</code>는 kubeconfig 값을 읽는 성격이라 live network/auth 성공 증거가 아니다.</td>
+              </tr>
+              <tr>
                 <td>테스트 PASS를 말하기가 불안함</td>
                 <td>terminal scroll이 아니라 report JSON/HTML이 있는지 확인</td>
                 <td>시연 증거는 파일로 남긴다. 특히 UI verifier는 branch/head stamp가 필요하다.</td>
@@ -1184,6 +1195,11 @@
                 <td>사용자의 경험도 산출물화</td>
                 <td>분노, 혼란, 긴 대기, 재시작, 인증 문제도 제품 운영 학습으로 남긴다.</td>
                 <td>다음 세션에서 같은 문제를 다시 겪을 때 더 짧은 체크리스트로 복구할 수 있어야 한다.</td>
+              </tr>
+              <tr>
+                <td>AGENTS.md 운영 계약</td>
+                <td>Codex는 단순 수동 집행기가 아니라 제품 파트너다. 목표, 완료 조건, 검증 방법, 하지 않을 것을 먼저 잠그고, 검증 없는 완료 보고를 하지 않는다.</td>
+                <td>보고에는 branch/head/report evidence가 남고, 말해도 되는 것과 아직 말하면 안 되는 것이 분리된다.</td>
               </tr>
               <tr>
                 <td>재개 자동화</td>

@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-06-26T02:22:54.056670Z",
+  "generatedAt": "2026-06-26T02:31:16.424272Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "c9c16bb1270728a49218b6283c9a1011577c48cc",
+  "headSha": "cedba94cc3f1425301295ca4c0a71e2d6f7a106a",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
   "timeoutSeconds": 8,
@@ -11,6 +11,23 @@
     "readyForStrictLightspeedGate": false,
     "firstFailingLayer": "tcp",
     "message": "TCP 6443 connection failed"
+  },
+  "interpretation": {
+    "likelyCause": "wsl_vpn_private_route_missing_or_stale",
+    "confidence": "high",
+    "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. That means name resolution is not the blocker; the live network path from WSL to the private OCP API is. If the route leaves through WSL eth0, the next practical check is whether the Windows VPN route is being propagated into WSL.",
+    "nextActions": [
+      "Verify that the Windows-side VPN/private network that owns the OCP route is connected.",
+      "After VPN changes, restart or reopen WSL if it did not inherit the private route.",
+      "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+      "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
+    ],
+    "notCodeBlocker": true,
+    "importantDistinctions": [
+      "DNS PASS does not mean TCP route PASS.",
+      "oc whoami --show-server can PASS by reading kubeconfig even when the API is unreachable.",
+      "A token length alone does not prove live OpenShift authentication."
+    ]
   },
   "results": {
     "dns": {
@@ -28,18 +45,18 @@
     "tls": {
       "ok": false,
       "error": "timed out",
-      "durationMs": 8029
+      "durationMs": 8036
     },
     "versionEndpoint": {
       "ok": false,
       "statusCode": 0,
-      "durationMs": 8015,
+      "durationMs": 8011,
       "error": "<urlopen error timed out>"
     },
     "ocServer": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 94,
+      "durationMs": 72,
       "stdout": "https://api.ocp.cywell.server:6443",
       "stderr": "",
       "timeoutSeconds": 8,
@@ -48,7 +65,7 @@
     "ocIdentity": {
       "ok": false,
       "returnCode": null,
-      "durationMs": 8013,
+      "durationMs": 8015,
       "stdout": "",
       "stderr": "",
       "timeout": true,
@@ -58,7 +75,7 @@
     },
     "ocToken": {
       "ok": true,
-      "durationMs": 76,
+      "durationMs": 106,
       "returnCode": 0,
       "tokenLength": 50,
       "timeout": false,
@@ -67,13 +84,13 @@
     "selfSubjectReview": {
       "ok": false,
       "statusCode": 0,
-      "durationMs": 8009,
+      "durationMs": 8015,
       "error": "<urlopen error timed out>"
     },
     "gatewayStatus": {
       "ok": true,
       "statusCode": 200,
-      "durationMs": 5009,
+      "durationMs": 5010,
       "jsonKind": "AIOpsRuntimeStatus",
       "jsonApiVersion": "aiops.komsco/v1",
       "accessReviewStatus": {
@@ -103,7 +120,7 @@
         "lastError": "",
         "fallbackActive": false
       },
-      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-26T02:22:54.053240+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
+      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-26T02:31:16.422150+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
     }
   },
   "wslNetwork": {
@@ -111,7 +128,7 @@
     "ipRouteGet": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 4,
+      "durationMs": 6,
       "stdout": "10.0.1.230 via 172.29.160.1 dev eth0 src 172.29.163.203 uid 1001 \n    cache",
       "stderr": "",
       "timeoutSeconds": 8
@@ -119,7 +136,7 @@
     "ipBriefAddr": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 4,
+      "durationMs": 1,
       "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:74d9/64",
       "stderr": "",
       "timeoutSeconds": 8

@@ -11,6 +11,7 @@ around the same vague "oc login" symptom.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import socket
 import ssl
@@ -99,6 +100,13 @@ def text_file_preview(path: str, max_chars: int = 1200) -> str:
         return Path(path).read_text(encoding="utf-8", errors="replace")[:max_chars]
     except OSError as exc:
         return f"unavailable: {safe_error(exc)}"
+
+
+def is_private_ip(value: str) -> bool:
+    try:
+        return ipaddress.ip_address(value).is_private
+    except ValueError:
+        return False
 
 
 def dns_check(host: str, timeout: int) -> dict[str, Any]:
@@ -209,7 +217,7 @@ def build_wsl_network_snapshot(api_host: str, dns_result: Mapping[str, Any], tim
 
     hints: list[str] = []
     route_stdout = str(route.get("stdout") or "")
-    if target_ip.startswith(("10.", "172.16.", "172.17.", "172.18.", "172.19.", "172.2", "172.30.", "172.31.", "192.168.")):
+    if is_private_ip(target_ip):
         hints.append("target IP is private; WSL must receive the VPN/private-network route.")
     if " dev eth0 " in f" {route_stdout} " and " via " in f" {route_stdout} ":
         hints.append("route uses WSL eth0 gateway; if TCP times out, check VPN route propagation into WSL.")
@@ -244,6 +252,70 @@ def build_summary(results: dict[str, Any]) -> dict[str, Any]:
         "readyForStrictLightspeedGate": True,
         "firstFailingLayer": "",
         "message": "OCP connectivity ladder passed; run task kugnus:lightspeed:live-verify.",
+    }
+
+
+def build_interpretation(
+    summary: dict[str, Any],
+    results: dict[str, Any],
+    wsl_network: dict[str, Any],
+) -> dict[str, Any]:
+    first_failing_layer = str(summary.get("firstFailingLayer") or "")
+    target_ip = str(wsl_network.get("targetIp") or "")
+    route_stdout = str((wsl_network.get("ipRouteGet") or {}).get("stdout") or "")
+    dns_ok = bool((results.get("dns") or {}).get("ok"))
+    tcp_ok = bool((results.get("tcp") or {}).get("ok"))
+
+    if summary.get("readyForStrictLightspeedGate"):
+        return {
+            "likelyCause": "none_detected",
+            "confidence": "high",
+            "explanation": "All connectivity ladder checks passed; strict Lightspeed verification can run.",
+            "nextActions": ["Run task kugnus:lightspeed:live-verify."],
+        }
+
+    if dns_ok and not tcp_ok and first_failing_layer == "tcp" and is_private_ip(target_ip):
+        next_actions = [
+            "Verify that the Windows-side VPN/private network that owns the OCP route is connected.",
+            "After VPN changes, restart or reopen WSL if it did not inherit the private route.",
+            "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+            "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify.",
+        ]
+        explanation = (
+            "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. "
+            "That means name resolution is not the blocker; the live network path from WSL to the private OCP API is. "
+            "If the route leaves through WSL eth0, the next practical check is whether the Windows VPN route is being propagated into WSL."
+        )
+        return {
+            "likelyCause": "wsl_vpn_private_route_missing_or_stale",
+            "confidence": "high" if " dev eth0 " in f" {route_stdout} " else "medium",
+            "explanation": explanation,
+            "nextActions": next_actions,
+            "notCodeBlocker": True,
+            "importantDistinctions": [
+                "DNS PASS does not mean TCP route PASS.",
+                "oc whoami --show-server can PASS by reading kubeconfig even when the API is unreachable.",
+                "A token length alone does not prove live OpenShift authentication.",
+            ],
+        }
+
+    if first_failing_layer in {"ocIdentity", "ocToken", "selfSubjectReview"}:
+        return {
+            "likelyCause": "oc_login_or_auth_session_invalid",
+            "confidence": "medium",
+            "explanation": "The network path reached later layers, but live oc identity/token/auth review failed.",
+            "nextActions": [
+                "Run oc login in WSL, then rerun task kugnus:ocp:doctor.",
+                "Do not commit tokens, kubeconfig, or .env files.",
+            ],
+            "notCodeBlocker": True,
+        }
+
+    return {
+        "likelyCause": f"{first_failing_layer or 'unknown'}_failure",
+        "confidence": "medium",
+        "explanation": "The first failing ladder layer should be fixed before rerunning the strict Lightspeed gate.",
+        "nextActions": ["Rerun task kugnus:ocp:doctor after fixing the first failing layer."],
     }
 
 
@@ -353,6 +425,8 @@ def main() -> int:
         else:
             results["gatewayStatus"] = {"ok": False, "skipped": True, "reason": "no oc token"}
 
+    summary = build_summary(results)
+    interpretation = build_interpretation(summary, results, wsl_network)
     report = {
         "apiVersion": "aiops.komsco/v1alpha1",
         "kind": "OcpConnectivityLadderReport",
@@ -362,7 +436,8 @@ def main() -> int:
         "apiServer": args.api_server.rstrip("/"),
         "gateway": args.gateway.rstrip("/"),
         "timeoutSeconds": args.timeout,
-        "summary": build_summary(results),
+        "summary": summary,
+        "interpretation": interpretation,
         "results": results,
         "wslNetwork": wsl_network,
         "note": "Bearer tokens and full response bodies are intentionally not persisted.",
@@ -372,12 +447,12 @@ def main() -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    summary = report["summary"]
     if summary["readyForStrictLightspeedGate"]:
         print("OCP connectivity ladder: PASS")
     else:
         print("OCP connectivity ladder: FAIL")
         print(f"[FAIL] {summary['firstFailingLayer']}: {summary['message']}")
+        print(f"[INTERPRETATION] {interpretation['likelyCause']}: {interpretation['explanation']}")
     print(f"Report: {report_path}")
     return 0 if summary["readyForStrictLightspeedGate"] else 1
 

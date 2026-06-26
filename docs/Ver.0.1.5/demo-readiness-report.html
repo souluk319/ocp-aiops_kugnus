@@ -87,6 +87,7 @@
     <p class="note">로컬 WSL 개발환경의 Gateway, local OpenShift console bridge, plugin dev server, pgvector RAG backend가 연결된 상태에서 핵심 자동 검증은 PASS다. 여기서 UI 검증은 Cypress가 아니라 Chrome CDP 기반 verifier이며, RCA ToolPlan과 Evidence/RCA 시연 사이클 준비 상태를 확인한다.</p>
     <p class="note">2026-06-26 추가: 재부팅/재로그인 이후 복구용 <code>task kugnus:demo:resume</code>을 추가했다. 현재 실행 증거에서는 <code>oc login</code> 또는 OpenShift API 응답이 8초 내 확인되지 않아 fail-fast로 멈춘다. 이는 로컬 시연 자동화가 실패 지점을 인증층으로 좁혔다는 의미이며, Lightspeed 최종 성공 증거는 아니다.</p>
     <p class="note">2026-06-26 추가 진단: <code>task kugnus:ocp:doctor</code>를 추가했다. 최신 <code>ocp-connectivity-ladder-report.json</code> 기준 첫 실패 layer는 <code>tcp</code>이며, <code>api.ocp.cywell.server:6443</code> 연결 timeout이다. DNS는 <code>10.0.1.230</code>으로 풀리고, WSL route는 <code>eth0</code> gateway로 나가므로 다음 확인 지점은 VPN/private route가 WSL에 전달되는지다. 로컬 Gateway <code>/v1/aiops/status</code>는 HTTP 200 degraded로 응답하므로, 현재 병목은 Gateway 코드가 아니라 WSL/VPN/OCP API 네트워크 경로다.</p>
+    <p class="note">2026-06-26 추가 해석: <code>ocp-connectivity-ladder-report.json</code>에 <code>interpretation</code> 필드를 추가했다. DNS PASS와 TCP FAIL이 동시에 나오면 이름 해석은 된 것이고, 실제 사설망 경로가 WSL까지 살아 있는지는 별개다. 따라서 현재 추정 원인은 <code>wsl_vpn_private_route_missing_or_stale</code>이며, <code>oc whoami --show-server</code>나 token length만 보고 연결 성공으로 판단하지 않는다.</p>
     <p class="note">2026-06-26 추가 자동화: <code>task kugnus:demo:wait</code>를 추가했다. 이 명령은 fast-fail connectivity ladder를 반복 실행하다가 PASS되는 순간 <code>demo:resume</code>으로 넘어간다. 대기 루프 report는 <code>.tmp-kugnus-demo/ocp-connectivity-ladder-wait-report.json</code>에 쓰고, 공식 증거용 full ladder report는 <code>task kugnus:ocp:doctor</code>가 <code>docs/Ver.0.1.5/ocp-connectivity-ladder-report.json</code>에 남긴다.</p>
     <table>
       <tr><th>항목</th><th>상태</th><th>근거</th></tr>
@@ -134,6 +135,7 @@
       <tr><td>OpenShift API timeout이 FastAPI 기본 500으로 보임</td><td>SelfSubjectReview, Product SSAR, required OpenShift JSON fetch, httpx RequestError를 구조화된 504 진단으로 변경</td><td>backend pytest <code>188 passed</code>. <code>/v1/auth/subject</code>, <code>/v1/cluster/summary</code>는 timeout 시 <code>openshift_api_unavailable</code>을 반환한다.</td></tr>
       <tr><td><code>/v1/aiops/status</code>가 subject review timeout 때문에 Lightspeed runtime status까지 못 보여줌</td><td>status endpoint는 access review 실패 시 HTTP 200 degraded payload를 반환하고 사용자별 records는 비운다. safetyContract와 <code>lightspeedStatus</code>는 계속 확인 가능하게 분리했다.</td><td>신규 단위 테스트 포함 backend pytest <code>188 passed</code>. strict verifier report에도 <code>accessReviewStatus</code>를 남긴다.</td></tr>
       <tr><td>OCP 연결 실패 원인이 계속 뭉뚱그려짐</td><td><code>scripts/kugnus-ocp-connectivity-ladder.py</code>와 <code>task kugnus:ocp:doctor</code>를 추가해 DNS, TCP, TLS, API <code>/version</code>, <code>oc whoami</code>, token, SSR, Gateway status를 분리 진단한다.</td><td>최신 report는 첫 실패 layer를 <code>tcp</code>로 기록한다. token 원문은 저장하지 않는다.</td></tr>
+      <tr><td>DNS 성공을 OCP 연결 성공으로 오해할 수 있음</td><td>connectivity ladder report에 사람이 읽는 <code>interpretation</code>을 추가해 <code>DNS PASS != TCP route PASS</code>를 명시했다.</td><td>첫 실패 layer가 <code>tcp</code>이면 VPN/private route propagation 문제로 먼저 판단한다. 이 상태에서는 strict Lightspeed gate를 성공으로 보고하지 않는다.</td></tr>
       <tr><td><code>/v1/aiops/overview</code>가 data source status bug로 500을 냄</td><td><code>data_source_status(payload=None)</code> 기본값을 허용하고 테스트 추가</td><td><code>/v1/aiops/overview</code>는 OCP API timeout 상황에서도 HTTP 200으로 degraded overview를 반환한다.</td></tr>
     </table>
   </section>
@@ -185,6 +187,16 @@
         <td>웹콘솔 로그인은 되어 있는데 <code>oc</code> 명령은 Unauthorized</td>
         <td>브라우저 console session과 CLI <code>oc login</code> session은 별개다.</td>
         <td><code>oc whoami</code>, <code>oc whoami --show-server</code>로 CLI context를 따로 확인한다. token/kubeconfig는 commit하지 않는다.</td>
+      </tr>
+      <tr>
+        <td>DNS는 되는데 <code>oc whoami</code>나 OCP API 호출이 timeout</td>
+        <td><code>api.ocp.cywell.server</code>가 <code>10.0.1.230</code> 같은 사설 IP로 풀려도, WSL에서 해당 IP:6443까지 TCP가 열리는 것은 별도 문제다.</td>
+        <td><code>task kugnus:ocp:doctor</code>에서 <code>firstFailingLayer=tcp</code>면 코드나 Gateway보다 VPN/private route가 WSL에 전달됐는지 먼저 본다.</td>
+      </tr>
+      <tr>
+        <td><code>oc whoami --show-server</code>는 되는데 실제 연결은 실패</td>
+        <td><code>--show-server</code>는 kubeconfig에 저장된 주소를 읽을 수 있어 네트워크가 죽어도 성공처럼 보일 수 있다.</td>
+        <td>실제 연결 증거는 <code>oc whoami</code>, API <code>/version</code>, SelfSubjectReview, strict Lightspeed verifier 결과로 판단한다.</td>
       </tr>
       <tr>
         <td>회사 OCP와 로컬 테스트 경계가 헷갈림</td>
@@ -258,6 +270,11 @@
         <td>사용자 학습 산출물화</td>
         <td>삽질, 혼란, 긴 대기, 인증 문제도 운영 체크리스트로 축적한다.</td>
         <td>다음에는 같은 문제를 더 짧게 복구할 수 있다.</td>
+      </tr>
+      <tr>
+        <td>AGENTS.md 운영 원칙 반영</td>
+        <td>Codex는 수동 명령 집행기가 아니라 제품 파트너로 움직인다. 목표, 완료 조건, 검증 방법, 하지 않을 것을 먼저 잠그고, 검증 없는 완료 보고를 하지 않는다.</td>
+        <td>보고서에는 branch/head/report evidence가 남고, 말해도 되는 것과 말하면 안 되는 것이 분리된다.</td>
       </tr>
       <tr>
         <td>재개 자동화</td>
