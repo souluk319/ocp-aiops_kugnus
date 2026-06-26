@@ -94,9 +94,10 @@
       <tr><td>CrashLoop screen readiness</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:demo:screen-readiness</code></td></tr>
       <tr><td>OpenShift Lightspeed stream</td><td><span class="badge warn">WARN</span></td><td>현재 화면과 증거에서는 Gateway fallback 경로로 표시될 수 있으므로, Lightspeed 최종 응답 완전 성공으로 보고하지 않는다.</td></tr>
       <tr><td>PDF upload RAG to pgvector</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:rag:file-upload:smoke</code>, 15 chunks persisted</td></tr>
-      <tr><td>Backend unit tests</td><td><span class="badge pass">PASS</span></td><td><code>python -m pytest komsco-ai-gateway -q</code>, 183 passed</td></tr>
+      <tr><td>Backend unit tests</td><td><span class="badge pass">PASS</span></td><td><code>python -m pytest komsco-ai-gateway -q</code>, 187 passed</td></tr>
       <tr><td>Frontend UI verifier</td><td><span class="badge pass">PASS</span></td><td><code>task kugnus:ui:verify</code>, 105 checked / 0 failed, <code>ui-verifier-report.json</code></td></tr>
       <tr><td>Frontend production build</td><td><span class="badge pass">PASS</span></td><td><code>corepack yarn build</code></td></tr>
+      <tr><td>Strict Lightspeed final response gate</td><td><span class="badge warn">FAIL</span></td><td><code>task kugnus:lightspeed:live-verify</code>. 현재 최신 report는 OpenShift API <code>self_subject_review</code> ConnectTimeout 때문에 Lightspeed 단계 진입 전 실패한다.</td></tr>
     </table>
   </section>
 
@@ -124,6 +125,22 @@
       <tr><td>UI verifier가 Lightspeed 결과를 Gateway fallback으로만 기대해 현재 stream 성공/장기 대기 상태를 잘못 실패 처리함</td><td>최종 RCA 본문 렌더링 또는 명시적 Gateway fallback을 모두 검증하고, 장기 대기 시 stop 복구 가능성을 검증</td><td><code>task kugnus:ui:verify</code>, Gateway stream probe HTTP 200 / RCA text generated. 이것은 Lightspeed 최종 성공 주장 근거가 아니다.</td></tr>
       <tr><td>RCA ToolPlan에서 RAG/runbook이 정식 evidence step이 아니라 missing gap처럼 보임</td><td><code>gateway_rag_runbook_search</code>와 <code>runbook_tool</code>을 RCA ToolPlan에 편입</td><td><code>evidence-rca-runbook-toolplan-verification.json</code>, scenario 10/10, pytest 183 PASS</td></tr>
       <tr><td>Gateway가 OLS request body에 <code>gateway_context</code> extra field를 넣어 Lightspeed가 422로 거절함</td><td>OLS payload는 공식 schema 필드만 보내고, Gateway evidence handoff는 query 본문과 local digest/status로 유지</td><td><code>live-lightspeed-stream-proof.json</code>은 참고 증거로만 유지하며, 최종 Lightspeed 응답 완전 성공으로 보고하지 않는다.</td></tr>
+      <tr><td>최종 Lightspeed 성공 여부가 일반 demo verifier에 묻혀 있었음</td><td><code>scripts/verify-live-lightspeed-final-response.py</code>와 <code>task kugnus:lightspeed:live-verify</code>를 추가해 fallback/error/status 실패를 모두 fail 처리</td><td>현재 report는 <code>allSucceeded=false</code>. 실패 원인은 OCP API <code>self_subject_review</code> timeout으로, Lightspeed 단계 전 차단이다.</td></tr>
+      <tr><td>OpenShift API timeout이 FastAPI 기본 500으로 보임</td><td>SelfSubjectReview, Product SSAR, required OpenShift JSON fetch, httpx RequestError를 구조화된 504 진단으로 변경</td><td>backend pytest <code>187 passed</code>. <code>/v1/auth/subject</code>, <code>/v1/cluster/summary</code>, <code>/v1/aiops/status</code>가 timeout 시 <code>openshift_api_unavailable</code>을 반환한다.</td></tr>
+      <tr><td><code>/v1/aiops/overview</code>가 data source status bug로 500을 냄</td><td><code>data_source_status(payload=None)</code> 기본값을 허용하고 테스트 추가</td><td><code>/v1/aiops/overview</code>는 OCP API timeout 상황에서도 HTTP 200으로 degraded overview를 반환한다.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>김성욱봇 검수 기준</h2>
+    <p class="note">이번 목표의 완료 기준은 더 이상 “fallback 없이 보이는 것 같다”가 아니다. 아래 항목이 모두 PASS일 때만 “Lightspeed 최종 응답 완전 성공”으로 말할 수 있다.</p>
+    <table>
+      <tr><th>검수 항목</th><th>PASS 기준</th><th>현재 상태</th></tr>
+      <tr><td>Gateway fallback 금지</td><td>SSE text event에 <code>fallbackAnswer=true</code> 또는 <code>source=gateway_fallback</code>가 없어야 한다.</td><td><span class="badge pass">PASS</span> 현재 실패 report에는 fallback text는 없다.</td></tr>
+      <tr><td>Lightspeed 단계 진입</td><td><code>run_status.stage=lightspeed</code>가 발생해야 한다.</td><td><span class="badge warn">FAIL</span> OCP API timeout 때문에 <code>stage=failed</code>에서 종료.</td></tr>
+      <tr><td>최종 OLS text 수신</td><td>source 없는 OLS text event가 1개 이상이고, 답변 본문 digest가 생성되어야 한다.</td><td><span class="badge warn">FAIL</span> 현재 OLS text 0개.</td></tr>
+      <tr><td>runtime status 증명</td><td><code>/v1/aiops/status</code>의 <code>streamProbe=succeeded</code>, <code>fallbackActive=false</code>, <code>lastError=""</code>.</td><td><span class="badge warn">FAIL</span> 현재 status endpoint는 OCP API timeout으로 504.</td></tr>
+      <tr><td>최종 report</td><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code>.</td><td><span class="badge warn">FAIL</span> 현재 <code>allSucceeded=false</code>.</td></tr>
     </table>
   </section>
 

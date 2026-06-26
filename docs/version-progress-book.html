@@ -940,7 +940,7 @@
             <div>
               <span class="tag pass">Demo readiness PASS</span>
               <span class="tag pass">UI verifier 105/105</span>
-              <span class="tag pending">Lightspeed final stream WARN</span>
+              <span class="tag pending">Strict Lightspeed gate FAIL</span>
             </div>
           </div>
 
@@ -948,7 +948,8 @@
           <p>
             0.1.5는 "내일 시연에서 실제로 어디까지 말할 수 있는가"를 고정한 단계다.
             RCA ToolPlan에 runbook/RAG evidence를 정식으로 편입했고, Lightspeed stream 경계와 Gateway fallback 표현을 정리했으며,
-            UI verifier 결과를 branch/head가 찍힌 JSON 산출물로 남겼다.
+            UI verifier 결과를 branch/head가 찍힌 JSON 산출물로 남겼다. 이후 <code>task kugnus:lightspeed:live-verify</code>를 추가해
+            Lightspeed 최종 응답을 fallback 없이 증명하는 strict gate를 만들었다.
           </p>
 
           <h3>검증 결과</h3>
@@ -960,7 +961,8 @@
             <li><code>task kugnus:demo:screen-readiness</code>: PASS.</li>
             <li><code>task kugnus:ui:verify</code>: 105 checked / 0 failed. Cypress가 아니라 Chrome CDP 기반 verifier다.</li>
             <li><code>corepack yarn build</code>: PASS.</li>
-            <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 183 passed, 2 warnings.</li>
+            <li><code>komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway -q</code>: 187 passed, 2 warnings.</li>
+            <li><code>task kugnus:lightspeed:live-verify</code>: 현재 FAIL. 실패 원인은 Lightspeed fallback이 아니라 OpenShift API <code>self_subject_review</code> ConnectTimeout으로 Lightspeed 단계 진입 전 차단이다.</li>
           </ul>
 
           <h3>이번 단계에서 잠근 표현</h3>
@@ -970,6 +972,7 @@
             <li>말해도 되는 것: PDF 업로드 RAG smoke와 citation 연결은 확인했다.</li>
             <li>말하면 안 되는 것: production RAG 품질과 장기 검색 품질까지 완성됐다.</li>
             <li>말하면 안 되는 것: Lightspeed 최종 응답까지 완전 성공했다.</li>
+            <li>김성욱봇 기준: <code>live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code> 전까지 RCA 흐름 완성으로 보고하지 않는다.</li>
           </ul>
 
           <div class="source-list">
@@ -977,7 +980,8 @@
             <code>docs/Ver.0.1.5/demo-readiness-report.html</code>,
             <code>docs/Ver.0.1.5/ui-verifier-report.json</code>,
             <code>docs/Ver.0.1.5/evidence-rca-runbook-toolplan-verification.json</code>,
-            <code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code>
+            <code>docs/Ver.0.1.5/rag-file-upload-smoke-report.json</code>,
+            <code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>
           </div>
         </section>
 
@@ -1216,6 +1220,11 @@
                 <td>0.1.5</td>
                 <td><code>docs/Ver.0.1.5/evidence-rca-runbook-toolplan-verification.json</code></td>
                 <td>RCA ToolPlan에 RAG/runbook evidence가 포함되는지 검증한 증거</td>
+              </tr>
+              <tr>
+                <td>0.1.5</td>
+                <td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code></td>
+                <td>fallback 없는 Lightspeed 최종 응답 strict gate. 현재는 OCP API timeout으로 <code>allSucceeded=false</code></td>
               </tr>
               <tr>
                 <td>Git</td>
