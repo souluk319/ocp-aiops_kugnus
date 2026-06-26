@@ -1,14 +1,20 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "KugnusDemoPreflightReport",
-  "generatedAt": "2026-06-26T08:06:53.506626Z",
+  "generatedAt": "2026-06-26T21:06:40.213935Z",
   "summary": {
-    "result": "pass",
+    "result": "warn",
     "readyForOfficialDemo": true,
     "blockerCount": 0,
-    "warningCount": 0,
+    "warningCount": 1,
     "blockers": [],
-    "warnings": []
+    "warnings": [
+      {
+        "id": "workspace.git",
+        "title": "Git branch and worktree are visible",
+        "nextAction": "Commit or review intentional local changes before publishing the demo baseline."
+      }
+    ]
   },
   "targets": {
     "gatewayUrl": "http://127.0.0.1:18080",
@@ -37,15 +43,34 @@
       "id": "workspace.git",
       "group": "workspace",
       "title": "Git branch and worktree are visible",
-      "status": "pass",
+      "status": "warn",
       "required": false,
-      "durationMs": 9,
+      "durationMs": 6,
       "nextAction": "Commit or review intentional local changes before publishing the demo baseline.",
       "details": {
         "branch": "feat/v.0.1.6",
-        "head": "2f833f9cd2d1",
-        "statusShort": "## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 4]",
-        "dirtyNonReportLines": []
+        "head": "9a8923f4ca09",
+        "statusShort": "## feat/v.0.1.6...origin/feat/v.0.1.6\n M docs/Ver.0.1.3/runtime-smoke-report.json\n M docs/Ver.0.1.5/live-lightspeed-final-response-verification.json\n M docs/Ver.0.1.5/strict-demo-audit-report.json\n M docs/Ver.0.1.6/preflight-report.html\n M docs/Ver.0.1.6/preflight-report.json\n M komsco-ai-console-plugin/.stylelintrc.yaml\n M komsco-ai-console-plugin/eslint.config.mjs\n M komsco-ai-console-plugin/integration-tests/tests/official-evidence-rca.cy.ts\n M komsco-ai-console-plugin/src/components/AssistantLauncher.tsx\n M komsco-ai-console-plugin/src/components/assistant.css\n M komsco-ai-console-plugin/src/components/coolicons.tsx\n M komsco-ai-console-plugin/src/pages/AiopsPages.tsx\n M komsco-ai-console-plugin/src/pages/aiops-pages.css\n M komsco-ai-console-plugin/src/services/aiGateway.ts\n M komsco-ai-console-plugin/src/utils/evidenceDisplay.ts\n M komsco-ai-gateway/komsco_ai_gateway/main.py\n M komsco-ai-gateway/tests/test_health.py\n M scripts/dev-gateway-lightspeed.sh\n M scripts/kugnus-demo-preflight.py\n M scripts/kugnus-demo-resume.sh",
+        "dirtyNonReportLines": [
+          " M docs/Ver.0.1.3/runtime-smoke-report.json",
+          " M docs/Ver.0.1.5/live-lightspeed-final-response-verification.json",
+          " M docs/Ver.0.1.5/strict-demo-audit-report.json",
+          " M komsco-ai-console-plugin/.stylelintrc.yaml",
+          " M komsco-ai-console-plugin/eslint.config.mjs",
+          " M komsco-ai-console-plugin/integration-tests/tests/official-evidence-rca.cy.ts",
+          " M komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
+          " M komsco-ai-console-plugin/src/components/assistant.css",
+          " M komsco-ai-console-plugin/src/components/coolicons.tsx",
+          " M komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+          " M komsco-ai-console-plugin/src/pages/aiops-pages.css",
+          " M komsco-ai-console-plugin/src/services/aiGateway.ts",
+          " M komsco-ai-console-plugin/src/utils/evidenceDisplay.ts",
+          " M komsco-ai-gateway/komsco_ai_gateway/main.py",
+          " M komsco-ai-gateway/tests/test_health.py",
+          " M scripts/dev-gateway-lightspeed.sh",
+          " M scripts/kugnus-demo-preflight.py",
+          " M scripts/kugnus-demo-resume.sh"
+        ]
       }
     },
     {
@@ -54,14 +79,14 @@
       "title": ".env exists, is LF-only, private, and ignored",
       "status": "pass",
       "required": true,
-      "durationMs": 3,
+      "durationMs": 2,
       "nextAction": "Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.",
       "details": {
         "exists": true,
         "mode": "600",
         "crlfCount": 0,
         "gitIgnored": true,
-        "activeKeyCount": 2
+        "activeKeyCount": 3
       }
     },
     {
@@ -178,7 +203,7 @@
       "title": "Core tool versions are callable from Ubuntu",
       "status": "pass",
       "required": true,
-      "durationMs": 1082,
+      "durationMs": 1042,
       "nextAction": "Fix nvm/corepack/task availability in the Ubuntu shell.",
       "details": {
         "node": "v24.14.0",
@@ -192,13 +217,13 @@
       "title": "Ubuntu Chrome can run headless UI checks",
       "status": "pass",
       "required": true,
-      "durationMs": 1017,
+      "durationMs": 1149,
       "nextAction": "Check ~/.local/bin/google-chrome and the Chrome for Testing local library wrapper.",
       "details": {
         "path": "/home/kugnus/.local/bin/google-chrome",
         "version": "Google Chrome for Testing 150.0.7871.24",
         "headlessDomContainsOk": true,
-        "stderrPreview": "[56453:56474:0626/170649.951986:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[56453:56474:0626/170649.955925:ERROR:dbus/bus.cc:405] Failed to connect"
+        "stderrPreview": "[28233:28254:0627/060636.195559:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[28233:28254:0627/060636.202411:ERROR:dbus/bus.cc:405] Failed to connect"
       }
     },
     {
@@ -207,7 +232,7 @@
       "title": "Docker daemon is reachable",
       "status": "pass",
       "required": true,
-      "durationMs": 826,
+      "durationMs": 1018,
       "nextAction": "Start Docker Desktop or the Docker daemon, then rerun preflight.",
       "details": {
         "serverVersion": "29.4.2",
@@ -220,7 +245,7 @@
       "title": "Local pgvector RAG container is running",
       "status": "pass",
       "required": true,
-      "durationMs": 52,
+      "durationMs": 85,
       "nextAction": "Run task kugnus:rag:dev:up.",
       "details": {
         "container": "kugnus-rag-pgvector",
@@ -233,7 +258,7 @@
       "title": "Local pgvector database accepts connections",
       "status": "pass",
       "required": true,
-      "durationMs": 155,
+      "durationMs": 289,
       "nextAction": "Run task kugnus:rag:dev:up and inspect the container logs.",
       "details": {
         "stdout": "/var/run/postgresql:5432 - accepting connections",
@@ -246,7 +271,7 @@
       "title": "OpenShift identity and company API server are available",
       "status": "pass",
       "required": true,
-      "durationMs": 554,
+      "durationMs": 652,
       "nextAction": "Run oc login, then task kugnus:ocp:doctor if the API still does not answer.",
       "details": {
         "user": "admin",
@@ -263,7 +288,7 @@
       "title": "Can read openshift-lightspeed/lightspeed-app-server",
       "status": "pass",
       "required": true,
-      "durationMs": 144,
+      "durationMs": 135,
       "nextAction": "Check VPN, oc login, RBAC, namespace, and service name.",
       "details": {
         "namespace": "openshift-lightspeed",
@@ -278,7 +303,7 @@
       "title": "Can read komsco-ai-dev/komsco-ai-action-executor",
       "status": "pass",
       "required": true,
-      "durationMs": 145,
+      "durationMs": 113,
       "nextAction": "Check VPN, oc login, RBAC, namespace, and service name.",
       "details": {
         "namespace": "komsco-ai-dev",
@@ -290,28 +315,35 @@
     {
       "id": "openshift.lightspeed-port-forward",
       "group": "openshift",
-      "title": "Lightspeed local port-forward is listening",
+      "title": "Lightspeed local port-forward answers HTTPS",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 53,
       "nextAction": "Run task kugnus:demo:resume to restore local port-forwarding.",
       "details": {
         "host": "127.0.0.1",
         "port": 18443,
+        "probeUrl": "https://127.0.0.1:18443/",
+        "statusCode": 404,
         "error": ""
       }
     },
     {
       "id": "openshift.action-executor-port-forward",
       "group": "openshift",
-      "title": "Action Executor local port-forward is listening",
+      "title": "Action Executor local port-forward healthz responds",
       "status": "pass",
       "required": true,
-      "durationMs": 0,
+      "durationMs": 38,
       "nextAction": "Run task kugnus:demo:resume to restore local port-forwarding.",
       "details": {
         "host": "127.0.0.1",
         "port": 18083,
+        "probeUrl": "http://127.0.0.1:18083/healthz",
+        "statusCode": 200,
+        "payload": {
+          "status": "ok"
+        },
         "error": ""
       }
     },
@@ -321,7 +353,7 @@
       "title": "Gateway healthz responds",
       "status": "pass",
       "required": true,
-      "durationMs": 31,
+      "durationMs": 1,
       "nextAction": "Run task kugnus:demo:resume or inspect .tmp-kugnus-demo/gateway.log.",
       "details": {
         "url": "http://127.0.0.1:18080/healthz",
@@ -338,7 +370,7 @@
       "title": "Gateway auth subject responds",
       "status": "pass",
       "required": true,
-      "durationMs": 48,
+      "durationMs": 21,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/auth/subject",
@@ -358,7 +390,7 @@
       "title": "Gateway AIOps status responds",
       "status": "pass",
       "required": true,
-      "durationMs": 69,
+      "durationMs": 41,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/aiops/status",
@@ -380,7 +412,7 @@
       "title": "Gateway cluster summary responds",
       "status": "pass",
       "required": true,
-      "durationMs": 64,
+      "durationMs": 62,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/cluster/summary",
@@ -404,7 +436,7 @@
       "title": "Gateway AIOps overview responds",
       "status": "pass",
       "required": true,
-      "durationMs": 452,
+      "durationMs": 432,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/aiops/overview",
@@ -421,7 +453,7 @@
       "title": "Gateway lists uploaded RAG documents without raw content",
       "status": "pass",
       "required": true,
-      "durationMs": 32,
+      "durationMs": 34,
       "nextAction": "Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/rag/uploads",
@@ -443,7 +475,7 @@
       "title": "Gateway retrieves RAG evidence for the demo query",
       "status": "pass",
       "required": true,
-      "durationMs": 46,
+      "durationMs": 51,
       "nextAction": "Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/rag/search",
@@ -465,7 +497,7 @@
       "title": "Local console dashboard route responds",
       "status": "pass",
       "required": true,
-      "durationMs": 1,
+      "durationMs": 2,
       "nextAction": "Run task kugnus:dev:fe or task kugnus:demo:resume.",
       "details": {
         "url": "http://127.0.0.1:9000/dashboards",

@@ -71,6 +71,18 @@ def parse_bool(value: str | None, *, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def parse_int(value: str | None, *, default: int, minimum: int = 0, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value) if value is not None and value.strip() != "" else default
+    except ValueError:
+        parsed = default
+
+    parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
 def parse_ols_verify(value: str | None) -> bool | str:
     if value is None or value.strip() == "":
         return True
@@ -86,6 +98,7 @@ def parse_ols_verify(value: str | None) -> bool | str:
 
 OLS_BASE_URL = os.getenv("OLS_BASE_URL", "").rstrip("/")
 OLS_CA_FILE = parse_ols_verify(os.getenv("OLS_CA_FILE"))
+OLS_EMPTY_ANSWER_RETRIES = parse_int(os.getenv("KOMSCO_AI_OLS_EMPTY_ANSWER_RETRIES"), default=1, minimum=0, maximum=3)
 DEV_ECHO = parse_bool(os.getenv("KOMSCO_AI_DEV_ECHO"))
 OPENSHIFT_API_URL = os.getenv("OPENSHIFT_API_URL", "").rstrip("/")
 if not OPENSHIFT_API_URL and os.getenv("KUBERNETES_SERVICE_HOST"):
@@ -3791,7 +3804,6 @@ def alert_anomaly_findings(alerts_probe: Mapping[str, Any] | None) -> tuple[list
         severity_label = str(metric.get("severity") or metric.get("alert_severity") or "").lower()
         namespace = str(metric.get("namespace") or "")
         pod_name = str(metric.get("pod") or metric.get("pod_name") or "")
-        resource_name = pod_name or str(metric.get("instance") or alertname)
         if alertname == "Watchdog":
             excluded.append({"alertname": alertname, "reason": "Watchdog is an always-firing pipeline health alert."})
             continue
@@ -3938,7 +3950,7 @@ def build_node_status_rca_evidence(
             )
         )
     if len(rows) > 20:
-        lines.append(f"| ... | ... | ... | ... | ... | ... |")
+        lines.append("| ... | ... | ... | ... | ... | ... |")
         lines.append(f"Rows capped at 20 of {len(rows)} nodes for RCA prompt compactness.")
     return "\n".join(lines)
 
@@ -8899,7 +8911,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
                 "- 현재 수집 범위에서는 Pod 장애를 확인하지 못했습니다.",
                 "",
                 "### 수집 근거",
-                f"- Evidence 범위: `Current Pod list evidence`",
+                "- Evidence 범위: `Current Pod list evidence`",
                 "",
                 "### 원인 후보",
                 "- 조회 범위가 맞지 않거나, 현재 접근 권한/namespace 기준으로 대상 Pod가 없을 수 있습니다.",
@@ -13118,82 +13130,120 @@ async def chat_stream(
             )
             emitted_answer_text = False
             ols_tool_results: list[Mapping[str, Any]] = []
-            try:
-                async for ols_event in stream_with_heartbeats(
-                    call_ols_stream(
-                        authorization,
-                        ols_query,
-                        req.conversationId,
-                        req.attachments,
-                        ols_gateway_context,
-                    ),
-                    run_id,
-                ):
-                    normalized_event = normalize_ols_event(ols_event)
-                    if normalized_event.get("type") == "text":
-                        filtered_content = text_reference_filter.filter(
-                            str(normalized_event.get("content") or "")
-                        )
-                        if filtered_content:
-                            if filtered_content.strip():
-                                emitted_answer_text = True
-                            text_event: dict[str, Any] = {"type": "text", "content": filtered_content}
-                            for key in (
-                                "fallbackAnswer",
-                                "gatewayContextDigest",
-                                "source",
-                                "streamProbe",
+            ols_attempt_count = 0
+            for ols_attempt in range(OLS_EMPTY_ANSWER_RETRIES + 1):
+                attempt_emitted_answer_text = False
+                ols_attempt_count = ols_attempt + 1
+                active_ols_query = ols_query
+                if ols_attempt > 0:
+                    active_ols_query = (
+                        f"{ols_query}\n\n"
+                        "[Gateway 빈 응답 재시도 지시]\n"
+                        "이전 OpenShift Lightspeed stream이 최종 답변 텍스트 없이 종료되었습니다. "
+                        "도구 결과나 Gateway 선조회 증거가 부족해도 공백으로 종료하지 말고, "
+                        "`## RCA 보고서` 형식으로 확인된 사실과 `확인 불가`를 분리해 답하세요."
+                    )
+
+                try:
+                    async for ols_event in stream_with_heartbeats(
+                        call_ols_stream(
+                            authorization,
+                            active_ols_query,
+                            req.conversationId,
+                            req.attachments,
+                            ols_gateway_context,
+                        ),
+                        run_id,
+                    ):
+                        normalized_event = normalize_ols_event(ols_event)
+                        if normalized_event.get("type") == "text":
+                            filtered_content = text_reference_filter.filter(
+                                str(normalized_event.get("content") or "")
+                            )
+                            if filtered_content:
+                                if filtered_content.strip():
+                                    emitted_answer_text = True
+                                    attempt_emitted_answer_text = True
+                                text_event: dict[str, Any] = {"type": "text", "content": filtered_content}
+                                for key in (
+                                    "fallbackAnswer",
+                                    "gatewayContextDigest",
+                                    "source",
+                                    "streamProbe",
+                                ):
+                                    if key in normalized_event:
+                                        text_event[key] = normalized_event[key]
+                                yield sse(text_event)
+                            continue
+
+                        if normalized_event.get("type") == "end":
+                            final_text = text_reference_filter.flush()
+                            if final_text:
+                                if final_text.strip():
+                                    emitted_answer_text = True
+                                    attempt_emitted_answer_text = True
+                                yield sse({"type": "text", "content": final_text})
+                            if not attempt_emitted_answer_text and ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
+                                continue
+
+                        yield sse(normalized_event)
+                        if normalized_event.get("type") == "tool_result":
+                            ols_tool_results.append(dict(normalized_event))
+                            for evidence_event in build_evidence_reference_events(
+                                event=normalized_event,
+                                incident_id=incident_id,
+                                run_id=run_id,
+                                source_type="ols-tool-result",
+                                subject=subject,
                             ):
-                                if key in normalized_event:
-                                    text_event[key] = normalized_event[key]
-                            yield sse(text_event)
-                        continue
+                                yield sse(evidence_event)
+                except Exception as exc:
+                    safe_detail = safe_exception_text(exc)
+                    update_ols_stream_status(
+                        "failed",
+                        context_digest=ols_gateway_context["metadata"]["digest"],
+                        fallback_active=True,
+                        reason=safe_detail,
+                    )
+                    ols_error_event = {
+                        "type": "tool_result",
+                        "detail": safe_detail,
+                        "id": f"{request_id}-lightspeed-stream",
+                        "name": "lightspeed_stream",
+                        "status": "error",
+                        "summary": "OpenShift Lightspeed stream failed; Gateway fallback will answer from collected evidence",
+                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                        "fallbackAnswer": True,
+                    }
+                    ols_tool_results.append(ols_error_event)
+                    yield sse(ols_error_event)
+                    break
 
-                    if normalized_event.get("type") == "end":
-                        final_text = text_reference_filter.flush()
-                        if final_text:
-                            if final_text.strip():
-                                emitted_answer_text = True
-                            yield sse({"type": "text", "content": final_text})
+                if emitted_answer_text:
+                    break
 
-                    yield sse(normalized_event)
-                    if normalized_event.get("type") == "tool_result":
-                        ols_tool_results.append(dict(normalized_event))
-                        for evidence_event in build_evidence_reference_events(
-                            event=normalized_event,
-                            incident_id=incident_id,
-                            run_id=run_id,
-                            source_type="ols-tool-result",
-                            subject=subject,
-                        ):
-                            yield sse(evidence_event)
-            except Exception as exc:
-                safe_detail = safe_exception_text(exc)
-                update_ols_stream_status(
-                    "failed",
-                    context_digest=ols_gateway_context["metadata"]["digest"],
-                    fallback_active=True,
-                    reason=safe_detail,
-                )
-                ols_error_event = {
-                    "type": "tool_result",
-                    "detail": safe_detail,
-                    "id": f"{request_id}-lightspeed-stream",
-                    "name": "lightspeed_stream",
-                    "status": "error",
-                    "summary": "OpenShift Lightspeed stream failed; Gateway fallback will answer from collected evidence",
-                    "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                    "fallbackAnswer": True,
-                }
-                ols_tool_results.append(ols_error_event)
-                yield sse(ols_error_event)
-
+                if ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
+                    yield sse(
+                        {
+                            "type": "run_status",
+                            "runId": run_id,
+                            "stage": "lightspeed_retry",
+                            "message": "OpenShift Lightspeed가 빈 응답으로 종료되어 같은 증거로 재시도",
+                            "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                            "attempt": ols_attempt + 2,
+                        }
+                    )
             if not emitted_answer_text:
+                fallback_reason = (
+                    "OLS stream ended without answer text; Gateway fallback emitted"
+                    if ols_attempt_count <= 1
+                    else f"OLS stream ended without answer text after {ols_attempt_count} attempts; Gateway fallback emitted"
+                )
                 update_ols_stream_status(
                     "failed",
                     context_digest=ols_gateway_context["metadata"]["digest"],
                     fallback_active=True,
-                    reason="OLS stream ended without answer text; Gateway fallback emitted",
+                    reason=fallback_reason,
                 )
                 yield sse(
                     {

@@ -33,17 +33,17 @@
   <main>
     <article>
       <h1>Ver.0.1.6 Demo Preflight Report</h1>
-      <p class="muted">Generated at <code>2026-06-26T08:06:53.506626Z</code></p>
+      <p class="muted">Generated at <code>2026-06-26T21:06:40.213935Z</code></p>
       <div class="summary">
-        <div class="tile"><span>Result</span><strong>PASS</strong></div>
+        <div class="tile"><span>Result</span><strong>WARN</strong></div>
         <div class="tile"><span>Ready</span><strong>YES</strong></div>
         <div class="tile"><span>Blockers</span><strong>0</strong></div>
-        <div class="tile"><span>Warnings</span><strong>0</strong></div>
+        <div class="tile"><span>Warnings</span><strong>1</strong></div>
       </div>
       <h2>Blockers</h2>
       <ul><li>blocker 없음</li></ul>
       <h2>Warnings</h2>
-      <ul><li>warning 없음</li></ul>
+      <ul><li><code>workspace.git</code> Git branch and worktree are visible: Commit or review intentional local changes before publishing the demo baseline.</li></ul>
       <h2>Official Demo</h2>
       <p>Scenario: <code>docs/Ver.0.1.6/official-demo-scenario.md</code></p>
       <p>Question: <code>최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.</code></p>
@@ -57,17 +57,17 @@
   &quot;repo&quot;: &quot;/home/kugnus/cywell/ocp-aiops_kugnus&quot;,
   &quot;isWsl&quot;: true,
   &quot;kernelRelease&quot;: &quot;6.6.87.2-microsoft-standard-WSL2&quot;
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge warn">WARN</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
   &quot;branch&quot;: &quot;feat/v.0.1.6&quot;,
-  &quot;head&quot;: &quot;2f833f9cd2d1&quot;,
-  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 4]&quot;,
-  &quot;dirtyNonReportLines&quot;: []
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
+  &quot;head&quot;: &quot;9a8923f4ca09&quot;,
+  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6\n M docs/Ver.0.1.3/runtime-smoke-report.json\n M docs/Ver.0.1.5/live-lightspeed-final-response-verification.json\n M docs/Ver.0.1.5/strict-demo-audit-report.json\n M docs/Ver.0.1.6/preflight-report.html\n M docs/Ver.0.1.6/preflight-report.json\n M komsco-ai-console-plugin/.stylelintrc.yaml\n M komsco-ai-console-plugin/eslint.config.mjs\n M komsco-ai-console-plugin/integration-tests/tests/official-evidence-rca.cy.ts\n M komsco-ai-console-plugin/src/components/AssistantLauncher.tsx\n M komsco-ai-console-plugin/src/components/assistant.css\n M komsco-ai-console-plugin/src/components/coolicons.tsx\n M komsco-ai-console-plugin/src/pages/AiopsPages.tsx\n M komsco-ai-console-plugin/src/pages/aiops-pages.css\n M komsco-ai-console-plugin/src/services/aiGateway.ts\n M komsco-ai-console-plugin/src/utils/evidenceDisplay.ts\n M komsco-ai-gateway/komsco_ai_gateway/main.py\n M komsco-ai-gateway/tests/test_health.py\n M scripts/dev-gateway-lightspeed.sh\n M scripts/kugnus-demo-preflight.py\n M scripts/kugnus-demo-resume.sh&quot;,
+  &quot;dirtyNonReportLines&quot;: [
+    &quot; M docs/Ver.0.1.3/runtime-smoke</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
   &quot;exists&quot;: true,
   &quot;mode&quot;: &quot;600&quot;,
   &quot;crlfCount&quot;: 0,
   &quot;gitIgnored&quot;: true,
-  &quot;activeKeyCount&quot;: 2
+  &quot;activeKeyCount&quot;: 3
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>bash command is available</strong><br><code>tool.bash</code></td><td>Install bash in Ubuntu/WSL or fix PATH.</td><td><pre>{
   &quot;path&quot;: &quot;/usr/bin/bash&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>curl command is available</strong><br><code>tool.curl</code></td><td>Install curl in Ubuntu/WSL or fix PATH.</td><td><pre>{
@@ -94,7 +94,7 @@
   &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;,
   &quot;version&quot;: &quot;Google Chrome for Testing 150.0.7871.24&quot;,
   &quot;headlessDomContainsOk&quot;: true,
-  &quot;stderrPreview&quot;: &quot;[56453:56474:0626/170649.951986:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[56453:56474:0626/170649.955925:ERROR:dbus/bus.cc:405] Failed to connect&quot;
+  &quot;stderrPreview&quot;: &quot;[28233:28254:0627/060636.195559:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[28233:28254:0627/060636.202411:ERROR:dbus/bus.cc:405] Failed to connect&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>docker</td><td><strong>Docker daemon is reachable</strong><br><code>docker.daemon</code></td><td>Start Docker Desktop or the Docker daemon, then rerun preflight.</td><td><pre>{
   &quot;serverVersion&quot;: &quot;29.4.2&quot;,
   &quot;stderrPreview&quot;: &quot;&quot;
@@ -121,13 +121,20 @@
   &quot;service&quot;: &quot;komsco-ai-action-executor&quot;,
   &quot;stdout&quot;: &quot;komsco-ai-action-executor&quot;,
   &quot;stderrPreview&quot;: &quot;&quot;
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Lightspeed local port-forward is listening</strong><br><code>openshift.lightspeed-port-forward</code></td><td>Run task kugnus:demo:resume to restore local port-forwarding.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Lightspeed local port-forward answers HTTPS</strong><br><code>openshift.lightspeed-port-forward</code></td><td>Run task kugnus:demo:resume to restore local port-forwarding.</td><td><pre>{
   &quot;host&quot;: &quot;127.0.0.1&quot;,
   &quot;port&quot;: 18443,
+  &quot;probeUrl&quot;: &quot;https://127.0.0.1:18443/&quot;,
+  &quot;statusCode&quot;: 404,
   &quot;error&quot;: &quot;&quot;
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Action Executor local port-forward is listening</strong><br><code>openshift.action-executor-port-forward</code></td><td>Run task kugnus:demo:resume to restore local port-forwarding.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>openshift</td><td><strong>Action Executor local port-forward healthz responds</strong><br><code>openshift.action-executor-port-forward</code></td><td>Run task kugnus:demo:resume to restore local port-forwarding.</td><td><pre>{
   &quot;host&quot;: &quot;127.0.0.1&quot;,
   &quot;port&quot;: 18083,
+  &quot;probeUrl&quot;: &quot;http://127.0.0.1:18083/healthz&quot;,
+  &quot;statusCode&quot;: 200,
+  &quot;payload&quot;: {
+    &quot;status&quot;: &quot;ok&quot;
+  },
   &quot;error&quot;: &quot;&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway healthz responds</strong><br><code>gateway.healthz</code></td><td>Run task kugnus:demo:resume or inspect .tmp-kugnus-demo/gateway.log.</td><td><pre>{
   &quot;kind&quot;: &quot;unknown&quot;

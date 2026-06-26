@@ -74,6 +74,102 @@ http_ok() {
   esac
 }
 
+https_responds() {
+  local url="$1"
+  local status
+  status="$(curl -ksS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 8 "$url" 2>/dev/null || true)"
+  case "$status" in
+    [1-5][0-9][0-9])
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+port_forward_healthy() {
+  local label="$1"
+  local local_port="$2"
+
+  case "$label" in
+    lightspeed-port-forward)
+      https_responds "https://127.0.0.1:${local_port}/"
+      ;;
+    action-executor-port-forward)
+      http_ok "http://127.0.0.1:${local_port}/healthz"
+      ;;
+    *)
+      port_open "127.0.0.1" "$local_port"
+      ;;
+  esac
+}
+
+wait_for_port_forward_health() {
+  local label="$1"
+  local local_port="$2"
+  local attempts="${3:-40}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if port_forward_healthy "$label" "$local_port"; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  return 1
+}
+
+start_detached() {
+  local __pid_var="$1"
+  local log_file="$2"
+  shift 2
+
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" </dev/null >>"$log_file" 2>&1 &
+  else
+    nohup "$@" </dev/null >>"$log_file" 2>&1 &
+  fi
+  printf -v "$__pid_var" '%s' "$!"
+  disown "${!__pid_var}" >/dev/null 2>&1 || true
+}
+
+stop_matching_port_forward() {
+  local namespace="$1"
+  local service="$2"
+  local local_port="$3"
+  local service_port="$4"
+  local line pid args matched="false"
+
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    pid="${line%% *}"
+    args="${line#"$pid"}"
+    args="${args#"${args%%[![:space:]]*}"}"
+    if [[ "$args" != *"oc "*port-forward* ]]; then
+      continue
+    fi
+    if [[ "$args" != *"svc/${service}"* || "$args" != *"${local_port}:${service_port}"* ]]; then
+      continue
+    fi
+    if [[ "$args" != *"-n ${namespace}"* && "$args" != *"--namespace ${namespace}"* ]]; then
+      continue
+    fi
+    log "stopping stale port-forward pid=${pid}: ${namespace}/${service} ${local_port}:${service_port}"
+    kill "$pid" >/dev/null 2>&1 || true
+    matched="true"
+  done < <(ps -eo pid=,args=)
+
+  if [ "$matched" = "true" ]; then
+    for _ in $(seq 1 20); do
+      if ! port_open "127.0.0.1" "$local_port"; then
+        return 0
+      fi
+      sleep 0.25
+    done
+  fi
+}
+
 require_oc_login() {
   local user=""
 
@@ -102,11 +198,8 @@ start_background() {
 
   log "starting ${name}; log=${log_file}"
   : >"$log_file"
-  (
-    cd "$ROOT_DIR"
-    exec "$@"
-  ) >>"$log_file" 2>&1 &
-  local pid="$!"
+  local pid=""
+  start_detached pid "$log_file" bash -c 'cd "$1" && shift && exec "$@"' bash "$ROOT_DIR" "$@"
   printf '%s\n' "$pid" >"$pid_file"
   log "${name} pid=${pid}"
 }
@@ -121,8 +214,16 @@ ensure_port_forward() {
   local pid_file="${LOG_DIR}/${label}.pid"
 
   if port_open "127.0.0.1" "$local_port"; then
-    log "${label} already listening on 127.0.0.1:${local_port}"
-    return
+    if port_forward_healthy "$label" "$local_port"; then
+      log "${label} already healthy on 127.0.0.1:${local_port}"
+      return
+    fi
+    log "${label} is listening on 127.0.0.1:${local_port}, but its service probe failed; restarting matching port-forward"
+    stop_matching_port_forward "$namespace" "$service" "$local_port" "$service_port"
+    if port_open "127.0.0.1" "$local_port"; then
+      ss -ltnp | grep ":${local_port}" >&2 || true
+      fail "${label} port ${local_port} is still occupied but failed its service probe. Stop the stale listener, then rerun."
+    fi
   fi
 
   if ! timeout "$OC_TIMEOUT" oc -n "$namespace" get "svc/${service}" >/dev/null 2>"${LOG_DIR}/${label}-oc-get.err"; then
@@ -131,17 +232,20 @@ ensure_port_forward() {
   fi
   log "starting ${label}: ${namespace}/${service} ${local_port}:${service_port}"
   : >"$log_file"
-  oc -n "$namespace" port-forward \
+  local pid=""
+  start_detached pid "$log_file" oc -n "$namespace" port-forward \
     --address 0.0.0.0 \
     "svc/${service}" \
-    "${local_port}:${service_port}" \
-    >>"$log_file" 2>&1 &
-  local pid="$!"
+    "${local_port}:${service_port}"
   printf '%s\n' "$pid" >"$pid_file"
 
   if ! wait_for_port "127.0.0.1" "$local_port" 80; then
     sed -n '1,80p' "$log_file" >&2 || true
     fail "${label} did not become ready on port ${local_port}"
+  fi
+  if ! wait_for_port_forward_health "$label" "$local_port" 40; then
+    sed -n '1,120p' "$log_file" >&2 || true
+    fail "${label} opened port ${local_port}, but the service probe did not answer"
   fi
   log "${label} ready on 127.0.0.1:${local_port}"
 }
@@ -157,7 +261,7 @@ ensure_gateway() {
     fail "port 18080 is listening, but ${GATEWAY_URL}/healthz is not healthy. Stop the stale gateway first."
   fi
 
-  start_background "gateway" env INSTALL_DEPS=false task kugnus:dev:be:execute:rag
+  start_background "gateway" env INSTALL_DEPS=false KUGNUS_MANAGE_OLS_PORT_FORWARD=false task kugnus:dev:be:execute:rag
   for _ in $(seq 1 "$STARTUP_ATTEMPTS"); do
     if http_ok "${GATEWAY_URL}/healthz"; then
       log "Gateway ready: ${GATEWAY_URL}/healthz"

@@ -2708,6 +2708,109 @@ def test_chat_stream_marks_empty_ols_success_as_fallback_status(monkeypatch) -> 
     asyncio.run(run())
 
 
+def test_chat_stream_retries_empty_ols_answer_before_fallback(monkeypatch) -> None:
+    gateway_main.OLS_STREAM_STATUS = {
+        "streamProbe": "not_started",
+        "lastStatus": "not_started",
+        "lastContextDigest": "",
+        "lastStartedAt": "",
+        "lastCompletedAt": "",
+        "lastError": "",
+        "fallbackActive": False,
+    }
+    monkeypatch.setattr(gateway_main, "OLS_EMPTY_ANSWER_RETRIES", 1)
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    queries: list[str] = []
+
+    async def empty_then_answer_call_ols_stream(
+        _user_auth_header: str,
+        query: str,
+        _conversation_id: str | None,
+        _attachments: list[ImageAttachment],
+        gateway_context: Mapping[str, object] | None = None,
+    ):
+        assert gateway_context is not None
+        metadata = gateway_context["metadata"]
+        assert isinstance(metadata, Mapping)
+        context_digest = str(metadata.get("digest") or "")
+        gateway_main.update_ols_stream_status("started", context_digest=context_digest)
+        queries.append(query)
+        if len(queries) == 1:
+            gateway_main.update_ols_stream_status("succeeded", context_digest=context_digest)
+            yield {"type": "end", "conversationId": "conversation-empty"}
+            return
+
+        gateway_main.update_ols_stream_status("succeeded", context_digest=context_digest)
+        yield {
+            "type": "text",
+            "content": "## RCA 보고서\n\n### 우선 판단\n재시도 후 Lightspeed 답변입니다.\n\n### 수집 근거\nGateway evidence.",
+        }
+        yield {"type": "end", "conversationId": "conversation-answer"}
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", empty_then_answer_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "최근 OpenShift 경고와 우선 확인할 항목을 정리해줘."},
+            )
+            status_response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        assert status_response.status_code == 200
+        events = parse_sse_events(response.text)
+        retry_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "run_status"
+            and event.get("stage") == "lightspeed_retry"
+        ]
+        fallback_text_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and event.get("fallbackAnswer") is True
+        ]
+        answer_text = "".join(
+            str(event.get("content") or "")
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        )
+
+        assert len(queries) == 2
+        assert "[Gateway 빈 응답 재시도 지시]" not in queries[0]
+        assert "[Gateway 빈 응답 재시도 지시]" in queries[1]
+        assert retry_events
+        assert not fallback_text_events
+        assert "재시도 후 Lightspeed 답변" in answer_text
+        lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
+        assert lightspeed_status["streamProbe"] == "succeeded"
+        assert lightspeed_status["fallbackActive"] is False
+
+    asyncio.run(run())
+
+
 def test_chat_stream_handles_openshift_user_auth_401_without_raw_status(monkeypatch) -> None:
     async def fake_subject_review(_user_auth_header: str) -> dict:
         raise HTTPException(

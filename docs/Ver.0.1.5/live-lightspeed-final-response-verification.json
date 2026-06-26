@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-26T04:00:02.112571Z",
-  "branch": "feat/v.0.1.5",
-  "headSha": "e3eb40b694eca73c58567c0fba8847be6f585c6b",
+  "generatedAt": "2026-06-26T21:06:15.765430Z",
+  "branch": "feat/v.0.1.6",
+  "headSha": "9a8923f4ca09b4d33fb6534e9333599ebc7d70da",
   "gateway": "http://127.0.0.1:18080",
   "preflight": {
     "ocIdentityAvailable": true,
@@ -42,9 +42,9 @@
         "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
         "streamProbe": "succeeded",
         "lastStatus": "succeeded",
-        "lastContextDigest": "sha256:948fcd242a3e6c7112d48c5e6d9d390e28d519f86f378fa9d1ff5a5be8f5c755",
-        "lastStartedAt": "2026-06-26T03:57:35.887307+00:00",
-        "lastCompletedAt": "2026-06-26T03:58:51.849446+00:00",
+        "lastContextDigest": "sha256:a8331c061d741165cdb8e2a2c135939322c96655dd9b7f2186c6414f59f5e879",
+        "lastStartedAt": "2026-06-26T21:04:20.917552+00:00",
+        "lastCompletedAt": "2026-06-26T21:05:22.191892+00:00",
         "lastError": "",
         "fallbackActive": false
       },
@@ -54,29 +54,29 @@
         "errorPreview": ""
       },
       "stream": {
-        "answerDigest": "4cb4ad24f51faa3488383a2d664304b4095f992bee4aa97056c5d43c720975a7",
-        "answerLength": 2419,
+        "answerDigest": "cfa770c6de3df146ee7ddf81d6f0278f3f1e564bf9a0dfbe8c412c8df9d77cd4",
+        "answerLength": 2307,
         "answerPreviews": [
           "## RCA 보고서",
           "### ### 우선 판단",
-          "현재 클러스터는 **`komsco-ai-dev` 네임스페이스의 워크로드 불안정(빈번한 재시작)**과 **`openshift-marketplace` 네임스페이스의 Pod 미준비(NotReady)** 상태가 가장 시급한 장애 요소로 판단됩니다. 또한, **etcd 데이터베이스의 파편화(Fragmentation)** 경고가 발생하여 클러스터 안정성에 잠재적 위협이 되고 있습니다.",
+          "현재 클러스터의 노드 상태는 정상(`Ready`)이나, **`komsco-ai-dev` 네임스페이스 내 특정 워크로드의 빈번한 재시작(CrashLoopBackOff 의심)**과 **`etcd` 데이터베이스의 파편화(Fragmentation) 경고**가 가장 시급한 관리 대상입니다. 또한, `openshift-marketplace`의 카탈로그 Pod가 준비되지 않은 상태(`NotReady`)로 확인되어 서비스 가용성에 영향을 줄",
           "### ### 수집 근거",
-          "1.  **워크로드 재시작 (Metric):** `komsco-ai-dev` 네임스페이스의 `aiops-scenario-1-crashloop-7448bf8897-57pjz` Pod 내 `crashloop` 컨테이너가 최근 1시간 동안 약 11.38회 재시작됨."
+          "* **노드 상태:** 1개 노드 모두 `Ready` 상태이며 리소스 압박(Pressure) 없음 (근거: Node status evidence)"
         ],
         "doneReceived": true,
-        "durationMs": 76418,
+        "durationMs": 61889,
         "eventCounts": {
-          "run_status": 14,
+          "run_status": 11,
           "tool_call": 14,
           "tool_result": 15,
           "tool_plan": 1,
           "rca_context": 3,
-          "text": 53
+          "text": 56
         },
         "fallbackEvents": [],
         "gatewayErrors": [],
         "lightspeedErrors": [],
-        "olsTextEvents": 52,
+        "olsTextEvents": 55,
         "requiredTextPresent": {
           "RCA": true,
           "근거": true
@@ -84,9 +84,6 @@
         "runStatusStages": [
           "started",
           "lightspeed",
-          "waiting",
-          "waiting",
-          "waiting",
           "waiting",
           "waiting",
           "waiting",
@@ -106,22 +103,7 @@
           {
             "stage": "lightspeed",
             "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
-            "gatewayContextDigest": "sha256:948fcd242a3e6c7112d48c5e6d9d390e28d519f86f378fa9d1ff5a5be8f5c755"
-          },
-          {
-            "stage": "waiting",
-            "message": "Lightspeed 응답 스트림 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "Lightspeed 응답 스트림 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "Lightspeed 응답 스트림 대기 중",
-            "gatewayContextDigest": null
+            "gatewayContextDigest": "sha256:a8331c061d741165cdb8e2a2c135939322c96655dd9b7f2186c6414f59f5e879"
           },
           {
             "stage": "waiting",
@@ -199,9 +181,9 @@
         "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
         "streamProbe": "succeeded",
         "lastStatus": "succeeded",
-        "lastContextDigest": "sha256:e9f63d1356f43232829a353b534c13650467cc720513be3c1750dd97a4879567",
-        "lastStartedAt": "2026-06-26T03:58:52.731382+00:00",
-        "lastCompletedAt": "2026-06-26T04:00:02.033493+00:00",
+        "lastContextDigest": "sha256:077284c07bcc3774c33b89b6eeb4daa2f0dc7b13d312fe8348d49588c8aecf7f",
+        "lastStartedAt": "2026-06-26T21:05:23.071885+00:00",
+        "lastCompletedAt": "2026-06-26T21:06:15.675045+00:00",
         "lastError": "",
         "fallbackActive": false
       },
@@ -211,29 +193,29 @@
         "errorPreview": ""
       },
       "stream": {
-        "answerDigest": "3dc8a5b9775a8247b1add7fad70c9ec4ab85e5b7685468b16af0ef8d49db2cf5",
-        "answerLength": 1455,
+        "answerDigest": "b4e73fd7a98a89bea1de7d766a06152b13c76b9c603653487191dfe0680e5203",
+        "answerLength": 747,
         "answerPreviews": [
           "## RCA 보고서",
           "### 우선 판단",
-          "**확인 불가**: 현재 수집된 증거(Evidence)상으로는 `default` 네임스페이스 내에서 재시작된 Pod에 대한 기록이나 관련 이벤트를 찾을 수 없습니다.",
+          "`default` 네임스페이스 내에서 재시작된 Pod를 식별할 수 없습니다.",
           "### 수집 근거",
-          "* **Pod Snapshot**: `default` 네임스페이스의 Pod 스냅샷 결과, 대상이 되는 Pod가 존재하지 않음 (`candidatePods: []`)."
+          "- **Gateway-collected Pod status evidence**: `default` 네임스페이스에 대한 Pod 스냅샷 결과가 비어 있습니다 (`candidatePods: []`)."
         ],
         "doneReceived": true,
-        "durationMs": 70152,
+        "durationMs": 53408,
         "eventCounts": {
-          "run_status": 14,
+          "run_status": 12,
           "tool_call": 21,
           "tool_result": 25,
           "tool_plan": 1,
           "rca_context": 3,
-          "text": 41
+          "text": 27
         },
         "fallbackEvents": [],
         "gatewayErrors": [],
         "lightspeedErrors": [],
-        "olsTextEvents": 40,
+        "olsTextEvents": 26,
         "requiredTextPresent": {
           "RCA": true,
           "확인": true
@@ -241,8 +223,6 @@
         "runStatusStages": [
           "started",
           "lightspeed",
-          "waiting",
-          "waiting",
           "waiting",
           "waiting",
           "waiting",
@@ -263,17 +243,7 @@
           {
             "stage": "lightspeed",
             "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
-            "gatewayContextDigest": "sha256:e9f63d1356f43232829a353b534c13650467cc720513be3c1750dd97a4879567"
-          },
-          {
-            "stage": "waiting",
-            "message": "Lightspeed 응답 스트림 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "Lightspeed 응답 스트림 대기 중",
-            "gatewayContextDigest": null
+            "gatewayContextDigest": "sha256:077284c07bcc3774c33b89b6eeb4daa2f0dc7b13d312fe8348d49588c8aecf7f"
           },
           {
             "stage": "waiting",

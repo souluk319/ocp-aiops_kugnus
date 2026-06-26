@@ -15,6 +15,7 @@ import os
 import platform
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -169,6 +170,23 @@ def http_request(
         return False, exc.code, payload, "", elapsed_ms(started)
     except Exception as exc:  # noqa: BLE001 diagnostic script
         return False, 0, {}, str(exc)[:500], elapsed_ms(started)
+
+
+def https_endpoint_answering(url: str, *, timeout: int) -> tuple[bool, int, str, int]:
+    started = time.monotonic()
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    req = urllib.request.Request(url, headers={"Accept": "*/*"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=context) as response:  # noqa: S310 local preflight
+            response.read(1)
+            return True, response.status, "", elapsed_ms(started)
+    except urllib.error.HTTPError as exc:
+        exc.read(1)
+        return True, exc.code, "", elapsed_ms(started)
+    except Exception as exc:  # noqa: BLE001 diagnostic script
+        return False, 0, str(exc)[:500], elapsed_ms(started)
 
 
 def summarize_gateway_payload(check_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -496,18 +514,44 @@ class Preflight:
                 duration_ms=result.duration_ms,
             )
 
-        for check_id, port, label in (
-            ("openshift.lightspeed-port-forward", 18443, "Lightspeed"),
-            ("openshift.action-executor-port-forward", 18083, "Action Executor"),
+        for check_id, port, label, probe_url, probe_type in (
+            ("openshift.lightspeed-port-forward", 18443, "Lightspeed", "https://127.0.0.1:18443/", "https"),
+            (
+                "openshift.action-executor-port-forward",
+                18083,
+                "Action Executor",
+                "http://127.0.0.1:18083/healthz",
+                "http",
+            ),
         ):
-            ok, error, duration = tcp_open("127.0.0.1", port)
+            if probe_type == "https":
+                ok, status_code, error, duration = https_endpoint_answering(probe_url, timeout=self.timeout)
+                title = f"{label} local port-forward answers HTTPS"
+                details = {
+                    "host": "127.0.0.1",
+                    "port": port,
+                    "probeUrl": probe_url,
+                    "statusCode": status_code,
+                    "error": error,
+                }
+            else:
+                ok, status_code, payload, error, duration = http_request("GET", probe_url, timeout=self.timeout)
+                title = f"{label} local port-forward healthz responds"
+                details = {
+                    "host": "127.0.0.1",
+                    "port": port,
+                    "probeUrl": probe_url,
+                    "statusCode": status_code,
+                    "payload": payload,
+                    "error": error,
+                }
             self.add(
                 check_id,
                 "openshift",
-                f"{label} local port-forward is listening",
+                title,
                 "pass" if ok else "fail",
                 next_action="Run task kugnus:demo:resume to restore local port-forwarding.",
-                details={"host": "127.0.0.1", "port": port, "error": error},
+                details=details,
                 duration_ms=duration,
             )
 

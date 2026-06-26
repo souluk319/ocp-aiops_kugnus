@@ -7,6 +7,10 @@ GATEWAY_DIR="${ROOT_DIR}/komsco-ai-gateway"
 
 GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
 GATEWAY_PORT="${GATEWAY_PORT:-18080}"
+LOCAL_CONNECT_HOST="$GATEWAY_HOST"
+if [ "$LOCAL_CONNECT_HOST" = "0.0.0.0" ]; then
+  LOCAL_CONNECT_HOST="127.0.0.1"
+fi
 INSTALL_DEPS="${INSTALL_DEPS:-true}"
 OLS_NAMESPACE="${OLS_NAMESPACE:-openshift-lightspeed}"
 OLS_SERVICE="${OLS_SERVICE:-lightspeed-app-server}"
@@ -15,6 +19,7 @@ OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
 PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
 PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
+MANAGE_OLS_PORT_FORWARD="${KUGNUS_MANAGE_OLS_PORT_FORWARD:-true}"
 ACTION_EXECUTOR="${ACTION_EXECUTOR:-}"
 ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-}"
 AIOPS_UNRESTRICTED="${AIOPS_UNRESTRICTED:-${UNRESTRICTED_COMMANDS:-}}"
@@ -56,6 +61,104 @@ wait_for_port() {
   done
 
   return 1
+}
+
+http_ok() {
+  local url="$1"
+  local status
+  status="$(curl -ksS -o /dev/null -w '%{http_code}' --max-time 8 "$url" 2>/dev/null || true)"
+  case "$status" in
+    200|204|301|302|304)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+https_responds() {
+  local url="$1"
+  local status
+  status="$(curl -ksS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 8 "$url" 2>/dev/null || true)"
+  case "$status" in
+    [1-5][0-9][0-9])
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+lightspeed_forward_healthy() {
+  https_responds "https://${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}/"
+}
+
+action_executor_forward_healthy() {
+  http_ok "http://${LOCAL_CONNECT_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}/healthz"
+}
+
+wait_for_lightspeed_forward() {
+  local attempts="${1:-80}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if lightspeed_forward_healthy; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  return 1
+}
+
+wait_for_action_executor_forward() {
+  local attempts="${1:-80}"
+
+  for _ in $(seq 1 "$attempts"); do
+    if action_executor_forward_healthy; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  return 1
+}
+
+stop_matching_port_forward() {
+  local namespace="$1"
+  local service="$2"
+  local local_port="$3"
+  local service_port="$4"
+  local line pid args matched="false"
+
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    pid="${line%% *}"
+    args="${line#"$pid"}"
+    args="${args#"${args%%[![:space:]]*}"}"
+    if [[ "$args" != *"oc "*port-forward* ]]; then
+      continue
+    fi
+    if [[ "$args" != *"svc/${service}"* || "$args" != *"${local_port}:${service_port}"* ]]; then
+      continue
+    fi
+    if [[ "$args" != *"-n ${namespace}"* && "$args" != *"--namespace ${namespace}"* ]]; then
+      continue
+    fi
+    echo "Stopping stale port-forward pid=${pid}: ${namespace}/${service} ${local_port}:${service_port}" >&2
+    kill "$pid" >/dev/null 2>&1 || true
+    matched="true"
+  done < <(ps -eo pid=,args=)
+
+  if [ "$matched" = "true" ]; then
+    for _ in $(seq 1 20); do
+      if ! port_open "$LOCAL_CONNECT_HOST" "$local_port"; then
+        return 0
+      fi
+      sleep 0.25
+    done
+  fi
 }
 
 normalize_bool_option() {
@@ -175,9 +278,17 @@ run_port_forward_supervisor() {
     fi
 
     if [ -z "$pf_pid" ]; then
-      if port_open "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
+      if lightspeed_forward_healthy; then
         sleep "$PF_CHECK_INTERVAL"
         continue
+      fi
+      if port_open "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT"; then
+        log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} is open but HTTPS probe failed; restarting matching port-forward"
+        stop_matching_port_forward "$OLS_NAMESPACE" "$OLS_SERVICE" "$OLS_LOCAL_PORT" "$OLS_SERVICE_PORT"
+        if port_open "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT"; then
+          sleep "$PF_CHECK_INTERVAL"
+          continue
+        fi
       fi
 
       log_port_forward "Starting Lightspeed port-forward: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
@@ -188,7 +299,7 @@ run_port_forward_supervisor() {
         >>"$PF_LOG" 2>&1 &
       pf_pid="$!"
 
-      if wait_for_port "$GATEWAY_HOST" "$OLS_LOCAL_PORT" 40; then
+      if wait_for_port "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT" 40 && wait_for_lightspeed_forward 40; then
         sleep "$PF_CHECK_INTERVAL"
         continue
       fi
@@ -207,8 +318,8 @@ run_port_forward_supervisor() {
       continue
     fi
 
-    if ! port_open "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
-      log_port_forward "Lightspeed local port ${GATEWAY_HOST}:${OLS_LOCAL_PORT} is unavailable; restarting port-forward"
+    if ! lightspeed_forward_healthy; then
+      log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} failed its HTTPS probe; restarting port-forward"
       kill "$pf_pid" >/dev/null 2>&1 || true
       wait "$pf_pid" >/dev/null 2>&1 || true
       pf_pid=""
@@ -259,38 +370,71 @@ fi
 
 oc -n "$OLS_NAMESPACE" get "svc/${OLS_SERVICE}" >/dev/null
 
-: > "$PF_LOG"
-run_port_forward_supervisor &
-PF_SUPERVISOR_PID="$!"
+if [ "$(normalize_bool_option "$MANAGE_OLS_PORT_FORWARD")" = "true" ]; then
+  : > "$PF_LOG"
+  run_port_forward_supervisor &
+  PF_SUPERVISOR_PID="$!"
 
-if ! wait_for_port "$GATEWAY_HOST" "$OLS_LOCAL_PORT"; then
-  echo "Lightspeed port-forward failed. Log: $PF_LOG" >&2
-  cat "$PF_LOG" >&2
-  exit 1
+  if ! wait_for_port "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT"; then
+    echo "Lightspeed port-forward failed. Log: $PF_LOG" >&2
+    cat "$PF_LOG" >&2
+    exit 1
+  fi
+  if ! wait_for_lightspeed_forward; then
+    echo "Lightspeed port-forward opened a socket but did not answer HTTPS. Log: $PF_LOG" >&2
+    cat "$PF_LOG" >&2
+    exit 1
+  fi
+
+  echo "Lightspeed endpoint supervised: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
+  echo "Port-forward log: $PF_LOG"
+else
+  if ! wait_for_lightspeed_forward; then
+    echo "Existing Lightspeed port-forward did not answer HTTPS on ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}." >&2
+    echo "Set KUGNUS_MANAGE_OLS_PORT_FORWARD=true or rerun task kugnus:demo:resume to restore it." >&2
+    exit 1
+  fi
+
+  echo "Lightspeed endpoint verified without local supervisor: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}"
 fi
-
-echo "Lightspeed endpoint supervised: ${OLS_NAMESPACE}/${OLS_SERVICE} ${OLS_SERVICE_PORT} -> ${GATEWAY_HOST}:${OLS_LOCAL_PORT}"
-echo "Port-forward log: $PF_LOG"
 
 if [ "$ACTION_EXECUTOR_ENABLED" = "true" ]; then
   oc -n "$ACTION_EXECUTOR_NAMESPACE" get "svc/${ACTION_EXECUTOR_SERVICE}" >/dev/null
   : > "$ACTION_EXECUTOR_PF_LOG"
-  if port_open "$GATEWAY_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
-    echo "Action Executor local port already open: ${GATEWAY_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}"
-  else
+  if action_executor_forward_healthy; then
+    echo "Action Executor endpoint already healthy: http://${LOCAL_CONNECT_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}/healthz"
+  elif port_open "$LOCAL_CONNECT_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
+    echo "Action Executor local port is open but healthz failed; restarting matching port-forward" >&2
+    stop_matching_port_forward "$ACTION_EXECUTOR_NAMESPACE" "$ACTION_EXECUTOR_SERVICE" "$ACTION_EXECUTOR_LOCAL_PORT" "$ACTION_EXECUTOR_SERVICE_PORT"
+    if port_open "$LOCAL_CONNECT_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
+      echo "Action Executor port ${ACTION_EXECUTOR_LOCAL_PORT} is still occupied but healthz failed." >&2
+      ss -ltnp | grep ":${ACTION_EXECUTOR_LOCAL_PORT}" >&2 || true
+      exit 1
+    fi
+  fi
+
+  if ! action_executor_forward_healthy; then
+    : > "$ACTION_EXECUTOR_PF_LOG"
     oc -n "$ACTION_EXECUTOR_NAMESPACE" port-forward \
       --address "$GATEWAY_HOST" \
       "svc/${ACTION_EXECUTOR_SERVICE}" \
       "${ACTION_EXECUTOR_LOCAL_PORT}:${ACTION_EXECUTOR_SERVICE_PORT}" \
       >>"$ACTION_EXECUTOR_PF_LOG" 2>&1 &
     ACTION_EXECUTOR_PF_PID="$!"
-    if ! wait_for_port "$GATEWAY_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
+    if ! wait_for_port "$LOCAL_CONNECT_HOST" "$ACTION_EXECUTOR_LOCAL_PORT"; then
       echo "Action Executor port-forward failed. Log: $ACTION_EXECUTOR_PF_LOG" >&2
       cat "$ACTION_EXECUTOR_PF_LOG" >&2
       exit 1
     fi
+    if ! wait_for_action_executor_forward; then
+      echo "Action Executor port-forward opened a socket but healthz did not answer. Log: $ACTION_EXECUTOR_PF_LOG" >&2
+      cat "$ACTION_EXECUTOR_PF_LOG" >&2
+      exit 1
+    fi
+  else
+    ACTION_EXECUTOR_PF_PID=""
   fi
-  export KOMSCO_AI_ACTION_EXECUTOR_URL="${KOMSCO_AI_ACTION_EXECUTOR_URL:-http://${GATEWAY_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}}"
+  export KOMSCO_AI_ACTION_EXECUTOR_URL="${KOMSCO_AI_ACTION_EXECUTOR_URL:-http://${LOCAL_CONNECT_HOST}:${ACTION_EXECUTOR_LOCAL_PORT}}"
   echo "Action Executor endpoint: ${KOMSCO_AI_ACTION_EXECUTOR_URL}"
   echo "Action Executor port-forward log: $ACTION_EXECUTOR_PF_LOG"
 fi
@@ -308,7 +452,7 @@ if [ "$INSTALL_DEPS" = "true" ]; then
 fi
 
 export KOMSCO_AI_DEV_ECHO="${KOMSCO_AI_DEV_ECHO:-false}"
-export OLS_BASE_URL="${OLS_BASE_URL:-https://${GATEWAY_HOST}:${OLS_LOCAL_PORT}}"
+export OLS_BASE_URL="${OLS_BASE_URL:-https://${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}}"
 export OLS_CA_FILE="${OLS_CA_FILE:-false}"
 export OPENSHIFT_API_URL="${OPENSHIFT_API_URL:-$(oc whoami --show-server)}"
 export OPENSHIFT_API_CA_FILE="${OPENSHIFT_API_CA_FILE:-false}"

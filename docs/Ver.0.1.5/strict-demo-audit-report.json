@@ -1,9 +1,9 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "StrictDemoAuditReport",
-  "generatedAt": "2026-06-26T04:00:02.889333Z",
-  "branch": "feat/v.0.1.5",
-  "headSha": "e3eb40b694eca73c58567c0fba8847be6f585c6b",
+  "generatedAt": "2026-06-26T21:06:16.390120Z",
+  "branch": "feat/v.0.1.6",
+  "headSha": "9a8923f4ca09b4d33fb6534e9333599ebc7d70da",
   "localRcaReady": true,
   "strictLightspeedReady": true,
   "successClaimAllowed": true,
@@ -74,7 +74,7 @@
       "report": "docs/Ver.0.1.5/ui-verifier-report.json",
       "details": {
         "ok": true,
-        "checked": 105,
+        "checked": 107,
         "failedCount": 0
       }
     },
