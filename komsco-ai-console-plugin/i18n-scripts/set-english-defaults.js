@@ -54,9 +54,7 @@ function updateFile(fileName) {
     }
   }
 
-  fs.promises
-    .writeFile(fileName, JSON.stringify(updatedFile, null, 2))
-    .catch((e) => console.error(fileName, e));
+  fs.writeFileSync(fileName, `${JSON.stringify(updatedFile, null, 2)}\n`);
 }
 
 function processLocalesFolder(filePath) {
