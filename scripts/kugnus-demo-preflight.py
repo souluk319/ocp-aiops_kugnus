@@ -32,6 +32,7 @@ DEFAULT_HTML_REPORT = REPO_ROOT / "docs/Ver.0.1.6/preflight-report.html"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:18080"
 DEFAULT_CONSOLE_URL = "http://127.0.0.1:9000/dashboards"
 DEFAULT_AIOPS_ROUTE_URL = "http://127.0.0.1:9000/aiops-kugnus"
+DEFAULT_DOCS_ROUTE_URL = "http://127.0.0.1:9000/aiops-kugnus/docs"
 DEFAULT_PLUGIN_MANIFEST_URL = "http://127.0.0.1:9001/plugin-manifest.json"
 EXPECTED_OCP_SERVER = "https://api.ocp.cywell.server:6443"
 
@@ -635,6 +636,14 @@ class Preflight:
             next_action="Run task kugnus:dev:fe and verify the local console bridge.",
         )
         self.check_http_endpoint(
+            "console.docs-route",
+            "console",
+            "Cywell AI Docs/RAG route responds",
+            "GET",
+            self.args.docs_route_url,
+            next_action="Run task kugnus:dev:fe and verify the Docs route registration.",
+        )
+        self.check_http_endpoint(
             "console.plugin-manifest",
             "console",
             "Plugin manifest responds",
@@ -693,6 +702,7 @@ class Preflight:
                 "gatewayUrl": self.args.gateway_url,
                 "consoleUrl": self.args.console_url,
                 "aiopsRouteUrl": self.args.aiops_route_url,
+                "docsRouteUrl": self.args.docs_route_url,
                 "pluginManifestUrl": self.args.plugin_manifest_url,
                 "expectedOpenShiftServer": EXPECTED_OCP_SERVER,
             },
@@ -823,6 +833,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gateway-url", default=os.getenv("KUGNUS_GATEWAY_URL", DEFAULT_GATEWAY_URL))
     parser.add_argument("--console-url", default=os.getenv("KUGNUS_CONSOLE_URL", DEFAULT_CONSOLE_URL))
     parser.add_argument("--aiops-route-url", default=os.getenv("KUGNUS_AIOPS_ROUTE_URL", DEFAULT_AIOPS_ROUTE_URL))
+    parser.add_argument("--docs-route-url", default=os.getenv("KUGNUS_DOCS_ROUTE_URL", DEFAULT_DOCS_ROUTE_URL))
     parser.add_argument(
         "--plugin-manifest-url",
         default=os.getenv("KUGNUS_PLUGIN_MANIFEST_URL", DEFAULT_PLUGIN_MANIFEST_URL),

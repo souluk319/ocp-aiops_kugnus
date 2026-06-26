@@ -67,6 +67,7 @@ task kugnus:demo:preflight
 | OpenShift | service read | Lightspeed, Action Executor service read 가능 | VPN/RBAC/namespace/service 이름 확인 |
 | Local stack | Gateway | `/healthz`, `/v1/aiops/status`, `/v1/cluster/summary` 성공 | `task kugnus:demo:resume` 또는 Gateway 로그 확인 |
 | Local stack | Console | `9000` console route와 `9001` plugin manifest HTTP OK | `task kugnus:dev:fe` 또는 stale port 정리 |
+| Local stack | Docs/RAG route | `/aiops-kugnus/docs` HTTP OK | Docs route 등록과 console bridge 확인 |
 | RAG | pgvector | `kugnus-rag-pgvector` container와 `pg_isready` 성공 | `task kugnus:rag:dev:up` |
 | RAG | Gateway RAG API | `/v1/rag/uploads`, `/v1/rag/search` 성공, raw content 미반환 | Gateway RAG env와 DB 상태 확인 |
 
