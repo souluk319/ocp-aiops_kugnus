@@ -199,6 +199,54 @@
         <td>스크롤 로그는 증거로 약하다.</td>
         <td>검증 결과는 JSON/HTML 산출물로 남긴다. UI 검증은 branch/head가 찍힌 <code>ui-verifier-report.json</code>을 보관한다.</td>
       </tr>
+      <tr>
+        <td>검증 결과가 서로 충돌하는 것처럼 보임</td>
+        <td>각 검증은 범위가 다르다. runtime smoke, scenario evaluator, UI verifier, strict Lightspeed gate는 서로 다른 질문에 답한다.</td>
+        <td>PASS/FAIL을 말할 때 검증 이름과 범위를 같이 말한다. 예: UI verifier PASS와 strict Lightspeed gate FAIL은 동시에 성립한다.</td>
+      </tr>
+      <tr>
+        <td>재부팅, VPN 단절, Docker 재시작 후 전체가 한꺼번에 망가진 것처럼 보임</td>
+        <td>대부분은 CLI login, Docker WSL integration, port 상태, gateway/console bridge 상태 중 하나가 끊긴 것이다.</td>
+        <td><code>task kugnus:dev:doctor</code>로 끊긴 층을 먼저 찾는다. 같은 명령을 반복하기보다 원인 후보를 줄인다.</td>
+      </tr>
+      <tr>
+        <td>PDF 업로드/RAG가 보이면 운영 RAG가 완성된 것처럼 착각할 수 있음</td>
+        <td>현재는 사용자 업로드 chunk 저장, pgvector 검색 계약, citation 연결 smoke가 검증된 상태다.</td>
+        <td>운영용 권한, 장기 품질, 문서 lifecycle, 평가 corpus까지 완성됐다고 말하지 않는다.</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>작업 방식 계약</h2>
+    <p class="note">이 프로젝트는 사용자가 명령을 외워서 따라 하는 작업이 아니라, 제품 의도와 검증 기준을 함께 고정하는 작업이다. 아래 기준은 다음 세션에서도 그대로 유지한다.</p>
+    <table>
+      <tr><th>기준</th><th>실행 방식</th><th>통과 조건</th></tr>
+      <tr>
+        <td>목표 먼저 고정</td>
+        <td>목표, 완료 조건, 검증 방법, 하지 않을 것을 분리해 기록한다.</td>
+        <td>문서에 pass/fail, evidence, current gap이 남아 있다.</td>
+      </tr>
+      <tr>
+        <td>WSL native 기준</td>
+        <td>작업대는 <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>로 둔다.</td>
+        <td>doctor에서 repo path, node/corepack, Docker, oc context가 확인된다.</td>
+      </tr>
+      <tr>
+        <td>회사 OCP 변경 금지선</td>
+        <td>local WSL dev, company OCP read-only 관측, install/deploy를 구분한다.</td>
+        <td>별도 승인 전 <code>catalog:deploy</code>, <code>olm:install</code>, <code>kugnus:install</code>을 실행하지 않는다.</td>
+      </tr>
+      <tr>
+        <td>원인 단위 보고</td>
+        <td>route missing, stale chunk, token expired, OCP timeout처럼 실제 원인 후보로 말한다.</td>
+        <td>다음 행동이 구체적인 명령 또는 파일 확인으로 이어진다.</td>
+      </tr>
+      <tr>
+        <td>사용자 학습 산출물화</td>
+        <td>삽질, 혼란, 긴 대기, 인증 문제도 운영 체크리스트로 축적한다.</td>
+        <td>다음에는 같은 문제를 더 짧게 복구할 수 있다.</td>
+      </tr>
     </table>
   </section>
 
