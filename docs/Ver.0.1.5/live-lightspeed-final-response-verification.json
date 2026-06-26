@@ -1,150 +1,19 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-26T01:40:18.811411Z",
+  "generatedAt": "2026-06-26T02:01:01.302683Z",
   "branch": "feat/v.0.1.5",
-  "headSha": "0ee111e0118df760f91f98b9e646acd39d7adfa0",
+  "headSha": "d84d9651b4ff53f01e3ca6702a0bc88e0e84688a",
   "gateway": "http://127.0.0.1:18080",
   "allSucceeded": false,
-  "cases": [
-    {
-      "caseId": "cluster-summary",
-      "ok": false,
-      "checks": {
-        "doneReceived": true,
-        "lightspeedStageSeen": false,
-        "completedStageSeen": false,
-        "olsTextReceived": false,
-        "noGatewayFallbackText": true,
-        "noGatewayErrorEvent": false,
-        "noLightspeedErrorToolResult": true,
-        "requiredTextPresent": false,
-        "statusEndpointReachable": false,
-        "runtimeStreamProbeSucceeded": false,
-        "runtimeLastStatusSucceeded": false,
-        "runtimeFallbackInactive": false,
-        "runtimeLastErrorEmpty": true
-      },
-      "lightspeedStatus": {},
-      "statusEndpoint": {
-        "ok": false,
-        "statusCode": 504,
-        "errorPreview": "{\"detail\":{\"code\":\"openshift_api_unavailable\",\"message\":\"OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.\",\"operation\":\"self_subject_review\",\"remediation\":\"VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.\",\"upstreamReason\":\"ConnectTimeout:\"}}"
-      },
-      "stream": {
-        "answerDigest": "",
-        "answerLength": 0,
-        "answerPreviews": [],
-        "doneReceived": true,
-        "durationMs": 5034,
-        "eventCounts": {
-          "run_status": 2,
-          "tool_call": 3,
-          "tool_result": 2,
-          "rca_context": 1,
-          "error": 1
-        },
-        "fallbackEvents": [],
-        "gatewayErrors": [
-          {
-            "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
-            "detail": "",
-            "code": null
-          }
-        ],
-        "lightspeedErrors": [],
-        "olsTextEvents": 0,
-        "requiredTextPresent": {
-          "RCA": false,
-          "근거": false
-        },
-        "runStatusStages": [
-          "started",
-          "failed"
-        ],
-        "statusEvents": [
-          {
-            "stage": "started",
-            "message": "Gateway 실행 루프 시작",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "failed",
-            "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
-            "gatewayContextDigest": null
-          }
-        ]
-      }
-    },
-    {
-      "caseId": "official-evidence-rca",
-      "ok": false,
-      "checks": {
-        "doneReceived": true,
-        "lightspeedStageSeen": false,
-        "completedStageSeen": false,
-        "olsTextReceived": false,
-        "noGatewayFallbackText": true,
-        "noGatewayErrorEvent": false,
-        "noLightspeedErrorToolResult": true,
-        "requiredTextPresent": false,
-        "statusEndpointReachable": false,
-        "runtimeStreamProbeSucceeded": false,
-        "runtimeLastStatusSucceeded": false,
-        "runtimeFallbackInactive": false,
-        "runtimeLastErrorEmpty": true
-      },
-      "lightspeedStatus": {},
-      "statusEndpoint": {
-        "ok": false,
-        "statusCode": 504,
-        "errorPreview": "{\"detail\":{\"code\":\"openshift_api_unavailable\",\"message\":\"OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.\",\"operation\":\"self_subject_review\",\"remediation\":\"VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.\",\"upstreamReason\":\"ConnectTimeout:\"}}"
-      },
-      "stream": {
-        "answerDigest": "",
-        "answerLength": 0,
-        "answerPreviews": [],
-        "doneReceived": true,
-        "durationMs": 5009,
-        "eventCounts": {
-          "run_status": 2,
-          "tool_call": 3,
-          "tool_result": 2,
-          "rca_context": 1,
-          "error": 1
-        },
-        "fallbackEvents": [],
-        "gatewayErrors": [
-          {
-            "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
-            "detail": "",
-            "code": null
-          }
-        ],
-        "lightspeedErrors": [],
-        "olsTextEvents": 0,
-        "requiredTextPresent": {
-          "RCA": false,
-          "확인": false
-        },
-        "runStatusStages": [
-          "started",
-          "failed"
-        ],
-        "statusEvents": [
-          {
-            "stage": "started",
-            "message": "Gateway 실행 루프 시작",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "failed",
-            "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
-            "gatewayContextDigest": null
-          }
-        ]
-      }
-    }
-  ],
+  "preflight": {
+    "ocIdentityAvailable": false,
+    "ocIdentity": "",
+    "ocServer": "",
+    "ocTokenAvailable": false,
+    "ocTimeoutSeconds": 8,
+    "error": "Command '['oc', 'whoami']' timed out after 8 seconds"
+  },
+  "cases": [],
   "note": "OpenShift token and full answer bodies are intentionally not persisted."
 }

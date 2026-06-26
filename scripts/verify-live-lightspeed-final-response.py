@@ -63,13 +63,33 @@ def git_value(args: list[str]) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def oc_token(timeout: int) -> str:
-    result = subprocess.run(
-        ["oc", "whoami", "--show-token"],
+def run_oc(args: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["oc", *args],
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+
+
+def oc_identity(timeout: int) -> str:
+    result = run_oc(["whoami"], timeout)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"oc identity unavailable: {stderr[:300]}")
+    identity = result.stdout.strip()
+    if not identity:
+        raise RuntimeError("oc identity is empty. Run oc login again and confirm `oc whoami` prints a user.")
+    return identity
+
+
+def oc_server(timeout: int) -> str:
+    result = run_oc(["whoami", "--show-server"], timeout)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def oc_token(timeout: int) -> str:
+    result = run_oc(["whoami", "--show-token"], timeout)
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(f"oc login required or OpenShift API unavailable: {stderr[:300]}")
@@ -289,8 +309,12 @@ def main() -> int:
 
     report_path = Path(args.report)
     cases: list[dict[str, Any]] = []
+    identity = ""
+    server = ""
 
     try:
+        identity = oc_identity(args.oc_timeout)
+        server = oc_server(args.oc_timeout)
         token = oc_token(args.oc_timeout)
     except Exception as exc:  # noqa: BLE001 local verifier should persist diagnostics
         report = {
@@ -302,6 +326,9 @@ def main() -> int:
             "gateway": args.gateway,
             "allSucceeded": False,
             "preflight": {
+                "ocIdentityAvailable": False,
+                "ocIdentity": "",
+                "ocServer": server,
                 "ocTokenAvailable": False,
                 "ocTimeoutSeconds": args.oc_timeout,
                 "error": safe_error(exc),
@@ -340,6 +367,13 @@ def main() -> int:
         "branch": git_value(["branch", "--show-current"]),
         "headSha": git_value(["rev-parse", "HEAD"]),
         "gateway": args.gateway,
+        "preflight": {
+            "ocIdentityAvailable": True,
+            "ocIdentity": identity,
+            "ocServer": server,
+            "ocTokenAvailable": True,
+            "ocTimeoutSeconds": args.oc_timeout,
+        },
         "allSucceeded": all(case["ok"] for case in cases),
         "cases": cases,
         "note": "OpenShift token and full answer bodies are intentionally not persisted.",
