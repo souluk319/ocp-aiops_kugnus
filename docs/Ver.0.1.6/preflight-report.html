@@ -33,17 +33,17 @@
   <main>
     <article>
       <h1>Ver.0.1.6 Demo Preflight Report</h1>
-      <p class="muted">Generated at <code>2026-06-26T21:42:10.297672Z</code></p>
+      <p class="muted">Generated at <code>2026-06-29T10:18:26.869551Z</code></p>
       <div class="summary">
-        <div class="tile"><span>Result</span><strong>PASS</strong></div>
-        <div class="tile"><span>Ready</span><strong>YES</strong></div>
-        <div class="tile"><span>Blockers</span><strong>0</strong></div>
-        <div class="tile"><span>Warnings</span><strong>0</strong></div>
+        <div class="tile"><span>Result</span><strong>FAIL</strong></div>
+        <div class="tile"><span>Ready</span><strong>NO</strong></div>
+        <div class="tile"><span>Blockers</span><strong>3</strong></div>
+        <div class="tile"><span>Warnings</span><strong>1</strong></div>
       </div>
       <h2>Blockers</h2>
-      <ul><li>blocker 없음</li></ul>
+      <ul><li><code>tool.yarn</code> yarn command is available: Install yarn in Ubuntu/WSL or fix PATH.</li><li><code>rag.uploads</code> Gateway lists uploaded RAG documents without raw content: Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.</li><li><code>rag.search</code> Gateway retrieves RAG evidence for the demo query: Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.</li></ul>
       <h2>Warnings</h2>
-      <ul><li>warning 없음</li></ul>
+      <ul><li><code>workspace.git</code> Git branch and worktree are visible: Commit or review intentional local changes before publishing the demo baseline.</li></ul>
       <h2>Official Demo</h2>
       <p>Scenario: <code>docs/Ver.0.1.6/official-demo-scenario.md</code></p>
       <p>Question: <code>최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.</code></p>
@@ -57,17 +57,15 @@
   &quot;repo&quot;: &quot;/home/kugnus/cywell/ocp-aiops_kugnus&quot;,
   &quot;isWsl&quot;: true,
   &quot;kernelRelease&quot;: &quot;6.6.87.2-microsoft-standard-WSL2&quot;
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
-  &quot;branch&quot;: &quot;feat/v.0.1.6&quot;,
-  &quot;head&quot;: &quot;f8f8fa70b7c4&quot;,
-  &quot;statusShort&quot;: &quot;## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 2]&quot;,
-  &quot;dirtyNonReportLines&quot;: []
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge warn">WARN</span></td><td>workspace</td><td><strong>Git branch and worktree are visible</strong><br><code>workspace.git</code></td><td>Commit or review intentional local changes before publishing the demo baseline.</td><td><pre>{
+  &quot;branch&quot;: &quot;feat/v.0.1.8&quot;,
+  &quot;head&quot;: &quot;06e09c7bd3ad&quot;,
+  &quot;statusShort&quot;: &quot;## feat/v.0.1.8\n M .env.example\n M .gitignore\n M README.md\n M Taskfile.yml\n M docs/Ver.0.1.0/deployment-runbook.md\n M docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\n M docs/Ver.0.1.4/rag-upload-smoke-report.json\n M docs/Ver.0.1.5/ocp-connectivity-ladder-report.json\n M docs/Ver.0.1.5/strict-demo-audit-report.json\n M docs/Ver.0.1.6/README.md\n M docs/Ver.0.1.6/preflight-report.html\n M docs/Ver.0.1.6/preflight-report.json\n M docs/Ver.0.1.6/rag-chat-citation-smoke-report.json\n M docs/Ver.0.1.6/rag-file-upload-smoke-report.json\n M docs/Ver.0.1.6/runtime-smoke-report.json\n M docs/version-progress-book.html\n M evals/aiops-scenarios/06-crashloopbackoff.json\n M evals/aiops-scenarios/README.md\n M komsco-ai-console-plugin/console-extensions.json\n M komsco-ai-console-plugin/src/pages/AiopsPages.tsx\n M komsco-ai-console-plugin/src/pages/aiops-pages.css\n M komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py\n M komsco-ai-gateway/komsco_ai_gateway/answer_planning.py\n M komsco-ai-gateway/komsco_ai_gateway/main.py\n M komsco-ai-gateway/scripts/ingest-rag-documents.py\n M komsco-ai-gateway/tests/</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>workspace</td><td><strong>.env exists, is LF-only, private, and ignored</strong><br><code>workspace.env</code></td><td>Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.</td><td><pre>{
   &quot;exists&quot;: true,
   &quot;mode&quot;: &quot;600&quot;,
   &quot;crlfCount&quot;: 0,
   &quot;gitIgnored&quot;: true,
-  &quot;activeKeyCount&quot;: 3
+  &quot;activeKeyCount&quot;: 21
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>bash command is available</strong><br><code>tool.bash</code></td><td>Install bash in Ubuntu/WSL or fix PATH.</td><td><pre>{
   &quot;path&quot;: &quot;/usr/bin/bash&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>curl command is available</strong><br><code>tool.curl</code></td><td>Install curl in Ubuntu/WSL or fix PATH.</td><td><pre>{
@@ -77,9 +75,9 @@
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>python3 command is available</strong><br><code>tool.python3</code></td><td>Install python3 in Ubuntu/WSL or fix PATH.</td><td><pre>{
   &quot;path&quot;: &quot;/usr/bin/python3&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>node command is available</strong><br><code>tool.node</code></td><td>Install node in Ubuntu/WSL or fix PATH.</td><td><pre>{
-  &quot;path&quot;: &quot;/home/kugnus/.nvm/versions/node/v24.14.0/bin/node&quot;
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>yarn command is available</strong><br><code>tool.yarn</code></td><td>Install yarn in Ubuntu/WSL or fix PATH.</td><td><pre>{
-  &quot;path&quot;: &quot;/home/kugnus/.nvm/versions/node/v24.14.0/bin/yarn&quot;
+  &quot;path&quot;: &quot;/usr/bin/node&quot;
+}</pre></td></tr><tr><td><span class="badge fail">FAIL</span></td><td>toolchain</td><td><strong>yarn command is available</strong><br><code>tool.yarn</code></td><td>Install yarn in Ubuntu/WSL or fix PATH.</td><td><pre>{
+  &quot;path&quot;: &quot;&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>docker command is available</strong><br><code>tool.docker</code></td><td>Install docker in Ubuntu/WSL or fix PATH.</td><td><pre>{
   &quot;path&quot;: &quot;/usr/bin/docker&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>oc command is available</strong><br><code>tool.oc</code></td><td>Install oc in Ubuntu/WSL or fix PATH.</td><td><pre>{
@@ -87,14 +85,14 @@
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>google-chrome command is available</strong><br><code>tool.google-chrome</code></td><td>Install google-chrome in Ubuntu/WSL or fix PATH.</td><td><pre>{
   &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>toolchain</td><td><strong>Core tool versions are callable from Ubuntu</strong><br><code>tool.versions</code></td><td>Fix nvm/corepack/task availability in the Ubuntu shell.</td><td><pre>{
-  &quot;node&quot;: &quot;v24.14.0&quot;,
+  &quot;node&quot;: &quot;v18.19.1&quot;,
   &quot;yarn&quot;: &quot;1.22.22&quot;,
   &quot;task&quot;: &quot;3.51.1&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>browser</td><td><strong>Ubuntu Chrome can run headless UI checks</strong><br><code>browser.chrome</code></td><td>Check ~/.local/bin/google-chrome and the Chrome for Testing local library wrapper.</td><td><pre>{
   &quot;path&quot;: &quot;/home/kugnus/.local/bin/google-chrome&quot;,
   &quot;version&quot;: &quot;Google Chrome for Testing 150.0.7871.24&quot;,
   &quot;headlessDomContainsOk&quot;: true,
-  &quot;stderrPreview&quot;: &quot;[51670:51694:0627/064201.995987:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[51670:51694:0627/064202.001812:ERROR:dbus/bus.cc:405] Failed to connect&quot;
+  &quot;stderrPreview&quot;: &quot;[95995:96015:0629/191808.028906:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[95995:96015:0629/191808.111458:ERROR:dbus/bus.cc:405] Failed to connect&quot;
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>docker</td><td><strong>Docker daemon is reachable</strong><br><code>docker.daemon</code></td><td>Start Docker Desktop or the Docker daemon, then rerun preflight.</td><td><pre>{
   &quot;serverVersion&quot;: &quot;29.4.2&quot;,
   &quot;stderrPreview&quot;: &quot;&quot;
@@ -161,18 +159,18 @@
   &quot;degradedOperators&quot;: 0
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>gateway</td><td><strong>Gateway AIOps overview responds</strong><br><code>gateway.aiops-overview</code></td><td>Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.</td><td><pre>{
   &quot;kind&quot;: &quot;AIOpsOverview&quot;
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>rag</td><td><strong>Gateway lists uploaded RAG documents without raw content</strong><br><code>rag.uploads</code></td><td>Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge fail">FAIL</span></td><td>rag</td><td><strong>Gateway lists uploaded RAG documents without raw content</strong><br><code>rag.uploads</code></td><td>Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.</td><td><pre>{
   &quot;kind&quot;: &quot;RagUploadedDocumentList&quot;,
-  &quot;status&quot;: &quot;collected&quot;,
+  &quot;status&quot;: &quot;empty&quot;,
   &quot;reason&quot;: &quot;Uploaded RAG documents retrieved from pgvector.&quot;,
-  &quot;documentCount&quot;: 3,
+  &quot;documentCount&quot;: 0,
   &quot;backendStatus&quot;: &quot;configured&quot;,
   &quot;rawContentReturned&quot;: false
-}</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>rag</td><td><strong>Gateway retrieves RAG evidence for the demo query</strong><br><code>rag.search</code></td><td>Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.</td><td><pre>{
+}</pre></td></tr><tr><td><span class="badge fail">FAIL</span></td><td>rag</td><td><strong>Gateway retrieves RAG evidence for the demo query</strong><br><code>rag.search</code></td><td>Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.</td><td><pre>{
   &quot;kind&quot;: &quot;RagSearchResult&quot;,
-  &quot;status&quot;: &quot;collected&quot;,
-  &quot;reason&quot;: &quot;pgvector runbook evidence retrieved from local Gateway-controlled backend.&quot;,
-  &quot;resultCount&quot;: 5,
+  &quot;status&quot;: &quot;empty&quot;,
+  &quot;reason&quot;: &quot;pgvector backend is configured but no runbook matched the query and filters.&quot;,
+  &quot;resultCount&quot;: 0,
   &quot;backendStatus&quot;: &quot;configured&quot;,
   &quot;mockResultsAreProductionEvidence&quot;: false
 }</pre></td></tr><tr><td><span class="badge pass">PASS</span></td><td>console</td><td><strong>Local console dashboard route responds</strong><br><code>console.dashboard</code></td><td>Run task kugnus:dev:fe or task kugnus:demo:resume.</td><td><pre>{

@@ -1,0 +1,883 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>재부팅 후 Kugnus OKD 작업대 복구 가이드</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --paper: #ffffff;
+      --ink: #15191d;
+      --muted: #5d6875;
+      --line: #d8e0e8;
+      --soft: #eef3f7;
+      --blue: #0b63b6;
+      --blue-dark: #084a8b;
+      --green: #1f7a37;
+      --amber: #9a5b00;
+      --red: #b42318;
+      --code: #111827;
+      --shadow: 0 14px 34px rgba(21, 25, 29, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Malgun Gothic", "맑은 고딕", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .sidebar h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      line-height: 1.32;
+    }
+
+    .sidebar .meta {
+      margin: 0 0 22px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-title {
+      margin: 20px 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .nav-link {
+      display: block;
+      padding: 7px 8px;
+      border-radius: 6px;
+      color: #263238;
+      font-size: 14px;
+    }
+
+    .nav-link:hover { background: var(--soft); text-decoration: none; }
+
+    .main { padding: 42px 48px 72px; }
+    .book {
+      max-width: 980px;
+      margin: 0 auto;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .cover {
+      padding: 42px 48px 36px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #fff 0%, #f7fbff 100%);
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--blue-dark);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .cover h2 {
+      margin: 0;
+      font-size: 31px;
+      line-height: 1.22;
+    }
+
+    .cover p {
+      max-width: 780px;
+      margin: 14px 0 0;
+      color: var(--muted);
+    }
+
+    section {
+      padding: 34px 48px;
+      border-bottom: 1px solid #e7edf3;
+    }
+
+    section:last-child { border-bottom: 0; }
+    h2 { margin: 0 0 18px; font-size: 24px; line-height: 1.28; }
+    h3 { margin: 26px 0 10px; font-size: 18px; line-height: 1.3; }
+    h4 { margin: 18px 0 8px; font-size: 15px; }
+    p { margin: 0 0 14px; }
+    ul, ol { margin: 8px 0 14px 22px; padding: 0; }
+    li { margin: 7px 0; }
+
+    code {
+      padding: 2px 6px;
+      border: 1px solid #dfe6ee;
+      border-radius: 4px;
+      background: #f7f9fb;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.9em;
+    }
+
+    pre {
+      margin: 10px 0 18px;
+      padding: 14px 16px;
+      border-radius: 6px;
+      background: var(--code);
+      color: #f3f6f9;
+      overflow: auto;
+      line-height: 1.58;
+    }
+
+    pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 13px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 22px;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { background: #f2f6fa; font-weight: 700; }
+
+    .callout {
+      margin: 18px 0;
+      padding: 15px 17px;
+      border: 1px solid #b7d5f5;
+      border-left: 4px solid var(--blue);
+      background: #f5faff;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .warning {
+      border-color: #ffd9a8;
+      border-left-color: var(--amber);
+      background: #fff8ef;
+    }
+
+    .danger {
+      border-color: #ffc7c2;
+      border-left-color: var(--red);
+      background: #fff6f5;
+    }
+
+    .success {
+      border-color: #a8d5b4;
+      border-left-color: var(--green);
+      background: #f3fbf5;
+    }
+
+    .step {
+      margin: 16px 0 22px;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .step-title {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .why {
+      margin: 12px 0;
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: #f2f6fa;
+      color: #28323c;
+    }
+
+    .status-ok { color: var(--green); font-weight: 700; }
+    .status-bad { color: var(--red); font-weight: 700; }
+    .status-warn { color: var(--amber); font-weight: 700; }
+
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin: 18px 0;
+    }
+
+    .flow div {
+      padding: 11px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .small { color: var(--muted); font-size: 13px; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .main { padding: 22px 16px 48px; }
+      .cover, section { padding: 28px 22px; }
+      .cover h2 { font-size: 25px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>재부팅 후 작업대 복구</h1>
+      <p class="meta">Kugnus OKD 로컬 작업대<br />기준일: 2026-06-30</p>
+
+      <div class="nav-title">먼저 이해</div>
+      <a class="nav-link" href="#goal">이 문서의 목표</a>
+      <a class="nav-link" href="#map">작업대 지도</a>
+      <a class="nav-link" href="#ssh-audit">SSH와 우회 경로 확인</a>
+      <a class="nav-link" href="#background-parts">백그라운드 구성요소</a>
+
+      <div class="nav-title">차례대로 실행</div>
+      <a class="nav-link" href="#step-0">0. 작업 위치</a>
+      <a class="nav-link" href="#step-1">1. 회사망</a>
+      <a class="nav-link" href="#step-2">2. oc 로그인</a>
+      <a class="nav-link" href="#step-3">3. Docker</a>
+      <a class="nav-link" href="#step-4">4. RAG DB</a>
+      <a class="nav-link" href="#step-5">5. Gateway와 터널</a>
+      <a class="nav-link" href="#step-6">6. 플러그인</a>
+      <a class="nav-link" href="#step-7">7. 9000 콘솔</a>
+      <a class="nav-link" href="#step-8">8. 브라우저</a>
+
+      <div class="nav-title">막혔을 때</div>
+      <a class="nav-link" href="#decision-table">판정표</a>
+      <a class="nav-link" href="#what-to-send">도움 요청할 때</a>
+      <a class="nav-link" href="#final-check">최종 체크</a>
+    </aside>
+
+    <main class="main">
+      <article class="book">
+        <div class="cover">
+          <p class="eyebrow">재부팅 후 아무 연결도 없는 상태에서 시작하는 문서</p>
+          <h2>현재처럼 Kugnus OKD 작업대를 다시 여는 순서</h2>
+          <p>
+            이 문서는 자동화 명령을 외우기 위한 문서가 아닙니다.
+            어디가 끊겼는지 스스로 확인하고, 그 결과에 맞는 조치를 하기 위한 순서표입니다.
+            각 단계는 "무엇을 확인하는지", "정상 출력", "실패하면 무엇을 뜻하는지"를 같이 둡니다.
+          </p>
+        </div>
+
+        <section id="goal">
+          <h2>이 문서의 목표</h2>
+          <p>
+            PC가 재부팅되면 로컬에서 켜 두었던 백그라운드 터미널, 포트포워드, Gateway,
+            Docker 콘솔 브릿지 일부가 꺼질 수 있습니다. 회사 OKD 서버가 죽은 것이 아니라,
+            내 PC에서 회사 OKD를 보기 위해 이어 놓은 통로가 사라진 상태입니다.
+          </p>
+          <div class="callout">
+            <p><strong>목표 상태:</strong> 브라우저에서 <code>http://localhost:9000/dashboards</code>를 열었을 때 OKD 콘솔과 Kugnus AI 패널이 보이고, Gateway/RAG/Lightspeed가 응답하는 상태입니다.</p>
+          </div>
+          <p>
+            이 문서에서는 <code>task kugnus:dev:boot</code> 같은 한 번에 실행하는 명령도 소개하지만,
+            먼저 각 부품을 사람이 이해할 수 있게 확인합니다. 자동화 명령은 마지막에 시간을 줄이는 도구로만 사용합니다.
+          </p>
+        </section>
+
+        <section id="map">
+          <h2>작업대 지도</h2>
+          <p>현재 작업대는 한 덩어리가 아니라 여러 연결의 합입니다.</p>
+          <div class="flow">
+            <div><strong>Windows / FortiClient</strong><br /><span class="small">회사 사설망 <code>10.0.1.230:6443</code>으로 가는 길</span></div>
+            <div><strong>WSL Ubuntu</strong><br /><span class="small">repo, <code>oc</code>, Gateway, 검증 스크립트를 실행하는 작업 공간</span></div>
+            <div><strong>Docker</strong><br /><span class="small">RAG DB와 로컬 OKD 콘솔 브릿지를 담는 컨테이너 공간</span></div>
+            <div><strong>OpenShift CLI</strong> <code>oc</code><br /><span class="small">회사 OKD API에 로그인하고, 서비스 포트포워드를 여는 도구</span></div>
+            <div><strong>Gateway</strong> <code>18080</code><br /><span class="small">Kugnus AI 화면이 실제 상태와 RAG/Lightspeed를 조회할 때 부르는 Python 서버</span></div>
+            <div><strong>Plugin dev server</strong> <code>9001</code><br /><span class="small">Kugnus AI 화면 JavaScript를 OKD 콘솔에 제공</span></div>
+            <div><strong>Local OKD console bridge</strong> <code>9000</code><br /><span class="small">브라우저에 OKD 콘솔을 보여 주는 로컬 중계기</span></div>
+          </div>
+
+          <div class="warning">
+            <p>
+              <code>/dashboards</code>가 HTTP 200이라고 해서 전부 정상은 아닙니다.
+              진짜 기준은 <code>http://localhost:9000/api/kubernetes/version</code>입니다.
+              이 주소가 200이어야 9000 콘솔이 회사 OKD API까지 실제로 붙은 상태입니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="ssh-audit">
+          <h2>SSH와 우회 경로 확인</h2>
+          <p>
+            홈 서버 SSH가 OKD 경로를 우회하는지 의심할 수 있습니다.
+            현재 확인 결과는 아래와 같습니다.
+          </p>
+
+          <div class="callout">
+            <p>
+              <strong>중요한 결론:</strong>
+              "WSL 안에서 SSH 터널이 OKD 경로를 잡고 있지 않다"는 말은
+              "SSH 터널이 없어서 문제가 생겼다"는 뜻이 아닙니다.
+              반대로 "현재 OKD API 접속 문제의 주범은 홈 서버 SSH가 아니다"라는 뜻입니다.
+              회사 OKD API는 <code>api.ocp.cywell.server:6443</code>로 직접 가고,
+              로컬 작업대는 별도의 개발용 중계기들을 통해 화면과 AI 기능을 붙입니다.
+            </p>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>확인 항목</th>
+                <th>현재 관찰 결과</th>
+                <th>판단</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WSL 안의 SSH 터널</td>
+                <td><code>ssh</code>, <code>autossh</code>, <code>sshuttle</code> 프로세스 없음</td>
+                <td>WSL에서 OKD API를 SSH로 우회하는 흔적 없음</td>
+              </tr>
+              <tr>
+                <td>Windows SSH</td>
+                <td><code>ssh.exe -T -D 49682 Kugnus-Home powershell</code> 실행 중</td>
+                <td>홈 서버 SSH 연결은 있음. 다만 현재 <code>oc</code> 대상 서버와 다름</td>
+              </tr>
+              <tr>
+                <td>Windows <code>127.0.0.1:6443</code></td>
+                <td><code>ssh.exe</code>가 듣고 있음</td>
+                <td>위험 지점. OpenShift API 주소를 <code>127.0.0.1:6443</code>으로 쓰면 꼬일 수 있음</td>
+              </tr>
+              <tr>
+                <td>현재 OKD API 이름</td>
+                <td><code>api.ocp.cywell.server -> 10.0.1.230</code></td>
+                <td>회사 OKD는 이 주소로 가야 함</td>
+              </tr>
+              <tr>
+                <td>WSL에서 OKD로 가는 경로</td>
+                <td><code>10.0.1.230 via 172.29.160.1 dev eth0</code></td>
+                <td>WSL이 Windows 게이트웨이를 통해 회사망으로 나감</td>
+              </tr>
+              <tr>
+                <td>Windows 회사망 확인</td>
+                <td><code>Test-NetConnection api.ocp.cywell.server -Port 6443</code> 성공</td>
+                <td>FortiClient 쪽 경로가 열리면 OKD API에 접근 가능</td>
+              </tr>
+              <tr>
+                <td>Windows portproxy</td>
+                <td><code>0.0.0.0:9001 -> WSL 9001</code></td>
+                <td>플러그인 dev server를 Windows 브라우저가 볼 수 있게 중계</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="danger">
+            <p>
+              <strong>금지 기준:</strong>
+              이 작업에서는 OpenShift API 서버를 <code>https://127.0.0.1:6443</code>으로 쓰지 않습니다.
+              그 포트는 현재 홈 서버 SSH 쪽과 엮여 있습니다.
+              회사 OKD 대상은 항상 <code>https://api.ocp.cywell.server:6443</code>입니다.
+            </p>
+          </div>
+
+          <h3>직접 확인하는 명령</h3>
+          <pre><code>oc whoami --show-server
+getent hosts api.ocp.cywell.server
+ip route get 10.0.1.230
+powershell.exe -NoProfile -Command "Test-NetConnection api.ocp.cywell.server -Port 6443"</code></pre>
+
+          <p>정상 기준은 아래와 같습니다.</p>
+          <pre><code>https://api.ocp.cywell.server:6443
+10.0.1.230 api.ocp.cywell.server
+10.0.1.230 via 172.29.160.1 dev eth0 ...
+TcpTestSucceeded : True</code></pre>
+        </section>
+
+        <section id="background-parts">
+          <h2>지금 떠 있어야 하는 백그라운드 구성요소</h2>
+          <p>
+            이것들은 몰래 우회하는 장치가 아니라, 로컬 개발 작업대를 이루는 부품입니다.
+            브라우저에서는 <code>localhost:9000</code> 하나만 보는 것처럼 보이지만,
+            실제로는 아래 부품들이 같이 살아 있어야 합니다.
+          </p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>주소</th>
+                <th>정체</th>
+                <th>왜 필요한가</th>
+                <th>재부팅하면</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>localhost:9000</code></td>
+                <td>Docker <code>kugnus-local-console</code></td>
+                <td>브라우저에 OKD 콘솔 화면을 보여 주는 로컬 브릿지</td>
+                <td>컨테이너가 꺼지거나 낡은 토큰을 들 수 있음</td>
+              </tr>
+              <tr>
+                <td><code>localhost:9001</code></td>
+                <td>webpack dev server</td>
+                <td>Kugnus AI ConsolePlugin 파일을 OKD 콘솔에 제공</td>
+                <td>터미널 프로세스라 보통 꺼짐</td>
+              </tr>
+              <tr>
+                <td><code>localhost:18080</code></td>
+                <td>Gateway uvicorn</td>
+                <td>Kugnus AI 화면이 RAG, Lightspeed, 진단 API를 부르는 중간 서버</td>
+                <td>터미널 프로세스라 보통 꺼짐</td>
+              </tr>
+              <tr>
+                <td><code>localhost:18443</code></td>
+                <td><code>oc port-forward</code> to Lightspeed</td>
+                <td>Gateway가 OpenShift Lightspeed에 질문하기 위한 통로</td>
+                <td>포트포워드 프로세스가 꺼짐</td>
+              </tr>
+              <tr>
+                <td><code>localhost:18083</code></td>
+                <td><code>oc port-forward</code> to Action Executor</td>
+                <td>실행형 진단 기능이 Action Executor에 닿기 위한 통로</td>
+                <td>포트포워드 프로세스가 꺼짐</td>
+              </tr>
+              <tr>
+                <td><code>localhost:15432</code></td>
+                <td>Docker <code>kugnus-rag-pgvector</code></td>
+                <td>고객 문서와 운영 문서를 검색하는 RAG DB</td>
+                <td>Docker 상태에 따라 살아 있거나 꺼질 수 있음</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="warning">
+            <p>
+              따라서 아침 복구의 핵심은 "SSH 터널을 찾는 것"이 아닙니다.
+              회사망, <code>oc</code> 로그인, Docker, Gateway, 포트포워드, 9000 콘솔 브릿지를
+              순서대로 확인하는 것입니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="step-0">
+          <h2>0. 작업 위치 확인</h2>
+          <div class="step">
+            <p class="step-title">먼저 repo 위치로 이동합니다.</p>
+            <pre><code>cd ~/cywell/ocp-aiops_kugnus
+pwd</code></pre>
+            <p>정상 출력:</p>
+            <pre><code>/home/kugnus/cywell/ocp-aiops_kugnus</code></pre>
+            <div class="why">
+              이 repo에는 <code>Taskfile.yml</code>, <code>scripts/</code>, Gateway, ConsolePlugin이 모두 들어 있습니다.
+              다른 위치에서 명령을 치면 같은 이름의 포트나 설정을 보고도 엉뚱하게 판단할 수 있습니다.
+            </div>
+          </div>
+        </section>
+
+        <section id="step-1">
+          <h2>1. 회사망이 열렸는지 확인</h2>
+          <div class="step">
+            <p class="step-title">Windows에서 회사 OKD API 포트가 열리는지 봅니다.</p>
+            <pre><code>powershell.exe -NoProfile -Command "Test-NetConnection api.ocp.cywell.server -Port 6443"</code></pre>
+            <p>정상 출력에서 봐야 할 줄:</p>
+            <pre><code>RemoteAddress    : 10.0.1.230
+RemotePort       : 6443
+TcpTestSucceeded : True</code></pre>
+            <table>
+              <tr>
+                <th>결과</th>
+                <th>뜻</th>
+                <th>조치</th>
+              </tr>
+              <tr>
+                <td><span class="status-ok">True</span></td>
+                <td>Windows에서 회사 OKD API까지 길이 열림</td>
+                <td>다음 단계로 이동</td>
+              </tr>
+              <tr>
+                <td><span class="status-bad">False 또는 timeout</span></td>
+                <td>FortiClient/VPN/회사망 경로 문제</td>
+                <td>FortiClient 로그인 후 다시 실행</td>
+              </tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="step-2">
+          <h2>2. WSL의 <code>oc</code> 로그인을 확인</h2>
+          <div class="step">
+            <p class="step-title">터미널이 어느 OKD 서버를 보고 있는지 확인합니다.</p>
+            <pre><code>oc whoami --show-server
+oc whoami
+oc project --short</code></pre>
+            <p>정상 출력 예시:</p>
+            <pre><code>https://api.ocp.cywell.server:6443
+admin
+gpu-test-kugnus</code></pre>
+            <table>
+              <tr>
+                <th>결과</th>
+                <th>뜻</th>
+                <th>조치</th>
+              </tr>
+              <tr>
+                <td><code>Unauthorized</code></td>
+                <td>터미널의 OpenShift 토큰이 만료됨</td>
+                <td><code>oc login</code>을 다시 수행</td>
+              </tr>
+              <tr>
+                <td>서버가 <code>127.0.0.1:6443</code></td>
+                <td>홈 서버 SSH 또는 다른 로컬 터널을 보고 있을 수 있음</td>
+                <td>회사 서버로 다시 로그인</td>
+              </tr>
+              <tr>
+                <td>서버가 <code>api.ocp.cywell.server:6443</code></td>
+                <td>회사 OKD 대상이 맞음</td>
+                <td>다음 단계로 이동</td>
+              </tr>
+            </table>
+            <p>다시 로그인할 때:</p>
+            <pre><code>oc login --token=토큰값 --server=https://api.ocp.cywell.server:6443</code></pre>
+          </div>
+        </section>
+
+        <section id="step-3">
+          <h2>3. Docker가 살아 있는지 확인</h2>
+          <div class="step">
+            <p class="step-title">로컬 컨테이너를 담는 Docker를 확인합니다.</p>
+            <pre><code>docker ps</code></pre>
+            <p>정상이라면 표가 나옵니다. 재부팅 직후에는 일부 컨테이너가 없거나 꺼져 있을 수 있습니다.</p>
+            <table>
+              <tr>
+                <th>보면 좋은 컨테이너</th>
+                <th>역할</th>
+              </tr>
+              <tr>
+                <td><code>kugnus-rag-pgvector</code></td>
+                <td>RAG 문서 검색용 로컬 DB</td>
+              </tr>
+              <tr>
+                <td><code>kugnus-local-console</code></td>
+                <td><code>localhost:9000</code> OKD 콘솔 브릿지</td>
+              </tr>
+            </table>
+            <div class="why">
+              Docker가 안 켜져 있으면 RAG DB와 9000 콘솔 브릿지가 올라올 수 없습니다.
+              Docker Desktop부터 켠 뒤 다시 확인합니다.
+            </div>
+          </div>
+        </section>
+
+        <section id="step-4">
+          <h2>4. RAG DB를 준비</h2>
+          <div class="step">
+            <p class="step-title">문서 검색용 pgvector DB를 켭니다.</p>
+            <pre><code>bash scripts/kugnus-rag-pgvector-dev.sh</code></pre>
+            <p>정상 출력 예시:</p>
+            <pre><code>RAG pgvector dev backend is ready.
+Container: kugnus-rag-pgvector
+DSN env: KOMSCO_AI_RAG_BACKEND_URL=postgresql://komsco_aiops@127.0.0.1:15432/komsco_aiops</code></pre>
+            <div class="why">
+              이 단계는 OKD 콘솔 자체와는 별개지만, Kugnus AI가 고객 문서와 운영 문서를 검색하려면 필요합니다.
+            </div>
+          </div>
+        </section>
+
+        <section id="step-5">
+          <h2>5. Gateway와 OKD 서비스 터널을 준비</h2>
+          <p>
+            Gateway는 Kugnus AI 화면의 중간 서버입니다.
+            이 명령은 Gateway를 켜고, Lightspeed와 Action Executor로 가는 로컬 포트도 준비합니다.
+          </p>
+
+          <div class="step">
+            <p class="step-title">Gateway를 실행합니다.</p>
+            <pre><code>task kugnus:dev:be:execute:rag</code></pre>
+            <p>이 명령은 터미널 하나를 계속 차지할 수 있습니다. 작업 중에는 이 터미널을 닫지 않습니다.</p>
+            <p>다른 터미널에서 확인합니다.</p>
+            <pre><code>curl http://127.0.0.1:18080/healthz
+curl -k https://127.0.0.1:18443/readiness
+curl http://127.0.0.1:18083/healthz</code></pre>
+            <p>정상 출력:</p>
+            <pre><code>{"status":"ok"}
+{"ready":true,"reason":"service is ready"}
+{"status":"ok"}</code></pre>
+
+            <table>
+              <tr>
+                <th>포트</th>
+                <th>정체</th>
+                <th>안 되면</th>
+              </tr>
+              <tr>
+                <td><code>18080</code></td>
+                <td>Kugnus Gateway</td>
+                <td>Gateway가 안 켜졌거나 터미널이 꺼짐</td>
+              </tr>
+              <tr>
+                <td><code>18443</code></td>
+                <td>OpenShift Lightspeed 로컬 터널</td>
+                <td><code>oc</code> 로그인, VPN, Lightspeed 서비스 접근 확인</td>
+              </tr>
+              <tr>
+                <td><code>18083</code></td>
+                <td>Action Executor 로컬 터널</td>
+                <td><code>komsco-ai-dev</code> namespace 서비스 접근 확인</td>
+              </tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="step-6">
+          <h2>6. 플러그인 dev server 확인</h2>
+          <div class="step">
+            <p class="step-title">OKD 콘솔이 읽어 갈 Kugnus AI 화면 파일을 확인합니다.</p>
+            <pre><code>curl -sS -o /dev/null -w '%{http_code}\n' \
+http://127.0.0.1:9001/api/plugins/komsco-ai-console-plugin-kugnus/plugin-manifest.json</code></pre>
+            <p>정상 출력:</p>
+            <pre><code>200</code></pre>
+            <table>
+              <tr>
+                <th>결과</th>
+                <th>뜻</th>
+                <th>조치</th>
+              </tr>
+              <tr>
+                <td><code>200</code></td>
+                <td>Kugnus AI 화면 파일 제공 중</td>
+                <td>다음 단계로 이동</td>
+              </tr>
+              <tr>
+                <td><code>000</code>, timeout, connection refused</td>
+                <td>9001 dev server가 꺼짐</td>
+                <td>다음 9000 콘솔 복구 명령이 필요하면 9001도 같이 띄움</td>
+              </tr>
+            </table>
+          </div>
+        </section>
+
+        <section id="step-7">
+          <h2>7. Local OKD console 9000 확인</h2>
+          <div class="step">
+            <p class="step-title">껍데기가 아니라 실제 API 연결을 확인합니다.</p>
+            <pre><code>curl -sS -o /dev/null -w '%{http_code}\n' \
+http://localhost:9000/api/kubernetes/version</code></pre>
+            <table>
+              <tr>
+                <th>결과</th>
+                <th>뜻</th>
+                <th>조치</th>
+              </tr>
+              <tr>
+                <td><span class="status-ok">200</span></td>
+                <td>9000 콘솔이 회사 OKD API까지 실제로 붙음</td>
+                <td>브라우저를 열면 됨</td>
+              </tr>
+              <tr>
+                <td><span class="status-warn">401 또는 403</span></td>
+                <td>9000 컨테이너가 낡은 <code>oc</code> 토큰을 들고 있음</td>
+                <td><code>task kugnus:dev:console:repair</code></td>
+              </tr>
+              <tr>
+                <td><span class="status-bad">502, 000, timeout</span></td>
+                <td>9000 컨테이너에서 회사 OKD API로 못 나감</td>
+                <td>FortiClient, 회사망, <code>oc whoami</code>부터 다시 확인</td>
+              </tr>
+            </table>
+            <p>9000을 재생성할 때:</p>
+            <pre><code>task kugnus:dev:console:repair</code></pre>
+            <div class="why">
+              <code>localhost:9000/dashboards</code>는 HTML만 줄 수 있습니다.
+              그래서 이 문서에서는 항상 <code>/api/kubernetes/version</code>을 진짜 기준으로 씁니다.
+            </div>
+          </div>
+        </section>
+
+        <section id="step-8">
+          <h2>8. 브라우저에서 작업대 열기</h2>
+          <div class="step">
+            <p class="step-title">마지막에 브라우저를 엽니다.</p>
+            <pre><code>http://localhost:9000/dashboards</code></pre>
+            <p>화면이 이상하면 먼저 강력 새로고침을 합니다.</p>
+            <pre><code>Ctrl + F5</code></pre>
+            <p>
+              브라우저 탭은 이전 세션의 JavaScript나 WebSocket 상태를 잡고 있을 수 있습니다.
+              서버 쪽 확인이 모두 200인데 화면만 이상하면 새 탭 또는 강력 새로고침으로 갈라 봅니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="decision-table">
+          <h2>막혔을 때 판정표</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>내가 본 현상</th>
+                <th>가장 먼저 의심할 층</th>
+                <th>확인 명령</th>
+                <th>다음 조치</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>회사 API TCP 실패</td>
+                <td>FortiClient/VPN</td>
+                <td><code>Test-NetConnection api.ocp.cywell.server -Port 6443</code></td>
+                <td>FortiClient 재로그인</td>
+              </tr>
+              <tr>
+                <td><code>oc whoami</code> Unauthorized</td>
+                <td>OpenShift CLI 토큰</td>
+                <td><code>oc whoami</code></td>
+                <td><code>oc login</code></td>
+              </tr>
+              <tr>
+                <td><code>oc</code> 서버가 <code>127.0.0.1:6443</code></td>
+                <td>잘못된 로컬 터널 또는 SSH 경로</td>
+                <td><code>oc whoami --show-server</code></td>
+                <td>회사 서버로 다시 로그인</td>
+              </tr>
+              <tr>
+                <td><code>18080</code> 안 됨</td>
+                <td>Gateway</td>
+                <td><code>curl http://127.0.0.1:18080/healthz</code></td>
+                <td><code>task kugnus:dev:be:execute:rag</code></td>
+              </tr>
+              <tr>
+                <td><code>18443</code> 안 됨</td>
+                <td>Lightspeed 포트포워드</td>
+                <td><code>curl -k https://127.0.0.1:18443/readiness</code></td>
+                <td>Gateway 실행 터미널과 <code>oc</code> 로그인 확인</td>
+              </tr>
+              <tr>
+                <td><code>18083</code> 안 됨</td>
+                <td>Action Executor 포트포워드</td>
+                <td><code>curl http://127.0.0.1:18083/healthz</code></td>
+                <td><code>komsco-ai-dev</code> 서비스 접근 확인</td>
+              </tr>
+              <tr>
+                <td><code>9001</code> manifest 안 됨</td>
+                <td>ConsolePlugin dev server</td>
+                <td><code>curl ...9001...plugin-manifest.json</code></td>
+                <td><code>task kugnus:dev:console:repair</code> 또는 frontend 실행</td>
+              </tr>
+              <tr>
+                <td><code>9000/api/kubernetes/version</code>이 401</td>
+                <td>9000 컨테이너의 낡은 토큰</td>
+                <td><code>curl ...9000/api/kubernetes/version</code></td>
+                <td><code>task kugnus:dev:console:repair</code></td>
+              </tr>
+              <tr>
+                <td><code>9000/api/kubernetes/version</code>이 502</td>
+                <td>9000 컨테이너에서 회사 API 경로 실패</td>
+                <td><code>docker logs --tail 120 kugnus-local-console</code></td>
+                <td>VPN과 <code>oc</code> 확인 후 9000 재생성</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="final-check">
+          <h2>최종 체크 묶음</h2>
+          <p>아래 명령들이 모두 정상이어야 현재 작업대가 열린 상태입니다.</p>
+          <pre><code>powershell.exe -NoProfile -Command "Test-NetConnection api.ocp.cywell.server -Port 6443"
+oc whoami --show-server
+oc whoami
+docker ps
+curl http://127.0.0.1:18080/healthz
+curl -k https://127.0.0.1:18443/readiness
+curl http://127.0.0.1:18083/healthz
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9001/api/plugins/komsco-ai-console-plugin-kugnus/plugin-manifest.json
+curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:9000/api/kubernetes/version</code></pre>
+
+          <div class="success">
+            <p>
+              모두 정상이라면 브라우저에서 <code>http://localhost:9000/dashboards</code>를 엽니다.
+              이때부터는 자동화 명령을 써도 됩니다.
+              자동화는 위 순서를 대신 실행하는 도구일 뿐입니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="what-to-send">
+          <h2>도움 요청할 때 이렇게 보내기</h2>
+          <p>다음부터는 "안 열려" 대신 아래 형식으로 보내면 바로 원인을 좁힐 수 있습니다.</p>
+          <pre><code>회사망: Test-NetConnection True
+oc: admin / https://api.ocp.cywell.server:6443
+Docker: docker ps 됨
+18080: 200
+18443: 200
+18083: 200
+9001 manifest: 200
+9000 api: 401
+브라우저 증상: dashboards는 흰 화면</code></pre>
+          <p>위 예시는 바로 이렇게 판단합니다.</p>
+          <div class="callout">
+            <p><code>9000 api: 401</code>이므로 9000 콘솔 브릿지가 낡은 토큰을 들고 있습니다. 조치는 <code>task kugnus:dev:console:repair</code>입니다.</p>
+          </div>
+        </section>
+
+        <section>
+          <h2>자동화 명령은 언제 쓰나</h2>
+          <p>위 단계를 이해한 뒤, 시간을 줄이고 싶을 때 씁니다.</p>
+          <table>
+            <tr>
+              <th>명령</th>
+              <th>언제 쓰나</th>
+              <th>내부적으로 보는 것</th>
+            </tr>
+            <tr>
+              <td><code>task kugnus:dev:console:morning</code></td>
+              <td>9000 콘솔만 의심될 때</td>
+              <td>회사 API, <code>oc</code>, 9000 API, 9001 manifest</td>
+            </tr>
+            <tr>
+              <td><code>task kugnus:dev:boot</code></td>
+              <td>PC 재부팅 후 전체 작업대를 다시 열 때</td>
+              <td>RAG, Lightspeed, Action Executor, Gateway, 9000, runtime smoke</td>
+            </tr>
+            <tr>
+              <td><code>task kugnus:dev:doctor</code></td>
+              <td>현재 상태를 진단만 하고 싶을 때</td>
+              <td>도구, <code>oc</code>, Docker, 포트, 로컬 endpoint</td>
+            </tr>
+          </table>
+          <div class="warning">
+            <p>
+              자동화 명령이 실패하면 그 출력에서 어느 단계가 실패했는지 먼저 봅니다.
+              그 다음 이 문서의 판정표로 돌아오면 됩니다.
+            </p>
+          </div>
+        </section>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

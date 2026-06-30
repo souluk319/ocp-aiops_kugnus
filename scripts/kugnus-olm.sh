@@ -8,12 +8,12 @@ export KOMSCO_AIOPS_PACKAGE_NAME="${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops-kugn
 export KOMSCO_AIOPS_OPERATOR_NAME="${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-kugnus-operator}"
 export KOMSCO_AIOPS_INSTALLATION_NAME="${KOMSCO_AIOPS_INSTALLATION_NAME:-komsco-aiops-kugnus}"
 export KOMSCO_AIOPS_OLM_CATALOG_NAME="${KOMSCO_AIOPS_OLM_CATALOG_NAME:-komsco-aiops-catalog-kugnus}"
-export KOMSCO_AIOPS_DISPLAY_NAME="${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AI}"
-export KOMSCO_AIOPS_CATALOG_DISPLAY_NAME="${KOMSCO_AIOPS_CATALOG_DISPLAY_NAME:-Cywell AI Kugnus Catalog}"
+export KOMSCO_AIOPS_DISPLAY_NAME="${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AIOps}"
+export KOMSCO_AIOPS_CATALOG_DISPLAY_NAME="${KOMSCO_AIOPS_CATALOG_DISPLAY_NAME:-Cywell AIOps Catalog}"
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE="${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai-kugnus}"
 export KOMSCO_AIOPS_NAMESPACE="${KOMSCO_AIOPS_NAMESPACE:-komsco-ai-kugnus}"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
-export KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME:-Cywell AI}"
+export KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME:-Cywell AIOps}"
 export KOMSCO_AIOPS_MODE="${KOMSCO_AIOPS_MODE:-read-only}"
 export KOMSCO_AIOPS_ENABLE_MUTATIONS="${KOMSCO_AIOPS_ENABLE_MUTATIONS:-false}"
 export KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS:-false}"
@@ -21,7 +21,7 @@ export KOMSCO_AIOPS_ICON_FILE="${KOMSCO_AIOPS_ICON_FILE:-docs/Ver.0.1.0/design-a
 export KOMSCO_AIOPS_ICON_MEDIA_TYPE="${KOMSCO_AIOPS_ICON_MEDIA_TYPE:-image/png}"
 export KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY="${KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY:-openshift}"
 export KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-false}"
-export KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION="${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION:-false}"
+export KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION="${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION:-true}"
 export KOMSCO_AIOPS_STATUS_MODE="${KOMSCO_AIOPS_STATUS_MODE:-local}"
 export KOMSCO_AIOPS_APPROVE_IMAGES="${KOMSCO_AIOPS_APPROVE_IMAGES:-}"
 export KOMSCO_AIOPS_APPROVE_PUBLISH="${KOMSCO_AIOPS_APPROVE_PUBLISH:-}"
@@ -78,7 +78,7 @@ load_release_image_env() {
 }
 
 set_default_image_env() {
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
   local pull_registry=${KOMSCO_AIOPS_PULL_REGISTRY:-image-registry.openshift-image-registry.svc:5000}
 
   export KOMSCO_AIOPS_OPERATOR_IMAGE="${KOMSCO_AIOPS_OPERATOR_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-gateway:${version}}"
@@ -107,8 +107,8 @@ validate_kugnus_safety() {
     exit 1
   fi
 
-  if [[ "${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION}" != "false" ]]; then
-    echo "Refusing Kugnus bootstrap install. publish/catalog must not auto-create AIOpsInstallation." >&2
+  if [[ "${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION}" != "true" ]]; then
+    echo "Refusing Kugnus package without bootstrap install. Catalog install must create AIOpsInstallation." >&2
     exit 1
   fi
 
@@ -136,7 +136,7 @@ import os
 from pathlib import Path
 
 root = Path(os.environ["ROOT_DIR"])
-csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.3')}"
+csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.8')}"
 csv_path = root / "olm" / "generated" / "bundle" / "manifests" / f"{csv_name}.clusterserviceversion.yaml"
 crd_path = root / "olm" / "generated" / "bundle" / "manifests" / "aiopsinstallations.aiops.komsco.io.crd.yaml"
 catalog_path = root / "olm" / "generated" / "catalog" / "01-catalogsource.yaml"
@@ -156,6 +156,8 @@ expected_conditions = {
     "HostDiagnosticsReady",
     "SafetyModeReady",
 }
+version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.8")
+expected_version_scope = os.environ.get("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{version}")
 
 csv_payload = json.loads(csv_path.read_text(encoding="utf-8"))
 crd_payload = json.loads(crd_path.read_text(encoding="utf-8"))
@@ -184,13 +186,27 @@ readiness_env = {
     for item in container_env.get("KOMSCO_AI_OPERATOR_READINESS_CONDITIONS", "").split(",")
     if item.strip()
 }
+visible_catalog_copy = "\n".join(
+    [
+        str(catalog_payload["spec"].get("displayName", "")),
+        str(catalog_payload["spec"].get("publisher", "")),
+        str(csv_payload["spec"].get("displayName", "")),
+        str(csv_payload["spec"].get("description", "")),
+        str(csv_payload["spec"].get("provider", {}).get("name", "")),
+        str(csv_payload["metadata"]["annotations"].get("description", "")),
+        " ".join(str(link.get("name", "")) for link in csv_payload["spec"].get("links", [])),
+    ]
+).lower()
 
 checks = {
     "displayName": csv_payload["spec"]["displayName"] == os.environ["KOMSCO_AIOPS_DISPLAY_NAME"],
+    "catalogDisplayName": catalog_payload["spec"]["displayName"] == os.environ["KOMSCO_AIOPS_CATALOG_DISPLAY_NAME"],
+    "providerName": csv_payload["spec"]["provider"]["name"] == os.environ.get("KOMSCO_AIOPS_PROVIDER_NAME", "Cywell"),
+    "visibleCatalogCopyNoKugnus": "kugnus" not in visible_catalog_copy,
     "catalogName": catalog_payload["metadata"]["name"] == os.environ["KOMSCO_AIOPS_OLM_CATALOG_NAME"],
     "packageName": package_payload["packageName"] == os.environ["KOMSCO_AIOPS_PACKAGE_NAME"],
     "csvName": csv_payload["metadata"]["name"].startswith(os.environ["KOMSCO_AIOPS_OPERATOR_NAME"] + ".v"),
-    "bootstrapDisabled": container_env["KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION"] == "false",
+    "bootstrapEnabled": container_env["KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION"] == "true",
     "installationName": example_payload["metadata"]["name"] == os.environ["KOMSCO_AIOPS_INSTALLATION_NAME"],
     "installManifestName": install_payload["metadata"]["name"] == os.environ["KOMSCO_AIOPS_INSTALLATION_NAME"],
     "installManifestNamespace": install_payload["metadata"]["namespace"] == os.environ["KOMSCO_AIOPS_OPERATOR_NAMESPACE"],
@@ -210,8 +226,8 @@ checks = {
     "statusVersionScopeSchema": "versionScope" in status_schema,
     "readinessAnnotation": readiness_annotation == expected_conditions,
     "readinessEnv": readiness_env == expected_conditions,
-    "versionScopeAnnotation": csv_payload["metadata"]["annotations"].get("aiops.komsco.io/version-scope") == "Ver.0.1.1",
-    "versionScopeEnv": container_env.get("KOMSCO_AI_OPERATOR_VERSION_SCOPE") == "Ver.0.1.1",
+    "versionScopeAnnotation": csv_payload["metadata"]["annotations"].get("aiops.komsco.io/version-scope") == expected_version_scope,
+    "versionScopeEnv": container_env.get("KOMSCO_AI_OPERATOR_VERSION_SCOPE") == expected_version_scope,
     "waitMutationsGuarded": 'bool_enabled "${ENABLE_MUTATIONS}"' in deploy_script
     and "komsco-ai-action-executor" in deploy_script,
     "waitDiagnosticsGuarded": 'bool_enabled "${ENABLE_DIAGNOSTICS}"' in deploy_script
@@ -255,14 +271,14 @@ grant_image_pull_access() {
 patch_binary_build_output() {
   local name=$1
   oc patch buildconfig "${name}" -n "${KOMSCO_AIOPS_NAMESPACE}" --type=merge \
-    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}\"}}}}"
+    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}\"}}}}"
 }
 
 ensure_binary_build() {
   local name=$1
   local context_dir=$2
   local stage_dir
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
 
   require_oc
   oc get namespace "${KOMSCO_AIOPS_NAMESPACE}" >/dev/null 2>&1 || oc create namespace "${KOMSCO_AIOPS_NAMESPACE}"
@@ -304,19 +320,37 @@ prepare_build_context() {
   mkdir -p "${stage_dir}"
   tar -C "${context_dir}" \
     --exclude='./.git' \
+    --exclude='./.cache' \
+    --exclude='./.mypy_cache' \
+    --exclude='./.nyc_output' \
+    --exclude='./.parcel-cache' \
     --exclude='./node_modules' \
     --exclude='./dist' \
     --exclude='./integration-tests/screenshots' \
     --exclude='./integration-tests/videos' \
+    --exclude='./integration-tests/downloads' \
+    --exclude='./integration-tests/results' \
+    --exclude='./integration-tests/reports' \
     --exclude='./.yarn/install-state.gz' \
     --exclude='./.venv' \
     --exclude='./__pycache__' \
     --exclude='./.pytest_cache' \
     --exclude='./.ruff_cache' \
+    --exclude='./coverage' \
+    --exclude='./htmlcov' \
+    --exclude='./playwright-report' \
+    --exclude='./test-results' \
+    --exclude='./cypress/screenshots' \
+    --exclude='./cypress/videos' \
+    --exclude='./cypress/downloads' \
+    --exclude='./.env' \
+    --exclude='./.env.*' \
     --exclude='*.pyc' \
     --exclude='*.pyo' \
     --exclude='*.pyd' \
     --exclude='*.log' \
+    --exclude='*.pid' \
+    --exclude='*.tmp' \
     -cf - . | tar -C "${stage_dir}" -xf -
   echo "${stage_dir}"
 }
@@ -396,7 +430,7 @@ uninstall() {
   oc delete aiopsinstallation "${KOMSCO_AIOPS_INSTALLATION_NAME}" -n "${KOMSCO_AIOPS_NAMESPACE}" --ignore-not-found=true
   oc delete consoleplugin "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" --ignore-not-found=true
   oc delete subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
-  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
+  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
   oc delete -f "${ROOT_DIR}/olm/generated/install/03-aiopsinstallation.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/02-subscription.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/01-operatorgroup.yaml" --ignore-not-found=true || true

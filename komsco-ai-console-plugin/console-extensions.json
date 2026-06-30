@@ -35,7 +35,7 @@
       "id": "komsco-aiops-kugnus-docs",
       "perspective": "admin",
       "section": "komsco-aiops-kugnus",
-      "name": "Docs",
+      "name": "LLM Wiki",
       "href": "/aiops-kugnus/docs",
       "startsWith": ["/aiops-kugnus/docs"]
     }

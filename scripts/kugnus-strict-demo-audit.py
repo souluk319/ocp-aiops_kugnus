@@ -109,11 +109,11 @@ def check_runtime_smoke(path: Path, payload: dict[str, Any], error: str) -> dict
 
 def check_scenario_contract(path: Path, payload: dict[str, Any], error: str) -> dict[str, Any]:
     if error:
-        return gate("scenario_contract", path, False, "ten scenario evaluator report exists", {"error": error})
+        return gate("scenario_contract", path, False, "thirteen scenario evaluator report exists", {"error": error})
     ok = (
-        payload.get("scenarioCount") == 10
-        and payload.get("expectedScenarioCount") == 10
-        and payload.get("passed") == 10
+        payload.get("scenarioCount") == 13
+        and payload.get("expectedScenarioCount") == 13
+        and payload.get("passed") == 13
         and payload.get("failed") == 0
         and payload.get("negativeControlsPassed") is True
     )
@@ -121,7 +121,7 @@ def check_scenario_contract(path: Path, payload: dict[str, Any], error: str) -> 
         "scenario_contract",
         path,
         ok,
-        "10/10 operation scenarios pass and negative controls pass",
+        "13/13 operation scenarios pass and negative controls pass",
         {
             "scenarioCount": payload.get("scenarioCount"),
             "expectedScenarioCount": payload.get("expectedScenarioCount"),

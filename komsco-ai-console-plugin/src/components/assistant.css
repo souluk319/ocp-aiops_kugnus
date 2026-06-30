@@ -3200,6 +3200,77 @@
   margin-block: 4px 0;
 }
 
+.komsco-ai__progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.komsco-ai__flow-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  color: #3f4f63;
+  background: #f8fbff;
+  border: 1px solid #dce7f5;
+  border-radius: 8px;
+}
+
+.komsco-ai__flow-pulse {
+  position: relative;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  background: #3b82f6;
+  border-radius: 999px;
+}
+
+.komsco-ai__flow-pulse--running::after {
+  position: absolute;
+  inset: -5px;
+  content: "";
+  border: 1px solid #3b82f6;
+  border-radius: 999px;
+  animation: komsco-ai-pulse-ring 1.4s ease-out infinite;
+}
+
+.komsco-ai__flow-pulse--completed {
+  background: #16a34a;
+}
+
+.komsco-ai__flow-pulse--failed {
+  background: #dc2626;
+}
+
+.komsco-ai__flow-copy {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.komsco-ai__flow-layer {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 750;
+  color: #1f3b5f;
+  white-space: nowrap;
+}
+
+.komsco-ai__flow-activity {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  color: #64748b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .komsco-ai__progress:not([open]) .komsco-ai__progress-summary {
   border-block-end: 0;
 }
@@ -3758,6 +3829,19 @@
 
 .komsco-ai__message-copy {
   margin-inline-start: auto;
+}
+
+.komsco-ai__message-time {
+  align-self: flex-end;
+  padding-inline: 2px;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #94a3b8;
+}
+
+.komsco-ai__message--assistant .komsco-ai__message-time,
+.komsco-ai__message--system .komsco-ai__message-time {
+  align-self: flex-start;
 }
 
 .komsco-ai__history-list {

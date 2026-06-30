@@ -62,6 +62,7 @@ task kugnus:demo:preflight
 task kugnus:dev:doctor
 task kugnus:runtime:smoke
 task kugnus:rag:file-upload:smoke
+task kugnus:rag:mock-customer:smoke
 task kugnus:rag:chat:smoke
 task kugnus:ui:verify
 ```
@@ -72,11 +73,15 @@ task kugnus:ui:verify
 - `docs/Ver.0.1.6/preflight-report.html`
 - `docs/Ver.0.1.6/runtime-smoke-report.json`
 - `docs/Ver.0.1.6/rag-file-upload-smoke-report.json`
+- `docs/Ver.0.1.6/rag-mock-customer-smoke-report.json`
 - `docs/Ver.0.1.6/rag-chat-citation-smoke-report.json`
 
 공식 시연 순서는 `docs/Ver.0.1.6/official-demo-scenario.md`를 기준으로 한다.
 
 preflight 계약은 `docs/Ver.0.1.6/preflight-contract.md`에 고정했다.
+
+OKD 콘솔 복구 원인, `9000/dashboards` 기준 URL, 고객맞춤 LLM Wiki/토폴로지 MVP, 검증 매트릭스는
+`docs/Ver.0.1.6/customer-customization-readiness-report.md`에 고정했다.
 
 ## 하지 않을 것
 

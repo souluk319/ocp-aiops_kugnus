@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KOMSCO AIOps Agent — 기술 브리프 v0.1.9</title>
+<style>
+/* ── Base Reset ─────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; font-size: 16px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
+  background: #F0F2F5;
+  color: #1A1A2E;
+  line-height: 1.7;
+  display: flex;
+}
+
+/* ── Brand Colors ───────────────────────────────── */
+:root {
+  --blue: #003087;
+  --blue-mid: #004AAD;
+  --blue-light: #E8EEF7;
+  --gold: #C8A951;
+  --gold-light: #FBF5E6;
+  --success: #1A7F54;
+  --warn: #B45309;
+  --danger: #B91C1C;
+  --gray-1: #F8F9FB;
+  --gray-2: #E4E7ED;
+  --gray-3: #9CA3AF;
+  --gray-4: #374151;
+  --code-bg: #0F172A;
+  --sidebar-w: 260px;
+}
+
+/* ── Sidebar ────────────────────────────────────── */
+#sidebar {
+  width: var(--sidebar-w);
+  min-height: 100vh;
+  background: var(--blue);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+#sidebar-logo {
+  padding: 28px 24px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+}
+#sidebar-logo .brand-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+#sidebar-logo .brand-sub {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.55);
+  margin-top: 2px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+#sidebar-logo .version-badge {
+  display: inline-block;
+  margin-top: 10px;
+  background: var(--gold);
+  color: #003087;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+#sidebar nav { padding: 16px 0; flex: 1; }
+#sidebar nav a {
+  display: block;
+  padding: 9px 24px;
+  color: rgba(255,255,255,0.72);
+  text-decoration: none;
+  font-size: 0.82rem;
+  transition: background 0.15s, color 0.15s;
+  border-left: 3px solid transparent;
+}
+#sidebar nav a:hover,
+#sidebar nav a.active {
+  color: #fff;
+  background: rgba(255,255,255,0.08);
+  border-left-color: var(--gold);
+}
+#sidebar nav .nav-section {
+  padding: 16px 24px 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+}
+#sidebar-footer {
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.35);
+}
+
+/* ── Main Content ───────────────────────────────── */
+#main {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0 80px;
+}
+
+/* ── Page Header ────────────────────────────────── */
+#page-header {
+  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 60%, #1A4FA8 100%);
+  color: #fff;
+  padding: 56px 56px 48px;
+  position: relative;
+  overflow: hidden;
+}
+#page-header::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 320px; height: 320px;
+  border-radius: 50%;
+  background: rgba(200,169,81,0.08);
+}
+#page-header::after {
+  content: '';
+  position: absolute;
+  bottom: -80px; right: 120px;
+  width: 200px; height: 200px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.04);
+}
+.header-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 12px;
+}
+.header-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.2;
+  margin-bottom: 14px;
+}
+.header-subtitle {
+  font-size: 1rem;
+  color: rgba(255,255,255,0.72);
+  max-width: 560px;
+  line-height: 1.6;
+}
+.header-meta {
+  margin-top: 28px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.header-meta span {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.85);
+}
+.header-meta span strong { color: var(--gold); }
+
+/* ── Section Wrapper ────────────────────────────── */
+.section {
+  padding: 48px 56px;
+  border-bottom: 1px solid var(--gray-2);
+  background: #fff;
+}
+.section:nth-child(odd) { background: var(--gray-1); }
+.section-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+  color: var(--blue-mid);
+  margin-bottom: 8px;
+}
+.section-title {
+  font-size: 1.55rem;
+  font-weight: 800;
+  color: var(--blue);
+  letter-spacing: -0.5px;
+  margin-bottom: 6px;
+}
+.section-desc {
+  color: var(--gray-4);
+  font-size: 0.92rem;
+  margin-bottom: 32px;
+  max-width: 680px;
+}
+
+/* ── Cards ──────────────────────────────────────── */
+.card {
+  background: #fff;
+  border: 1px solid var(--gray-2);
+  border-radius: 12px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+/* ── Version Timeline ───────────────────────────── */
+.timeline { position: relative; }
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 72px;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, var(--blue), var(--gold));
+}
+.timeline-item {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  position: relative;
+}
+.timeline-badge {
+  flex-shrink: 0;
+  width: 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 6px;
+  padding-right: 16px;
+}
+.timeline-badge .ver {
+  background: var(--blue);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 8px;
+  letter-spacing: 0.5px;
+  position: relative;
+  z-index: 1;
+}
+.timeline-badge .dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 2px var(--gold);
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+.timeline-content {
+  flex: 1;
+  background: #fff;
+  border: 1px solid var(--gray-2);
+  border-radius: 12px;
+  padding: 18px 22px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  margin-left: 12px;
+}
+.timeline-content h3 {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--blue);
+  margin-bottom: 4px;
+}
+.timeline-content .goal {
+  font-size: 0.78rem;
+  color: var(--gray-3);
+  margin-bottom: 10px;
+}
+.timeline-content ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.timeline-content ul li {
+  font-size: 0.8rem;
+  color: var(--gray-4);
+  padding-left: 16px;
+  position: relative;
+}
+.timeline-content ul li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: var(--success);
+  font-weight: 700;
+  font-size: 0.7rem;
+}
+
+/* ── Architecture Flow ──────────────────────────── */
+.flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  margin: 24px 0;
+}
+.flow-box {
+  background: var(--blue);
+  color: #fff;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+  min-width: 100px;
+  line-height: 1.4;
+}
+.flow-box.gold { background: var(--gold); color: var(--blue); }
+.flow-box.light { background: var(--blue-light); color: var(--blue); border: 1px solid #c4d4f0; }
+.flow-box.ols { background: linear-gradient(135deg, #7C3AED, #4F46E5); }
+.flow-arrow {
+  color: var(--blue-mid);
+  font-size: 1.1rem;
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+.flow-sub { font-size: 0.65rem; opacity: 0.8; margin-top: 3px; }
+
+/* ── Status Table ───────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  margin: 16px 0;
+}
+thead tr { background: var(--blue); color: #fff; }
+thead th { padding: 12px 16px; text-align: left; font-weight: 600; font-size: 0.78rem; }
+tbody tr { border-bottom: 1px solid var(--gray-2); }
+tbody tr:nth-child(even) { background: var(--gray-1); }
+tbody td { padding: 11px 16px; vertical-align: top; }
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.badge.ok { background: #D1FAE5; color: #065F46; }
+.badge.warn { background: #FEF3C7; color: #92400E; }
+.badge.err { background: #FEE2E2; color: #991B1B; }
+.badge.plan { background: var(--blue-light); color: var(--blue); }
+
+/* ── Code Block ─────────────────────────────────── */
+pre {
+  background: var(--code-bg);
+  color: #E2E8F0;
+  border-radius: 10px;
+  padding: 20px 24px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  overflow-x: auto;
+  line-height: 1.7;
+  margin: 16px 0;
+}
+pre .cm { color: #64748B; }
+pre .kw { color: #7DD3FC; }
+pre .st { color: #86EFAC; }
+pre .nm { color: #FCA5A5; }
+pre .op { color: #C4B5FD; }
+
+/* ── Info / Callout Boxes ───────────────────────── */
+.callout {
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin: 16px 0;
+  font-size: 0.85rem;
+  border-left: 4px solid;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.callout.info { background: var(--blue-light); border-color: var(--blue-mid); color: var(--blue); }
+.callout.warn { background: #FFF7ED; border-color: #F59E0B; color: #92400E; }
+.callout.danger { background: #FEF2F2; border-color: #EF4444; color: #991B1B; }
+.callout.success { background: #F0FDF4; border-color: #22C55E; color: #14532D; }
+.callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+.callout-body strong { display: block; margin-bottom: 3px; font-weight: 700; }
+
+/* ── Repo Card ──────────────────────────────────── */
+.repo-card {
+  border: 1px solid var(--gray-2);
+  border-radius: 12px;
+  padding: 20px 24px;
+  background: #fff;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.repo-icon {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: var(--blue);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+.repo-info h4 { font-size: 0.9rem; font-weight: 700; color: var(--blue); margin-bottom: 3px; }
+.repo-info .repo-url {
+  font-size: 0.72rem;
+  color: var(--gold);
+  font-family: monospace;
+  margin-bottom: 6px;
+}
+.repo-info p { font-size: 0.8rem; color: var(--gray-4); line-height: 1.5; }
+.repo-apply {
+  margin-top: 10px;
+  background: var(--blue-light);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  color: var(--blue);
+}
+.repo-apply strong { display: block; font-weight: 700; margin-bottom: 3px; }
+
+/* ── Hybrid RAG Diagram ─────────────────────────── */
+.hybrid-rag {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin: 24px 0;
+}
+.rag-layer {
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  border: 2px solid;
+}
+.rag-layer.chunk { background: var(--blue-light); border-color: var(--blue-mid); }
+.rag-layer.kb { background: var(--gold-light); border-color: var(--gold); }
+.rag-layer.ep { background: #F0FDF4; border-color: #22C55E; }
+.rag-layer h4 { font-size: 0.82rem; font-weight: 700; margin-bottom: 8px; }
+.rag-layer .layer-icon { font-size: 1.6rem; margin-bottom: 8px; }
+.rag-layer p { font-size: 0.75rem; line-height: 1.5; }
+.rag-layer .layer-source {
+  margin-top: 10px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  opacity: 0.7;
+  font-family: monospace;
+}
+
+/* ── Scenario Demo Box ──────────────────────────── */
+.scenario-box {
+  background: var(--code-bg);
+  border-radius: 12px;
+  padding: 24px 28px;
+  color: #E2E8F0;
+  font-size: 0.82rem;
+  line-height: 1.7;
+}
+.scenario-box .s-step {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  align-items: flex-start;
+}
+.scenario-box .s-num {
+  background: var(--gold);
+  color: var(--blue);
+  font-weight: 800;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.scenario-box .s-tool { color: #7DD3FC; font-weight: 600; }
+.scenario-box .s-result { color: #86EFAC; font-size: 0.75rem; margin-top: 2px; }
+.scenario-box .s-arrow { color: #C4B5FD; }
+
+/* ── Roadmap ────────────────────────────────────── */
+.roadmap {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 24px 0;
+}
+.roadmap-phase {
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--gray-2);
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.roadmap-phase::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+}
+.roadmap-phase.p1::before { background: var(--blue); }
+.roadmap-phase.p2::before { background: var(--gold); }
+.roadmap-phase.p3::before { background: var(--success); }
+.roadmap-phase h4 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.roadmap-phase .phase-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gray-3);
+  margin-bottom: 12px;
+}
+.roadmap-phase ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.roadmap-phase ul li {
+  font-size: 0.78rem;
+  color: var(--gray-4);
+  padding-left: 14px;
+  position: relative;
+}
+.roadmap-phase ul li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--blue-mid);
+  font-size: 0.7rem;
+}
+
+/* ── Print ──────────────────────────────────────── */
+@media print {
+  #sidebar { display: none; }
+  #main { padding: 0; }
+  .section { padding: 32px 40px; break-inside: avoid; }
+  #page-header { padding: 40px; }
+  pre { font-size: 0.72rem; }
+}
+
+/* ── Scrollbar ──────────────────────────────────── */
+#sidebar::-webkit-scrollbar { width: 4px; }
+#sidebar::-webkit-scrollbar-track { background: transparent; }
+#sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+/* ── Util ───────────────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.mt8 { margin-top: 8px; }
+.mt16 { margin-top: 16px; }
+.mt24 { margin-top: 24px; }
+strong.gold { color: var(--gold); }
+strong.blue { color: var(--blue); }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- SIDEBAR                                       -->
+<!-- ══════════════════════════════════════════════ -->
+<aside id="sidebar">
+  <div id="sidebar-logo">
+    <div class="brand-name">KOMSCO</div>
+    <div class="brand-sub">한국조폐공사 AIOps</div>
+    <span class="version-badge">Technical Brief · v0.1.9</span>
+  </div>
+  <nav>
+    <div class="nav-section">문서 목차</div>
+    <a href="#s1">01 · 개요</a>
+    <a href="#s2">02 · 버전 히스토리</a>
+    <a href="#s3">03 · 현재 아키텍처</a>
+    <a href="#s4">04 · RAG 현황 진단</a>
+    <a href="#s5">05 · v0.1.9 계획</a>
+    <a href="#s6">06 · OpenShift 플러그인 실험</a>
+    <a href="#s7">07 · 다음 단계</a>
+  </nav>
+  <div id="sidebar-footer">
+    작성 기준: 2026-06-30<br>
+    레포: <a href="https://github.com/souluk319/ocp-aiops_kugnus" style="color:rgba(255,255,255,0.5);text-decoration:none;">github.com/souluk319/ocp-aiops_kugnus</a><br>
+    브랜치: feat/v.0.1.8<br>
+    작성자: 김성욱
+  </div>
+</aside>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- MAIN                                          -->
+<!-- ══════════════════════════════════════════════ -->
+<main id="main">
+
+  <!-- ── Page Header ── -->
+  <header id="page-header">
+    <div class="header-eyebrow">KOMSCO AIOps Agent — Technical Brief</div>
+    <h1 class="header-title">OpenShift 기반 AIOps 에이전트<br>아키텍처 브리프</h1>
+    <p class="header-subtitle">
+      한국조폐공사의 폐쇄망 OCP 환경에서 동작하는 Evidence-Driven RCA 시스템.
+      v0.1.0부터 v0.1.8까지 달성된 내역과 v0.1.9 Knowledge RAG 고도화 계획을 정리합니다.
+    </p>
+    <div class="header-meta">
+      <span>버전 <strong>v0.1.8</strong> 배포 완료</span>
+      <span>브랜치 <strong>feat/v.0.1.8</strong></span>
+      <span>OCP <strong>4.x Console Plugin</strong></span>
+      <span>LLM <strong>Gemma 4 26B A4B (MoE)</strong></span>
+      <span>작성일 <strong>2026-06-30</strong></span>
+    </div>
+  </header>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 01. 개요                                  -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s1">
+    <div class="section-label">Section 01</div>
+    <h2 class="section-title">개요 — KOMSCO AIOps란</h2>
+    <p class="section-desc">
+      한국조폐공사 OCP 클러스터의 운영 지능화를 위한 AI 에이전트 플랫폼.
+      OpenShift Console에 플러그인 형태로 통합되어, 운영자가 자연어로 장애를 질의하면
+      증거를 수집하고 원인을 분석해 조치 후보까지 제시합니다.
+    </p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div style="font-size:1.5rem;margin-bottom:8px;">🎯</div>
+        <strong style="display:block;margin-bottom:6px;color:var(--blue);">핵심 목표</strong>
+        <p style="font-size:0.82rem;color:var(--gray-4);">
+          운영자가 "왜 이 Pod가 재시작됐어?" 같은 자연어 질문을 하면,
+          OCP API → 로그 → 이벤트 → 런북을 자동으로 뒤져 근거 기반 RCA 답변을 생성한다.
+        </p>
+      </div>
+      <div class="card">
+        <div style="font-size:1.5rem;margin-bottom:8px;">🔒</div>
+        <strong style="display:block;margin-bottom:6px;color:var(--blue);">폐쇄망 설계</strong>
+        <p style="font-size:0.82rem;color:var(--gray-4);">
+          외부 인터넷 없이 회사 OCP 클러스터 내에서 완전히 동작.
+          OpenShift Lightspeed (OLS)를 최종 답변 생성 레이어로 사용하며
+          파인튜닝 없이 고유 운영 데이터를 RAG로 반영한다.
+        </p>
+      </div>
+      <div class="card">
+        <div style="font-size:1.5rem;margin-bottom:8px;">🛡️</div>
+        <strong style="display:block;margin-bottom:6px;color:var(--blue);">Safety-First</strong>
+        <p style="font-size:0.82rem;color:var(--gray-4);">
+          기본 동작은 read-only. oc apply / delete / exec 같은 변경 명령은
+          명시적 승인 모드(execute)에서만 허용.
+          민감 정보 자동 redact, RBAC 기반 ACL 적용.
+        </p>
+      </div>
+      <div class="card">
+        <div style="font-size:1.5rem;margin-bottom:8px;">🔌</div>
+        <strong style="display:block;margin-bottom:6px;color:var(--blue);">Console Plugin 통합</strong>
+        <p style="font-size:0.82rem;color:var(--gray-4);">
+          OpenShift Dynamic Console Plugin으로 구현.
+          별도 UI 없이 OCP 콘솔 안에서 채팅 패널, 증거 패널,
+          대시보드, 조치 후보 패널이 함께 제공된다.
+        </p>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">시스템 포지셔닝</strong>
+      <div class="flow">
+        <div class="flow-box light">OCP 운영자<div class="flow-sub">자연어 질문</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">Console Plugin<div class="flow-sub">채팅 UI</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box gold">AI Gateway<div class="flow-sub">Tool Plan + Evidence</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box ols">OpenShift Lightspeed<div class="flow-sub">최종 답변 생성</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box light">운영자<div class="flow-sub">RCA + 조치 후보</div></div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 02. 버전 히스토리                          -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s2">
+    <div class="section-label">Section 02</div>
+    <h2 class="section-title">버전 히스토리 — v0.1.0 ~ v0.1.8</h2>
+    <p class="section-desc">
+      2026년 초부터 단계적으로 구축. 각 버전은 목표를 명확히 하고 검증 기준을 사전 정의했습니다.
+    </p>
+
+    <div class="timeline">
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.0</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>Kugnus 카탈로그 기초 구축</h3>
+          <div class="goal">기존 OLS를 보존하면서 Kugnus 전용 OLM 카탈로그, AI Gateway, Dynamic Console Plugin 구축</div>
+          <ul>
+            <li>Kugnus 전용 CatalogSource / PackageManifest 생성</li>
+            <li>Gateway 및 Console Plugin 이미지 빌드 자동화</li>
+            <li>read-only 기본 실행 모드 확립</li>
+            <li>PDF 요구사항 문서 기반 아키텍처 설계</li>
+            <li>131개 테스트 통과, UI 42개 체크 통과</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.1</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>AIOps 기능 고도화 기준</h3>
+          <div class="goal">예쁜 챗봇이 아닌 실제 판단력과 증거력 있는 AIOps 시스템 구현</div>
+          <ul>
+            <li>Tool Plan JSON → Evidence 수집 → RCA Context JSON 흐름 설계</li>
+            <li>OS-aware Tool Reasoning 개념 도입 (OpenShift / Linux / Windows)</li>
+            <li>UI 상태 칩 의미 명확화 (연결, 모드, 방패, 실행, 정보)</li>
+            <li>Evidence / RAG 체계 설계 기반 마련</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.2</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>AIOps 관제탑 추진</h3>
+          <div class="goal">로컬 개발 콘솔에서 실제 클러스터 상태와 이상 징후 표시</div>
+          <ul>
+            <li>/v1/aiops/overview API 추가 (클러스터 상태 요약)</li>
+            <li>이상 징후 자동 정리 및 심각도 분류</li>
+            <li>RCA 고도화 — Evidence 기반 증거 수집</li>
+            <li>조치 후보 생성 (read-only 제안)</li>
+            <li>검증 자동화 체계 구축</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.3</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>운영 시나리오 기반 고도화</h3>
+          <div class="goal">실제 운영자가 겪는 10가지 사건을 기준으로 기능 고정</div>
+          <ul>
+            <li>공식 시연 시나리오 1개 완성 (Pod restart RCA)</li>
+            <li>10개 운영 시나리오 정의 및 분류기 구현</li>
+            <li>Scenario evaluator 및 offline/live 검증 시스템</li>
+            <li>Evidence RCA 브라우저 검증 완료</li>
+            <li>10/10 시나리오 평가 통과</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.4</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>RAG 아키텍처 설계</h3>
+          <div class="goal">RAG를 데모 연결에서 운영 가능한 설계로 고도화</div>
+          <ul>
+            <li>pgvector 기반 RAG 스키마 설계 (documents, chunks, retrieval_events)</li>
+            <li>사용자 문서 업로드 endpoint (POST /v1/rag/uploads)</li>
+            <li>RAG source metadata 표시 강화</li>
+            <li>안전성 분류 (dangerous, stale, fresh)</li>
+            <li>179개 테스트 통과, upload/chat citation smoke 검증</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.5</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>사용자 업로드 RAG 파서 도입</h3>
+          <div class="goal">PDF/Office 문서 파서를 통한 다중 포맷 지원</div>
+          <ul>
+            <li>POST /v1/rag/uploads/file multipart 업로드 endpoint</li>
+            <li>PDF (pypdf), DOCX, PPTX, XLSX 파서</li>
+            <li>파일 크기/텍스트 제한 (5 MiB, 120K chars)</li>
+            <li>Parser report 및 ingestion tracking</li>
+            <li>181개 테스트 통과</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.6</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>Demo Readiness &amp; RAG Docs Control</h3>
+          <div class="goal">재부팅 후 10분 안에 환경 복구, 공식 시연 시나리오 안정화</div>
+          <ul>
+            <li>시연 환경 Preflight 자동화</li>
+            <li>공식 시연 시나리오 1개 완성 및 검증</li>
+            <li>Docs/RAG 화면 제품화 (chunk preview, 검색 결과 명확화)</li>
+            <li>Mock customer ops pack 준비</li>
+            <li>HTML/JSON report 생성</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver">v0.1.7</span>
+          <span class="dot"></span>
+        </div>
+        <div class="timeline-content">
+          <h3>Semantic Embedding &amp; Auto-Ingest</h3>
+          <div class="goal">RAG의 semantic embedding 및 자동 문서 적재 완성</div>
+          <ul>
+            <li>KOMSCO_AI_RAG_EMBEDDING_SERVICE_URL 설정 시 외부 임베딩 서비스 호출</li>
+            <li>TEI / Ollama 임베딩 형식 호환</li>
+            <li>KOMSCO_AI_RAG_SYNC_DIR 설정 시 Gateway 시작 때 자동 문서 적재</li>
+            <li>Schema migration (v1~v3: content_chars, embedding_model 컬럼)</li>
+            <li>/v1/aiops/status에 embeddingServiceConfigured 필드 추가</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="timeline-item">
+        <div class="timeline-badge">
+          <span class="ver" style="background:var(--gold);color:var(--blue);">v0.1.8</span>
+          <span class="dot" style="background:var(--gold);box-shadow:0 0 0 2px var(--gold);"></span>
+        </div>
+        <div class="timeline-content" style="border-color:var(--gold);box-shadow:0 0 0 1px var(--gold)33;">
+          <h3 style="color:var(--gold);">PDF 요구사항 구조화 구현 ← 현재</h3>
+          <div class="goal">Lightspeed 완료 후 RCA 결과 추출 및 구조화, OS Context 분류 확장</div>
+          <ul>
+            <li>rca_result_parser.py — post-answer RCA 결과 정규식 파싱</li>
+            <li>GET /v1/rca/last API endpoint 추가</li>
+            <li>RCA Context JSON: cause_candidates, confidence, action_candidates</li>
+            <li>OS Context 분류 확장 (Linux: journalctl/systemctl, Windows: event log)</li>
+            <li>Scenario 11 demo (과거 Pod 재시작 RCA) 구현</li>
+            <li>Fallback 답변 품질 대폭 개선 (테이블 기반 운영자 친화 포맷)</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 03. 현재 아키텍처                          -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s3">
+    <div class="section-label">Section 03</div>
+    <h2 class="section-title">현재 아키텍처</h2>
+    <p class="section-desc">
+      AI Gateway가 중심에서 Tool Plan 생성, Evidence 수집, RCA Context 조립을 담당하고
+      OpenShift Lightspeed가 최종 자연어 답변을 생성합니다.
+    </p>
+
+    <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">전체 처리 흐름</strong>
+    <div style="overflow-x:auto;">
+      <div class="flow" style="min-width:700px;flex-wrap:nowrap;">
+        <div class="flow-box light" style="min-width:90px;">질문 입력<div class="flow-sub">Console Plugin</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box" style="min-width:110px;">Tool Plan JSON<div class="flow-sub">시나리오 분류</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box" style="min-width:120px;">Evidence 수집<div class="flow-sub">OCP API · Log · Event</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box gold" style="min-width:110px;">RAG 검색<div class="flow-sub">런북 · SOP · Incident</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box" style="min-width:110px;">RCA Context JSON<div class="flow-sub">구조화 증거</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box ols" style="min-width:110px;">OLS<div class="flow-sub">한국어 RCA 답변</div></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box light" style="min-width:90px;">SSE 스트리밍<div class="flow-sub">운영자 화면</div></div>
+      </div>
+    </div>
+
+    <div class="mt24 two-col">
+      <div>
+        <strong style="display:block;margin-bottom:14px;font-size:0.85rem;">주요 컴포넌트</strong>
+        <table>
+          <thead><tr><th>컴포넌트</th><th>역할</th><th>기술 스택</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>AI Gateway</strong></td>
+              <td>Tool Plan, Evidence, RCA Context 조립, Safety Guard</td>
+              <td>Python / FastAPI</td>
+            </tr>
+            <tr>
+              <td><strong>Console Plugin</strong></td>
+              <td>채팅 UI, 증거 패널, 대시보드</td>
+              <td>TypeScript / React / PatternFly</td>
+            </tr>
+            <tr>
+              <td><strong>RAG</strong></td>
+              <td>런북/SOP/incident 의미 검색</td>
+              <td>PostgreSQL + pgvector</td>
+            </tr>
+            <tr>
+              <td><strong>OLS</strong></td>
+              <td>최종 한국어 RCA 답변 생성</td>
+              <td>OpenShift Lightspeed (OCP 내)</td>
+            </tr>
+            <tr>
+              <td><strong>LLM</strong></td>
+              <td>Gemma 4 26B A4B (MoE) 추론</td>
+              <td>cllm.cywell.co.kr</td>
+            </tr>
+            <tr>
+              <td><strong>OLM</strong></td>
+              <td>AIOps 컴포넌트 자동 배포</td>
+              <td>OLM CatalogSource / CSV</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <strong style="display:block;margin-bottom:14px;font-size:0.85rem;">10개 공식 운영 시나리오</strong>
+        <table>
+          <thead><tr><th>#</th><th>시나리오</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>클러스터 전체 상태 브리핑</td></tr>
+            <tr><td>2</td><td>ClusterNotUpgradeable 분석</td></tr>
+            <tr><td>3</td><td>Control Plane 메모리 압박</td></tr>
+            <tr><td>4</td><td>etcd DB Fragmentation 경고</td></tr>
+            <tr><td>5</td><td>Pod NotReady 장기화</td></tr>
+            <tr><td>6</td><td>CrashLoopBackOff 원인 분석</td></tr>
+            <tr><td>7</td><td>ImagePullBackOff / ErrImagePull</td></tr>
+            <tr><td>8</td><td>Pending Pod / Scheduling 실패</td></tr>
+            <tr><td>9</td><td>네임스페이스 단위 장애 브리핑</td></tr>
+            <tr><td>10</td><td>장애 후 조치 후보 검토</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">OLS 연결 구조 (포트포워드)</strong>
+      <pre><span class="cm"># 회사 OCP에 있는 OLS를 localhost로 터널링</span>
+<span class="kw">oc port-forward</span> svc/lightspeed-app-server \
+  -n openshift-lightspeed <span class="nm">18443</span>:<span class="nm">8443</span>
+
+<span class="cm"># dev-gateway-lightspeed.sh 가 자동으로 수행</span>
+<span class="cm"># → OLS_BASE_URL=https://127.0.0.1:18443 자동 설정</span>
+
+<span class="kw">task</span> kugnus:dev:be    <span class="cm"># ← 이 태스크 하나로 모든 것이 연결됨</span></pre>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 04. RAG 현황 진단                          -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s4">
+    <div class="section-label">Section 04</div>
+    <h2 class="section-title">RAG 현황 진단</h2>
+    <p class="section-desc">
+      v0.1.7에서 semantic embedding 인프라를 갖췄지만,
+      실제 운영 데이터를 보면 두 가지 근본 문제가 확인됩니다.
+    </p>
+
+    <div class="callout warn">
+      <span class="callout-icon">⚠️</span>
+      <div class="callout-body">
+        <strong>임베딩 서비스 상태 (2026-06-30 기준)</strong>
+        회사 TEI 임베딩 서비스(tei.cywell.co.kr)가 HTTP 502로 응답 불가 상태.
+        이에 따라 개인 홈서버의 <strong>EmbeddingGemma</strong> 서비스를 임시 연결해 운영 중.
+        단, EmbeddingGemma의 벡터 차원이 기존 설정(1024차원)과 다를 수 있으므로
+        인제스트 전 차원 일치 여부를 반드시 확인해야 합니다.
+      </div>
+    </div>
+
+    <div class="mt16 two-col">
+      <div>
+        <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">현재 RAG DB 상태</strong>
+        <table>
+          <thead><tr><th>항목</th><th>값</th><th>평가</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>총 청크 수</td>
+              <td><strong>11개</strong></td>
+              <td><span class="badge err">매우 부족</span></td>
+            </tr>
+            <tr>
+              <td>문서 수</td>
+              <td>9개</td>
+              <td><span class="badge err">미비</span></td>
+            </tr>
+            <tr>
+              <td>임베딩 모델</td>
+              <td>hashing-bow-v1</td>
+              <td><span class="badge err">비의미적</span></td>
+            </tr>
+            <tr>
+              <td>벡터 차원 (설정)</td>
+              <td>1024</td>
+              <td><span class="badge warn">EmbeddingGemma 확인 필요</span></td>
+            </tr>
+            <tr>
+              <td>TEI 서비스</td>
+              <td>HTTP 502</td>
+              <td><span class="badge err">다운</span></td>
+            </tr>
+            <tr>
+              <td>대체 임베딩</td>
+              <td>EmbeddingGemma (홈서버)</td>
+              <td><span class="badge warn">차원 검증 필요</span></td>
+            </tr>
+            <tr>
+              <td>실제 OCP 런북</td>
+              <td>0개</td>
+              <td><span class="badge err">없음</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">hashing-BOW-v1이란?</strong>
+        <div class="card">
+          <p style="font-size:0.82rem;color:var(--gray-4);margin-bottom:12px;">
+            토큰을 SHA256으로 해싱해서 64개 버킷에 분산하는 방식. 의미(semantic)를 전혀 반영하지 않는다.
+          </p>
+          <pre style="margin:0;padding:14px;font-size:0.72rem;"><span class="cm"># 검색 결과 비교</span>
+<span class="nm">쿼리:</span>   <span class="st">"메모리 부족으로 Pod 종료"</span>
+<span class="kw">hashing-BOW:</span> ❌ OOMKilled 런북 못 찾음
+<span class="kw">semantic:</span>    ✅ "OOMKilled · Java heap OOM" 런북 반환</pre>
+        </div>
+        <div class="callout warn mt8">
+          <span class="callout-icon">💡</span>
+          <div class="callout-body">
+            <strong>영향 범위</strong>
+            현재 RAG 검색 결과는 키워드 정확 일치 수준. "OOMKilled"를 검색하면 OOMKilled가
+            정확히 들어있는 청크만 찾고, "메모리 초과"나 "Java heap" 같은 동의 표현은 못 찾는다.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">개선 우선순위</strong>
+      <table>
+        <thead><tr><th>우선순위</th><th>항목</th><th>방법</th><th>상태</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>🔴 1</td>
+            <td>EmbeddingGemma 벡터 차원 확인</td>
+            <td>홈서버 EmbeddingGemma 출력 차원 확인 → DB 설정과 일치 여부 검증</td>
+            <td><span class="badge warn">확인 필요</span></td>
+          </tr>
+          <tr>
+            <td>🔴 2</td>
+            <td>청크 재인제스트</td>
+            <td>차원 확인 후 기존 문서 전체 re-embed (EmbeddingGemma 기준)</td>
+            <td><span class="badge err">대기</span></td>
+          </tr>
+          <tr>
+            <td>🟡 3</td>
+            <td>실제 OCP 런북 추가</td>
+            <td>OCP 운영 절차서 PDF 업로드</td>
+            <td><span class="badge warn">미착수</span></td>
+          </tr>
+          <tr>
+            <td>🟢 4</td>
+            <td>Knowledge RAG 고도화</td>
+            <td>OpenKB + Memora 적용 (v0.1.9)</td>
+            <td><span class="badge plan">v0.1.9 계획</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 05. v0.1.9 계획                           -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s5">
+    <div class="section-label">Section 05</div>
+    <h2 class="section-title">v0.1.9 계획 — RAG 스터디 &amp; 실험</h2>
+    <p class="section-desc">
+      v0.1.8까지는 기능 구현에 집중했다면, v0.1.9는 시스템에 대한 이해도를 높이는 단계입니다.
+      오픈소스 RAG 관련 프로젝트를 직접 검토하고 실험해보면서,
+      현재 시스템에 어떻게 응용할 수 있을지 풍부한 인사이트를 쌓는 것이 목표입니다.
+    </p>
+
+    <div class="callout info">
+      <span class="callout-icon">🔬</span>
+      <div class="callout-body">
+        <strong>실험 목적</strong>
+        아래 두 오픈소스를 스터디 겸 테스트 목적으로 검토합니다.
+        현재 시스템에 즉시 적용하는 것이 아니라, 각 프로젝트의 구조와 접근법을 이해하고
+        AIOps RAG 시스템에 어떤 아이디어를 가져올 수 있는지 탐색하는 과정입니다.
+        실험 결과에 따라 기능 고도화 방향을 구체화할 예정입니다.
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:16px;font-size:0.85rem;">참조 레포지토리</strong>
+
+      <div class="repo-card">
+        <div class="repo-icon">🗂️</div>
+        <div class="repo-info" style="flex:1;">
+          <h4>OpenKB — Vectify AI</h4>
+          <div class="repo-url">github.com/VectifyAI/OpenKB</div>
+          <p>
+            AI 기반 오픈소스 지식 베이스 시스템. 문서 → 구조화 지식 변환,
+            엔티티 추출, 벡터 + 그래프 하이브리드 검색을 지원.
+            폐쇄망 환경에 자체 호스팅 가능.
+          </p>
+          <div class="repo-apply">
+            <strong>실험 방향</strong>
+            OpenKB가 문서에서 엔티티와 관계를 어떻게 추출하고 구조화하는지 직접 살펴본다.
+            OCP 런북 샘플을 투입해 어떤 형태의 지식 그래프가 만들어지는지 확인하고,
+            현재 flat 청크 검색과 비교했을 때 어떤 차이가 있는지 경험적으로 파악하는 것이 목적.
+          </div>
+        </div>
+      </div>
+
+      <div class="repo-card">
+        <div class="repo-icon">🧠</div>
+        <div class="repo-info" style="flex:1;">
+          <h4>Memora — Microsoft</h4>
+          <div class="repo-url">github.com/microsoft/Memora</div>
+          <p>
+            LLM을 위한 에피소딕 메모리 시스템. 과거 인터랙션/사건을 구조화된 메모리로 저장하고,
+            새로운 질문이 들어오면 유사한 과거 기억을 검색해 퓨샷 컨텍스트로 주입.
+            재학습 없이 LLM이 "과거에 비슷한 장애를 어떻게 해결했는지"를 참조 가능.
+          </p>
+          <div class="repo-apply">
+            <strong>실험 방향</strong>
+            Memora가 과거 사건을 메모리로 저장하고 검색하는 방식을 분석한다.
+            AIOps 장애 이력 데이터에 적용했을 때 어떤 형태로 메모리가 구성되는지,
+            유사 장애 검색 품질이 어느 수준인지 실험을 통해 파악하는 것이 목적.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:16px;font-size:0.85rem;">실험 대상 아이디어 — 각 레이어의 역할</strong>
+      <div class="hybrid-rag">
+        <div class="rag-layer chunk">
+          <div class="layer-icon">📄</div>
+          <h4 style="color:var(--blue);">Chunk RAG (현재)</h4>
+          <p>현재 구현된 pgvector 청크 검색. 기준선(baseline)으로 실험에서 비교 대상.</p>
+          <div class="layer-source">aiops_rag_chunks (기존)</div>
+        </div>
+        <div class="rag-layer kb">
+          <div class="layer-icon">🕸️</div>
+          <h4 style="color:#7A6020;">Structured KB (OpenKB 실험)</h4>
+          <p>엔티티 + 관계 기반 지식 구조. 어떤 형태의 그래프가 만들어지는지 탐색.</p>
+          <div class="layer-source">실험적 구성 (미확정)</div>
+        </div>
+        <div class="rag-layer ep">
+          <div class="layer-icon">💾</div>
+          <h4 style="color:var(--success);">Episodic Memory (Memora 실험)</h4>
+          <p>장애 이력을 메모리로 저장/검색. 어떤 구조로 관리되는지 파악.</p>
+          <div class="layer-source">실험적 구성 (미확정)</div>
+        </div>
+      </div>
+      <div class="callout info" style="margin-top:12px;">
+        <span class="callout-icon">📌</span>
+        <div class="callout-body">
+          <strong>실험 방향</strong>
+          각 접근법을 독립적으로 테스트한 뒤, 현재 AIOps 시스템의 특성(OCP 중심, 폐쇄망, 소규모 코퍼스)과
+          어떻게 맞는지 이해도를 쌓는 것이 목표입니다. 결과에 따라 기능 고도화 방향을 구체화합니다.
+        </div>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">관계 경로 예시 — "webapp Pod 접속 장애 원인"</strong>
+      <pre><span class="cm"># Structured KB (OpenKB) 적용 시 경로 탐색 예시</span>
+Route            <span class="op">──exposes──▶</span>  Service
+Service          <span class="op">──selects──▶</span>  Pod (webapp-deploy-*)
+Pod              <span class="op">──caused_by──▶</span> Event: <span class="nm">ImagePullBackOff</span>
+ImagePullBackOff <span class="op">──references──▶</span> Secret: registry-auth
+Secret           <span class="op">──explained_by──▶</span> Runbook: <span class="st">"이미지 풀 인증 실패 대응"</span>
+Runbook          <span class="op">──action──▶</span>  <span class="st">"pull-secret 재생성 후 Deployment 재시작"</span></pre>
+      <div class="callout info mt8">
+        <span class="callout-icon">🔬</span>
+        <div class="callout-body">
+          <strong>이런 경로 구조가 실제로 추출 가능한가?</strong>
+          OpenKB 실험을 통해 OCP 런북 문서로부터 이런 관계 경로가 어느 수준으로 자동 추출되는지
+          직접 확인해볼 예정입니다. 결과에 따라 AIOps 시스템에 어떻게 응용할지 판단합니다.
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 06. OpenShift 플러그인 응용 실험            -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s6">
+    <div class="section-label">Section 06</div>
+    <h2 class="section-title">OpenShift 플러그인 응용 실험</h2>
+    <p class="section-desc">
+      Console Plugin으로서 AIOps가 어떻게 동작하는지, Scenario 11 시연을 통해 검증된 내용을 정리합니다.
+    </p>
+
+    <div class="two-col">
+      <div>
+        <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">Console Plugin 통합 흐름</strong>
+        <table>
+          <thead><tr><th>단계</th><th>동작</th></tr></thead>
+          <tbody>
+            <tr><td>1. 플러그인 로드</td><td>OCP 콘솔이 ConsolePlugin CR을 통해 동적 로드</td></tr>
+            <tr><td>2. Bearer Token 전달</td><td>사용자의 OCP 세션 토큰 → Gateway RBAC 검증</td></tr>
+            <tr><td>3. SSE 스트리밍</td><td>tool_call → tool_result → token → done 이벤트</td></tr>
+            <tr><td>4. 증거 패널</td><td>수집된 증거 실시간 표시 (Events, Pod 상태, Logs)</td></tr>
+            <tr><td>5. RAG Citation</td><td>참조된 런북/SOP 출처 표시</td></tr>
+            <tr><td>6. 조치 후보</td><td>read-only 제안 / execute 모드 승인 후 실행</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">검증된 안전 모드 구분</strong>
+        <table>
+          <thead><tr><th>모드</th><th>허용 범위</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="badge ok">read-only</span></td>
+              <td>분석, 조회, 계획 안내만 수행. oc get/describe/logs 허용</td>
+            </tr>
+            <tr>
+              <td><span class="badge warn">execute</span></td>
+              <td>승인된 Action Executor를 통한 변경 작업 허용</td>
+            </tr>
+            <tr>
+              <td><span class="badge err">unrestricted</span></td>
+              <td>실험용 — Gateway 로컬 권한 직접 실행 (개발 전용)</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout info mt16">
+          <span class="callout-icon">🛡️</span>
+          <div class="callout-body">
+            <strong>기본값 read-only</strong>
+            AIOPS_GATEWAY_MODE 미설정 시 read-only로 동작.
+            변경 작업은 항상 명시적 모드 전환 필요.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">
+        Scenario 11 — 과거 Pod 재시작 RCA 시연 (구현 완료)
+      </strong>
+      <div class="scenario-box">
+        <div style="color:var(--gold);font-size:0.75rem;margin-bottom:14px;font-weight:700;">
+          TRIGGER: aiopsDemoCycle.scenarioId = "past-pod-restart-rca"
+        </div>
+        <div class="s-step">
+          <span class="s-num">1</span>
+          <div>
+            <div><span class="s-tool">openshift_event_lookup</span> <span class="s-arrow">→</span> OOMKilled 이벤트</div>
+            <div class="s-result">✓ 2026-06-28 02:14:33 KST · webapp-deploy · 512Mi 한도 초과</div>
+          </div>
+        </div>
+        <div class="s-step">
+          <span class="s-num">2</span>
+          <div>
+            <div><span class="s-tool">openshift_pod_snapshot_lookup</span> <span class="s-arrow">→</span> Pod 스냅샷</div>
+            <div class="s-result">✓ restartCount=3, OOMKilled, memoryLimit=512Mi</div>
+          </div>
+        </div>
+        <div class="s-step">
+          <span class="s-num">3</span>
+          <div>
+            <div><span class="s-tool">openshift_pod_log_pattern_probe</span> <span class="s-arrow">→</span> 로그 패턴</div>
+            <div class="s-result">✓ java.lang.OutOfMemoryError: Java heap space</div>
+          </div>
+        </div>
+        <div class="s-step">
+          <span class="s-num">4</span>
+          <div>
+            <div><span class="s-tool">gateway_rag_runbook_search</span> <span class="s-arrow">→</span> 런북 검색</div>
+            <div class="s-result">✓ "OOMKilled 대응 런북" — memory limit 증설 절차 포함</div>
+          </div>
+        </div>
+        <div class="s-step">
+          <span class="s-num">5</span>
+          <div>
+            <div><span class="s-tool">OLS 최종 답변</span> <span class="s-arrow">→</span> RCA 보고서</div>
+            <div class="s-result">✓ 확인된 근거 · 원인 후보 · 추가 확인 필요 · Read-only 확인 순서 · 금지 작업</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">실험 결론 및 인사이트</strong>
+      <div class="card-grid">
+        <div class="card">
+          <strong style="color:var(--success);display:block;margin-bottom:6px;">✅ 검증됨</strong>
+          <p style="font-size:0.8rem;color:var(--gray-4);">
+            Tool Plan → Evidence → RCA Context → OLS 흐름이 실제 OCP 환경에서 동작함.
+            SSE 스트리밍으로 수집 단계를 실시간 표시 가능.
+          </p>
+        </div>
+        <div class="card">
+          <strong style="color:var(--warn);display:block;margin-bottom:6px;">⚠️ 개선 필요</strong>
+          <p style="font-size:0.8rem;color:var(--gray-4);">
+            RAG 검색 품질이 hashing-BOW 한계로 낮음.
+            실제 운영 런북 코퍼스 없이는 RAG 기여도가 미미.
+          </p>
+        </div>
+        <div class="card">
+          <strong style="color:var(--blue);display:block;margin-bottom:6px;">🔮 확장 가능</strong>
+          <p style="font-size:0.8rem;color:var(--gray-4);">
+            OpenKB + Memora 레이어 추가 시 "이전에 유사한 장애를 어떻게 해결했는지"까지
+            컨텍스트로 제공 가능. 발표/교육 가치 대폭 향상.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════ -->
+  <!-- 07. 다음 단계                             -->
+  <!-- ══════════════════════════════════════════ -->
+  <section class="section" id="s7">
+    <div class="section-label">Section 07</div>
+    <h2 class="section-title">다음 단계 — v0.1.9 로드맵</h2>
+    <p class="section-desc">
+      v0.1.8 배포 이후 즉시 착수할 수 있는 항목부터 순서대로 정리했습니다.
+    </p>
+
+    <div class="roadmap">
+      <div class="roadmap-phase p1">
+        <h4>Phase 1 — RAG 기초 복구</h4>
+        <div class="phase-label">즉시 착수</div>
+        <ul>
+          <li>TEI 서비스 502 원인 확인 (VPN / 서버 상태)</li>
+          <li>전체 청크 semantic re-embed</li>
+          <li>실제 OCP 운영 런북 10~20개 추가 인제스트</li>
+          <li>검색 품질 검증 (RAG smoke 테스트)</li>
+        </ul>
+      </div>
+      <div class="roadmap-phase p2">
+        <h4>Phase 2 — Structured KB (OpenKB)</h4>
+        <div class="phase-label">v0.1.9 상반기</div>
+        <ul>
+          <li>aiops_graph_nodes / edges 스키마 추가</li>
+          <li>런북 인제스트 시 엔티티 + 관계 자동 추출</li>
+          <li>그래프 검색 함수 추가 (2-hop BFS)</li>
+          <li>KOMSCO_AI_RAG_GRAPH_ENABLED 토글</li>
+        </ul>
+      </div>
+      <div class="roadmap-phase p3">
+        <h4>Phase 3 — Episodic Memory (Memora)</h4>
+        <div class="phase-label">v0.1.9 하반기</div>
+        <ul>
+          <li>aiops_incidents 테이블 설계</li>
+          <li>장애 해결 후 에피소드 자동 저장</li>
+          <li>유사 에피소드 검색 + 퓨샷 주입</li>
+          <li>하이브리드 RAG 통합 테스트</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt24">
+      <strong style="display:block;margin-bottom:12px;font-size:0.85rem;">범위 밖 (v0.2.x+)</strong>
+      <table>
+        <thead><tr><th>항목</th><th>이유</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>AIOps 전용 모델 파인튜닝 (SFT/QLoRA)</td>
+            <td>RAG 고도화로 충분한 품질 달성 가능. 비용 대비 효과 낮음.</td>
+          </tr>
+          <tr>
+            <td>Linux / Windows 명령 실행 어댑터</td>
+            <td>OCP 중심 운영 우선. Multi-OS 지원은 별도 로드맵.</td>
+          </tr>
+          <tr>
+            <td>Prometheus / Thanos 메트릭 실구현</td>
+            <td>현재 Evidence 수집으로 충분. Metric 분석은 별도 단계.</td>
+          </tr>
+          <tr>
+            <td>AIOpsInstallation CR 기반 자동 배포</td>
+            <td>OLM 패키징 완료. 실제 클러스터 설치는 승인 후 진행.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout success mt24">
+      <span class="callout-icon">🚀</span>
+      <div class="callout-body">
+        <strong>최종 목표 — "경로를 보여주는 AIOps"</strong>
+        단순히 "AI가 답했다"가 아니라, 왜 그렇게 판단했는지 근거 경로 전체를 보여주는 시스템.
+        Route → Service → Pod → Event → Runbook → Action 경로가 시각화될 때
+        운영 방어력과 교육/발표 가치가 함께 높아진다.
+      </div>
+    </div>
+
+    <div class="mt24" style="text-align:center;padding:32px;background:var(--blue-light);border-radius:12px;">
+      <div style="font-size:0.75rem;color:var(--blue-mid);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">
+        KOMSCO AIOps Agent Technical Brief
+      </div>
+      <div style="font-size:0.82rem;color:var(--gray-4);">
+        v0.1.8 기준 · 작성일 2026-06-30 · feat/v.0.1.8 브랜치
+      </div>
+      <div class="mt8" style="font-size:0.78rem;color:var(--gray-3);">
+        참조:
+        <a href="https://github.com/VectifyAI/OpenKB" style="color:var(--blue-mid);">github.com/VectifyAI/OpenKB</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/microsoft/Memora" style="color:var(--blue-mid);">github.com/microsoft/Memora</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(function(){
+  var links = document.querySelectorAll('#sidebar nav a');
+  var sections = document.querySelectorAll('section[id]');
+  function onScroll(){
+    var scrollY = window.scrollY + 80;
+    var current = '';
+    sections.forEach(function(s){
+      if(s.offsetTop <= scrollY) current = s.id;
+    });
+    links.forEach(function(a){
+      a.classList.toggle('active', a.getAttribute('href') === '#'+current);
+    });
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+})();
+</script>
+</body>
+</html>

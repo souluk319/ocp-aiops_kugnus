@@ -8,9 +8,12 @@ LOG_DIR="${ROOT_DIR}/.tmp-kugnus-demo"
 OC_TIMEOUT="${KUGNUS_RESUME_OC_TIMEOUT_SECONDS:-10}"
 GATEWAY_URL="${KUGNUS_GATEWAY_URL:-http://127.0.0.1:18080}"
 CONSOLE_URL="${KUGNUS_CONSOLE_URL:-http://127.0.0.1:9000/dashboards}"
-PLUGIN_MANIFEST_URL="${KUGNUS_PLUGIN_MANIFEST_URL:-http://127.0.0.1:9001/plugin-manifest.json}"
+CONSOLE_HEALTH_URL="${KUGNUS_CONSOLE_HEALTH_URL:-http://127.0.0.1:9000/api/kubernetes/version}"
+PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
+PLUGIN_MANIFEST_URL="${KUGNUS_PLUGIN_MANIFEST_URL:-http://127.0.0.1:9001/api/plugins/${PLUGIN_NAME}/plugin-manifest.json}"
 STARTUP_ATTEMPTS="${KUGNUS_RESUME_STARTUP_ATTEMPTS:-160}"
 RUN_STRICT_GATE="${KUGNUS_RESUME_RUN_STRICT_GATE:-true}"
+ENSURE_RAG_BACKEND="${KUGNUS_RESUME_ENSURE_RAG_BACKEND:-true}"
 
 OLS_NAMESPACE="${OLS_NAMESPACE:-openshift-lightspeed}"
 OLS_SERVICE="${OLS_SERVICE:-lightspeed-app-server}"
@@ -274,28 +277,41 @@ ensure_gateway() {
   fail "Gateway did not become healthy"
 }
 
-ensure_console() {
-  if http_ok "$CONSOLE_URL"; then
-    log "Console already healthy: ${CONSOLE_URL}"
+ensure_rag_backend() {
+  local log_file="${LOG_DIR}/rag-pgvector.log"
+
+  if [ "$ENSURE_RAG_BACKEND" != "true" ]; then
+    log "RAG pgvector backend skipped by KUGNUS_RESUME_ENSURE_RAG_BACKEND=false"
     return
   fi
 
-  if port_open "127.0.0.1" 9000; then
-    ss -ltnp | grep ':9000' >&2 || true
-    fail "port 9000 is listening, but ${CONSOLE_URL} is not healthy. Stop the stale console bridge first."
+  log "ensuring RAG pgvector backend; log=${log_file}"
+  : >"$log_file"
+  if ! bash "${ROOT_DIR}/scripts/kugnus-rag-pgvector-dev.sh" >>"$log_file" 2>&1; then
+    sed -n '1,160p' "$log_file" >&2 || true
+    fail "RAG pgvector backend did not become ready"
+  fi
+  log "RAG pgvector backend ready"
+}
+
+ensure_console() {
+  if http_ok "$CONSOLE_HEALTH_URL" && http_ok "$PLUGIN_MANIFEST_URL"; then
+    log "Console bridge already healthy: ${CONSOLE_HEALTH_URL}"
+    log "Plugin manifest healthy: ${PLUGIN_MANIFEST_URL}"
+    return
   fi
 
-  start_background "frontend" env INSTALL_DEPS=false task kugnus:dev:fe
-  for _ in $(seq 1 "$STARTUP_ATTEMPTS"); do
-    if http_ok "$CONSOLE_URL"; then
-      log "Console ready: ${CONSOLE_URL}"
-      return
-    fi
-    sleep 0.5
-  done
+  log "repairing local OKD console bridge with real API health check"
+  KUGNUS_OKD_CONSOLE_REPAIR=true \
+    KUGNUS_OKD_CONSOLE_OPEN=false \
+    bash "${ROOT_DIR}/scripts/kugnus-okd-console-morning.sh"
 
-  sed -n '1,180p' "${LOG_DIR}/frontend.log" >&2 || true
-  fail "Console bridge did not become healthy"
+  if http_ok "$CONSOLE_HEALTH_URL" && http_ok "$PLUGIN_MANIFEST_URL"; then
+    log "Console ready: ${CONSOLE_URL}"
+    return
+  fi
+
+  fail "Console bridge did not become healthy after repair. Check ${CONSOLE_HEALTH_URL} and ${PLUGIN_MANIFEST_URL}."
 }
 
 ensure_plugin_manifest_state() {
@@ -343,6 +359,7 @@ run_verification() {
 main() {
   need_cmd bash
   need_cmd curl
+  need_cmd docker
   need_cmd oc
   need_cmd task
   need_cmd timeout
@@ -352,6 +369,7 @@ main() {
   log "repo=${ROOT_DIR}"
 
   require_oc_login
+  ensure_rag_backend
   ensure_port_forward "lightspeed-port-forward" "$OLS_NAMESPACE" "$OLS_SERVICE" "$OLS_LOCAL_PORT" "$OLS_SERVICE_PORT"
   ensure_port_forward "action-executor-port-forward" "$ACTION_EXECUTOR_NAMESPACE" "$ACTION_EXECUTOR_SERVICE" "$ACTION_EXECUTOR_LOCAL_PORT" "$ACTION_EXECUTOR_SERVICE_PORT"
   ensure_gateway

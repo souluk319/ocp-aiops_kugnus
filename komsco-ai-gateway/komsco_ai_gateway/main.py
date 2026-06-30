@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from pathlib import Path
 from urllib.parse import unquote
 import xml.etree.ElementTree as ET
 
@@ -51,6 +52,7 @@ from .aiops_core import (
 )
 from .aiops_contracts import build_rca_context, build_runtime_safety_contract, build_runtime_tool_plan
 from .answer_planning import build_gateway_fallback_answer_plan, render_answer_plan
+from .rca_result_parser import parse_rca_result
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -66,6 +68,13 @@ from .security import (
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await load_record_store()
+    if RAG_SYNC_DIR:
+        def _on_sync_done(t: asyncio.Task) -> None:
+            if not t.cancelled() and (exc := t.exception()):
+                import warnings
+                warnings.warn(f"RAG directory sync failed at startup: {exc}", RuntimeWarning, stacklevel=1)
+        task = asyncio.create_task(sync_rag_directory_on_startup())
+        task.add_done_callback(_on_sync_done)
     yield
 
 
@@ -104,9 +113,101 @@ def parse_ols_verify(value: str | None) -> bool | str:
     return value
 
 
-OLS_BASE_URL = os.getenv("OLS_BASE_URL", "").rstrip("/")
-OLS_CA_FILE = parse_ols_verify(os.getenv("OLS_CA_FILE"))
+def first_env_value(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return ""
+
+
+def parse_float_env(*names: str, default: float) -> float:
+    value = first_env_value(*names)
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def parse_millis_env_as_seconds(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return float(value) / 1000.0
+    except ValueError:
+        return default
+
+
+def infer_llm_api_style(provider: str, base_url: str, legacy_home_url: str) -> str:
+    normalized_provider = provider.strip().lower()
+    if normalized_provider in {"ollama", "ollama-native"}:
+        return "ollama"
+    if normalized_provider in {"lightspeed", "ols", "openshift-lightspeed"}:
+        return "lightspeed"
+    if legacy_home_url:
+        return "ollama"
+    if ":11434" in base_url:
+        return "ollama"
+    return "lightspeed"
+
+
+def infer_embedding_api_style(provider: str, base_url: str, legacy_home_url: str) -> str:
+    normalized_provider = provider.strip().lower()
+    if normalized_provider in {"ollama", "ollama-native"}:
+        return "ollama"
+    if normalized_provider in {"openai", "openai-compatible", "tei-openai"}:
+        return "openai"
+    if normalized_provider == "tei":
+        return "tei"
+    if legacy_home_url:
+        return "ollama"
+    if ":11435" in base_url or base_url.rstrip("/").endswith("/api/embed"):
+        return "ollama"
+    if re.search(r"/v\d+(?:/|$)", base_url):
+        return "openai"
+    return ""
+
+
+LEGACY_HOME_LLM_URL = first_env_value("KUGNUS_HOME_LLM_URL")
+LLM_PROVIDER = first_env_value("KOMSCO_AI_LLM_PROVIDER")
+LLM_BASE_URL = first_env_value("KOMSCO_AI_LLM_BASE_URL", "KUGNUS_HOME_LLM_URL").rstrip("/")
+LLM_MODEL = first_env_value("KOMSCO_AI_LLM_MODEL", "KUGNUS_HOME_LLM_MODEL")
+LLM_API_STYLE = (
+    first_env_value("KOMSCO_AI_LLM_API_STYLE")
+    or infer_llm_api_style(LLM_PROVIDER, LLM_BASE_URL, LEGACY_HOME_LLM_URL)
+).strip().lower()
+LLM_TIMEOUT_SECONDS = parse_float_env("KOMSCO_AI_LLM_TIMEOUT_SECONDS", default=300.0)
+
+_LEGACY_OLS_BASE_URL = (
+    os.getenv("OLS_BASE_URL") or os.getenv("OPENSHIFT_LIGHTSPEED_BASE_URL", "")
+).rstrip("/")
+OLS_BASE_URL = LLM_BASE_URL if LLM_API_STYLE == "lightspeed" and LLM_BASE_URL else _LEGACY_OLS_BASE_URL
+OLS_CA_FILE = parse_ols_verify(
+    os.getenv("OLS_CA_FILE")
+    if os.getenv("OLS_CA_FILE") is not None
+    else os.getenv("OPENSHIFT_LIGHTSPEED_TLS_VERIFY")
+)
 OLS_EMPTY_ANSWER_RETRIES = parse_int(os.getenv("KOMSCO_AI_OLS_EMPTY_ANSWER_RETRIES"), default=1, minimum=0, maximum=3)
+OLS_QUERY_PROFILE = os.getenv("KOMSCO_AI_OLS_QUERY_PROFILE", "minimal").strip().lower()
+OLS_FORWARD_CONVERSATION_ID = parse_bool(
+    os.getenv("KOMSCO_AI_OLS_FORWARD_CONVERSATION_ID"),
+    default=False,
+)
+OLS_CONTEXT_HANDOFF_MAX_CHARS = parse_int(
+    os.getenv("KOMSCO_AI_OLS_CONTEXT_HANDOFF_MAX_CHARS"),
+    default=2200,
+    minimum=0,
+    maximum=8000,
+)
+OLS_CONTEXT_HANDOFF_MAX_LINES = parse_int(
+    os.getenv("KOMSCO_AI_OLS_CONTEXT_HANDOFF_MAX_LINES"),
+    default=24,
+    minimum=1,
+    maximum=80,
+)
 DEV_ECHO = parse_bool(os.getenv("KOMSCO_AI_DEV_ECHO"))
 OPENSHIFT_API_URL = os.getenv("OPENSHIFT_API_URL", "").rstrip("/")
 if not OPENSHIFT_API_URL and os.getenv("KUBERNETES_SERVICE_HOST"):
@@ -168,14 +269,56 @@ RECORD_STORE_NAMESPACE = os.getenv("KOMSCO_AI_RECORD_STORE_NAMESPACE", "")
 RAG_BACKEND_URL = os.getenv("KOMSCO_AI_RAG_BACKEND_URL", "").rstrip("/")
 RAG_BACKEND_TYPE = os.getenv("KOMSCO_AI_RAG_BACKEND_TYPE", "pgvector")
 RAG_COLLECTION = os.getenv("KOMSCO_AI_RAG_COLLECTION", "komsco-aiops-runbooks")
-RAG_EMBEDDING_MODEL = os.getenv("KOMSCO_AI_RAG_EMBEDDING_MODEL", "")
-RAG_VECTOR_DIMENSIONS = int(os.getenv("KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "0") or "0")
+LEGACY_HOME_EMBED_URL = first_env_value("KUGNUS_HOME_EMBED_URL")
+RAG_EMBEDDING_PROVIDER = first_env_value("KOMSCO_AI_EMBEDDING_PROVIDER")
+RAG_EMBEDDING_SERVICE_URL = first_env_value(
+    "KOMSCO_AI_EMBEDDING_BASE_URL",
+    "KOMSCO_AI_RAG_EMBEDDING_SERVICE_URL",
+    "KUGNUS_HOME_EMBED_URL",
+).rstrip("/")
+RAG_EMBEDDING_API_STYLE = (
+    first_env_value("KOMSCO_AI_EMBEDDING_API_STYLE")
+    or infer_embedding_api_style(
+        RAG_EMBEDDING_PROVIDER,
+        RAG_EMBEDDING_SERVICE_URL,
+        LEGACY_HOME_EMBED_URL,
+    )
+).strip().lower()
+RAG_EMBEDDING_MODEL = first_env_value(
+    "KOMSCO_AI_EMBEDDING_MODEL",
+    "KOMSCO_AI_RAG_EMBEDDING_MODEL",
+    "KUGNUS_HOME_EMBED_MODEL",
+)
+RAG_VECTOR_DIMENSIONS = int(
+    first_env_value(
+        "KOMSCO_AI_EMBEDDING_DIMENSIONS",
+        "KOMSCO_AI_RAG_VECTOR_DIMENSIONS",
+        "KUGNUS_HOME_EMBED_DIMENSIONS",
+    )
+    or "0"
+)
 RAG_EFFECTIVE_VECTOR_DIMENSIONS = RAG_VECTOR_DIMENSIONS or 64
 RAG_DEMO_SEED_ENABLED = parse_bool(os.getenv("KOMSCO_AI_RAG_DEMO_SEED_ENABLED"), default=True)
 RAG_UPLOAD_MAX_BYTES = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_BYTES", str(5 * 1024 * 1024)))
 RAG_UPLOAD_MAX_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHARS", "120000"))
 RAG_UPLOAD_MAX_CHUNKS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNKS", "80"))
 RAG_UPLOAD_MAX_CHUNK_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNK_CHARS", "1200"))
+RAG_UPLOAD_CHUNK_OVERLAP_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_CHUNK_OVERLAP_CHARS", "0"))
+RAG_EMBEDDING_TIMEOUT_SECONDS = parse_float_env(
+    "KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS",
+    "KOMSCO_AI_RAG_EMBEDDING_TIMEOUT_SECONDS",
+    default=parse_millis_env_as_seconds("KUGNUS_HOME_EMBED_TIMEOUT_MS", 10.0),
+)
+RAG_SYNC_DIR = os.getenv("KOMSCO_AI_RAG_SYNC_DIR", "")
+RAG_SYNC_SOURCE_TYPE = os.getenv("KOMSCO_AI_RAG_SYNC_SOURCE_TYPE", "runbook")
+RAG_SYNC_ACL_GROUPS = [
+    g.strip()
+    for g in os.getenv("KOMSCO_AI_RAG_SYNC_ACL_GROUPS", "aiops-admins").split(",")
+    if g.strip()
+]
+RAG_SYNC_CUSTOMER = os.getenv("KOMSCO_AI_RAG_SYNC_CUSTOMER", "komsco")
+RAG_SYNC_NAMESPACE = os.getenv("KOMSCO_AI_RAG_SYNC_NAMESPACE", "komsco-ai-kugnus")
+RAG_SYNC_VERSION = os.getenv("KOMSCO_AI_RAG_SYNC_VERSION", "v0.1.7")
 RAG_DANGEROUS_CONTENT_RE = re.compile(
     r"\b(?:oc|kubectl)\s+(?:delete|patch|replace|scale|adm|debug|exec)\b|"
     r"\brm\s+-rf\b|"
@@ -2184,6 +2327,13 @@ def page_context_aiops_execution_mode(req: ChatRequest) -> str:
 
 def execution_mode_allows_actions(req: ChatRequest) -> bool:
     return page_context_aiops_execution_mode(req) in {"execute", "unrestricted"}
+
+
+def execution_mode_allows_immediate_actions(req: ChatRequest) -> bool:
+    return (
+        page_context_aiops_execution_mode(req) == "unrestricted"
+        and UNRESTRICTED_COMMANDS_ENABLED
+    )
 
 
 UNRESTRICTED_COMMAND_PREFIX_RE = re.compile(
@@ -4653,7 +4803,7 @@ def build_ols_payload(
     gateway_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"query": query}
-    if conversation_id:
+    if OLS_FORWARD_CONVERSATION_ID and conversation_id:
         payload["conversation_id"] = conversation_id
 
     # OLS 1.1.x rejects unknown request-body fields with 422 extra_forbidden.
@@ -4997,6 +5147,71 @@ def append_gateway_evidence(current: str | None, new_evidence: str) -> str:
         return new_evidence
 
     return f"{current}\n\n{new_evidence}"
+
+
+def build_ols_context_handoff(
+    *,
+    gateway_context: Mapping[str, Any] | None = None,
+    gateway_evidence: str | None = None,
+) -> str:
+    if OLS_CONTEXT_HANDOFF_MAX_CHARS <= 0:
+        return ""
+
+    lines: list[str] = []
+    if isinstance(gateway_context, Mapping):
+        tool_plan = gateway_context.get("toolPlan")
+        rca_context = gateway_context.get("rcaContext")
+        if isinstance(tool_plan, Mapping):
+            task_type = str(tool_plan.get("task_type") or "generic_openshift_question")
+            policy = tool_plan.get("execution_policy")
+            execution_mode = (
+                str(policy.get("mode"))
+                if isinstance(policy, Mapping) and policy.get("mode")
+                else "read_only"
+            )
+            lines.append(f"- Tool plan: {task_type}; execution policy: {execution_mode}")
+
+        if isinstance(rca_context, Mapping):
+            evidence = rca_context.get("evidence")
+            if isinstance(evidence, Mapping):
+                summary = evidence.get("summary")
+                if isinstance(summary, Mapping):
+                    lines.append(
+                        "- Evidence refs: "
+                        f"collected={summary.get('collectedCount', 0)}, "
+                        f"partial={summary.get('partialCount', 0)}, "
+                        f"failed={summary.get('failedCount', 0)}, "
+                        f"missing={summary.get('missingCount', 0)}"
+                    )
+                missing = evidence.get("missing")
+                if isinstance(missing, list) and missing:
+                    missing_types = [
+                        str(item.get("type") or "unknown")
+                        for item in missing
+                        if isinstance(item, Mapping)
+                    ]
+                    if missing_types:
+                        lines.append(f"- Missing evidence types: {', '.join(missing_types[:6])}")
+
+    if gateway_evidence:
+        lines.append("- Verified facts collected before final answer:")
+        for raw_line in str(redact_sensitive(gateway_evidence)).splitlines():
+            line = " ".join(raw_line.strip().split())
+            if not line:
+                continue
+            if not line.startswith(("-", "*")):
+                line = f"- {line}"
+            lines.append(line)
+            if len(lines) >= OLS_CONTEXT_HANDOFF_MAX_LINES:
+                break
+
+    handoff = "\n".join(lines).strip()
+    if len(handoff) > OLS_CONTEXT_HANDOFF_MAX_CHARS:
+        handoff = (
+            handoff[:OLS_CONTEXT_HANDOFF_MAX_CHARS].rstrip()
+            + "\n- ... truncated; full RCA context is available in the local event stream."
+        )
+    return handoff
 
 
 def normalize_pod_restart_language(text: str) -> str:
@@ -6297,12 +6512,84 @@ def build_ols_query(
     *,
     policy: Mapping[str, Any] | None = None,
     subject: Mapping[str, Any] | None = None,
+    gateway_context: Mapping[str, Any] | None = None,
     gateway_evidence: str | None = None,
 ) -> str:
     page_context = normalize_console_page_context(req.pageContext)
     forwarded_to_ols = should_forward_image_attachments_to_ols()
     effective_policy = policy or classify_request_policy(req.message)
     subject_metadata = subject or safe_subject(None)
+    context_handoff = build_ols_context_handoff(
+        gateway_context=gateway_context,
+        gateway_evidence=gateway_evidence,
+    )
+    context_handoff_block = (
+        f"\nVerified operational context:\n{context_handoff}\n"
+        if context_handoff
+        else ""
+    )
+
+    if OLS_QUERY_PROFILE in {"minimal", "direct", "safe"}:
+        query = f"""
+{redact_sensitive(req.message).strip()}
+
+Answer in Korean unless the user asks otherwise.
+Use read-only OpenShift checks only when live cluster facts are needed.
+Do not invent alert, pod, node, namespace, resource names, causes, or actions.
+Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
+Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
+If no screenshot/image is attached, do not claim you inspected a screenshot.
+Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_read_only_evidence")) if isinstance(effective_policy, Mapping) else "allow_read_only_evidence"}.
+Console context:
+{json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
+Attachment context:
+{build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
+{context_handoff_block}
+For RCA or operations status, use these sections when useful: 우선 판단, 수집 근거, 원인 후보, 확인 불가, 다음 확인 명령, 우선순위.
+"""
+        return redact_sensitive(query)
+
+    if OLS_QUERY_PROFILE in {"compact", "context"}:
+        query = f"""
+KOMSCO AI context.
+Use this pre-collected context as evidence, but still separate verified facts from unknowns.
+Do not invent alert, pod, node, namespace, resource names, causes, or actions.
+Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
+Mutation is not allowed from this answer. Propose risky actions only after evidence and approval.
+If no screenshot/image is attached, do not say you inspected the screen image.
+If the user asks about this AI gateway, do not attach unrelated Kubernetes Gateway API links.
+
+Policy:
+{json.dumps(redact_sensitive(effective_policy), ensure_ascii=False)}
+
+Subject:
+{json.dumps(redact_sensitive(subject_metadata), ensure_ascii=False)}
+
+User question:
+{redact_sensitive(req.message)}
+
+Console context:
+{json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
+
+Attachments:
+{build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
+
+Verified operational context:
+{context_handoff if context_handoff else "No verified operational context was collected before this answer."}
+
+Answer format:
+Write in Korean unless the user asks otherwise.
+Use this structure when RCA or operations status is requested:
+## RCA 보고서
+### 우선 판단
+### 수집 근거
+### 원인 후보
+### 확인 불가
+### 다음 확인 명령
+### 우선순위
+"""
+        return redact_sensitive(query)
+
     query = f"""
 [Gateway 보안 경계]
 {build_gateway_guardrail(effective_policy)}
@@ -6323,10 +6610,13 @@ def build_ols_query(
 {build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
 
 [Gateway 선조회 증거]
-{redact_sensitive(gateway_evidence) if gateway_evidence else "Gateway 선조회 증거 없음"}
+{context_handoff if context_handoff else "Gateway 선조회 증거 없음"}
 
 [CrashLoopBackOff 시연 답변 계약]
 {crashloop_demo_prompt_answer_contract(req)}
+
+[과거 Pod 재시작 RCA 시연 답변 계약]
+{past_pod_restart_demo_prompt_contract(req)}
 
 이미지/화면 컨텍스트 처리:
 - [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 근거로 답하세요.
@@ -6544,7 +6834,7 @@ async def stream_with_heartbeats(
                     "type": "run_status",
                     "runId": run_id,
                     "stage": "waiting",
-                    "message": "Lightspeed 응답 스트림 대기 중",
+                    "message": f"{active_llm_label()} 응답 대기 중",
                     "elapsedMs": int((time.monotonic() - started_at) * 1000),
                 }
                 continue
@@ -6583,6 +6873,131 @@ def update_ols_stream_status(
     }
 
 
+def should_use_ollama_llm() -> bool:
+    return LLM_API_STYLE == "ollama" and bool(LLM_BASE_URL)
+
+
+def active_llm_stage() -> str:
+    return "ollama" if should_use_ollama_llm() else "lightspeed"
+
+
+def active_llm_label() -> str:
+    return "Ollama LLM" if should_use_ollama_llm() else "OpenShift Lightspeed"
+
+
+def build_ollama_chat_url(base_url: str) -> str:
+    url = base_url.rstrip("/")
+    if url.endswith("/api/chat"):
+        return url
+    if url.endswith("/api"):
+        return f"{url}/chat"
+    return f"{url}/api/chat"
+
+
+def extract_ollama_chat_content(data: Mapping[str, Any]) -> str:
+    message = data.get("message")
+    if isinstance(message, Mapping):
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+    response = data.get("response")
+    if isinstance(response, str):
+        return response
+    return ""
+
+
+async def call_ollama_chat(
+    query: str,
+    conversation_id: str | None,
+    gateway_context: Mapping[str, Any] | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    context_digest = (
+        str(gateway_context.get("metadata", {}).get("digest") or "")
+        if isinstance(gateway_context, Mapping) and isinstance(gateway_context.get("metadata"), Mapping)
+        else ""
+    )
+    if not LLM_BASE_URL or not LLM_MODEL:
+        reason = "KOMSCO_AI_LLM_BASE_URL or KOMSCO_AI_LLM_MODEL is not configured"
+        update_ols_stream_status(
+            "not_configured",
+            context_digest=context_digest,
+            fallback_active=True,
+            reason=reason,
+        )
+        yield {
+            "type": "text",
+            "content": "DEV_ECHO: Gateway is running. Configure KOMSCO_AI_LLM_BASE_URL and KOMSCO_AI_LLM_MODEL.\n\n",
+            "source": "gateway_fallback",
+            "fallbackAnswer": True,
+            "gatewayContextDigest": context_digest,
+            "streamProbe": "not_configured",
+        }
+        yield {"type": "end", "conversationId": conversation_id}
+        return
+
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "너는 KOMSCO AIOps 운영 분석가다. 확인한 근거와 추정을 분리하고, "
+                    "위험한 조치는 승인 전 실행 지시로 쓰지 않는다."
+                ),
+            },
+            {"role": "user", "content": query},
+        ],
+        "stream": False,
+        "think": False,
+    }
+    update_ols_stream_status("started", context_digest=context_digest)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(LLM_TIMEOUT_SECONDS, connect=10.0),
+        ) as client:
+            response = await client.post(
+                build_ollama_chat_url(LLM_BASE_URL),
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            if response.status_code >= 400:
+                detail = safe_error_text(response.text[:1000], limit=1000)
+                update_ols_stream_status(
+                    "failed",
+                    context_digest=context_digest,
+                    fallback_active=True,
+                    reason=f"HTTP {response.status_code}: {detail}",
+                )
+                raise HTTPException(status_code=response.status_code, detail=detail)
+            data = response.json()
+
+        if not isinstance(data, Mapping):
+            raise ValueError("Ollama chat response is not a JSON object")
+        content = extract_ollama_chat_content(data)
+        if not content.strip():
+            raise ValueError("Ollama chat response did not include message.content")
+
+        update_ols_stream_status("succeeded", context_digest=context_digest)
+        yield {
+            "type": "text",
+            "content": content,
+            "source": "ollama_chat",
+            "gatewayContextDigest": context_digest,
+            "streamProbe": "succeeded",
+        }
+        yield {"type": "end", "conversationId": conversation_id}
+    except Exception as exc:
+        if OLS_STREAM_STATUS.get("lastStatus") != "failed":
+            update_ols_stream_status(
+                "failed",
+                context_digest=context_digest,
+                fallback_active=True,
+                reason=safe_exception_text(exc),
+            )
+        raise
+
+
 async def call_ols_stream(
     user_auth_header: str,
     query: str,
@@ -6595,6 +7010,11 @@ async def call_ols_stream(
         if isinstance(gateway_context, Mapping) and isinstance(gateway_context.get("metadata"), Mapping)
         else ""
     )
+    if should_use_ollama_llm():
+        async for event in call_ollama_chat(query, conversation_id, gateway_context):
+            yield event
+        return
+
     if DEV_ECHO or not OLS_BASE_URL:
         fallback_status = "dev_echo" if DEV_ECHO else "not_configured"
         fallback_reason = "DEV_ECHO enabled" if DEV_ECHO else "OLS_BASE_URL is not configured"
@@ -6682,6 +7102,11 @@ async def call_ols_stream(
                             if line.startswith("data:")
                         ]
                         if not data_lines:
+                            async def iter_frame() -> AsyncIterator[str]:
+                                yield frame + "\n"
+
+                            async for event in split_plain_text_events(iter_frame()):
+                                yield event
                             continue
 
                         raw = "\n".join(data_lines)
@@ -6923,6 +7348,143 @@ def crashloop_demo_prompt_answer_contract(req: ChatRequest) -> str:
             "`oc apply/delete/patch/scale/exec/rollout restart/replace/create`는 코드블록에 넣지 말고 금지 작업 섹션에서만 언급하세요.",
         ]
     )
+
+
+def past_pod_restart_demo_active(req: "ChatRequest") -> bool:
+    context = normalize_console_page_context(req.pageContext)
+    demo_cycle = context.get("aiopsDemoCycle")
+    return (
+        isinstance(demo_cycle, Mapping)
+        and demo_cycle.get("scenarioId") == "past-pod-restart-rca"
+    )
+
+
+def past_pod_restart_demo_prompt_contract(req: "ChatRequest") -> str:
+    if not past_pod_restart_demo_active(req):
+        return "적용 없음"
+    return "\n".join([
+        "이 요청은 과거 시점 Pod 재시작 RCA 공식 Evidence 시연 사이클입니다.",
+        "최종 답변에는 아래 5개 섹션명을 이 순서 그대로 포함하세요.",
+        "1. `### 확인된 근거`",
+        "2. `### 가능한 원인 후보`",
+        "3. `### 추가 확인 필요`",
+        "4. `### Read-only 확인 순서`",
+        "5. `### 금지 작업`",
+        "수집된 증적(event/snapshot/pod_log/runbook)과 missing 증적(metric/clusteroperator)을 명확히 구분하세요.",
+        "원인을 확정하지 말고 missing evidence가 있는 상태에서 조치 후보만 제시하세요.",
+        "공식 최종 답변에는 `RCA`, `즉시 조치`, `재발 방지책`, `참고 증적` 관점을 포함하세요.",
+        "`oc apply/delete/patch/scale/exec/rollout restart`는 코드블록에 넣지 말고 금지 작업 섹션에서만 언급하세요.",
+    ])
+
+
+def collect_past_pod_restart_demo_evidence_events(request_id: str) -> list[dict[str, Any]]:
+    """Scenario 11 mock evidence — 어제 새벽 OOMKilled past-pod-restart-rca."""
+    return [
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-event",
+            "name": "openshift_event_lookup",
+            "evidenceType": "event",
+            "eventStatus": "success",
+            "sourceType": "gateway-evidence",
+            "status": "success",
+            "summary": "Gateway-collected Pod Event evidence",
+            "detail": (
+                "openshift_event_lookup collected evidence — "
+                "2026-06-28 02:14:33 KST · Namespace: default · "
+                "Pod: webapp-deploy-7f94d-k8z2p · Reason: OOMKilled · "
+                "Message: Container exceeded memory limit of 512Mi"
+            ),
+        },
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-snapshot",
+            "name": "openshift_pod_snapshot_lookup",
+            "evidenceType": "snapshot",
+            "eventStatus": "success",
+            "sourceType": "gateway-evidence",
+            "status": "success",
+            "summary": "Gateway-collected Pod snapshot evidence",
+            "detail": (
+                "openshift_pod_snapshot_lookup collected evidence — "
+                "Pod webapp-deploy-7f94d-k8z2p: phase=Running, restartCount=3, "
+                "lastState.terminated.reason=OOMKilled, "
+                "lastState.terminated.finishedAt=2026-06-28T02:14:30Z, memoryLimit=512Mi"
+            ),
+        },
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-pod-status",
+            "name": "openshift_pod_status_lookup",
+            "evidenceType": "pod_status",
+            "eventStatus": "success",
+            "sourceType": "gateway-evidence",
+            "status": "success",
+            "summary": "Gateway-collected Pod status evidence",
+            "detail": (
+                "openshift_pod_status_lookup collected evidence — "
+                "Pod 목록 조회 완료: webapp-deploy-7f94d-k8z2p STATUS=Running RESTARTS=3 AGE=2h10m"
+            ),
+        },
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-log",
+            "name": "openshift_pod_log_pattern_probe",
+            "evidenceType": "pod_log",
+            "eventStatus": "success",
+            "sourceType": "gateway-evidence",
+            "status": "success",
+            "summary": "Gateway-collected pod log pattern evidence",
+            "detail": (
+                "openshift_pod_log_pattern_probe collected evidence — "
+                "이전 컨테이너 로그 패턴 검출: 'java.lang.OutOfMemoryError: Java heap space' (02:14:28), "
+                "'GC overhead limit exceeded' (02:14:15), heap 증가 추세 확인됨"
+            ),
+        },
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-runbook",
+            "name": "gateway_rag_runbook_search",
+            "evidenceType": "runbook",
+            "eventStatus": "success",
+            "sourceType": "rag-evidence",
+            "status": "success",
+            "summary": "Gateway-collected RAG evidence",
+            "detail": (
+                "gateway_rag_runbook_search collected evidence — "
+                "OOMKilled 대응 런북 조회 완료: 메모리 limit 증설 절차, "
+                "JVM heap 설정 점검, HPA 메모리 기반 스케일 정책 확인 포함"
+            ),
+        },
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-metric-missing",
+            "name": "openshift_metric_query",
+            "evidenceType": "metric",
+            "eventStatus": "missing",
+            "sourceType": "not-collected",
+            "status": "skipped",
+            "missingReason": "metric_tool Prometheus 연결은 v0.1.9 예정",
+            "summary": "Metric evidence missing",
+            "detail": (
+                "openshift_metric_query missing evidence — "
+                "Prometheus/Thanos 메모리 장기 추이 조회 미수행. "
+                "metric_tool Prometheus 연결은 v0.1.9 예정."
+            ),
+        },
+        {
+            "type": "tool_result",
+            "id": f"{request_id}-past-restart-clusteroperator-missing",
+            "name": "openshift_clusteroperator_lookup",
+            "evidenceType": "clusteroperator",
+            "eventStatus": "missing",
+            "sourceType": "not-collected",
+            "status": "skipped",
+            "missingReason": "ClusterOperator 상태 조회 미수행",
+            "summary": "ClusterOperator evidence missing",
+            "detail": "openshift_clusteroperator_lookup missing evidence — ClusterOperator 상태 조회 미수행",
+        },
+    ]
 
 
 def container_status_rows(pod_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -9125,60 +9687,110 @@ def build_empty_answer_fallback(
     if pod_fallback:
         return pod_fallback
 
-    lines = [
+    # ── classify tool_results ──────────────────────────────────
+    _OK = {"success", "ok"}
+    _MISS = {"skipped", "missing", "error"}
+    ok_events: list[dict] = []
+    miss_events: list[dict] = []
+    inline_blocks: list[str] = []   # pre-formatted markdown tables (node, alert)
+
+    for ev in tool_results:
+        if not isinstance(ev, dict):
+            continue
+        status = str(ev.get("status") or "")
+        detail = str(ev.get("detail") or "")
+        if status in _OK:
+            # detect already-formatted markdown tables in detail
+            if "\n|" in detail and ("EvidenceType:" in detail or "Summary:" in detail):
+                # strip noisy header lines, keep the formatted block
+                block_lines = [
+                    ln for ln in detail.splitlines()
+                    if not ln.startswith("Gateway-collected")
+                    and not ln.startswith("EvidenceType:")
+                    and ln.strip()
+                ]
+                if block_lines:
+                    inline_blocks.append("\n".join(block_lines))
+            else:
+                ok_events.append(ev)
+        elif status in _MISS:
+            miss_events.append(ev)
+
+    # ── query namespace for oc commands ──────────────────────
+    ctx = normalize_console_page_context(req.pageContext)
+    ns = str(ctx.get("namespace") or "default")
+
+    # ── build answer ─────────────────────────────────────────
+    lines: list[str] = [
+        "> ⚠️ **AI 최종 답변 미수신** — OpenShift Lightspeed가 최종 답변 텍스트를 반환하지 않아 Gateway 수집 증거만으로 요약합니다.",
+        "> OLS 연결 자체가 아니라 최종 텍스트 생성 단계의 문제일 수 있습니다. 아래 내용은 Gateway가 확인한 증거 기준입니다.",
+        "",
         "## RCA 보고서",
         "",
-        "Gateway가 수집한 증거 기준으로 안전한 요약을 생성했습니다.",
-        "",
         "### 우선 판단",
-        f"- 질문: {redact_sensitive(req.message.strip()) or '미지정'}",
-        "- 현재 답변은 read-only Gateway 증거와 도구 결과만 근거로 합니다.",
+        f"- 질문: {redact_sensitive(req.message)}",
+        "- Gateway가 수집한 증거 기준으로만 임시 요약합니다.",
+        "- Lightspeed 최종 분석이 아니므로 원인은 후보로만 봅니다.",
+        "",
+        "### 수집 근거",
+        "",
     ]
-    if tool_results:
-        lines.extend(["", "### 수집 근거"])
-        for index, event in enumerate(tool_results[-3:], start=1):
-            name = event.get("name") or "tool_result"
-            status_text = event.get("status") or "-"
-            summary = event.get("summary") or event.get("detail") or "-"
-            lines.append(f"{index}. `{name}` status={status_text}: {truncate_detail(str(summary), 500)}")
-    if gateway_evidence:
-        lines.extend(
-            [
-                "",
-                "### Gateway 사전 수집 증거 요약",
-                truncate_detail(gateway_evidence, 1800),
-            ]
-        )
-    if not tool_results and not gateway_evidence:
-        lines.extend(["", "### 수집 근거", "- 도구 결과가 없어 현재 답변은 추가 조회가 필요합니다."])
 
-    lines.extend(
-        [
-            "",
-            "### 원인 후보",
-            "- 수집된 근거만으로 확정 원인을 단정하지 않습니다. 위 도구 결과의 status와 detail을 기준으로 후보를 좁혀야 합니다.",
-            "",
-            "### 확인 불가",
-            "- 근거에 없는 리소스 상태, 로그 내용, Event 원인은 확인하지 못했습니다.",
-        ]
-    )
+    # collected summary table
+    if ok_events:
+        lines.append("| 증거 유형 | 내용 |")
+        lines.append("| :--- | :--- |")
+        for ev in ok_events:
+            ev_type = str(ev.get("evidenceType") or ev.get("name") or "-")
+            detail = str(ev.get("detail") or "")
+            summary = str(ev.get("summary") or "")
+            # prefer detail that isn't raw JSON or generic header
+            if detail and not detail.startswith("{") and not detail.startswith("Gateway-collected"):
+                desc = truncate_detail(detail, 160)
+            else:
+                desc = truncate_detail(summary, 160)
+            lines.append(f"| `{ev_type}` | {desc} |")
+        lines.append("")
+    elif gateway_evidence:
+        lines.append(truncate_detail(str(redact_sensitive(gateway_evidence)), 800))
+        lines.append("")
+    else:
+        lines.append("- 수집 완료로 표시된 증거가 없습니다.")
+        lines.append("")
 
-    lines.extend(
-        [
-            "",
-            "### 다음 확인 명령",
-            "```bash",
-            "oc get events -A --sort-by=.lastTimestamp",
-            "oc get co",
-            "oc get pods -A",
-            "```",
-            "",
-            "### 우선순위",
-            "1. 실패하거나 누락된 evidence source를 먼저 복구합니다.",
-            "2. 질문 대상 namespace/resource를 좁힙니다.",
-            "3. 관련 Pod/Event/Operator/Metric 근거를 모아 원인 후보를 재평가합니다.",
-        ]
-    )
+    # inline formatted blocks (node table, alert table etc.)
+    for block in inline_blocks:
+        lines.append(block)
+        lines.append("")
+
+    lines.extend([
+        "### 원인 후보",
+        "- 현재 fallback은 수집된 증거를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 근거가 함께 맞을 때만 확정합니다.",
+        "",
+        "### 확인 불가",
+    ])
+
+    # missing summary
+    if miss_events:
+        for ev in miss_events:
+            ev_type = str(ev.get("evidenceType") or ev.get("name") or "-")
+            reason = str(ev.get("missingReason") or ev.get("summary") or "-")
+            lines.append(f"- `{ev_type}` — {truncate_detail(reason, 120)}")
+        lines.append("")
+    else:
+        lines.append("- 추가 실패 도구는 보고되지 않았습니다.")
+        lines.append("")
+
+    # targeted oc commands
+    lines.extend([
+        "### 다음 확인 명령",
+        "```bash",
+        f"oc get events -n {ns} --sort-by=.lastTimestamp | tail -20",
+        f"oc get pods -n {ns}",
+        "oc get co",
+        "```",
+    ])
+
     return "\n".join(lines)
 
 
@@ -10130,8 +10742,14 @@ RAG_DEMO_RUNBOOKS: tuple[dict[str, Any], ...] = (
 )
 
 
-def split_rag_upload_chunks(content: str, *, max_chars: int | None = None) -> list[str]:
+def split_rag_upload_chunks(
+    content: str,
+    *,
+    max_chars: int | None = None,
+    overlap_chars: int | None = None,
+) -> list[str]:
     limit = max_chars or RAG_UPLOAD_MAX_CHUNK_CHARS
+    effective_overlap = overlap_chars if overlap_chars is not None else RAG_UPLOAD_CHUNK_OVERLAP_CHARS
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
     chunks: list[str] = []
     current = ""
@@ -10152,7 +10770,17 @@ def split_rag_upload_chunks(content: str, *, max_chars: int | None = None) -> li
         current = ""
     if current:
         chunks.append(current)
-    return chunks[:RAG_UPLOAD_MAX_CHUNKS]
+    result = chunks[:RAG_UPLOAD_MAX_CHUNKS]
+    if effective_overlap <= 0 or len(result) <= 1:
+        return result
+    overlapped: list[str] = [result[0]]
+    for i in range(1, len(result)):
+        body = result[i]
+        available = limit - len(body) - 2  # reserve 2 for "\n\n" separator
+        raw_tail = result[i - 1][-effective_overlap:].strip()
+        tail = raw_tail[:available] if available > 0 and raw_tail else ""
+        overlapped.append(f"{tail}\n\n{body}" if tail else body)
+    return overlapped
 
 
 def sanitize_rag_upload_text(content: str) -> str:
@@ -10519,7 +11147,42 @@ def rag_tokenize(value: str) -> list[str]:
     return re.findall(r"[0-9a-zA-Z가-힣_./:-]+", value.lower())
 
 
+_rag_embedding_model_warned = False
+_rag_embedding_fallback_warned = False
+
+
+def _warn_embedding_fallback(raw_vec: list[float] | None) -> None:
+    """Emit a one-time warning when the embedding service result cannot be used."""
+    global _rag_embedding_fallback_warned
+    if not RAG_EMBEDDING_SERVICE_URL or _rag_embedding_fallback_warned:
+        return
+    import warnings
+    reason = (
+        f"expected {RAG_EFFECTIVE_VECTOR_DIMENSIONS}-dim but got {len(raw_vec)}-dim; "
+        "set KOMSCO_AI_EMBEDDING_DIMENSIONS to match the service output dimensions"
+        if raw_vec
+        else "embedding service returned None (connection error or bad response)"
+    )
+    warnings.warn(
+        f"RAG embedding service fallback active — {reason}. "
+        "Chunks will be stored with hashing-bow-v1 until this is resolved.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    _rag_embedding_fallback_warned = True
+
+
 def build_rag_embedding(value: str, dimensions: int | None = None) -> list[float]:
+    global _rag_embedding_model_warned
+    if RAG_EMBEDDING_MODEL and not _rag_embedding_model_warned:
+        import warnings
+        warnings.warn(
+            f"KOMSCO_AI_EMBEDDING_MODEL={RAG_EMBEDDING_MODEL!r} is configured "
+            "but hashing-bow-v1 fallback is being used for this embedding call. "
+            "Check the embedding service URL, response dimensions, or timeout if semantic-service was expected.",
+            stacklevel=2,
+        )
+        _rag_embedding_model_warned = True
     size = int(dimensions or RAG_EFFECTIVE_VECTOR_DIMENSIONS or 64)
     vector = [0.0 for _ in range(size)]
     tokens = rag_tokenize(value)
@@ -10534,8 +11197,121 @@ def build_rag_embedding(value: str, dimensions: int | None = None) -> list[float
     return [round(item / norm, 6) for item in vector]
 
 
+async def call_embedding_service_async(text: str) -> list[float] | None:
+    """Call external embedding service; returns None on failure (caller falls back to hashing).
+
+    Supports embedding API formats used by company and local model providers:
+    - Ollama native       : POST /api/embed       {"model": ..., "input": text}
+    - OpenAI-compat TEI  : POST /v1/embeddings  {"input": text, "model": ...}
+    - TEI native         : POST /embed           {"inputs": text}
+    - Ollama legacy      : POST /api/embeddings  {"model": ..., "prompt": text}
+    """
+    if not RAG_EMBEDDING_SERVICE_URL:
+        return None
+
+    # Resolve endpoint URL and request payload.
+    # _has_version_path: URL contains a versioned path segment (/v1, /v2, …) — indicates OpenAI-compat.
+    # Bare-hostname + model name also implies OpenAI-compat; in that case append the standard path.
+    url = RAG_EMBEDDING_SERVICE_URL.rstrip("/")
+    _has_version_path = bool(re.search(r"/v\d+(?:/|$)", url))
+    style = RAG_EMBEDDING_API_STYLE
+    if style == "ollama":
+        if url.endswith("/api/embed"):
+            pass
+        elif url.endswith("/api"):
+            url = url + "/embed"
+        else:
+            url = url + "/api/embed"
+        payload = {"input": text}
+        if RAG_EMBEDDING_MODEL:
+            payload["model"] = RAG_EMBEDDING_MODEL
+    elif style in {"openai", "openai-compatible", "tei-openai"} or (
+        not style and (bool(RAG_EMBEDDING_MODEL) or _has_version_path)
+    ):
+        if re.search(r"/v\d+$", url):
+            url = url + "/embeddings"
+        elif not _has_version_path:
+            url = url + "/v1/embeddings"
+        payload: dict[str, Any] = {"input": text}
+        if RAG_EMBEDDING_MODEL:
+            payload["model"] = RAG_EMBEDDING_MODEL
+    else:
+        if style == "tei" and not url.endswith("/embed"):
+            url = url + "/embed"
+        payload = {"inputs": text}
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(RAG_EMBEDDING_TIMEOUT_SECONDS, connect=5.0)
+        ) as client:
+            resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
+            resp.raise_for_status()
+            data = resp.json()
+            # OpenAI-compat: {"data": [{"embedding": [...]}]}
+            if isinstance(data, dict) and "data" in data:
+                items = data["data"]
+                if items and isinstance(items[0], dict) and "embedding" in items[0]:
+                    return [float(v) for v in items[0]["embedding"]]
+            # TEI native: [[...]] or [...]
+            if isinstance(data, list) and data:
+                vec = data[0] if isinstance(data[0], list) else data
+                return [float(v) for v in vec]
+            # Ollama: {"embedding": [...]}
+            if isinstance(data, dict) and "embedding" in data:
+                return [float(v) for v in data["embedding"]]
+            # Ollama /api/embed: {"embeddings": [[...]]}
+            if isinstance(data, dict) and "embeddings" in data:
+                embeddings = data["embeddings"]
+                if isinstance(embeddings, list) and embeddings:
+                    vec = embeddings[0] if isinstance(embeddings[0], list) else embeddings
+                    return [float(v) for v in vec]
+            return None
+    except Exception:
+        return None
+
+
 def pgvector_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{item:.6f}" for item in vector) + "]"
+
+
+RAG_MIGRATIONS: list[tuple[int, str, str]] = [
+    (1, "initial schema", ""),
+    (
+        2,
+        "add content_chars to chunks",
+        "ALTER TABLE aiops_rag_chunks ADD COLUMN IF NOT EXISTS content_chars integer",
+    ),
+    (
+        3,
+        "add embedding_model to chunks",
+        "ALTER TABLE aiops_rag_chunks ADD COLUMN IF NOT EXISTS embedding_model text NOT NULL DEFAULT 'hashing-bow-v1'",
+    ),
+]
+
+
+def apply_rag_migrations(conn: Any) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aiops_rag_schema_version (
+          version integer PRIMARY KEY,
+          description text NOT NULL,
+          applied_at timestamptz NOT NULL DEFAULT now()
+        )
+        """
+    )
+    applied = {
+        row["version"]
+        for row in conn.execute("SELECT version FROM aiops_rag_schema_version").fetchall()
+    }
+    for version, description, sql in RAG_MIGRATIONS:
+        if version in applied:
+            continue
+        if sql:
+            conn.execute(sql)
+        conn.execute(
+            "INSERT INTO aiops_rag_schema_version (version, description) VALUES (%s, %s)",
+            (version, description),
+        )
 
 
 def ensure_pgvector_schema(conn: Any) -> None:
@@ -10589,6 +11365,7 @@ def ensure_pgvector_schema(conn: Any) -> None:
         )
         """
     )
+    apply_rag_migrations(conn)
 
 
 def seed_pgvector_runbooks(conn: Any) -> None:
@@ -10645,7 +11422,7 @@ def seed_pgvector_runbooks(conn: Any) -> None:
         )
 
 
-def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+async def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     if not RAG_BACKEND_URL:
         return (
             "not_configured",
@@ -10706,7 +11483,13 @@ def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[
                 ),
             )
             for chunk in record["chunks"]:
-                embedding = pgvector_literal(build_rag_embedding(f"{chunk['title']} {chunk['content']}"))
+                chunk_text = f"{chunk['title']} {chunk['content']}"
+                raw_vec = await call_embedding_service_async(chunk_text)
+                if raw_vec and len(raw_vec) == RAG_EFFECTIVE_VECTOR_DIMENSIONS:
+                    embedding = pgvector_literal(raw_vec)
+                else:
+                    _warn_embedding_fallback(raw_vec)
+                    embedding = pgvector_literal(build_rag_embedding(chunk_text))
                 conn.execute(
                     """
                     INSERT INTO aiops_rag_chunks (
@@ -10754,6 +11537,78 @@ def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[
         return ("persisted", "Uploaded document chunks were persisted to pgvector.", document)
     except Exception as exc:
         return ("unavailable", f"pgvector upload ingestion failed: {exc}", {})
+
+
+async def sync_rag_directory_on_startup() -> None:
+    """Ingest all .md/.txt/.pdf files in RAG_SYNC_DIR into pgvector on startup."""
+    sync_dir = Path(RAG_SYNC_DIR)
+    if not sync_dir.is_dir():
+        return
+
+    _RAG_SYNC_EXTS = {".md", ".txt", ".pdf"}
+    synced, skipped = 0, 0
+    for path in sorted(sync_dir.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in _RAG_SYNC_EXTS:
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        checksum = canonical_digest(content)
+        document_id = f"sync:{checksum.removeprefix('sha256:')[:16]}"
+        chunks = split_rag_upload_chunks(content)
+        if not chunks:
+            continue
+
+        generated_at = now_rfc3339()
+        source_uri = path.as_posix()
+        name = path.name
+        record: dict[str, Any] = {
+            "document": {
+                "documentId": document_id,
+                "name": name,
+                "title": name,
+                "mimeType": "text/plain",
+                "sourceUri": source_uri,
+                "sourceType": RAG_SYNC_SOURCE_TYPE,
+                "customer": RAG_SYNC_CUSTOMER,
+                "namespace": RAG_SYNC_NAMESPACE,
+                "version": RAG_SYNC_VERSION,
+                "aclGroups": RAG_SYNC_ACL_GROUPS,
+                "labels": {"source": "rag-sync-dir"},
+                "checksum": checksum,
+                "contentBytes": len(content.encode("utf-8")),
+                "chunkCount": len(chunks),
+                "ingestedAt": generated_at,
+                "uploadedBy": "rag-sync",
+                "runId": "",
+            },
+            "chunks": [
+                {
+                    "chunkId": f"{document_id}:chunk:{i}",
+                    "documentId": document_id,
+                    "chunkIndex": i,
+                    "title": name,
+                    "sourceUri": f"{source_uri}#chunk-{i}",
+                    "sourceType": RAG_SYNC_SOURCE_TYPE,
+                    "customer": RAG_SYNC_CUSTOMER,
+                    "namespace": RAG_SYNC_NAMESPACE,
+                    "version": RAG_SYNC_VERSION,
+                    "aclGroups": RAG_SYNC_ACL_GROUPS,
+                    "labels": {"source": "rag-sync-dir"},
+                    "content": chunk,
+                    "textHash": canonical_digest(chunk),
+                    "checksum": canonical_digest(f"{document_id}:{i}:{chunk}"),
+                }
+                for i, chunk in enumerate(chunks)
+            ],
+        }
+        status, _, _ = await persist_rag_upload_document(record)
+        if status == "persisted":
+            synced += 1
+        else:
+            skipped += 1
 
 
 def list_pgvector_upload_documents(subject: Mapping[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
@@ -10845,7 +11700,7 @@ def row_matches_rag_filters(
     return bool(acl_groups)
 
 
-def search_pgvector_runbooks(
+async def search_pgvector_runbooks(
     req: RagSearchCreate,
     subject: Mapping[str, Any] | None = None,
 ) -> tuple[str, str, list[dict[str, Any]]]:
@@ -10862,7 +11717,12 @@ def search_pgvector_runbooks(
     if not subject_principals:
         return ("empty", "Current subject has no RAG ACL principals.", [])
 
-    query_vector = pgvector_literal(build_rag_embedding(req.query))
+    raw_query_vec = await call_embedding_service_async(req.query)
+    if raw_query_vec and len(raw_query_vec) == RAG_EFFECTIVE_VECTOR_DIMENSIONS:
+        query_vector = pgvector_literal(raw_query_vec)
+    else:
+        _warn_embedding_fallback(raw_query_vec)
+        query_vector = pgvector_literal(build_rag_embedding(req.query))
     try:
         with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
             ensure_pgvector_schema(conn)
@@ -10966,13 +11826,24 @@ def build_rag_answer_citation_text(results: Sequence[Mapping[str, Any]]) -> str:
 
 def build_rag_backend_status() -> dict[str, Any]:
     backend_configured = bool(RAG_BACKEND_URL)
+    embedding_service_configured = bool(RAG_EMBEDDING_SERVICE_URL and backend_configured)
     return {
         "status": "configured" if backend_configured else "not_configured",
         "backendType": RAG_BACKEND_TYPE,
         "collection": RAG_COLLECTION,
         "endpointConfigured": backend_configured,
         "embeddingModel": RAG_EMBEDDING_MODEL if backend_configured else "not_configured",
+        "embeddingProvider": RAG_EMBEDDING_PROVIDER or ("ollama" if RAG_EMBEDDING_API_STYLE == "ollama" else ""),
+        "embeddingApiStyle": RAG_EMBEDDING_API_STYLE or "auto",
+        "embeddingModelConfiguredButIgnored": bool(
+            RAG_EMBEDDING_MODEL and backend_configured and not embedding_service_configured
+        ),
+        "embeddingModelSentToService": bool(RAG_EMBEDDING_MODEL and embedding_service_configured),
+        "embeddingServiceConfigured": embedding_service_configured,
+        "activeEmbeddingAlgorithm": "semantic-service" if embedding_service_configured else "hashing-bow-v1",
         "vectorDimensions": RAG_EFFECTIVE_VECTOR_DIMENSIONS if backend_configured else RAG_VECTOR_DIMENSIONS,
+        "chunkOverlapChars": RAG_UPLOAD_CHUNK_OVERLAP_CHARS,
+        "olsStaticGuidelinesChars": 21203,
         "accessPath": "gateway-only",
         "directDatabaseAccess": False,
         "aclRequired": True,
@@ -11388,7 +12259,7 @@ async def create_rag_upload(
     user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
     record = build_rag_upload_document(req, subject)
-    status, reason, document = persist_rag_upload_document(record)
+    status, reason, document = await persist_rag_upload_document(record)
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "RagUploadIngestionResult",
@@ -11460,7 +12331,7 @@ async def create_rag_upload_file(
         runId=run_id,
     )
     record = build_rag_upload_document(req, subject)
-    status, reason, document = persist_rag_upload_document(record)
+    status, reason, document = await persist_rag_upload_document(record)
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "RagUploadIngestionResult",
@@ -11503,7 +12374,7 @@ async def search_rag_runbooks(
     backend = build_rag_backend_status()
     request_id = f"rag-search-{uuid.uuid4()}"
     increment_metric("aiops_rag_search_requests_total")
-    search_status, reason, results = search_pgvector_runbooks(req, subject=subject)
+    search_status, reason, results = await search_pgvector_runbooks(req, subject=subject)
     evidence_status = "collected" if results else ("missing" if search_status == "not_configured" else search_status)
     collected_refs = [result.get("evidenceRef", {}) for result in results if isinstance(result.get("evidenceRef"), Mapping)]
     missing = [] if collected_refs else [{"type": "runbook", "reason": reason}]
@@ -11680,6 +12551,25 @@ async def get_break_glass_request(
         "kind": "BreakGlassRequest",
         "metadata": record["metadata"],
         "spec": record["spec"],
+    }
+
+
+@app.get("/v1/rca/last")
+async def get_last_rca_context(authorization: str = Header(default="")) -> dict[str, Any]:
+    """최근 채팅 실행의 Tool Plan + Evidence 상태 + RCA 결과를 반환.
+
+    인증 토큰이 없거나 만료된 경우 401을 반환합니다.
+    아직 채팅 기록이 없으면 404를 반환합니다.
+    """
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header with Bearer token is required")
+    if LAST_RCA_CONTEXT is None:
+        raise HTTPException(status_code=404, detail="No RCA context available yet — send a chat message first")
+    return {
+        "apiVersion": "aiops.komsco/v1alpha1",
+        "kind": "RcaContextSummary",
+        "toolPlan": LAST_RUNTIME_TOOL_PLAN,
+        "rcaContext": LAST_RCA_CONTEXT,
     }
 
 
@@ -11961,7 +12851,7 @@ async def chat_stream(
             )
 
             unrestricted_command = parse_unrestricted_chat_command(req.message)
-            if page_context_aiops_execution_mode(req) == "unrestricted" and unrestricted_command:
+            if execution_mode_allows_immediate_actions(req) and unrestricted_command:
                 yield sse(
                     {
                         "type": "tool_call",
@@ -12259,7 +13149,7 @@ async def chat_stream(
                 return
 
             if (
-                page_context_aiops_execution_mode(req) == "unrestricted"
+                execution_mode_allows_immediate_actions(req)
                 and is_followup_execution_request(req.message)
             ):
                 pending_plan_result = latest_pending_action_plan_result(subject)
@@ -12556,7 +13446,7 @@ async def chat_stream(
                         }
                     )
                     if (
-                        page_context_aiops_execution_mode(req) == "unrestricted"
+                        execution_mode_allows_immediate_actions(req)
                         and natural_action_result.get("status") == "planned"
                     ):
                         yield sse(
@@ -12936,6 +13826,30 @@ async def chat_stream(
                     ):
                         yield sse(evidence_event)
 
+            if past_pod_restart_demo_active(req):
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-past-pod-restart-demo-evidence",
+                        "name": "past_pod_restart_demo_evidence",
+                        "summary": "과거 Pod 재시작 RCA 시연 증적 수집 (Scenario 11)",
+                    }
+                )
+                for demo_event in collect_past_pod_restart_demo_evidence_events(request_id):
+                    gateway_evidence = append_gateway_evidence(
+                        gateway_evidence,
+                        str(demo_event.get("detail") or demo_event.get("summary") or ""),
+                    )
+                    yield sse(demo_event)
+                    for evidence_event in build_evidence_reference_events(
+                        event=demo_event,
+                        incident_id=incident_id,
+                        run_id=run_id,
+                        source_type="gateway-demo-evidence",
+                        subject=subject,
+                    ):
+                        yield sse(evidence_event)
+
             if (
                 str(policy.get("decision") or "") == "allow_read_only_evidence"
                 and should_collect_rca_signal_evidence(req.message)
@@ -13032,7 +13946,7 @@ async def chat_stream(
                     includeContent=False,
                     runId=run_id,
                 )
-                rag_status, rag_reason, rag_results = search_pgvector_runbooks(
+                rag_status, rag_reason, rag_results = await search_pgvector_runbooks(
                     rag_request,
                     subject=subject,
                 )
@@ -13118,8 +14032,8 @@ async def chat_stream(
                 {
                     "type": "run_status",
                     "runId": run_id,
-                    "stage": "lightspeed",
-                    "message": "실제 OpenShift Lightspeed로 스트림 요청 전달",
+                    "stage": active_llm_stage(),
+                    "message": f"실제 {active_llm_label()}로 요청 전달",
                     "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                     "rcaContextDigest": rca_context_event["context"]["metadata"]["digest"],
                 }
@@ -13129,22 +14043,25 @@ async def chat_stream(
                 image_analysis,
                 policy=policy,
                 subject=subject,
+                gateway_context=ols_gateway_context,
                 gateway_evidence=gateway_evidence,
             )
             emitted_answer_text = False
             ols_tool_results: list[Mapping[str, Any]] = []
             ols_attempt_count = 0
+            _accumulated_answer_chunks: list[str] = []
             for ols_attempt in range(OLS_EMPTY_ANSWER_RETRIES + 1):
                 attempt_emitted_answer_text = False
                 ols_attempt_count = ols_attempt + 1
                 active_ols_query = ols_query
                 if ols_attempt > 0:
                     active_ols_query = (
-                        f"{ols_query}\n\n"
-                        "[Gateway 빈 응답 재시도 지시]\n"
-                        "이전 OpenShift Lightspeed stream이 최종 답변 텍스트 없이 종료되었습니다. "
-                        "도구 결과나 Gateway 선조회 증거가 부족해도 공백으로 종료하지 말고, "
-                        "`## RCA 보고서` 형식으로 확인된 사실과 `확인 불가`를 분리해 답하세요."
+                        f"{redact_sensitive(req.message).strip()}\n\n"
+                        "Previous OpenShift Lightspeed response ended before final answer text. "
+                        "Do not call tools again in this retry. "
+                        "Return a concise Korean final answer using the read-only OpenShift facts already observed in this conversation. "
+                        "If the available facts do not confirm the cause, say exactly what is unconfirmed. "
+                        "Do not print secrets or raw credentials."
                     )
 
                 try:
@@ -13167,6 +14084,7 @@ async def chat_stream(
                                 if filtered_content.strip():
                                     emitted_answer_text = True
                                     attempt_emitted_answer_text = True
+                                    _accumulated_answer_chunks.append(filtered_content)
                                 text_event: dict[str, Any] = {"type": "text", "content": filtered_content}
                                 for key in (
                                     "fallbackAnswer",
@@ -13185,6 +14103,7 @@ async def chat_stream(
                                 if final_text.strip():
                                     emitted_answer_text = True
                                     attempt_emitted_answer_text = True
+                                    _accumulated_answer_chunks.append(final_text)
                                 yield sse({"type": "text", "content": final_text})
                             if not attempt_emitted_answer_text and ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
                                 continue
@@ -13205,20 +14124,32 @@ async def chat_stream(
                     update_ols_stream_status(
                         "failed",
                         context_digest=ols_gateway_context["metadata"]["digest"],
-                        fallback_active=True,
+                        fallback_active=ols_attempt >= OLS_EMPTY_ANSWER_RETRIES,
                         reason=safe_detail,
                     )
                     ols_error_event = {
                         "type": "tool_result",
                         "detail": safe_detail,
-                        "id": f"{request_id}-lightspeed-stream",
-                        "name": "lightspeed_stream",
+                        "id": f"{request_id}-{active_llm_stage()}-stream",
+                        "name": f"{active_llm_stage()}_stream",
                         "status": "error",
-                        "summary": "OpenShift Lightspeed stream failed; Gateway fallback will answer from collected evidence",
+                        "summary": f"{active_llm_label()} request failed; Gateway fallback will answer from collected evidence",
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                         "fallbackAnswer": True,
                     }
                     ols_tool_results.append(ols_error_event)
+                    if ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
+                        yield sse(
+                            {
+                                "type": "run_status",
+                                "runId": run_id,
+                                "stage": f"{active_llm_stage()}_retry",
+                                "message": f"{active_llm_label()} 오류로 원 질문만 사용해 재시도",
+                                "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                                "attempt": ols_attempt + 2,
+                            }
+                        )
+                        continue
                     yield sse(ols_error_event)
                     break
 
@@ -13230,17 +14161,17 @@ async def chat_stream(
                         {
                             "type": "run_status",
                             "runId": run_id,
-                            "stage": "lightspeed_retry",
-                            "message": "OpenShift Lightspeed가 빈 응답으로 종료되어 같은 증거로 재시도",
+                            "stage": f"{active_llm_stage()}_retry",
+                            "message": f"{active_llm_label()}가 빈 응답으로 종료되어 같은 증거로 재시도",
                             "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                             "attempt": ols_attempt + 2,
                         }
                     )
             if not emitted_answer_text:
                 fallback_reason = (
-                    "OLS stream ended without answer text; Gateway fallback emitted"
+                    f"{active_llm_label()} ended without answer text; Gateway fallback emitted"
                     if ols_attempt_count <= 1
-                    else f"OLS stream ended without answer text after {ols_attempt_count} attempts; Gateway fallback emitted"
+                    else f"{active_llm_label()} ended without answer text after {ols_attempt_count} attempts; Gateway fallback emitted"
                 )
                 update_ols_stream_status(
                     "failed",
@@ -13287,6 +14218,17 @@ async def chat_stream(
                 )
 
             rca_context_event = current_rca_context_event("post_answer")
+            rca_result = parse_rca_result(
+                "".join(_accumulated_answer_chunks),
+                list(ols_tool_results),
+            )
+            rca_context_event["context"]["rcaResult"] = {
+                "cause_candidates": rca_result.cause_candidates,
+                "action_candidates": rca_result.action_candidates,
+                "confidence": rca_result.confidence,
+                "evidence_types": rca_result.evidence_types,
+                "extractedAt": now_rfc3339(),
+            }
             LAST_RCA_CONTEXT = rca_context_event["context"]
             yield sse(rca_context_event)
 

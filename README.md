@@ -2,6 +2,22 @@
 
 Local source workspace for the KOMSCO OpenShift AI assistant.
 
+## 회사 서버 배포
+
+회사 OKD/OCP OperatorHub에 Kugnus AIOps를 등록할 때는 먼저 [COMPANY_DEPLOY.md](COMPANY_DEPLOY.md)를 본다.
+
+최소 순서:
+
+```bash
+task kugnus:company:check
+task kugnus:company:publish
+task kugnus:company:status
+
+# 설치 승인 후에만
+task kugnus:company:install
+task kugnus:company:status
+```
+
 ## Layout
 
 ```text
@@ -140,9 +156,9 @@ Use this path for the current Ver.0.1.0 mission. It creates a Kugnus-specific
 OperatorHub catalog card and does not install runtime operands by default:
 
 ```bash
-task kugnus:package
-KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift task kugnus:publish
-task kugnus:status
+task kugnus:company:check
+task kugnus:company:publish
+task kugnus:company:status
 ```
 
 The protected names for this fork are:
@@ -156,7 +172,8 @@ The protected names for this fork are:
 Optional install is deliberately gated:
 
 ```bash
-KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus task kugnus:install
+task kugnus:company:install
+task kugnus:company:status
 ```
 
 Do not use `task olm:deploy`, `task olm:release`, `task olm:install`,
@@ -213,16 +230,16 @@ guards.
 Prepare images that are reachable by the cluster:
 
 ```bash
-export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.3
+export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.6
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai-kugnus
 export KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus
 export KOMSCO_AIOPS_DISPLAY_NAME="Cywell AI"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=komsco-ai-console-plugin-kugnus
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
-export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.3
-export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.3
-export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.3
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.6
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.6
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.6
 ```
 
 `KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card
@@ -334,7 +351,7 @@ Package a chart version and create the Helm repository index:
 
 ```bash
 export KOMSCO_AIOPS_CATALOG_URL=https://charts.example.internal/komsco-aiops
-export KOMSCO_AIOPS_CHART_VERSION=0.1.3
+export KOMSCO_AIOPS_CHART_VERSION=0.1.6
 export KOMSCO_AIOPS_PACKAGE_VALUES=openshift/helm-values/console-plugin-prod.yaml
 task catalog:package
 ```
@@ -370,7 +387,7 @@ To ship an update, build and push new runtime images, update the values file or
 image tags, publish a new chart version, and refresh the catalog repo:
 
 ```bash
-export KOMSCO_AIOPS_CHART_VERSION=0.1.3
+export KOMSCO_AIOPS_CHART_VERSION=0.1.6
 task catalog:package
 # upload dist/software-catalog/* to KOMSCO_AIOPS_CATALOG_URL
 task catalog:register

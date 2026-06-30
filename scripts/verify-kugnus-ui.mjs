@@ -1189,6 +1189,7 @@ const getDashboardState = async (cdp) =>
         anomalyBoard: rectOf('.komsco-ai-page__anomaly-board'),
         actionCandidateBoard: rectOf('.komsco-ai-page__action-candidate-board'),
         sourceBoard: rectOf('.komsco-ai-page__source-board'),
+        customerTopology: rectOf('.komsco-ai-page__customer-topology'),
         assistant: rectOf('.komsco-ai-page__assistant-stage'),
         dashboardGrid: rectOf('.komsco-ai-page__dashboard-grid'),
         metricCount: document.querySelectorAll('.komsco-ai-page__metric').length,
@@ -1203,8 +1204,15 @@ const getDashboardState = async (cdp) =>
         operatorFlowClippedItems: clippedText(
           '.komsco-ai-page__operator-flow-item strong, .komsco-ai-page__operator-flow-item small, .komsco-ai-page__operator-flow-label',
         ),
+        customerTopologyText: document.querySelector('.komsco-ai-page__customer-topology')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        customerTopologyNodeCount: document.querySelectorAll('.komsco-ai-page__customer-topology-node').length,
+        customerTopologyNodeLabels: [...document.querySelectorAll('.komsco-ai-page__customer-topology-node')]
+          .map((node) => node.getAttribute('data-customer-topology-node') || ''),
+        customerTopologyClippedItems: clippedText(
+          '.komsco-ai-page__customer-topology-node strong, .komsco-ai-page__customer-topology-node small, .komsco-ai-page__customer-topology-node span:not(.komsco-ai-page__customer-topology-icon)',
+        ),
         essentialClippedItems: clippedText(
-          '.komsco-ai-page__operator-flow-item strong, .komsco-ai-page__operator-flow-item small, .komsco-ai-page__operator-flow-label, .komsco-ai-page__anomaly-item-head strong, .komsco-ai-page__action-candidate-title strong',
+          '.komsco-ai-page__operator-flow-item strong, .komsco-ai-page__operator-flow-item small, .komsco-ai-page__operator-flow-label, .komsco-ai-page__customer-topology-node strong, .komsco-ai-page__customer-topology-node small, .komsco-ai-page__anomaly-item-head strong, .komsco-ai-page__action-candidate-title strong',
         ),
         panelHeadings: [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')].map((node) =>
           node.textContent?.trim(),
@@ -1443,24 +1451,48 @@ const run = async () => {
         },
       );
       assertCheck(
-        'dashboard anomaly and action candidates sit between metrics and source board before assistant',
+        'dashboard anomaly, candidates, sources, and topology sit before assistant',
         Boolean(
           dashboardState.metrics &&
             dashboardState.anomalyBoard &&
             dashboardState.actionCandidateBoard &&
             dashboardState.sourceBoard &&
+            dashboardState.customerTopology &&
             dashboardState.assistant,
         ) &&
           dashboardState.metrics.bottom <= dashboardState.anomalyBoard.top + 2 &&
           dashboardState.anomalyBoard.bottom <= dashboardState.actionCandidateBoard.top + 2 &&
           dashboardState.actionCandidateBoard.bottom <= dashboardState.sourceBoard.top + 2 &&
-          dashboardState.sourceBoard.bottom <= dashboardState.assistant.top + 2,
+          dashboardState.sourceBoard.bottom <= dashboardState.customerTopology.top + 2 &&
+          dashboardState.customerTopology.bottom <= dashboardState.assistant.top + 2,
         {
           actionCandidateTop: Math.round(dashboardState.actionCandidateBoard?.top || 0),
           anomalyTop: Math.round(dashboardState.anomalyBoard?.top || 0),
           assistantTop: Math.round(dashboardState.assistant?.top || 0),
+          customerTopologyTop: Math.round(dashboardState.customerTopology?.top || 0),
           metricsBottom: Math.round(dashboardState.metrics?.bottom || 0),
           sourceTop: Math.round(dashboardState.sourceBoard?.top || 0),
+        },
+      );
+      assertCheck(
+        'dashboard exposes customer operations topology',
+        Boolean(dashboardState.customerTopology) &&
+          dashboardState.customerTopologyNodeCount === 5 &&
+          ['고객 OCP', '관측 신호', 'LLM Wiki/RAG', 'LLM 경로', '정책/감사'].every((label) =>
+            dashboardState.customerTopologyNodeLabels.includes(label),
+          ) &&
+          dashboardState.customerTopologyText.includes('Customer topology'),
+        {
+          customerTopologyNodeCount: dashboardState.customerTopologyNodeCount,
+          customerTopologyNodeLabels: dashboardState.customerTopologyNodeLabels,
+          customerTopologyText: dashboardState.customerTopologyText,
+        },
+      );
+      assertCheck(
+        'dashboard customer topology text is not clipped',
+        dashboardState.customerTopologyClippedItems.length === 0,
+        {
+          customerTopologyClippedItems: dashboardState.customerTopologyClippedItems,
         },
       );
       assertCheck(
@@ -1612,6 +1644,54 @@ const run = async () => {
           lightspeedPanelText: dashboardState.lightspeedPanelText,
         },
       );
+
+      await cdp.send('Page.navigate', { url: new URL('/aiops-kugnus/docs', uiUrl).toString() });
+      await waitFor(
+        cdp,
+        'LLM Wiki route loaded',
+        `(() => {
+          const title = document.querySelector('.komsco-ai-page h1')?.textContent || '';
+          const labels = [...document.querySelectorAll('.komsco-ai-page__metric-label')].map((node) => node.textContent || '');
+          return title.includes('LLM Wiki')
+            && labels.includes('RAG backend')
+            && labels.includes('Documents')
+            && labels.includes('Chunks')
+            && labels.includes('ACL');
+        })()`,
+        30000,
+      );
+      const docsState = await evaluate(
+        cdp,
+        `(() => ({
+          title: document.querySelector('.komsco-ai-page h1')?.textContent?.trim() || '',
+          heroText: document.querySelector('.komsco-ai-page__docs-hero')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+          metricLabels: [...document.querySelectorAll('.komsco-ai-page__metric-label')].map((node) => node.textContent?.trim() || ''),
+          metricsText: document.querySelector('.komsco-ai-page__metrics')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+          hasUploadButton: [...document.querySelectorAll('button')].some((button) => button.textContent?.includes('문서 업로드')),
+          hasViewer: Boolean(document.querySelector('.komsco-ai-page__docs-viewer')),
+          horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        }))()`,
+      );
+      assertCheck(
+        'LLM Wiki route exposes customer RAG upload dashboard',
+        docsState.title.includes('LLM Wiki') &&
+          docsState.heroText.includes('Customer LLM Wiki') &&
+          docsState.metricLabels.includes('RAG backend') &&
+          docsState.metricLabels.includes('ACL') &&
+          docsState.metricLabels.includes('Documents') &&
+          docsState.metricLabels.includes('Chunks') &&
+          docsState.metricsText.includes('Raw content') &&
+          docsState.hasUploadButton &&
+          docsState.hasViewer,
+        docsState,
+      );
+      assertCheck('LLM Wiki route has no horizontal overflow', docsState.horizontalOverflow <= 1, {
+        horizontalOverflow: docsState.horizontalOverflow,
+      });
+
+      await cdp.send('Page.navigate', { url: new URL('/aiops-kugnus', uiUrl).toString() });
+      await waitFor(cdp, 'dashboard route restored after LLM Wiki check', "!!document.querySelector('.komsco-ai-page__assistant-stage')");
+      dashboardState = await getDashboardState(cdp);
     } else {
       assertCheck('console dashboards route hosts K assistant surface', Boolean(currentHasSurface || currentHasEmbeddedSurface), {
         hasEmbeddedSurface: currentHasEmbeddedSurface,
@@ -1625,6 +1705,25 @@ const run = async () => {
       horizontalOverflow: dashboardState.horizontalOverflow,
     });
 
+    await waitFor(
+      cdp,
+      'assistant header runtime status loaded',
+      `(() => {
+        const surface = ${activeSurfaceExpression};
+        const headerStatus = surface?.querySelector('.komsco-ai__header-status');
+        const titles = Array.from(headerStatus?.querySelectorAll('.komsco-ai__header-op-chip') || [])
+          .map((chip) => chip.getAttribute('title') || '');
+        const modeButtons = Array.from(headerStatus?.querySelectorAll('.komsco-ai__mode-toggle-button') || []);
+        const disabledReasons = modeButtons
+          .filter((button) => button.hasAttribute('disabled'))
+          .map((button) => button.getAttribute('data-disabled-reason') || '');
+        return titles.some((title) => title.toLowerCase().includes('node') && !title.includes('not available yet')) &&
+          titles.some((title) => title.includes('ClusterOperators') && !title.includes('not available yet')) &&
+          modeButtons.length === 3 &&
+          disabledReasons.every((reason) => reason && !reason.includes('not been loaded yet'));
+      })()`,
+      30000,
+    );
     let state = await getUiState(cdp);
     assertCheck('assistant surface loaded', state.surfaceExists, { url: uiUrl });
     assertCheck('header removes Cywell AI title from compact toolbar', state.title === '', {

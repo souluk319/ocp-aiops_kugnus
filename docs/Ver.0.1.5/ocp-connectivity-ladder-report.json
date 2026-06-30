@@ -1,24 +1,26 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-06-26T03:57:24.858692Z",
-  "branch": "feat/v.0.1.5",
-  "headSha": "e3eb40b694eca73c58567c0fba8847be6f585c6b",
+  "generatedAt": "2026-06-28T18:12:21.266967Z",
+  "branch": "feat/v.0.1.6",
+  "headSha": "06e09c7bd3ad6e592c4bd26f20d0212f8b790be0",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
   "timeoutSeconds": 8,
   "summary": {
-    "readyForStrictLightspeedGate": true,
-    "firstFailingLayer": "",
-    "message": "OCP connectivity ladder passed; run task kugnus:lightspeed:live-verify."
+    "readyForStrictLightspeedGate": false,
+    "firstFailingLayer": "ocIdentity",
+    "message": "oc whoami did not return a non-empty user"
   },
   "interpretation": {
-    "likelyCause": "none_detected",
-    "confidence": "high",
-    "explanation": "All connectivity ladder checks passed; strict Lightspeed verification can run.",
+    "likelyCause": "oc_login_or_auth_session_invalid",
+    "confidence": "medium",
+    "explanation": "The network path reached later layers, but live oc identity/token/auth review failed.",
     "nextActions": [
-      "Run task kugnus:lightspeed:live-verify."
-    ]
+      "Run oc login in WSL, then rerun task kugnus:ocp:doctor.",
+      "Do not commit tokens, kubeconfig, or .env files."
+    ],
+    "notCodeBlocker": true
   },
   "results": {
     "dns": {
@@ -26,22 +28,22 @@
       "addresses": [
         "10.0.1.230"
       ],
-      "durationMs": 225
+      "durationMs": 14
     },
     "tcp": {
       "ok": true,
-      "durationMs": 203
+      "durationMs": 12
     },
     "tls": {
       "ok": true,
-      "durationMs": 324,
+      "durationMs": 42,
       "cipher": "TLS_AES_128_GCM_SHA256",
       "subject": ""
     },
     "versionEndpoint": {
       "ok": true,
       "statusCode": 200,
-      "durationMs": 707,
+      "durationMs": 16,
       "jsonKind": null,
       "jsonApiVersion": null,
       "accessReviewStatus": {},
@@ -51,62 +53,70 @@
     "ocServer": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 218,
+      "durationMs": 88,
       "stdout": "https://api.ocp.cywell.server:6443",
       "stderr": "",
       "timeoutSeconds": 8,
       "matchesExpectedServer": true
     },
     "ocIdentity": {
-      "ok": true,
-      "returnCode": 0,
-      "durationMs": 131,
-      "stdout": "admin",
-      "stderr": "",
+      "ok": false,
+      "returnCode": 1,
+      "durationMs": 116,
+      "stdout": "",
+      "stderr": "error: You must be logged in to the server (Unauthorized)",
       "timeoutSeconds": 8,
-      "identityPresent": true
+      "identityPresent": false,
+      "reason": "oc whoami returned an empty identity"
     },
     "ocToken": {
       "ok": true,
-      "durationMs": 112,
+      "durationMs": 86,
       "returnCode": 0,
       "tokenLength": 50,
       "timeout": false,
       "stderr": ""
     },
     "selfSubjectReview": {
-      "ok": true,
-      "statusCode": 201,
-      "durationMs": 19,
-      "jsonKind": "SelfSubjectReview",
-      "jsonApiVersion": "authentication.k8s.io/v1",
-      "accessReviewStatus": {},
-      "lightspeedStatus": {},
-      "bodyPreview": "{\"kind\":\"SelfSubjectReview\",\"apiVersion\":\"authentication.k8s.io/v1\",\"metadata\":{\"creationTimestamp\":\"2026-06-26T03:57:26Z\"},\"status\":{\"userInfo\":{\"username\":\"admin\",\"uid\":\"6029fc91-79e0-4856-a097-d9058b64c6c0\",\"groups\":[\"system:authenticated:oauth\",\"system:authenticated\"],\"extra\":{\"scopes.authorizat"
+      "ok": false,
+      "statusCode": 401,
+      "durationMs": 20,
+      "bodyPreview": "{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"Unauthorized\",\"reason\":\"Unauthorized\",\"code\":401}\n"
     },
     "gatewayStatus": {
       "ok": true,
       "statusCode": 200,
-      "durationMs": 53,
+      "durationMs": 290,
       "jsonKind": "AIOpsRuntimeStatus",
       "jsonApiVersion": "aiops.komsco/v1",
       "accessReviewStatus": {
-        "status": "success",
-        "recordsVisible": true,
-        "reason": ""
+        "status": "degraded",
+        "recordsVisible": false,
+        "reason": "OpenShift subject review unavailable; runtime safety status is returned without user-scoped records.",
+        "subjectReview": {
+          "ok": false,
+          "statusCode": 401,
+          "detail": {
+            "code": "openshift_user_auth_failed",
+            "message": "OpenShift 사용자 인증이 만료되었거나 Gateway로 전달된 사용자 토큰이 유효하지 않습니다. OpenShift 콘솔을 새로고침하거나 다시 로그인한 뒤 요청을 재시도하세요.",
+            "remediation": "OpenShift 콘솔 세션을 갱신한 뒤 AIOps 요청을 다시 실행하세요.",
+            "upstreamStatus": 401,
+            "upstreamReason": "Unauthorized"
+          }
+        }
       },
       "lightspeedStatus": {
         "status": "configured",
         "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
-        "streamProbe": "started",
-        "lastStatus": "started",
-        "lastContextDigest": "sha256:854c2c9666db0d7fdb0c703ddf74b2d8cbf49c46d4933258700601dfdfe4f733",
-        "lastStartedAt": "2026-06-26T03:57:16.218233+00:00",
-        "lastCompletedAt": "",
-        "lastError": "",
-        "fallbackActive": false
+        "streamProbe": "failed",
+        "lastStatus": "failed",
+        "lastContextDigest": "sha256:36a9bcc64cae8cf9200242383bf527d704c3c3477e9243874d063fcbb22568bf",
+        "lastStartedAt": "2026-06-26T21:42:31.832007+00:00",
+        "lastCompletedAt": "2026-06-26T21:42:41.834425+00:00",
+        "lastError": "OLS stream ended without answer text; Gateway fallback emitted",
+        "fallbackActive": true
       },
-      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-26T03:57:24.855548+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
+      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-28T18:12:21.239054+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
     }
   },
   "wslNetwork": {
@@ -114,7 +124,7 @@
     "ipRouteGet": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 2,
+      "durationMs": 14,
       "stdout": "10.0.1.230 via 172.29.160.1 dev eth0 src 172.29.163.203 uid 1001 \n    cache",
       "stderr": "",
       "timeoutSeconds": 8
@@ -122,7 +132,7 @@
     "ipBriefAddr": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 14,
+      "durationMs": 3,
       "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:74d9/64",
       "stderr": "",
       "timeoutSeconds": 8
@@ -141,7 +151,7 @@
     "routePrint": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 605,
+      "durationMs": 746,
       "stdout": "===========================================================================\nInterface List\n 22...<mac> ......Fortinet SSL VPN Virtual Ethernet Adapter\n 20...<mac> ......Realtek USB GbE Family Controller\n 47...........................Tailscale Tunnel\n 21...<mac> ......Intel(R) Ethernet Connection (24) I219-V\n  9...<mac> ......Intel(R) Wi-Fi 6E AX211 160MHz\n 10...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter\n 24...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter #2\n 17...<mac> ......Bluetooth Device (Personal Area Network)\n  1...........................Software Loopback Interface 1\n 11...<mac> ......Hyper-V Virtual Ethernet Adapter\n 53...<mac> ......Hyper-V Virtual Ethernet Adapter #2\n===========================================================================\n\nIPv4 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None\n\nIPv6 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None",
       "stderr": "",
       "timeoutSeconds": 8

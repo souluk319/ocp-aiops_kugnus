@@ -9,6 +9,24 @@ from collections.abc import Mapping
 from typing import Any
 
 
+def first_env_value(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
+
+
+def first_int_env(*names: str, default: int) -> int:
+    value = first_env_value(*names)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 FIELD_MANAGER = os.getenv("KOMSCO_AI_FIELD_MANAGER", "komsco-aiops-operator")
 GROUP = "aiops.komsco.io"
 VERSION = "v1alpha1"
@@ -261,8 +279,36 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
             "rag": {
                 "backendUrlSecret": os.getenv("KOMSCO_AI_DEFAULT_RAG_BACKEND_URL_SECRET", ""),
                 "backendUrlKey": os.getenv("KOMSCO_AI_DEFAULT_RAG_BACKEND_URL_KEY", "url"),
-                "embeddingModel": os.getenv("KOMSCO_AI_DEFAULT_RAG_EMBEDDING_MODEL", "hashing-local-dev"),
-                "vectorDimensions": int(os.getenv("KOMSCO_AI_DEFAULT_RAG_VECTOR_DIMENSIONS", "64")),
+                "embeddingProvider": first_env_value(
+                    "KOMSCO_AI_DEFAULT_EMBEDDING_PROVIDER",
+                    "KOMSCO_AI_EMBEDDING_PROVIDER",
+                ),
+                "embeddingApiStyle": first_env_value(
+                    "KOMSCO_AI_DEFAULT_EMBEDDING_API_STYLE",
+                    "KOMSCO_AI_EMBEDDING_API_STYLE",
+                ),
+                "embeddingBaseUrl": first_env_value(
+                    "KOMSCO_AI_DEFAULT_EMBEDDING_BASE_URL",
+                    "KOMSCO_AI_EMBEDDING_BASE_URL",
+                ),
+                "embeddingModel": first_env_value(
+                    "KOMSCO_AI_DEFAULT_EMBEDDING_MODEL",
+                    "KOMSCO_AI_EMBEDDING_MODEL",
+                    "KOMSCO_AI_DEFAULT_RAG_EMBEDDING_MODEL",
+                    default="hashing-local-dev",
+                ),
+                "embeddingTimeoutSeconds": first_int_env(
+                    "KOMSCO_AI_DEFAULT_EMBEDDING_TIMEOUT_SECONDS",
+                    "KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS",
+                    "KOMSCO_AI_DEFAULT_RAG_EMBEDDING_TIMEOUT_SECONDS",
+                    default=10,
+                ),
+                "vectorDimensions": first_int_env(
+                    "KOMSCO_AI_DEFAULT_EMBEDDING_DIMENSIONS",
+                    "KOMSCO_AI_EMBEDDING_DIMENSIONS",
+                    "KOMSCO_AI_DEFAULT_RAG_VECTOR_DIMENSIONS",
+                    default=64,
+                ),
             },
         },
     }
@@ -813,7 +859,11 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "ragBackendUrlSecret": str(rag.get("backendUrlSecret") or ""),
         "ragBackendUrlKey": str(rag.get("backendUrlKey") or "url"),
+        "ragEmbeddingProvider": str(rag.get("embeddingProvider") or ""),
+        "ragEmbeddingApiStyle": str(rag.get("embeddingApiStyle") or ""),
+        "ragEmbeddingBaseUrl": str(rag.get("embeddingBaseUrl") or ""),
         "ragEmbeddingModel": str(rag.get("embeddingModel") or "hashing-local-dev"),
+        "ragEmbeddingTimeoutSeconds": int(rag.get("embeddingTimeoutSeconds") or 10),
         "ragVectorDimensions": int(rag.get("vectorDimensions") or 64),
     }
     validate_console_plugin_name(str(config["consolePluginName"]))
@@ -1148,6 +1198,12 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
         {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_RESOURCE", "value": "consoleplugins"},
         {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_VERB", "value": "get"},
         {"name": "KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME", "value": console_plugin_name},
+        {"name": "KOMSCO_AI_EMBEDDING_PROVIDER", "value": str(config["ragEmbeddingProvider"])},
+        {"name": "KOMSCO_AI_EMBEDDING_API_STYLE", "value": str(config["ragEmbeddingApiStyle"])},
+        {"name": "KOMSCO_AI_EMBEDDING_BASE_URL", "value": str(config["ragEmbeddingBaseUrl"])},
+        {"name": "KOMSCO_AI_EMBEDDING_MODEL", "value": str(config["ragEmbeddingModel"])},
+        {"name": "KOMSCO_AI_EMBEDDING_DIMENSIONS", "value": str(config["ragVectorDimensions"])},
+        {"name": "KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS", "value": str(config["ragEmbeddingTimeoutSeconds"])},
         {"name": "KOMSCO_AI_RAG_EMBEDDING_MODEL", "value": str(config["ragEmbeddingModel"])},
         {"name": "KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "value": str(config["ragVectorDimensions"])},
     ]

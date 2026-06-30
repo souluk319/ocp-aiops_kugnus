@@ -1,0 +1,351 @@
+{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "RagMockCustomerSmokeReport",
+  "generatedAt": "2026-06-30T05:19:07.826356+00:00",
+  "gatewayUrl": "http://127.0.0.1:18080",
+  "customer": "mockpay",
+  "namespace": "mockpay-prod",
+  "result": "pass",
+  "checks": [
+    {
+      "name": "00-service-map.pdf:hangul-extracts",
+      "ok": true,
+      "detail": "MockPay 운영센터 서비스 맵\n문서 ID: MOCKPAY-SVCMAP-2026-06\n버전: v2026.06\n상태: fresh\n고객: MockPay 운영센터\nnamespace: mockpay-prod, mockpay-observability, mockpay-batch\nMOCKPAY_S"
+    },
+    {
+      "name": "00-service-map.pdf:no-broken-nul",
+      "ok": true,
+      "detail": "pypdf extracted text has no NUL replacement"
+    },
+    {
+      "name": "00-service-map.pdf:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "00-service-map.pdf:persisted",
+      "ok": true,
+      "detail": "Uploaded document chunks were persisted to pgvector."
+    },
+    {
+      "name": "00-service-map.pdf:pdf-parser",
+      "ok": true,
+      "detail": "pypdf"
+    },
+    {
+      "name": "00-service-map.pdf:chunks",
+      "ok": true,
+      "detail": "chunkCount=2"
+    },
+    {
+      "name": "00-service-map.pdf:raw-hidden",
+      "ok": true,
+      "detail": "raw content omitted from upload response"
+    },
+    {
+      "name": "01-incident-runbook.pdf:hangul-extracts",
+      "ok": true,
+      "detail": "MockPay 장애 대응 Runbook\n문서 ID: MOCKPAY-RUNBOOK-2026-06\n버전: v2026.06\n상태: fresh\n고객: MockPay 운영센터\nnamespace: mockpay-prod\nMOCKPAY_CRASHLOOP_RUNBOOK marker.\nMOCKPAY_I"
+    },
+    {
+      "name": "01-incident-runbook.pdf:no-broken-nul",
+      "ok": true,
+      "detail": "pypdf extracted text has no NUL replacement"
+    },
+    {
+      "name": "01-incident-runbook.pdf:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "01-incident-runbook.pdf:persisted",
+      "ok": true,
+      "detail": "Uploaded document chunks were persisted to pgvector."
+    },
+    {
+      "name": "01-incident-runbook.pdf:pdf-parser",
+      "ok": true,
+      "detail": "pypdf"
+    },
+    {
+      "name": "01-incident-runbook.pdf:chunks",
+      "ok": true,
+      "detail": "chunkCount=2"
+    },
+    {
+      "name": "01-incident-runbook.pdf:raw-hidden",
+      "ok": true,
+      "detail": "raw content omitted from upload response"
+    },
+    {
+      "name": "02-change-approval-policy.pdf:hangul-extracts",
+      "ok": true,
+      "detail": "MockPay 배포/변경 승인 절차\n문서 ID: MOCKPAY-CHANGE-2026-06\n버전: v2026.06\n상태: fresh\n고객: MockPay 운영센터\nnamespace: mockpay-prod\nMOCKPAY_CHANGE_POLICY marker.\n1. 변경창\n변경 유형\n허용 "
+    },
+    {
+      "name": "02-change-approval-policy.pdf:no-broken-nul",
+      "ok": true,
+      "detail": "pypdf extracted text has no NUL replacement"
+    },
+    {
+      "name": "02-change-approval-policy.pdf:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "02-change-approval-policy.pdf:persisted",
+      "ok": true,
+      "detail": "Uploaded document chunks were persisted to pgvector."
+    },
+    {
+      "name": "02-change-approval-policy.pdf:pdf-parser",
+      "ok": true,
+      "detail": "pypdf"
+    },
+    {
+      "name": "02-change-approval-policy.pdf:chunks",
+      "ok": true,
+      "detail": "chunkCount=1"
+    },
+    {
+      "name": "02-change-approval-policy.pdf:raw-hidden",
+      "ok": true,
+      "detail": "raw content omitted from upload response"
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:hangul-extracts",
+      "ok": true,
+      "detail": "MockPay 과거 장애 리포트 2025\n문서 ID: MOCKPAY-RETRO-2025-11\n버전: v2025.11\n상태: stale\n고객: MockPay 운영센터\nnamespace: mockpay-prod\nMOCKPAY_STALE_2025_STORAGE_INCIDENT marker.\n"
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:no-broken-nul",
+      "ok": true,
+      "detail": "pypdf extracted text has no NUL replacement"
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:persisted",
+      "ok": true,
+      "detail": "Uploaded document chunks were persisted to pgvector."
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:pdf-parser",
+      "ok": true,
+      "detail": "pypdf"
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:chunks",
+      "ok": true,
+      "detail": "chunkCount=1"
+    },
+    {
+      "name": "03-incident-retrospective-2025.pdf:raw-hidden",
+      "ok": true,
+      "detail": "raw content omitted from upload response"
+    },
+    {
+      "name": "crashloop-runbook:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "crashloop-runbook:marker-found",
+      "ok": true,
+      "detail": "resultCount=2 marker=MOCKPAY_CRASHLOOP_RUNBOOK"
+    },
+    {
+      "name": "pull-secret-runbook:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "pull-secret-runbook:marker-found",
+      "ok": true,
+      "detail": "resultCount=2 marker=MOCKPAY_PULL_SECRET_CHECK"
+    },
+    {
+      "name": "change-policy:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "change-policy:marker-found",
+      "ok": true,
+      "detail": "resultCount=1 marker=MOCKPAY_CHANGE_POLICY"
+    },
+    {
+      "name": "stale-retrospective-explicit:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "stale-retrospective-explicit:marker-found",
+      "ok": true,
+      "detail": "resultCount=1 marker=MOCKPAY_STALE_2025_STORAGE_INCIDENT"
+    },
+    {
+      "name": "stale-retrospective-hidden-by-default:http-200",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "stale-retrospective-hidden-by-default:marker-hidden",
+      "ok": true,
+      "detail": "resultCount=0 marker=MOCKPAY_STALE_2025_STORAGE_INCIDENT"
+    }
+  ],
+  "uploads": [
+    {
+      "file": "/home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.6/mock-customer-ops-pack/pdf/00-service-map.pdf",
+      "httpStatus": 200,
+      "textHealth": {
+        "hasHangul": true,
+        "hasNul": false,
+        "textPreview": "MockPay 운영센터 서비스 맵\n문서 ID: MOCKPAY-SVCMAP-2026-06\n버전: v2026.06\n상태: fresh\n고객: MockPay 운영센터\nnamespace: mockpay-prod, mockpay-observability, mockpay-batch\nMOCKPAY_S"
+      },
+      "status": "persisted",
+      "reason": "Uploaded document chunks were persisted to pgvector.",
+      "documentId": "user-upload:f2ee0221dfccac3d",
+      "title": "00-service-map.pdf",
+      "chunkCount": 2,
+      "labels": {
+        "parser": "pypdf",
+        "documentFormat": "pdf",
+        "docKind": "service-map",
+        "freshness": "fresh",
+        "source": "mock-customer-ops-pack",
+        "safetyClass": "read-only"
+      },
+      "returnedChunkCount": 2,
+      "rawContentReturned": false
+    },
+    {
+      "file": "/home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.6/mock-customer-ops-pack/pdf/01-incident-runbook.pdf",
+      "httpStatus": 200,
+      "textHealth": {
+        "hasHangul": true,
+        "hasNul": false,
+        "textPreview": "MockPay 장애 대응 Runbook\n문서 ID: MOCKPAY-RUNBOOK-2026-06\n버전: v2026.06\n상태: fresh\n고객: MockPay 운영센터\nnamespace: mockpay-prod\nMOCKPAY_CRASHLOOP_RUNBOOK marker.\nMOCKPAY_I"
+      },
+      "status": "persisted",
+      "reason": "Uploaded document chunks were persisted to pgvector.",
+      "documentId": "user-upload:0892d797e0d4fe3e",
+      "title": "01-incident-runbook.pdf",
+      "chunkCount": 2,
+      "labels": {
+        "parser": "pypdf",
+        "documentFormat": "pdf",
+        "docKind": "incident-runbook",
+        "freshness": "fresh",
+        "source": "mock-customer-ops-pack",
+        "safetyClass": "read-only"
+      },
+      "returnedChunkCount": 2,
+      "rawContentReturned": false
+    },
+    {
+      "file": "/home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.6/mock-customer-ops-pack/pdf/02-change-approval-policy.pdf",
+      "httpStatus": 200,
+      "textHealth": {
+        "hasHangul": true,
+        "hasNul": false,
+        "textPreview": "MockPay 배포/변경 승인 절차\n문서 ID: MOCKPAY-CHANGE-2026-06\n버전: v2026.06\n상태: fresh\n고객: MockPay 운영센터\nnamespace: mockpay-prod\nMOCKPAY_CHANGE_POLICY marker.\n1. 변경창\n변경 유형\n허용 "
+      },
+      "status": "persisted",
+      "reason": "Uploaded document chunks were persisted to pgvector.",
+      "documentId": "user-upload:f6b1c7aa67fc131a",
+      "title": "02-change-approval-policy.pdf",
+      "chunkCount": 1,
+      "labels": {
+        "parser": "pypdf",
+        "documentFormat": "pdf",
+        "docKind": "change-policy",
+        "freshness": "fresh",
+        "source": "mock-customer-ops-pack",
+        "safetyClass": "read-only"
+      },
+      "returnedChunkCount": 1,
+      "rawContentReturned": false
+    },
+    {
+      "file": "/home/kugnus/cywell/ocp-aiops_kugnus/docs/Ver.0.1.6/mock-customer-ops-pack/pdf/03-incident-retrospective-2025.pdf",
+      "httpStatus": 200,
+      "textHealth": {
+        "hasHangul": true,
+        "hasNul": false,
+        "textPreview": "MockPay 과거 장애 리포트 2025\n문서 ID: MOCKPAY-RETRO-2025-11\n버전: v2025.11\n상태: stale\n고객: MockPay 운영센터\nnamespace: mockpay-prod\nMOCKPAY_STALE_2025_STORAGE_INCIDENT marker.\n"
+      },
+      "status": "persisted",
+      "reason": "Uploaded document chunks were persisted to pgvector.",
+      "documentId": "user-upload:aa293f0dea292363",
+      "title": "03-incident-retrospective-2025.pdf",
+      "chunkCount": 1,
+      "labels": {
+        "parser": "pypdf",
+        "documentFormat": "pdf",
+        "docKind": "incident-retrospective",
+        "freshness": "stale",
+        "source": "mock-customer-ops-pack",
+        "safetyClass": "read-only"
+      },
+      "returnedChunkCount": 1,
+      "rawContentReturned": false
+    }
+  ],
+  "searches": [
+    {
+      "name": "crashloop-runbook",
+      "httpStatus": 200,
+      "status": "collected",
+      "resultCount": 2,
+      "markerFound": true,
+      "titles": [
+        "01-incident-runbook.pdf",
+        "01-incident-runbook.pdf"
+      ]
+    },
+    {
+      "name": "pull-secret-runbook",
+      "httpStatus": 200,
+      "status": "collected",
+      "resultCount": 2,
+      "markerFound": true,
+      "titles": [
+        "01-incident-runbook.pdf",
+        "01-incident-runbook.pdf"
+      ]
+    },
+    {
+      "name": "change-policy",
+      "httpStatus": 200,
+      "status": "collected",
+      "resultCount": 1,
+      "markerFound": true,
+      "titles": [
+        "02-change-approval-policy.pdf"
+      ]
+    },
+    {
+      "name": "stale-retrospective-explicit",
+      "httpStatus": 200,
+      "status": "collected",
+      "resultCount": 1,
+      "markerFound": true,
+      "titles": [
+        "03-incident-retrospective-2025.pdf"
+      ]
+    },
+    {
+      "name": "stale-retrospective-hidden-by-default",
+      "httpStatus": 200,
+      "status": "empty",
+      "resultCount": 0,
+      "markerFound": false,
+      "negative": true
+    }
+  ]
+}

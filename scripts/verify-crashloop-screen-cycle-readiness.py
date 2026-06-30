@@ -110,10 +110,10 @@ def evaluate_existing_reports(checks: list[dict[str, Any]]) -> None:
     scenario_report = load_json("docs/Ver.0.1.3/aiops-scenario-evaluation-report.json")
     check_json_condition(
         checks,
-        name="scenario_evaluator_10_of_10_pass",
+        name="scenario_evaluator_13_of_13_pass",
         ok=(
-            scenario_report.get("scenarioCount") == 10
-            and scenario_report.get("passed") == 10
+            scenario_report.get("scenarioCount") == 13
+            and scenario_report.get("passed") == 13
             and scenario_report.get("failed") == 0
             and scenario_report.get("negativeControlsPassed") is True
         ),

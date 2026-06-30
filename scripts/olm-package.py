@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -19,9 +20,10 @@ INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "komsco-aiops-ku
 CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "komsco-aiops-catalog-kugnus")
 CATALOG_NAMESPACE = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE", "openshift-marketplace")
 CHANNEL = os.getenv("KOMSCO_AIOPS_CHANNEL", "stable")
-VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.3")
+VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.8")
 CSV_NAME = f"{OPERATOR_NAME}.v{VERSION}"
 SKIPS_CSV = os.getenv("KOMSCO_AIOPS_SKIPS_CSV", "")
+VERSION_SCOPE = os.getenv("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{VERSION}")
 INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "komsco-ai-kugnus")
 TARGET_NAMESPACE = os.getenv("KOMSCO_AIOPS_NAMESPACE", INSTALL_NAMESPACE)
 PLUGIN_IMAGE = os.getenv(
@@ -33,21 +35,21 @@ GATEWAY_IMAGE = os.getenv(
     f"image-registry.openshift-image-registry.svc:5000/{TARGET_NAMESPACE}/komsco-ai-gateway:{VERSION}",
 )
 OPERATOR_IMAGE = os.getenv("KOMSCO_AIOPS_OPERATOR_IMAGE", GATEWAY_IMAGE)
-DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "Cywell AI")
+DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "Cywell AIOps")
 CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "komsco-ai-console-plugin-kugnus")
-CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", "Cywell AI")
+CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", DISPLAY_NAME)
 PROVIDER_NAME = os.getenv("KOMSCO_AIOPS_PROVIDER_NAME", "Cywell")
 CATALOG_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CATALOG_DISPLAY_NAME", f"{DISPLAY_NAME} Catalog")
 CATALOG_PUBLISHER = os.getenv("KOMSCO_AIOPS_CATALOG_PUBLISHER", PROVIDER_NAME)
 MAINTAINER_NAME = os.getenv("KOMSCO_AIOPS_MAINTAINER_NAME", f"{PROVIDER_NAME} Platform Team")
-REPOSITORY_URL = os.getenv("KOMSCO_AIOPS_REPOSITORY_URL", "https://github.com/komsco/ocp-aiops")
+REPOSITORY_URL = os.getenv("KOMSCO_AIOPS_REPOSITORY_URL", "").strip()
 DESCRIPTION = os.getenv(
     "KOMSCO_AIOPS_DESCRIPTION",
     f"{DISPLAY_NAME} provides an OpenShift console assistant, audit trail, policy views, action execution, and host diagnostics integration.",
 )
 SHORT_DESCRIPTION = os.getenv(
     "KOMSCO_AIOPS_SHORT_DESCRIPTION",
-    f"{DISPLAY_NAME} ({PACKAGE_NAME}) installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
+    f"{DISPLAY_NAME} installs the OpenShift console assistant, gateway, action executor, and host diagnostics runtime.",
 )
 CATEGORIES = os.getenv("KOMSCO_AIOPS_CATEGORIES", "OpenShift Optional, Monitoring")
 KEYWORDS = [
@@ -71,6 +73,23 @@ READINESS_CONDITION_TYPES = [
     "HostDiagnosticsReady",
     "SafetyModeReady",
 ]
+
+OLM_SAFE_SEMVER_RE = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$"
+)
+
+
+def validate_operator_version(version: str) -> None:
+    if OLM_SAFE_SEMVER_RE.fullmatch(version):
+        return
+    raise SystemExit(
+        "KOMSCO_AIOPS_OPERATOR_VERSION must be an OLM-safe SemVer value such as "
+        "0.1.8 or 0.1.8-1. Do not use four-part document versions like 0.1.8.1 "
+        "as a ClusterServiceVersion version."
+    )
+
+
+validate_operator_version(VERSION)
 
 
 def default_skips_csv() -> list[str]:
@@ -134,6 +153,56 @@ def resolve_icon() -> tuple[str, str]:
 
 
 ICON_BASE64, ICON_MEDIA_TYPE = resolve_icon()
+
+
+def first_env_value(*names: str, default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
+
+
+def first_int_env(*names: str, default: int) -> int:
+    value = first_env_value(*names)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+RAG_EMBEDDING_PROVIDER = first_env_value(
+    "KOMSCO_AI_DEFAULT_EMBEDDING_PROVIDER",
+    "KOMSCO_AI_EMBEDDING_PROVIDER",
+)
+RAG_EMBEDDING_API_STYLE = first_env_value(
+    "KOMSCO_AI_DEFAULT_EMBEDDING_API_STYLE",
+    "KOMSCO_AI_EMBEDDING_API_STYLE",
+)
+RAG_EMBEDDING_BASE_URL = first_env_value(
+    "KOMSCO_AI_DEFAULT_EMBEDDING_BASE_URL",
+    "KOMSCO_AI_EMBEDDING_BASE_URL",
+)
+RAG_EMBEDDING_MODEL = first_env_value(
+    "KOMSCO_AI_DEFAULT_EMBEDDING_MODEL",
+    "KOMSCO_AI_EMBEDDING_MODEL",
+    "KOMSCO_AI_DEFAULT_RAG_EMBEDDING_MODEL",
+    default="hashing-local-dev",
+)
+RAG_EMBEDDING_TIMEOUT_SECONDS = first_int_env(
+    "KOMSCO_AI_DEFAULT_EMBEDDING_TIMEOUT_SECONDS",
+    "KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS",
+    "KOMSCO_AI_DEFAULT_RAG_EMBEDDING_TIMEOUT_SECONDS",
+    default=10,
+)
+RAG_VECTOR_DIMENSIONS = first_int_env(
+    "KOMSCO_AI_DEFAULT_EMBEDDING_DIMENSIONS",
+    "KOMSCO_AI_EMBEDDING_DIMENSIONS",
+    "KOMSCO_AI_DEFAULT_RAG_VECTOR_DIMENSIONS",
+    default=64,
+)
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -205,6 +274,19 @@ def crd() -> dict[str, Any]:
                                                 "diagnostics": {"type": "boolean", "default": True},
                                                 "mutations": {"type": "boolean", "default": False},
                                                 "unrestrictedCommands": {"type": "boolean", "default": False},
+                                            },
+                                        },
+                                        "rag": {
+                                            "type": "object",
+                                            "properties": {
+                                                "backendUrlSecret": {"type": "string"},
+                                                "backendUrlKey": {"type": "string", "default": "url"},
+                                                "embeddingProvider": {"type": "string"},
+                                                "embeddingApiStyle": {"type": "string"},
+                                                "embeddingBaseUrl": {"type": "string"},
+                                                "embeddingModel": {"type": "string"},
+                                                "embeddingTimeoutSeconds": {"type": "integer", "minimum": 1},
+                                                "vectorDimensions": {"type": "integer", "minimum": 1},
                                             },
                                         },
                                     },
@@ -283,21 +365,24 @@ def operator_rules() -> list[dict[str, Any]]:
 def csv() -> dict[str, Any]:
     labels = {"app.kubernetes.io/name": OPERATOR_NAME, "app.kubernetes.io/part-of": PACKAGE_NAME}
     skips = default_skips_csv()
+    annotations = {
+        "alm-examples": json.dumps([aiops_installation()], ensure_ascii=False),
+        "aiops.komsco.io/version-scope": VERSION_SCOPE,
+        "aiops.komsco.io/readiness-conditions": ",".join(READINESS_CONDITION_TYPES),
+        "capabilities": "Full Lifecycle",
+        "categories": CATEGORIES,
+        "containerImage": OPERATOR_IMAGE,
+        "description": SHORT_DESCRIPTION,
+    }
+    if REPOSITORY_URL:
+        annotations["repository"] = REPOSITORY_URL
+
     return {
         "apiVersion": "operators.coreos.com/v1alpha1",
         "kind": "ClusterServiceVersion",
         "metadata": {
             "name": CSV_NAME,
-            "annotations": {
-                "alm-examples": json.dumps([aiops_installation()], ensure_ascii=False),
-                "aiops.komsco.io/version-scope": "Ver.0.1.1",
-                "aiops.komsco.io/readiness-conditions": ",".join(READINESS_CONDITION_TYPES),
-                "capabilities": "Full Lifecycle",
-                "categories": CATEGORIES,
-                "containerImage": OPERATOR_IMAGE,
-                "description": SHORT_DESCRIPTION,
-                "repository": REPOSITORY_URL,
-            },
+            "annotations": annotations,
         },
         "spec": {
             "displayName": DISPLAY_NAME,
@@ -308,7 +393,7 @@ def csv() -> dict[str, Any]:
             "provider": {"name": PROVIDER_NAME},
             "keywords": KEYWORDS,
             "maintainers": [{"name": MAINTAINER_NAME}],
-            "links": [{"name": DISPLAY_NAME, "url": REPOSITORY_URL}],
+            **({"links": [{"name": DISPLAY_NAME, "url": REPOSITORY_URL}]} if REPOSITORY_URL else {}),
             "icon": [{"base64data": ICON_BASE64, "mediatype": ICON_MEDIA_TYPE}],
             "installModes": [
                 {"type": "OwnNamespace", "supported": True},
@@ -368,7 +453,7 @@ def csv() -> dict[str, Any]:
                                                     },
                                                     {
                                                         "name": "KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION",
-                                                        "value": os.getenv("KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION", "false"),
+                                                        "value": os.getenv("KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION", "true"),
                                                     },
                                                     {
                                                         "name": "KOMSCO_AI_DEFAULT_INSTALLATION_NAME",
@@ -380,7 +465,19 @@ def csv() -> dict[str, Any]:
                                                         "name": "KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS",
                                                         "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false"),
                                                     },
-                                                    {"name": "KOMSCO_AI_OPERATOR_VERSION_SCOPE", "value": "Ver.0.1.1"},
+                                                    {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_PROVIDER", "value": RAG_EMBEDDING_PROVIDER},
+                                                    {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_API_STYLE", "value": RAG_EMBEDDING_API_STYLE},
+                                                    {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_BASE_URL", "value": RAG_EMBEDDING_BASE_URL},
+                                                    {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_MODEL", "value": RAG_EMBEDDING_MODEL},
+                                                    {
+                                                        "name": "KOMSCO_AI_DEFAULT_EMBEDDING_TIMEOUT_SECONDS",
+                                                        "value": str(RAG_EMBEDDING_TIMEOUT_SECONDS),
+                                                    },
+                                                    {
+                                                        "name": "KOMSCO_AI_DEFAULT_EMBEDDING_DIMENSIONS",
+                                                        "value": str(RAG_VECTOR_DIMENSIONS),
+                                                    },
+                                                    {"name": "KOMSCO_AI_OPERATOR_VERSION_SCOPE", "value": VERSION_SCOPE},
                                                     {
                                                         "name": "KOMSCO_AI_OPERATOR_READINESS_CONDITIONS",
                                                         "value": ",".join(READINESS_CONDITION_TYPES),
@@ -496,6 +593,14 @@ def aiops_installation() -> dict[str, Any]:
                 "diagnostics": os.getenv("KOMSCO_AIOPS_ENABLE_DIAGNOSTICS", "true").lower() == "true",
                 "mutations": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "false").lower() == "true",
                 "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+            },
+            "rag": {
+                "embeddingProvider": RAG_EMBEDDING_PROVIDER,
+                "embeddingApiStyle": RAG_EMBEDDING_API_STYLE,
+                "embeddingBaseUrl": RAG_EMBEDDING_BASE_URL,
+                "embeddingModel": RAG_EMBEDDING_MODEL,
+                "embeddingTimeoutSeconds": RAG_EMBEDDING_TIMEOUT_SECONDS,
+                "vectorDimensions": RAG_VECTOR_DIMENSIONS,
             },
         },
     }

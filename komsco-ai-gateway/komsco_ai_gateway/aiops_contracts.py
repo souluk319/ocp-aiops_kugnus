@@ -271,6 +271,16 @@ def build_adapter_registry(
             "nextAction": linux_next_action,
             "supportedTools": [
                 {
+                    "tool": "gateway_rag_runbook_search",
+                    "status": "available",
+                    "verbs": ["get"],
+                    "evidenceTypes": ["linux_service_log", "runbook"],
+                    "description": "Search Gateway RAG runbooks for Linux service diagnosis without running host commands.",
+                    "disabledReason": "",
+                },
+            ]
+            + [
+                {
                     "tool": tool,
                     "status": linux_status,
                     "verbs": ["get"],
@@ -295,6 +305,16 @@ def build_adapter_registry(
             "detail": "Windows event adapter is design scope, not runtime-ready",
             "nextAction": "Define a Windows node agent or remote event bridge before exposing runtime results.",
             "supportedTools": [
+                {
+                    "tool": "gateway_rag_runbook_search",
+                    "status": "available",
+                    "verbs": ["get"],
+                    "evidenceTypes": ["windows_event_log", "runbook"],
+                    "description": "Search Gateway RAG runbooks for Windows event diagnosis without running host commands.",
+                    "disabledReason": "",
+                },
+            ]
+            + [
                 {
                     "tool": tool,
                     "status": "planned",
@@ -1151,6 +1171,66 @@ def build_runtime_tool_plan(
             },
         ]
         missing = [{"type": "metric", "reason": "cronjob duration metrics are not wired yet"}]
+    elif _message_has_any(
+        message,
+        ("journalctl", "systemctl", "dmesg", "linux service", "service crash", "서비스 오류", "서비스 장애"),
+    ):
+        task_type = "linux_service_diagnosis"
+        tool_steps = [
+            {
+                "step": 1,
+                "tool": "gateway_rag_runbook_search",
+                "official_tool": "runbook_tool",
+                "adapter": "linux",
+                "verb": "get",
+                "evidence_type": "linux_service_log",
+                "reason": "Linux 서비스 장애 패턴 런북 조회",
+            },
+            {
+                "step": 2,
+                "tool": "lightspeed_streaming_query",
+                "adapter": "OpenShift Lightspeed",
+                "verb": "get",
+                "evidence_type": "openshift",
+                "reason": "수집된 런북 context를 포함해 Linux 서비스 진단 가이드 생성",
+            },
+        ]
+        missing = [
+            {
+                "type": "linux_command_output",
+                "reason": "Linux OS adapter not yet wired (v0.1.9+); journalctl/systemctl output unavailable",
+            }
+        ]
+    elif _message_has_any(
+        message,
+        ("windows", "event log", "get-winevent", "iis", "윈도우", "윈도즈"),
+    ):
+        task_type = "windows_event_diagnosis"
+        tool_steps = [
+            {
+                "step": 1,
+                "tool": "gateway_rag_runbook_search",
+                "official_tool": "runbook_tool",
+                "adapter": "windows",
+                "verb": "get",
+                "evidence_type": "windows_event_log",
+                "reason": "Windows 이벤트 장애 패턴 런북 조회",
+            },
+            {
+                "step": 2,
+                "tool": "lightspeed_streaming_query",
+                "adapter": "OpenShift Lightspeed",
+                "verb": "get",
+                "evidence_type": "openshift",
+                "reason": "수집된 런북 context를 포함해 Windows 이벤트 진단 가이드 생성",
+            },
+        ]
+        missing = [
+            {
+                "type": "windows_command_output",
+                "reason": "Windows OS adapter not yet wired (v0.1.9+); Get-WinEvent/Get-Content output unavailable",
+            }
+        ]
     else:
         task_type = "openshift_operational_question"
         tool_steps = [

@@ -112,6 +112,21 @@ check_http_head() {
   fi
 }
 
+check_http_status() {
+  local url="$1"
+  local label="$2"
+  local expected="$3"
+  local status
+
+  status="$(curl -ksS -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null || true)"
+  if [ "$status" = "$expected" ]; then
+    pass "$label responds: HTTP ${status}"
+  else
+    fail "$label unhealthy: HTTP ${status:-000}"
+    info "$url"
+  fi
+}
+
 check_http_get() {
   local url="$1"
   local label="$2"
@@ -306,11 +321,12 @@ check_port 18083 "Action Executor port-forward"
 print_section "Local endpoints"
 check_http_get "http://127.0.0.1:18080/healthz" "Gateway healthz"
 check_http_head "http://127.0.0.1:9000/dashboards" "Local console dashboard"
+check_http_status "http://127.0.0.1:9000/api/kubernetes/version" "Local console Kubernetes API proxy" "200"
 check_http_head "http://127.0.0.1:9001/api/plugins/${PLUGIN_NAME}/plugin-manifest.json" "Plugin manifest"
 
 print_section "Task availability"
 if have_cmd task; then
-  task --list 2>/dev/null | grep -E 'kugnus:dev:be(:| |$)|kugnus:dev:fe|kugnus:dev:doctor' || true
+  task --list 2>/dev/null | grep -E 'kugnus:dev:be(:| |$)|kugnus:dev:fe|kugnus:dev:console:(morning|open|repair)|kugnus:dev:doctor' || true
 fi
 
 print_section "Summary"
@@ -319,6 +335,7 @@ printf 'PASS=%s WARN=%s FAIL=%s\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
 if [ "$FAIL_COUNT" -gt 0 ]; then
   echo "Doctor result: FAIL"
   echo "Fix FAIL items before starting the demo loop."
+  echo "For localhost:9000 morning startup, run: task kugnus:dev:console:morning"
   exit 1
 fi
 

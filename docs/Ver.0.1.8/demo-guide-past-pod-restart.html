@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>시연 가이드 — 어제 새벽 Pod 재시작 RCA (Scenario 11)</title>
+<style>
+  :root {
+    --dark:   #1a1a2e;
+    --navy:   #16213e;
+    --mid:    #0f3460;
+    --accent: #e94560;
+    --teal:   #00b4d8;
+    --green:  #27ae60;
+    --yellow: #f39c12;
+    --orange: #e67e22;
+    --gray:   #6c757d;
+    --bg:     #f4f6fb;
+    --card:   #ffffff;
+    --border: #dee2e6;
+    --code-bg: #1e2233;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', -apple-system, sans-serif;
+    background: var(--bg);
+    color: #2d3748;
+    line-height: 1.7;
+  }
+
+  /* ─── BANNER ─── */
+  .banner {
+    background: linear-gradient(135deg, var(--dark) 0%, var(--mid) 100%);
+    color: #fff;
+    padding: 52px 60px 44px;
+    position: relative;
+    overflow: hidden;
+  }
+  .banner::before {
+    content: '';
+    position: absolute;
+    right: -80px; top: -80px;
+    width: 360px; height: 360px;
+    border-radius: 50%;
+    background: rgba(0,180,216,.12);
+  }
+  .banner::after {
+    content: '';
+    position: absolute;
+    left: 40%; bottom: -60px;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    background: rgba(233,69,96,.10);
+  }
+  .banner-badge {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--teal);
+    font-weight: 700;
+    margin-bottom: 14px;
+    background: rgba(0,180,216,.15);
+    padding: 4px 14px;
+    border-radius: 20px;
+  }
+  .banner h1 { font-size: 28px; font-weight: 800; margin-bottom: 10px; letter-spacing: -0.5px; }
+  .banner .sub { font-size: 15px; color: rgba(255,255,255,.72); margin-bottom: 28px; max-width: 600px; }
+  .banner .meta { display: flex; gap: 14px; flex-wrap: wrap; }
+  .banner .meta span {
+    font-size: 13px;
+    background: rgba(255,255,255,.12);
+    padding: 5px 16px;
+    border-radius: 20px;
+    color: rgba(255,255,255,.9);
+  }
+  .banner .meta span.hi { background: rgba(233,69,96,.3); }
+
+  /* ─── BODY WRAPPER ─── */
+  .body { max-width: 960px; margin: 0 auto; padding: 44px 24px 100px; }
+
+  /* ─── SECTION ─── */
+  .section {
+    background: var(--card);
+    border-radius: 16px;
+    box-shadow: 0 2px 20px rgba(0,0,0,.07);
+    margin-bottom: 36px;
+    overflow: hidden;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 30px;
+    background: var(--navy);
+    color: #fff;
+  }
+  .step-circle {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 800;
+    flex-shrink: 0;
+  }
+  .step-circle.green { background: var(--green); }
+  .step-circle.teal  { background: var(--teal); color: #fff; }
+  .step-circle.orange { background: var(--orange); }
+  .section-head h2 { font-size: 17px; font-weight: 700; }
+  .section-head .tag {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 3px 12px;
+    border-radius: 12px;
+    background: rgba(255,255,255,.15);
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+  .section-body { padding: 28px 30px; }
+
+  /* ─── NOTICE ─── */
+  .notice {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  .notice.info    { background: #e8f4fd; border-left: 4px solid #3498db; }
+  .notice.warn    { background: #fef9e7; border-left: 4px solid var(--yellow); }
+  .notice.success { background: #eafaf1; border-left: 4px solid var(--green); }
+  .notice.danger  { background: #fdedec; border-left: 4px solid var(--accent); }
+  .notice .ni { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+  /* ─── STEPS (numbered list) ─── */
+  .step-list { list-style: none; counter-reset: step-counter; }
+  .step-list li {
+    counter-increment: step-counter;
+    display: flex;
+    gap: 16px;
+    margin-bottom: 22px;
+    align-items: flex-start;
+  }
+  .step-list li::before {
+    content: counter(step-counter);
+    min-width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--mid);
+    color: #fff;
+    font-size: 13px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-list li .step-content { flex: 1; }
+  .step-list li .step-title { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  .step-list li .step-desc { font-size: 14px; color: #4a5568; }
+
+  /* ─── CODE BLOCK ─── */
+  .code-wrap {
+    background: var(--code-bg);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 14px 0;
+  }
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: rgba(255,255,255,.06);
+    font-size: 12px;
+    color: rgba(255,255,255,.6);
+    letter-spacing: 1px;
+  }
+  .code-head .lang { color: var(--teal); font-weight: 700; }
+  pre {
+    padding: 18px 20px;
+    font-family: 'Consolas', 'D2Coding', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #e2e8f0;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .hl-key   { color: #f6c90e; }
+  .hl-str   { color: #98d3ff; }
+  .hl-val   { color: #c3e88d; }
+  .hl-com   { color: #637777; font-style: italic; }
+  .hl-url   { color: var(--teal); }
+  .hl-event { color: #ffb347; font-weight: 700; }
+  .hl-ok    { color: #2ecc71; }
+  .hl-miss  { color: #e74c3c; }
+
+  /* ─── FLOW TIMELINE ─── */
+  .timeline { position: relative; padding-left: 36px; }
+  .timeline::before {
+    content: '';
+    position: absolute; left: 13px; top: 8px; bottom: 8px;
+    width: 2px; background: var(--border);
+  }
+  .tl-item {
+    position: relative;
+    margin-bottom: 18px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .tl-item::before {
+    content: '';
+    position: absolute;
+    left: -27px; top: 18px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid;
+  }
+  .tl-item.tool_call { border-color: #bee3f8; background: #ebf8ff; }
+  .tl-item.tool_call::before { background: #3498db; border-color: #3498db; }
+  .tl-item.tool_result_ok { border-color: #c6f6d5; background: #f0fff4; }
+  .tl-item.tool_result_ok::before { background: var(--green); border-color: var(--green); }
+  .tl-item.tool_result_miss { border-color: #fed7d7; background: #fff5f5; }
+  .tl-item.tool_result_miss::before { background: #e74c3c; border-color: #e74c3c; }
+  .tl-item.answer { border-color: #d4edda; background: #eafaf1; }
+  .tl-item.answer::before { background: var(--green); border-color: var(--green); }
+  .tl-item .tl-type {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    opacity: .7;
+  }
+  .tl-item .tl-name { font-weight: 700; font-size: 14px; }
+  .tl-item .tl-detail { font-size: 13px; color: #4a5568; margin-top: 4px; }
+  .tl-badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    margin-left: 8px;
+  }
+  .tl-badge.ok   { background: #c6f6d5; color: #276749; }
+  .tl-badge.miss { background: #fed7d7; color: #9b2335; }
+  .tl-badge.call { background: #bee3f8; color: #2b6cb0; }
+
+  /* ─── PREREQ TABLE ─── */
+  .prereq-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+  .prereq-table th {
+    background: #f1f5f9;
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 13px;
+    border-bottom: 2px solid var(--border);
+  }
+  .prereq-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .prereq-table tr:last-child td { border-bottom: none; }
+  .check { color: var(--green); font-weight: 700; }
+  .na { color: var(--gray); }
+
+  /* ─── ANSWER MOCK ─── */
+  .answer-mock {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .answer-mock h4 {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--mid);
+    margin: 16px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .answer-mock h4:first-child { margin-top: 0; }
+  .answer-mock ul { padding-left: 18px; }
+  .answer-mock li { margin-bottom: 4px; font-size: 13px; color: #4a5568; }
+  .answer-mock .missing { color: #e74c3c; font-size: 12px; font-style: italic; }
+  .answer-mock .forbidden { color: #e74c3c; font-weight: 700; }
+
+  /* ─── TROUBLE TABLE ─── */
+  .trouble-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .trouble-table th {
+    background: #1e2233;
+    color: #fff;
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 13px;
+  }
+  .trouble-table td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .trouble-table tr:nth-child(even) td { background: #f8fafc; }
+  .trouble-table tr:last-child td { border-bottom: none; }
+  .trouble-table .symptom { font-weight: 700; color: #c0392b; }
+  .trouble-table .cause { color: #2d3748; }
+  .trouble-table .fix { font-family: 'Consolas', monospace; font-size: 12px; color: var(--mid); }
+
+  /* ─── ENV VAR TABLE ─── */
+  .env-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .env-table th { background: #2d3748; color: #fff; padding: 9px 14px; text-align: left; }
+  .env-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+  .env-table tr:last-child td { border-bottom: none; }
+  .env-name { font-family: 'Consolas', monospace; color: var(--mid); font-weight: 700; }
+  .env-default { font-family: 'Consolas', monospace; font-size: 12px; color: var(--gray); }
+
+  /* ─── CHIPS ─── */
+  .chip {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 700;
+    margin: 2px 3px;
+  }
+  .chip.blue   { background: #bee3f8; color: #2b6cb0; }
+  .chip.green  { background: #c6f6d5; color: #276749; }
+  .chip.red    { background: #fed7d7; color: #9b2335; }
+  .chip.gray   { background: #e2e8f0; color: #4a5568; }
+  .chip.yellow { background: #fefcbf; color: #744210; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════
+     BANNER
+════════════════════════════════════════════════════ -->
+<div class="banner">
+  <div class="banner-badge">Demo Guide · Scenario 11</div>
+  <h1>어제 새벽 Pod 재시작 RCA — 시연 가이드북</h1>
+  <div class="sub">
+    "어제 새벽에 default namespace Pod가 왜 재시작됐어?" 한 문장으로<br>
+    Evidence 수집 → OOMKilled RCA → 조치 후보 제시까지 전체 흐름을 시연합니다.
+  </div>
+  <div class="meta">
+    <span>Gateway Ver.0.1.8</span>
+    <span>Scenario 11 · past-pod-restart-rca</span>
+    <span class="hi">OCP 연결 불필요 · Mock 증적 사용</span>
+    <span>소요 시간 약 3분</span>
+  </div>
+</div>
+
+<div class="body">
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 0 — 이 가이드로 무엇을 볼 수 있나
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle green">●</div>
+    <h2>이 시연으로 무엇을 볼 수 있나</h2>
+    <span class="tag">Overview</span>
+  </div>
+  <div class="section-body">
+    <div class="notice info">
+      <span class="ni">ℹ️</span>
+      <span>
+        실제 OCP 클러스터 연결 없이 <strong>Mock 증적(사전 정의된 가짜 데이터)</strong>을 주입해
+        전체 흐름을 재현합니다. 클러스터 환경이 없어도 완전한 시연이 가능합니다.
+      </span>
+    </div>
+
+    <div class="timeline" style="margin-top:8px;">
+      <div class="tl-item tool_call">
+        <div class="tl-type">Tool Call</div>
+        <div class="tl-name">과거 Pod 재시작 RCA 시연 증적 수집 (Scenario 11) <span class="tl-badge call">CALL</span></div>
+        <div class="tl-detail">Gateway가 증적 수집을 시작했다고 UI에 표시</div>
+      </div>
+      <div class="tl-item tool_result_ok">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">openshift_event_lookup <span class="tl-badge ok">success</span></div>
+        <div class="tl-detail">2026-06-28 02:14 KST · OOMKilled · Container exceeded memory limit 512Mi</div>
+      </div>
+      <div class="tl-item tool_result_ok">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">openshift_pod_snapshot_lookup <span class="tl-badge ok">success</span></div>
+        <div class="tl-detail">restartCount=3, lastState.terminated.reason=OOMKilled, memoryLimit=512Mi</div>
+      </div>
+      <div class="tl-item tool_result_ok">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">openshift_pod_status_lookup <span class="tl-badge ok">success</span></div>
+        <div class="tl-detail">webapp-deploy-7f94d-k8z2p STATUS=Running RESTARTS=3</div>
+      </div>
+      <div class="tl-item tool_result_ok">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">openshift_pod_log_pattern_probe <span class="tl-badge ok">success</span></div>
+        <div class="tl-detail">java.lang.OutOfMemoryError: Java heap space · GC overhead limit exceeded</div>
+      </div>
+      <div class="tl-item tool_result_ok">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">gateway_rag_runbook_search <span class="tl-badge ok">success</span></div>
+        <div class="tl-detail">OOMKilled 대응 런북 · 메모리 limit 증설 절차 · JVM heap 점검 포함</div>
+      </div>
+      <div class="tl-item tool_result_miss">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">openshift_metric_query <span class="tl-badge miss">missing</span></div>
+        <div class="tl-detail">metric_tool Prometheus 연결은 v0.1.9 예정 — missing evidence</div>
+      </div>
+      <div class="tl-item tool_result_miss">
+        <div class="tl-type">Tool Result</div>
+        <div class="tl-name">openshift_clusteroperator_lookup <span class="tl-badge miss">missing</span></div>
+        <div class="tl-detail">ClusterOperator 상태 조회 미수행 — missing evidence</div>
+      </div>
+      <div class="tl-item answer">
+        <div class="tl-type">OLS Final Answer</div>
+        <div class="tl-name">RCA 최종 답변 스트리밍 <span class="tl-badge ok">complete</span></div>
+        <div class="tl-detail">확인된 근거 / 원인 후보 / 추가 확인 필요 / Read-only 조치 / 금지 작업 5섹션</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 1 — 사전 준비
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle">1</div>
+    <h2>사전 준비</h2>
+    <span class="tag">Prerequisites</span>
+  </div>
+  <div class="section-body">
+
+    <table class="prereq-table">
+      <thead>
+        <tr>
+          <th>항목</th>
+          <th>확인 방법</th>
+          <th>필수 여부</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>KOMSCO AI Gateway 실행 중</strong><br><span style="font-size:12px;color:#718096;">기본 포트 8000</span></td>
+          <td>
+            <div class="code-wrap" style="margin:0;">
+              <pre style="padding:8px 14px;">curl -s http://localhost:8000/health</pre>
+            </div>
+            <span style="font-size:12px;color:#718096;">→ <code>{"status":"ok"}</code> 응답 확인</span>
+          </td>
+          <td><span class="check">✅ 필수</span></td>
+        </tr>
+        <tr>
+          <td><strong>Bearer 토큰</strong><br><span style="font-size:12px;color:#718096;">Gateway 인증 토큰</span></td>
+          <td>환경 변수 <code>KOMSCO_AI_BEARER_TOKEN</code> 또는<br>OCP 사용자 토큰 (<code>oc whoami -t</code>)</td>
+          <td><span class="check">✅ 필수</span></td>
+        </tr>
+        <tr>
+          <td><strong>curl</strong></td>
+          <td><code>curl --version</code></td>
+          <td><span class="check">✅ 필수</span></td>
+        </tr>
+        <tr>
+          <td><strong>OCP 클러스터 연결</strong></td>
+          <td>불필요 — Mock 증적으로 완전 시연 가능</td>
+          <td><span class="na">— 불필요</span></td>
+        </tr>
+        <tr>
+          <td><strong>Prometheus/Thanos</strong></td>
+          <td>불필요 — metric은 missing으로 표시됨</td>
+          <td><span class="na">— 불필요</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="notice warn" style="margin-top:20px;">
+      <span class="ni">⚠️</span>
+      <span>
+        <strong>Gateway가 실행 중이 아니라면:</strong>
+        <code>task kugnus:gateway:start</code> 또는
+        <code>cd komsco-ai-gateway &amp;&amp; uvicorn komsco_ai_gateway.main:app --reload</code>
+        로 먼저 시작하세요.
+      </span>
+    </div>
+
+    <div class="notice info" style="margin-top:12px;">
+      <span class="ni">🔑</span>
+      <span>
+        <strong>토큰을 변수에 저장해두면 편합니다:</strong>
+        아래 명령을 터미널에 미리 실행하고 이후 단계에서 <code>$TOKEN</code>으로 사용합니다.
+      </span>
+    </div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">bash</span><span>터미널에서 실행</span></div>
+      <pre><span class="hl-com"># OCP 토큰을 사용하는 경우</span>
+TOKEN=$(oc whoami -t)
+
+<span class="hl-com"># 또는 Gateway Bearer 토큰을 직접 지정</span>
+TOKEN=<span class="hl-str">"여기에_토큰_붙여넣기"</span>
+
+<span class="hl-com"># 게이트웨이 주소 변수화 (기본값)</span>
+GW=<span class="hl-str">"http://localhost:8000"</span></pre>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 2 — 게이트웨이 상태 확인
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle">2</div>
+    <h2>게이트웨이 상태 확인 (선택)</h2>
+    <span class="tag">Health Check</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:14px;margin-bottom:16px;">시연 전 게이트웨이가 정상인지 확인합니다. 아래 둘 중 하나를 실행하세요.</p>
+
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">bash</span><span>Health Endpoint</span></div>
+      <pre>curl -s $GW/health | python3 -m json.tool</pre>
+    </div>
+
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">bash</span><span>Preflight Endpoint</span></div>
+      <pre>curl -s -H <span class="hl-str">"Authorization: Bearer $TOKEN"</span> $GW/v1/preflight | python3 -m json.tool</pre>
+    </div>
+
+    <div class="notice success">
+      <span class="ni">✅</span>
+      <span>
+        <strong>정상 응답 예시:</strong>
+        <code>{"status": "ok", "gateway": "komsco-ai-gateway", ...}</code><br>
+        오류가 나면 Gateway가 실행 중인지, 토큰이 맞는지 확인하세요.
+      </span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 3 — 시연 질문 전송 (핵심)
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle teal">3</div>
+    <h2>시연 질문 전송 — 핵심 단계</h2>
+    <span class="tag">Demo Request</span>
+  </div>
+  <div class="section-body">
+    <div class="notice danger">
+      <span class="ni">🎯</span>
+      <span>
+        <strong>이게 핵심입니다.</strong>
+        일반 질문과 완전히 동일하지만,
+        <code>pageContext</code>에 <code>"aiopsDemoCycle": {"scenarioId": "past-pod-restart-rca"}</code>
+        를 추가하는 것 하나가 시연 모드를 활성화합니다.
+      </span>
+    </div>
+
+    <div style="margin-bottom:8px;font-weight:700;font-size:14px;">아래 명령을 복사해서 터미널에 그대로 붙여넣으세요.</div>
+
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">bash</span><span>시연 요청 · curl · SSE 스트리밍</span></div>
+      <pre>curl -s -N \
+  -X POST $GW/v1/chat/stream \
+  -H <span class="hl-str">"Content-Type: application/json"</span> \
+  -H <span class="hl-str">"Authorization: Bearer $TOKEN"</span> \
+  -d <span class="hl-str">'{
+    "message": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+    "pageContext": {
+      "namespace": "default",
+      "pathname": "/k8s/ns/default",
+      "aiopsDemoCycle": {
+        "scenarioId": "past-pod-restart-rca"
+      }
+    },
+    "conversationId": "demo-scenario-11"
+  }'</span></pre>
+    </div>
+
+    <div class="notice info">
+      <span class="ni">📌</span>
+      <span>
+        <code>-N</code> 플래그는 curl이 SSE(Server-Sent Events) 스트리밍을 끊지 않고
+        실시간으로 출력하도록 합니다. 응답이 한 줄씩 흘러오는 것이 정상입니다.
+      </span>
+    </div>
+
+    <div style="margin-top:20px;margin-bottom:10px;font-weight:700;font-size:14px;">
+      JSON Body 필드 설명
+    </div>
+    <table class="prereq-table">
+      <thead>
+        <tr><th>필드</th><th>값</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>message</code></td>
+          <td><code>"어제 새벽에 default namespace Pod가 왜 재시작됐어?"</code></td>
+          <td>실제 시연 질문. 이 문장 그대로 사용</td>
+        </tr>
+        <tr>
+          <td><code>pageContext.namespace</code></td>
+          <td><code>"default"</code></td>
+          <td>시나리오 타깃 네임스페이스</td>
+        </tr>
+        <tr>
+          <td><code>pageContext.aiopsDemoCycle.scenarioId</code></td>
+          <td><code>"past-pod-restart-rca"</code></td>
+          <td><strong style="color:#c0392b;">이 값이 없으면 시연 모드가 작동하지 않음</strong></td>
+        </tr>
+        <tr>
+          <td><code>conversationId</code></td>
+          <td><code>"demo-scenario-11"</code> (임의)</td>
+          <td>로그 추적용. 아무 문자열이나 가능</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 4 — 응답 흐름 읽는 법
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle">4</div>
+    <h2>응답 흐름 읽는 법 — 터미널 출력 해석</h2>
+    <span class="tag">Response Reading</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:14px;margin-bottom:16px;">
+      응답은 <code>data: {...}</code> 형태의 JSON이 한 줄씩 흘러옵니다.
+      각 줄의 <code>"type"</code> 필드로 어떤 단계인지 알 수 있습니다.
+    </p>
+
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">SSE Stream</span><span>예상 응답 흐름 (순서대로)</span></div>
+      <pre><span class="hl-com"># ① 시연 증적 수집 시작 알림</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_call"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"past_pod_restart_demo_evidence"</span>,
+       <span class="hl-key">"summary"</span>: <span class="hl-str">"과거 Pod 재시작 RCA 시연 증적 수집 (Scenario 11)"</span>}
+
+<span class="hl-com"># ② Event 증적 수집 완료</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"openshift_event_lookup"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-ok">"success"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"event"</span>,
+       <span class="hl-key">"detail"</span>: <span class="hl-str">"...OOMKilled · Container exceeded memory limit of 512Mi"</span>}
+
+<span class="hl-com"># ③ Pod Snapshot 수집 완료</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"openshift_pod_snapshot_lookup"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-ok">"success"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"snapshot"</span>,
+       <span class="hl-key">"detail"</span>: <span class="hl-str">"...restartCount=3, lastState.terminated.reason=OOMKilled"</span>}
+
+<span class="hl-com"># ④ Pod 상태 수집 완료</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"openshift_pod_status_lookup"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-ok">"success"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"pod_status"</span>}
+
+<span class="hl-com"># ⑤ 로그 패턴 수집 완료</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"openshift_pod_log_pattern_probe"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-ok">"success"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"pod_log"</span>,
+       <span class="hl-key">"detail"</span>: <span class="hl-str">"...java.lang.OutOfMemoryError: Java heap space"</span>}
+
+<span class="hl-com"># ⑥ 런북 검색 완료</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"gateway_rag_runbook_search"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-ok">"success"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"runbook"</span>}
+
+<span class="hl-com"># ⑦ Metric — missing (정상, v0.1.9 예정)</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"openshift_metric_query"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-miss">"skipped"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"metric"</span>}
+
+<span class="hl-com"># ⑧ ClusterOperator — missing (정상)</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"tool_result"</span>, <span class="hl-key">"name"</span>: <span class="hl-str">"openshift_clusteroperator_lookup"</span>,
+       <span class="hl-key">"status"</span>: <span class="hl-str"><span class="hl-miss">"skipped"</span></span>, <span class="hl-key">"evidenceType"</span>: <span class="hl-str">"clusteroperator"</span>}
+
+<span class="hl-com"># ⑨ OLS 최종 답변 스트리밍 시작</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"token"</span>, <span class="hl-key">"content"</span>: <span class="hl-str">"### 확인된 근거\n\n..."</span>}
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"token"</span>, <span class="hl-key">"content"</span>: <span class="hl-str">"..."</span>}
+...
+
+<span class="hl-com"># ⑩ 스트리밍 종료</span>
+data: {<span class="hl-key">"type"</span>: <span class="hl-str">"done"</span>}</pre>
+    </div>
+
+    <div class="notice warn" style="margin-top:16px;">
+      <span class="ni">👀</span>
+      <span>
+        <code>"status": "skipped"</code>로 나오는 metric·clusteroperator는
+        <strong>오류가 아닙니다.</strong>
+        "현재 수집하지 않았고 missing evidence로 처리한다"는 정상 동작입니다.
+        OLS 최종 답변에서 "추가 확인 필요" 섹션에 표시됩니다.
+      </span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 5 — 예상 최종 답변 형태
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle green">5</div>
+    <h2>예상 최종 답변 형태</h2>
+    <span class="tag">Expected Answer</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:14px;margin-bottom:16px;">
+      OLS가 생성하는 최종 답변은 아래 <strong>5개 섹션</strong>을 포함합니다.
+      답변 계약에 의해 이 순서가 강제됩니다.
+    </p>
+
+    <div class="answer-mock">
+      <h4>### 확인된 근거</h4>
+      <ul>
+        <li><strong>event</strong> — 2026-06-28 02:14 KST, OOMKilled, Container exceeded memory limit 512Mi (collected)</li>
+        <li><strong>snapshot</strong> — restartCount=3, lastState.terminated.reason=OOMKilled (collected)</li>
+        <li><strong>pod_status</strong> — webapp-deploy-7f94d-k8z2p RESTARTS=3, STATUS=Running (collected)</li>
+        <li><strong>pod_log</strong> — java.lang.OutOfMemoryError: Java heap space, GC overhead limit exceeded (collected)</li>
+        <li><strong>runbook</strong> — OOMKilled 대응 런북 검색 완료 (collected)</li>
+      </ul>
+
+      <h4>### 가능한 원인 후보</h4>
+      <ul>
+        <li>Java 애플리케이션의 heap 메모리 설정이 Pod memoryLimit(512Mi)에 비해 과도하게 설정됨</li>
+        <li>메모리 누수(Memory Leak)로 인한 점진적 heap 증가</li>
+        <li class="missing">※ Prometheus 장기 메트릭(memory 추이)이 missing이므로 원인을 확정하지 않습니다</li>
+      </ul>
+
+      <h4>### 추가 확인 필요</h4>
+      <ul>
+        <li><span class="missing">metric (missing)</span> — Prometheus 메모리 장기 추이 (v0.1.9 예정)</li>
+        <li><span class="missing">clusteroperator (missing)</span> — 클러스터 레벨 이상 여부</li>
+      </ul>
+
+      <h4>### Read-only 확인 순서</h4>
+      <ul>
+        <li><code>oc describe pod webapp-deploy-7f94d-k8z2p -n default</code></li>
+        <li><code>oc get events -n default --sort-by=.lastTimestamp</code></li>
+        <li>메모리 limit 증설은 MP-CHG 또는 변경 관리 절차에 따라 승인 후 진행</li>
+      </ul>
+
+      <h4>### 금지 작업</h4>
+      <ul>
+        <li class="forbidden">oc delete pod / rollout restart / scale — 이 답변에서 직접 실행 금지</li>
+        <li class="forbidden">원인 확정 금지 — metric missing 상태에서 "메모리 누수가 원인"이라고 단정하지 않음</li>
+      </ul>
+    </div>
+
+    <div class="notice info" style="margin-top:16px;">
+      <span class="ni">📌</span>
+      <span>
+        실제 OLS 답변은 위보다 자세하고 자연스러운 한국어로 나옵니다.
+        위는 답변 구조를 예시한 것입니다. 핵심은 5섹션 구조가 반드시 포함된다는 점입니다.
+      </span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 6 — 응답 예쁘게 보기 (선택)
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle orange">6</div>
+    <h2>응답 더 예쁘게 보기 (선택)</h2>
+    <span class="tag">Formatting Tips</span>
+  </div>
+  <div class="section-body">
+    <p style="font-size:14px;margin-bottom:16px;">
+      SSE 스트림을 그대로 보면 JSON이 한 줄씩 흘러서 읽기 어렵습니다.
+      아래 방법으로 더 보기 좋게 출력할 수 있습니다.
+    </p>
+
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;">방법 A — tool_result만 골라서 보기</div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">bash</span><span>grep 필터</span></div>
+      <pre>curl -s -N \
+  -X POST $GW/v1/chat/stream \
+  -H <span class="hl-str">"Content-Type: application/json"</span> \
+  -H <span class="hl-str">"Authorization: Bearer $TOKEN"</span> \
+  -d <span class="hl-str">'{
+    "message": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+    "pageContext": {
+      "namespace": "default",
+      "aiopsDemoCycle": {"scenarioId": "past-pod-restart-rca"}
+    }
+  }'</span> | grep <span class="hl-str">"tool_result\|tool_call\|done"</span></pre>
+    </div>
+
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px;margin-top:20px;">방법 B — token 타입만 이어붙여서 최종 답변 텍스트 확인</div>
+    <div class="code-wrap">
+      <div class="code-head"><span class="lang">bash + python3</span><span>최종 답변만 추출</span></div>
+      <pre>curl -s -N \
+  -X POST $GW/v1/chat/stream \
+  -H <span class="hl-str">"Content-Type: application/json"</span> \
+  -H <span class="hl-str">"Authorization: Bearer $TOKEN"</span> \
+  -d <span class="hl-str">'{
+    "message": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+    "pageContext": {
+      "namespace": "default",
+      "aiopsDemoCycle": {"scenarioId": "past-pod-restart-rca"}
+    }
+  }'</span> | python3 -c <span class="hl-str">"
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('data: '): continue
+    try:
+        d = json.loads(line[6:])
+        if d.get('type') == 'token':
+            print(d.get('content',''), end='', flush=True)
+    except: pass
+print()
+"</span></pre>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 7 — 트러블슈팅
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle">7</div>
+    <h2>트러블슈팅</h2>
+    <span class="tag">Troubleshooting</span>
+  </div>
+  <div class="section-body">
+    <table class="trouble-table">
+      <thead>
+        <tr>
+          <th style="width:28%;">증상</th>
+          <th style="width:36%;">원인</th>
+          <th style="width:36%;">해결</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="symptom">Connection refused / 응답 없음</td>
+          <td class="cause">Gateway가 실행 중이지 않음</td>
+          <td class="fix">task kugnus:gateway:start<br>또는 uvicorn 직접 실행</td>
+        </tr>
+        <tr>
+          <td class="symptom">401 Unauthorized</td>
+          <td class="cause">Bearer 토큰 없거나 만료됨</td>
+          <td class="fix">oc whoami -t 로 토큰 재발급<br>TOKEN 변수 재설정</td>
+        </tr>
+        <tr>
+          <td class="symptom">시연 증적이 안 나오고 실제 OCP 호출 시도</td>
+          <td class="cause">pageContext에 aiopsDemoCycle 필드 누락</td>
+          <td class="fix">JSON Body에 "aiopsDemoCycle": {"scenarioId": "past-pod-restart-rca"} 추가 확인</td>
+        </tr>
+        <tr>
+          <td class="symptom">tool_result는 나오는데 최종 답변(token)이 안 나옴</td>
+          <td class="cause">OLS(Lightspeed) 연결 없음</td>
+          <td class="fix">OLS 없는 환경에서는 Gateway fallback 답변이 나오거나 응답이 짧을 수 있음 — 정상</td>
+        </tr>
+        <tr>
+          <td class="symptom">metric status가 "success"로 나옴</td>
+          <td class="cause">PROMETHEUS_URL 환경 변수가 설정되어 있고 실제 Thanos가 연결된 경우</td>
+          <td class="fix">정상 동작. 시연에서는 skipped가 기대값이지만 실제 연결 시 success도 가능</td>
+        </tr>
+        <tr>
+          <td class="symptom">응답이 너무 빨리 끊김</td>
+          <td class="cause">curl -N 플래그 누락</td>
+          <td class="fix">curl 명령에 -N 반드시 포함</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 8 — 환경 변수 참고
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle">8</div>
+    <h2>관련 환경 변수 참고</h2>
+    <span class="tag">Env Vars</span>
+  </div>
+  <div class="section-body">
+    <table class="env-table">
+      <thead>
+        <tr><th>환경 변수</th><th>기본값</th><th>설명</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="env-name">KOMSCO_AIOPS_DEMO_NAMESPACE_ALLOWLIST</td>
+          <td class="env-default">komsco-ai-dev,default</td>
+          <td>시연에 사용 가능한 네임스페이스 목록. default는 기본 포함</td>
+        </tr>
+        <tr>
+          <td class="env-name">OPENSHIFT_API_URL</td>
+          <td class="env-default">(없음)</td>
+          <td>설정 안 해도 시연 가능. 설정 시 실제 OCP Events 추가 수집</td>
+        </tr>
+        <tr>
+          <td class="env-name">PROMETHEUS_URL</td>
+          <td class="env-default">(없음)</td>
+          <td>설정 안 하면 metric은 missing(skipped). 설정 시 실제 Thanos 쿼리</td>
+        </tr>
+        <tr>
+          <td class="env-name">KOMSCO_AI_BEARER_TOKEN</td>
+          <td class="env-default">(없음)</td>
+          <td>Gateway Bearer 인증 토큰. oc whoami -t 결과도 사용 가능</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SECTION 9 — 전체 한눈에 보기
+════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <div class="step-circle green">✓</div>
+    <h2>전체 체크리스트 한눈에 보기</h2>
+    <span class="tag">Checklist</span>
+  </div>
+  <div class="section-body">
+    <ul class="step-list">
+      <li>
+        <div class="step-content">
+          <div class="step-title">Gateway 실행 확인</div>
+          <div class="step-desc"><code>curl -s http://localhost:8000/health</code> → <code>{"status":"ok"}</code></div>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <div class="step-title">TOKEN 변수 설정</div>
+          <div class="step-desc"><code>TOKEN=$(oc whoami -t)</code> 또는 Bearer 토큰 직접 지정</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <div class="step-title">시연 요청 전송</div>
+          <div class="step-desc">
+            <code>curl -s -N -X POST $GW/v1/chat/stream -H "Authorization: Bearer $TOKEN"</code>
+            + JSON Body에 <code>aiopsDemoCycle.scenarioId = "past-pod-restart-rca"</code> 포함
+          </div>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <div class="step-title">증적 수집 이벤트 확인</div>
+          <div class="step-desc">
+            <span class="chip green">event ✓</span>
+            <span class="chip green">snapshot ✓</span>
+            <span class="chip green">pod_status ✓</span>
+            <span class="chip green">pod_log ✓</span>
+            <span class="chip green">runbook ✓</span>
+            <span class="chip red">metric missing</span>
+            <span class="chip red">clusteroperator missing</span>
+            이 순서로 나오는지 확인
+          </div>
+        </div>
+      </li>
+      <li>
+        <div class="step-content">
+          <div class="step-title">최종 답변 5섹션 확인</div>
+          <div class="step-desc">
+            확인된 근거 / 가능한 원인 후보 / 추가 확인 필요 / Read-only 확인 순서 / 금지 작업
+            이 5개 헤더가 답변에 포함되는지 확인
+          </div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="notice success" style="margin-top:8px;">
+      <span class="ni">🎉</span>
+      <span>
+        5단계가 모두 확인되면 Scenario 11 시연 완료입니다.
+        <strong>총 소요 시간 약 2~3분.</strong>
+        OCP 클러스터 없이도 완전한 RCA 흐름 시연이 가능합니다.
+      </span>
+    </div>
+  </div>
+</div>
+
+
+<!-- footer -->
+<div style="text-align:center;font-size:12px;color:#a0aec0;margin-top:20px;padding-bottom:40px;">
+  KOMSCO AI Gateway · Ver.0.1.8 · Scenario 11 Demo Guide · past-pod-restart-rca
+</div>
+
+</div><!-- /.body -->
+</body>
+</html>

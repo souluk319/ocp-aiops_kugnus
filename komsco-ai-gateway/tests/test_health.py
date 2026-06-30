@@ -64,6 +64,7 @@ from komsco_ai_gateway.main import (
     build_empty_answer_fallback,
     build_evidence_reference_events,
     build_ols_gateway_context,
+    build_ols_context_handoff,
     build_ols_payload,
     build_ols_query,
     build_node_status_rca_evidence,
@@ -199,6 +200,63 @@ def test_rag_upload_content_strips_postgres_unsafe_control_chars() -> None:
     assert "oc get co" in combined_content
 
 
+def test_rag_backend_status_reports_embedding_model_sent_to_service(monkeypatch) -> None:
+    monkeypatch.setattr(gateway_main, "RAG_BACKEND_URL", "postgresql://rag")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_SERVICE_URL", "http://tei.example/v1")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_MODEL", "dragonkue/bge-m3-ko")
+
+    status = gateway_main.build_rag_backend_status()
+
+    assert status["embeddingServiceConfigured"] is True
+    assert status["embeddingModelSentToService"] is True
+    assert status["embeddingModelConfiguredButIgnored"] is False
+    assert status["activeEmbeddingAlgorithm"] == "semantic-service"
+
+
+def test_embedding_service_uses_role_based_ollama_api(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"embeddings": [[0.1, 0.2, 0.3]]}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def post(self, url: str, *, json: dict, headers: dict) -> FakeResponse:
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_SERVICE_URL", "http://home.example:11435")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_API_STYLE", "ollama")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_MODEL", "embeddinggemma:latest")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_TIMEOUT_SECONDS", 1.0)
+
+    vec = asyncio.run(gateway_main.call_embedding_service_async("DB 인증 실패 로그"))
+
+    assert captured["url"] == "http://home.example:11435/api/embed"
+    assert captured["json"] == {
+        "model": "embeddinggemma:latest",
+        "input": "DB 인증 실패 로그",
+    }
+    assert vec == [0.1, 0.2, 0.3]
+
+
 def test_rag_upload_file_endpoint_uses_multipart_parser_and_existing_rag_contract(monkeypatch) -> None:
     async def fake_subject_review(_user_auth_header: str) -> dict:
         return {"username": "admin", "uid": "uid-admin", "groups": ["cluster-admins"]}
@@ -220,7 +278,7 @@ def test_rag_upload_file_endpoint_uses_multipart_parser_and_existing_rag_contrac
             },
         )
 
-    def fake_persist(record: dict) -> tuple[str, str, dict]:
+    async def fake_persist(record: dict) -> tuple[str, str, dict]:
         return "persisted", "stored by test", record["document"]
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
@@ -758,8 +816,12 @@ def test_olm_operator_can_wire_rag_backend_url_from_secret() -> None:
                 "rag": {
                     "backendUrlSecret": "komsco-ai-rag-pgvector",
                     "backendUrlKey": "database-url",
-                    "embeddingModel": "hashing-local-dev",
-                    "vectorDimensions": 64,
+                    "embeddingProvider": "ollama",
+                    "embeddingApiStyle": "ollama",
+                    "embeddingBaseUrl": "http://100.99.152.52:11435",
+                    "embeddingModel": "embeddinggemma:latest",
+                    "embeddingTimeoutSeconds": 120,
+                    "vectorDimensions": 768,
                 },
             },
         }
@@ -775,8 +837,14 @@ def test_olm_operator_can_wire_rag_backend_url_from_secret() -> None:
         "name": "komsco-ai-rag-pgvector",
         "key": "database-url",
     }
-    assert env["KOMSCO_AI_RAG_EMBEDDING_MODEL"]["value"] == "hashing-local-dev"
-    assert env["KOMSCO_AI_RAG_VECTOR_DIMENSIONS"]["value"] == "64"
+    assert env["KOMSCO_AI_EMBEDDING_PROVIDER"]["value"] == "ollama"
+    assert env["KOMSCO_AI_EMBEDDING_API_STYLE"]["value"] == "ollama"
+    assert env["KOMSCO_AI_EMBEDDING_BASE_URL"]["value"] == "http://100.99.152.52:11435"
+    assert env["KOMSCO_AI_EMBEDDING_MODEL"]["value"] == "embeddinggemma:latest"
+    assert env["KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS"]["value"] == "120"
+    assert env["KOMSCO_AI_EMBEDDING_DIMENSIONS"]["value"] == "768"
+    assert env["KOMSCO_AI_RAG_EMBEDDING_MODEL"]["value"] == "embeddinggemma:latest"
+    assert env["KOMSCO_AI_RAG_VECTOR_DIMENSIONS"]["value"] == "768"
 
 
 def _ready_olm_resource(
@@ -1010,15 +1078,15 @@ def assert_post_answer_rca_before_done(events: list[dict | str]) -> dict:
 
 
 def test_page_context_aiops_execution_mode_accepts_unrestricted_aliases() -> None:
+    unrestricted_req = ChatRequest(
+        message="명령 실행",
+        pageContext={"aiopsExecutionMode": "unrestricted"},
+    )
     assert (
-        page_context_aiops_execution_mode(
-            ChatRequest(
-                message="명령 실행",
-                pageContext={"aiopsExecutionMode": "unrestricted"},
-            )
-        )
+        page_context_aiops_execution_mode(unrestricted_req)
         == "unrestricted"
     )
+    assert not gateway_main.execution_mode_allows_immediate_actions(unrestricted_req)
     assert (
         page_context_aiops_execution_mode(
             ChatRequest(
@@ -1034,6 +1102,125 @@ def test_parse_unrestricted_chat_command_requires_explicit_prefix() -> None:
     assert parse_unrestricted_chat_command("/exec printf ok") == "printf ok"
     assert parse_unrestricted_chat_command("실행: ```bash\nprintf ok\n```") == "printf ok"
     assert parse_unrestricted_chat_command("파드 목록 조회해줘") == ""
+
+
+def test_split_plain_text_events_preserves_plain_ols_answer() -> None:
+    async def chunks():
+        yield "현재 클러스터 노드는 1개이며 Ready 상태입니다.\n---\n참고 링크\n"
+
+    async def run() -> list[dict]:
+        return [event async for event in split_plain_text_events(chunks())]
+
+    events = asyncio.run(run())
+
+    assert events
+    assert events[0]["type"] == "text"
+    assert "Ready 상태" in "".join(str(event.get("content") or "") for event in events)
+
+
+def test_call_ols_stream_preserves_plain_frames_inside_event_stream(monkeypatch) -> None:
+    class FakeStreamResponse:
+        status_code = 200
+        headers = {"content-type": "text/event-stream"}
+
+        async def aiter_text(self):
+            yield "현재 클러스터 노드는 1개이며 Ready 상태입니다.\\n\\n"
+
+    class FakeStreamContext:
+        async def __aenter__(self):
+            return FakeStreamResponse()
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        def stream(self, *args, **kwargs) -> FakeStreamContext:
+            return FakeStreamContext()
+
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(gateway_main, "OLS_BASE_URL", "https://ols.test")
+    monkeypatch.setattr(gateway_main, "DEV_ECHO", False)
+
+    async def run() -> list[dict]:
+        return [
+            event
+            async for event in gateway_main.call_ols_stream(
+                "Bearer test-token",
+                "현재 클러스터 노드 상태",
+                None,
+                [],
+            )
+        ]
+
+    events = asyncio.run(run())
+
+    assert events
+    assert events[0]["type"] == "text"
+    assert "Ready 상태" in events[0]["content"]
+
+
+def test_call_ols_stream_uses_role_based_ollama_chat(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self) -> dict:
+            return {"message": {"role": "assistant", "content": "RCA 초안입니다."}}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def post(self, url: str, *, json: dict, headers: dict) -> FakeResponse:
+            captured["url"] = url
+            captured["json"] = json
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(gateway_main, "LLM_API_STYLE", "ollama")
+    monkeypatch.setattr(gateway_main, "LLM_BASE_URL", "http://home.example:11434")
+    monkeypatch.setattr(gateway_main, "LLM_MODEL", "gemma4:12b-it-qat")
+    monkeypatch.setattr(gateway_main, "LLM_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(gateway_main, "DEV_ECHO", False)
+
+    async def run() -> list[dict]:
+        return [
+            event
+            async for event in gateway_main.call_ols_stream(
+                "Bearer test-token",
+                "RCA 초안 작성해줘",
+                "conv-1",
+                [],
+            )
+        ]
+
+    events = asyncio.run(run())
+
+    assert captured["url"] == "http://home.example:11434/api/chat"
+    assert captured["json"]["model"] == "gemma4:12b-it-qat"
+    assert captured["json"]["stream"] is False
+    assert captured["json"]["think"] is False
+    assert events[0]["type"] == "text"
+    assert events[0]["content"] == "RCA 초안입니다."
+    assert events[-1] == {"type": "end", "conversationId": "conv-1"}
 
 
 def test_followup_execution_request_accepts_korean_variants() -> None:
@@ -1129,6 +1316,7 @@ def test_chat_stream_exec_prefix_runs_unrestricted_command(monkeypatch, tmp_path
     monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMAND_CWD", str(tmp_path))
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -1181,6 +1369,7 @@ def test_chat_stream_emits_rca_context_event(monkeypatch) -> None:
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -1386,6 +1575,7 @@ def test_chat_stream_unexpected_exception_emits_failed_rca_context_before_done(m
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -1489,6 +1679,7 @@ def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> 
 
     monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
     monkeypatch.setattr(gateway_main, "MUTATIONS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
     monkeypatch.setattr(gateway_main, "fetch_action_access_review", fake_action_access_review)
@@ -1532,6 +1723,72 @@ def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> 
         assert any("실행까지 완료" in event.get("content", "") for event in text_events)
         context = assert_post_answer_rca_before_done(events)
         assert context["confidence"]["level"] == "insufficient_evidence"
+
+    asyncio.run(run())
+
+
+def test_chat_stream_unrestricted_context_does_not_execute_when_server_flag_disabled(
+    monkeypatch,
+) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_create_natural_action_plan(req, *_args, **_kwargs):
+        assert req.message == "team-a 네임스페이스의 web-api 파드 3개로 올려줘"
+        return {
+            "intent": {
+                "kind": "Deployment",
+                "namespace": "team-a",
+                "parameters": {"replicas": 3},
+                "targetName": "web-api",
+                "toolName": "set_replicas_within_bounds",
+            },
+            "planId": "plan-unrestricted-disabled",
+            "status": "planned",
+            "target": {"kind": "Deployment", "namespace": "team-a", "name": "web-api"},
+        }
+
+    async def fail_execute_natural_action_plan_result(*_args, **_kwargs):
+        raise AssertionError("unrestricted page context must not execute while server flag is disabled")
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for action plan responses")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", False)
+    monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
+    monkeypatch.setattr(
+        gateway_main,
+        "execute_natural_action_plan_result",
+        fail_execute_natural_action_plan_result,
+    )
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "team-a 네임스페이스의 web-api 파드 3개로 올려줘",
+                    "pageContext": {"aiopsExecutionMode": "unrestricted"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert "plan-unrestricted-disabled" in response.text
+        assert "natural_action_execute" not in response.text
+        assert "실행까지 완료" not in response.text
 
     asyncio.run(run())
 
@@ -2147,7 +2404,6 @@ def test_build_ols_payload_does_not_forward_image_attachments_by_default() -> No
 
     assert payload == {
         "query": "이미지 분석해줘",
-        "conversation_id": "conversation-1",
     }
 
 
@@ -2169,7 +2425,6 @@ def test_build_ols_payload_forwards_image_attachments_when_enabled() -> None:
 
     assert payload == {
         "query": "이미지 분석해줘",
-        "conversation_id": "conversation-1",
         "attachments": [
             {
                 "attachment_type": "image",
@@ -2213,7 +2468,7 @@ def test_build_ols_payload_keeps_gateway_context_out_of_ols_body() -> None:
     )
     rendered = json.dumps(payload, ensure_ascii=False)
 
-    assert payload == {"query": "질문", "conversation_id": "conversation-1"}
+    assert payload == {"query": "질문"}
     assert gateway_context["kind"] == "GatewayContext"
     assert gateway_context["toolPlan"]["kind"] == "ToolPlan"
     assert gateway_context["rcaContext"]["kind"] == "RcaContext"
@@ -2224,6 +2479,14 @@ def test_build_ols_payload_keeps_gateway_context_out_of_ols_body() -> None:
     assert "gateway_context" not in payload
     assert "secret-token-value" not in rendered
     assert "Bearer secret" not in rendered
+
+
+def test_build_ols_payload_can_forward_conversation_id_when_explicitly_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(gateway_main, "OLS_FORWARD_CONVERSATION_ID", True)
+
+    payload = build_ols_payload("질문", "conversation-1", [])
+
+    assert payload == {"query": "질문", "conversation_id": "conversation-1"}
 
 
 def test_validate_image_attachments_rejects_unsupported_type() -> None:
@@ -2239,7 +2502,7 @@ def test_validate_image_attachments_rejects_unsupported_type() -> None:
         validate_image_attachments([attachment])
 
 
-def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> None:
+def test_build_ols_query_defaults_to_minimal_safe_prompt() -> None:
     query = build_ols_query(
         ChatRequest(
             message="최근 OpenShift 경고와 우선 확인할 항목을 정리해줘.",
@@ -2252,69 +2515,99 @@ def test_build_ols_query_keeps_page_context_thin_and_requires_live_tools() -> No
     )
 
     assert "최근 OpenShift 경고" in query
-    assert "스크린샷이나 이미지가 전달된 것이 아닙니다" in query
-    assert '답변에 "이미지를 직접 판독할 수 없다"' in query
-    assert "경로 기준으로는 Catalog 페이지로 보입니다" in query
-    assert "OpenShift MCP 도구를 먼저 사용하세요" in query
-    assert "도구 결과에 없는 alert" in query
-    assert "OpenShift 경고 분석 프로토콜" in query
-    assert "resources_get" in query
-    assert '"상세 확인됨"' in query
-    assert '"Alert 근거 확인"' in query
-    assert '"추가 확인 필요"' in query
-    assert "상세 조회를 실제로 호출하지 않은 리소스" in query
-    assert "alert 이름이나 summary만으로 원인을 단정하지 마세요" in query
-    assert "status.containerStatuses와 events" in query
-    assert "정확한 Pod 이름 또는 Pod 목록 evidence에 있는 Pod" in query
-    assert "Gateway 선조회 Pod 요약만으로 원인/조치 계획을 끝내지 말고" in query
-    assert "Pod 상세의 owner가 ReplicaSet이면 해당 ReplicaSet 상세" in query
-    assert "Pod 상태/재시작 분석 프로토콜" in query
-    assert "CronJob/Activity 분석 프로토콜" in query
-    assert "설정상 의도된 <N>분 주기" in query
-    assert "lifecycle/retention 관련 env" in query
-    assert "로그나 소스 근거 없이 생성 후" in query
-    assert "`restartCount`만 보고 현재 `CrashLoopBackOff`" in query
-    assert "`restartCount`는 Pod 단위가 아니라 container 단위" in query
-    assert "`restartCount`는 누적 카운터" in query
-    assert "containerStatuses[*]" in query
-    assert "`Running` 및 `Ready=True`" in query
-    assert "과거 실패 Pod 이력, 현재 Operator 상태는 정상" in query
-    assert "CatalogSource" in query
-    assert "--previous" in query
-    assert "Pod 조치/복구 계획 프로토콜" in query
-    assert "`Pod -> ReplicaSet -> Deployment`" in query
-    assert "placeholder를 남기지 마세요" in query
-    assert "selector/label 기반 검증 명령도 placeholder로 남기지 마세요" in query
-    assert "Pod spec의 command/args를 조회하지 못했다면" in query
-    assert "ReplicaSet 직접 수정은 권장하지 마세요" in query
-    assert "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨" in query
-    assert "단순 `oc delete pod` 또는 `oc rollout restart`" in query
-    assert "Deployment rollout/Pod 교체 판정 프로토콜" in query
-    assert "`replicas=2`, `Ready 2/2`, Pod 2개 존재" in query
-    assert "아직 실행 전 또는 교체 증거 없음" in query
-    assert "서비스 복구" in query
-    assert "테스트 리소스 정리" in query
-    assert "Extension APIs" in query
-    assert "Admission plugins" in query
-    assert "oc logs를 우선 명령으로 제시하지 말고" in query
-    assert "ClusterVersion conditions" in query
-    assert "apiVersion: config.openshift.io/v1" in query
-    assert "kind: ClusterVersion" in query
-    assert "alert 결과만으로 ConfigMap 또는 Secret 이름을 만들어 조회하지 마세요" in query
-    assert "권한상 직접 확인이 제한될 수 있음" in query
-    assert "조회 실패/권한 제한" in query
-    assert "즉시 수행" in query
-    assert "삼중 백틱" in query
-    assert "catalog Pod" in query
-    assert "gateway.networking.k8s.io" in query
-    assert "GatewayClass 문서" in query
-    assert "대상 미지정" in query
-    assert "oc get pods -A" in query
-    assert "기본 제안하지 마세요" in query
-    assert "oc delete pod" in query
-    assert "기본 재시작 방법으로 제시하지 마세요" in query
+    assert "[KOMSCO AI Gateway handoff]" not in query
+    assert "[User question]" not in query
+    assert "Use read-only OpenShift checks only" in query
+    assert "Do not invent alert, pod, node, namespace, resource names" in query
+    assert "If no screenshot/image is attached" in query
+    assert "Policy decision:" in query
+    assert "우선 판단" in query
+    assert len(query) < 1200
     assert "title" not in query
     assert "OKD" not in query
+
+
+def test_build_ols_context_handoff_summarizes_plan_and_redacts_evidence() -> None:
+    plan = build_runtime_tool_plan("어제 새벽에 default namespace Pod가 왜 재시작됐어?")
+    rca_context = build_rca_context(
+        message="어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "contentDigest": "sha256:event",
+                "evidenceId": "ev-event",
+                "eventName": "official_namespace_restart_event",
+                "eventStatus": "success",
+                "evidenceType": "event",
+                "summary": "default namespace restart event evidence collected",
+            }
+        ],
+        run_id="run-handoff",
+        incident_id="inc-handoff",
+    )
+    gateway_context = build_ols_gateway_context(
+        tool_plan=plan,
+        rca_context=rca_context,
+        safety_contract=build_runtime_safety_contract(
+            mutations_enabled=False,
+            unrestricted_commands_enabled=False,
+            diagnostics_enabled=False,
+            record_store_enabled=False,
+            latest_runtime_tool_plan=plan,
+            latest_rca_context=rca_context,
+        ),
+        policy={"decision": "allow_read_only_evidence"},
+        gateway_evidence="Authorization: Bearer secret-token-value-1234567890\nOOMKilled observed",
+    )
+
+    handoff = build_ols_context_handoff(
+        gateway_context=gateway_context,
+        gateway_evidence="Authorization: Bearer secret-token-value-1234567890\nOOMKilled observed",
+    )
+
+    assert "Tool plan: pod_restart_rca" in handoff
+    assert "Evidence refs: collected=1" in handoff
+    assert "Verified facts collected before final answer" in handoff
+    assert "OOMKilled observed" in handoff
+    assert "secret-token-value" not in handoff
+    assert "Authorization: [REDACTED] [REDACTED]" in handoff
+
+
+def test_build_ols_query_minimal_includes_short_verified_context() -> None:
+    plan = build_runtime_tool_plan("어제 새벽에 default namespace Pod가 왜 재시작됐어?")
+    rca_context = build_rca_context(
+        message="어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+        tool_plan=plan,
+        evidence_refs=[],
+        run_id="run-ols-context",
+        incident_id="inc-ols-context",
+    )
+    gateway_context = build_ols_gateway_context(
+        tool_plan=plan,
+        rca_context=rca_context,
+        safety_contract=build_runtime_safety_contract(
+            mutations_enabled=False,
+            unrestricted_commands_enabled=False,
+            diagnostics_enabled=False,
+            record_store_enabled=False,
+            latest_runtime_tool_plan=plan,
+            latest_rca_context=rca_context,
+        ),
+        policy={"decision": "allow_read_only_evidence"},
+        gateway_evidence="Event: default/web-0 restarted at 03:14; reason=OOMKilled",
+    )
+
+    query = build_ols_query(
+        ChatRequest(message="어제 새벽에 default namespace Pod가 왜 재시작됐어?"),
+        gateway_context=gateway_context,
+        gateway_evidence="Event: default/web-0 restarted at 03:14; reason=OOMKilled",
+    )
+
+    assert "Verified operational context:" in query
+    assert "Tool plan: pod_restart_rca" in query
+    assert "Event: default/web-0 restarted at 03:14; reason=OOMKilled" in query
+    assert "[KOMSCO AI Gateway handoff]" not in query
+    assert "[User question]" not in query
 
 
 def test_build_ols_query_treats_console_path_as_context_not_image() -> None:
@@ -2334,8 +2627,7 @@ def test_build_ols_query_treats_console_path_as_context_not_image() -> None:
     assert '"namespace": "team-a"' in query
     assert '"route": "catalog"' in query
     assert '"resourceKind": "Catalog"' in query
-    assert "현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다" in query
-    assert "화면의 시각적 내용 자체라고 단정하지 말고" in query
+    assert "If no screenshot/image is attached" in query
 
 
 def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() -> None:
@@ -2346,26 +2638,28 @@ def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() 
         subject=safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["a"]}),
     )
 
-    assert "Gateway Phase 5 Action Execution Envelope" in query
     assert "action_proposal_only" in query
-    assert "승인 없이 즉시 mutation을 실행했다고 말하지 마세요" in query
-    assert "user@example.com" in query
+    assert "[KOMSCO AI Gateway handoff]" not in query
+    assert "Do not print Secret, token, password" in query
+    assert "user@example.com" not in query
     assert "my-secret-token-value" not in query
     assert "[REDACTED]" in query
 
 
-def test_build_ols_query_includes_gateway_evidence() -> None:
+def test_build_ols_query_context_profile_includes_gateway_evidence(monkeypatch) -> None:
+    monkeypatch.setattr(gateway_main, "OLS_QUERY_PROFILE", "context")
     query = build_ols_query(
         ChatRequest(message="현재 클러스터의 Pod 상태를 분석해줘"),
         gateway_evidence="Top container restart counts:\nopenshift-lightspeed exporter restartCount=44",
     )
 
-    assert "[Gateway 선조회 증거]" in query
+    assert "Verified operational context:" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
     assert "## RCA 보고서" in query
     assert "### 우선 판단" in query
     assert "### 수집 근거" in query
     assert "### 확인 불가" in query
+    monkeypatch.setattr(gateway_main, "OLS_QUERY_PROFILE", "minimal")
 
 
 def test_action_proposal_fallback_is_non_empty_and_requests_target() -> None:
@@ -2800,7 +3094,9 @@ def test_chat_stream_retries_empty_ols_answer_before_fallback(monkeypatch) -> No
 
         assert len(queries) == 2
         assert "[Gateway 빈 응답 재시도 지시]" not in queries[0]
-        assert "[Gateway 빈 응답 재시도 지시]" in queries[1]
+        assert "[Gateway 빈 응답 재시도 지시]" not in queries[1]
+        assert "Previous OpenShift Lightspeed response ended" in queries[1]
+        assert "최근 OpenShift 경고" in queries[1]
         assert retry_events
         assert not fallback_text_events
         assert "재시도 후 Lightspeed 답변" in answer_text
@@ -3388,6 +3684,7 @@ def test_chat_stream_unrestricted_followup_without_plan_stays_in_gateway(monkeyp
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -3478,6 +3775,7 @@ def test_chat_stream_unrestricted_followup_uses_recent_user_action_context(monke
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
     monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
     monkeypatch.setattr(
         gateway_main,
@@ -3576,6 +3874,7 @@ def test_chat_stream_unrestricted_followup_executes_pending_action_with_post_ans
         "latest_pending_action_plan_result",
         fake_latest_pending_action_plan_result,
     )
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
     monkeypatch.setattr(
         gateway_main,
         "execute_natural_action_plan_result",
@@ -3651,6 +3950,7 @@ def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
     monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
     monkeypatch.setattr(
         gateway_main,
@@ -3809,6 +4109,7 @@ def test_chat_stream_unrestricted_followup_uses_3_4_5_turn_contexts(
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
     monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
     monkeypatch.setattr(
         gateway_main,

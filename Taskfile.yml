@@ -1,5 +1,7 @@
 version: '3'
 
+dotenv: ['.env']
+
 tasks:
   default:
     desc: List available tasks
@@ -134,13 +136,70 @@ tasks:
     cmds:
       - ./scripts/kugnus-olm.sh status
 
+  kugnus:company:check:
+    desc: Check target cluster identity and local Kugnus OLM package before company catalog work
+    cmds:
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        echo "target=${server}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        ./scripts/kugnus-olm.sh package
+
+  kugnus:company:publish:
+    desc: Build images and publish the Kugnus OperatorHub catalog entry to the approved company server
+    cmds:
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        echo "target=${server}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus ./scripts/kugnus-olm.sh publish
+
+  kugnus:company:install:
+    desc: Install the Kugnus Subscription and AIOpsInstallation on the approved company server
+    cmds:
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        echo "target=${server}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus ./scripts/kugnus-olm.sh install
+
+  kugnus:company:status:
+    desc: Show Kugnus catalog, install, and ConsolePlugin status on the approved company server
+    cmds:
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        echo "target=${server}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        KOMSCO_AIOPS_STATUS_MODE=cluster ./scripts/kugnus-olm.sh status
+
+  kugnus:company:redeploy:
+    desc: Rebuild/publish current code, then restart installed Gateway and console plugin pods on the approved company server
+    cmds:
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        namespace="${KOMSCO_AIOPS_NAMESPACE:-komsco-ai-kugnus}"
+        echo "target=${server}"
+        echo "namespace=${namespace}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus ./scripts/kugnus-olm.sh publish
+        oc rollout restart deployment/komsco-ai-console-plugin -n "${namespace}"
+        oc rollout status deployment/komsco-ai-console-plugin -n "${namespace}" --timeout=300s
+        oc rollout restart deployment/komsco-ai-gateway -n "${namespace}"
+        oc rollout status deployment/komsco-ai-gateway -n "${namespace}" --timeout=300s
+        KOMSCO_AIOPS_STATUS_MODE=cluster ./scripts/kugnus-olm.sh status
+
   kugnus:evaluate:
     desc: Run Ver.0.1.3 offline AIOps scenario evaluator and write a pass/fail report
     cmds:
       - python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.3/aiops-scenario-evaluation-report.json
 
   kugnus:scenario:verify:
-    desc: Verify the Ver.0.1.3 ten-scenario operations contract without cluster access
+    desc: Verify the Ver.0.1.3 thirteen-scenario operations contract without cluster access
     cmds:
       - task: kugnus:evaluate
 
@@ -152,27 +211,42 @@ tasks:
   kugnus:dev:be:
     desc: Run executable Gateway on 0.0.0.0 so the Docker local console can reach it from WSL
     cmds:
-      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE="${AIOPS_GATEWAY_MODE:-execute}" ./scripts/dev-gateway-lightspeed.sh
+      - GATEWAY_HOST="${GATEWAY_HOST:-0.0.0.0}" OLS_BASE_URL="${OLS_BASE_URL:-https://127.0.0.1:18443}" AIOPS_GATEWAY_MODE="${AIOPS_GATEWAY_MODE:-execute}" ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:dev:be:read-only:
     desc: Run Gateway in read-only mode for safe observation
     cmds:
-      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=read-only ./scripts/dev-gateway-lightspeed.sh
+      - GATEWAY_HOST="${GATEWAY_HOST:-0.0.0.0}" OLS_BASE_URL="${OLS_BASE_URL:-https://127.0.0.1:18443}" AIOPS_GATEWAY_MODE=read-only ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:dev:be:execute:
     desc: Run Gateway in approved execution mode with Action Executor port-forward
     cmds:
-      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=execute ./scripts/dev-gateway-lightspeed.sh
+      - GATEWAY_HOST="${GATEWAY_HOST:-0.0.0.0}" OLS_BASE_URL="${OLS_BASE_URL:-https://127.0.0.1:18443}" AIOPS_GATEWAY_MODE=execute ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:dev:be:unrestricted:
     desc: Run Gateway in local lab unrestricted mode so all three UI execution modes are selectable
     cmds:
-      - GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=unrestricted ./scripts/dev-gateway-lightspeed.sh
+      - GATEWAY_HOST="${GATEWAY_HOST:-0.0.0.0}" OLS_BASE_URL="${OLS_BASE_URL:-https://127.0.0.1:18443}" AIOPS_GATEWAY_MODE=unrestricted ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:dev:fe:
     desc: Run local console bridge using the current WSL IP as Gateway endpoint
     cmds:
       - GATEWAY_ENDPOINT="http://$(hostname -I | awk '{print $1}'):18080" ./scripts/dev-console-plugin.sh
+
+  kugnus:dev:console:open:
+    desc: Repair stale local OKD console bridge, verify API health, and open the dashboard
+    cmds:
+      - OPEN_BROWSER=true ./scripts/open-okd-console.sh
+
+  kugnus:dev:console:repair:
+    desc: Repair stale local OKD console bridge and verify API health without opening a browser
+    cmds:
+      - OPEN_BROWSER=false ./scripts/open-okd-console.sh
+
+  kugnus:dev:console:morning:
+    desc: Explain, diagnose, repair, and verify the local OKD console bridge for the daily startup path
+    cmds:
+      - bash ./scripts/kugnus-okd-console-morning.sh
 
   kugnus:dev:doctor:
     desc: Diagnose WSL, Node, oc, Docker, ports, backend, and console readiness without changing state
@@ -183,6 +257,11 @@ tasks:
     desc: Resume the local WSL demo stack after oc login and run smoke plus strict Lightspeed verification
     cmds:
       - bash ./scripts/kugnus-demo-resume.sh
+
+  kugnus:dev:boot:
+    desc: Start the daily local Kugnus stack after PC reboot without running long strict demo gates
+    cmds:
+      - KUGNUS_RESUME_RUN_STRICT_GATE=false bash ./scripts/kugnus-demo-resume.sh
 
   kugnus:demo:preflight:
     desc: Diagnose Ver.0.1.6 local demo readiness and write JSON/HTML reports without OCP mutation
@@ -237,15 +316,38 @@ tasks:
     cmds:
       - REPORT=docs/Ver.0.1.6/rag-file-upload-smoke-report.json KUGNUS_RAG_FILE_SMOKE_VERSION=v0.1.6 komsco-ai-gateway/.venv/bin/python scripts/kugnus-rag-file-upload-smoke.py
 
+  kugnus:rag:mock-customer:smoke:
+    desc: Build mock customer operations PDFs, upload them, and verify Gateway RAG search markers
+    cmds:
+      - REPORT=docs/Ver.0.1.6/rag-mock-customer-smoke-report.json komsco-ai-gateway/.venv/bin/python scripts/kugnus-rag-mock-customer-smoke.py
+
   kugnus:rag:chat:smoke:
     desc: Verify chat SSE exposes retrieved RAG evidence and answer citation text
     cmds:
       - REPORT=docs/Ver.0.1.6/rag-chat-citation-smoke-report.json KUGNUS_RAG_CHAT_SMOKE_RUN_ID=ver-0.1.6-rag-chat-citation-smoke bash ./scripts/kugnus-rag-chat-citation-smoke.sh
 
-  kugnus:dev:be:execute:rag:
-    desc: Run executable Gateway with the local pgvector RAG demo backend
+  kugnus:rag:sync:
+    desc: "Sync a local directory of .md/.txt/.pdf runbooks to the Gateway RAG backend (set RAG_SYNC_DIR and TOKEN)"
     cmds:
-      - KOMSCO_AI_RAG_BACKEND_URL=postgresql://komsco_aiops@127.0.0.1:15432/komsco_aiops KOMSCO_AI_RAG_EMBEDDING_MODEL=hashing-bow-v1 KOMSCO_AI_RAG_VECTOR_DIMENSIONS=64 GATEWAY_HOST=0.0.0.0 OLS_BASE_URL=https://127.0.0.1:18443 AIOPS_GATEWAY_MODE=execute ./scripts/dev-gateway-lightspeed.sh
+      - |
+        komsco-ai-gateway/.venv/bin/python komsco-ai-gateway/scripts/kugnus-rag-sync.py \
+          --dir "{{.RAG_SYNC_DIR | default "docs/runbooks"}}" \
+          --gateway-url "{{.GATEWAY_URL | default "http://localhost:18080"}}" \
+          --token "{{.TOKEN}}" \
+          --version "{{.RAG_VERSION | default "v0.1.7"}}"
+
+  kugnus:rag:sync:dry-run:
+    desc: "Preview what kugnus:rag:sync would upload without actually calling the Gateway"
+    cmds:
+      - |
+        komsco-ai-gateway/.venv/bin/python komsco-ai-gateway/scripts/kugnus-rag-sync.py \
+          --dir "{{.RAG_SYNC_DIR | default "docs/runbooks"}}" \
+          --dry-run
+
+  kugnus:dev:be:execute:rag:
+    desc: Run executable Gateway with pgvector RAG backend (reads KOMSCO_AI_LLM_* and KOMSCO_AI_EMBEDDING_* from .env)
+    cmds:
+      - GATEWAY_HOST="${GATEWAY_HOST:-0.0.0.0}" OLS_BASE_URL="${OLS_BASE_URL:-https://127.0.0.1:18443}" AIOPS_GATEWAY_MODE=execute ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:stage1:verify:
     desc: Verify local Stage 1 evidence/RCA context events and write a JSON evidence report

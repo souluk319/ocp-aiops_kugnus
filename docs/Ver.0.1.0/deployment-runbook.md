@@ -23,11 +23,13 @@ Pass:
 
 ## 기본 publish 절차
 
-현재 회사 OCP 환경의 선호 명령은 다음이다.
+현재 회사 OCP 환경의 선호 명령은 다음이다. 등록 담당자는 내부 환경변수를 외울 필요 없이 이 task만 사용한다.
+현재 로컬 package/check 기준 생성 CSV는 `komsco-aiops-kugnus-operator.v0.1.6`이다.
 
 ```bash
-KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD=true task kugnus:publish
-task kugnus:status
+task kugnus:company:check
+task kugnus:company:publish
+task kugnus:company:status
 ```
 
 의미:
@@ -37,8 +39,13 @@ task kugnus:status
 - 이미지는 `komsco-ai-kugnus` namespace의 ImageStreamTag로 들어간다.
 - 이후 `CatalogSource`와 `PackageManifest`만 등록한다.
 - `Subscription`, `CSV`, `AIOpsInstallation`은 만들지 않는다.
+- task가 대상 서버를 `https://api.ocp.cywell.server:6443`로 확인하고, 다르면 중단한다.
 
-소스 변경을 이미지에 반드시 반영해야 하는 날은 `KOMSCO_AIOPS_FORCE_IMAGE_BUILD=true`를 붙인다. 이 값을 빼면 기존 `0.1.2` ImageStreamTag가 있을 때 재빌드하지 않고 재사용할 수 있다.
+소스 변경을 이미지에 반드시 반영하는 것이 기본이다. 기존 ImageStreamTag를 재사용해야 하는 예외 상황에서만 아래처럼 실행한다.
+
+```bash
+KOMSCO_AIOPS_FORCE_IMAGE_BUILD=false task kugnus:company:publish
+```
 
 로컬 Docker/Podman push가 되는 환경에서는 다음도 가능하다.
 
@@ -65,9 +72,9 @@ task kugnus:status
 - 기존 Lightspeed UI 비활성화
 - 기존 `komsco-ai-console-plugin` 교체
 
-## 현재 publish evidence
+## 과거 publish evidence
 
-2026-06-24 KST 기준 확인된 상태:
+2026-06-24 KST 당시 확인된 상태:
 
 ```bash
 oc get catalogsource komsco-aiops-catalog-kugnus -n openshift-marketplace
@@ -91,8 +98,8 @@ Pass:
 별도 승인 후에만 실행한다.
 
 ```bash
-KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus task kugnus:install
-task kugnus:status
+task kugnus:company:install
+task kugnus:company:status
 ```
 
 Pass:

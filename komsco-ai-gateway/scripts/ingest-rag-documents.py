@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Create a local RAG ingestion plan without writing to any backend."""
+"""Create a local RAG ingestion plan and optionally apply it via the Gateway API."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -116,9 +118,84 @@ def build_plan(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def apply_plan(plan: dict[str, object], gateway_url: str, token: str) -> dict[str, object]:
+    """POST each chunk to the Gateway /v1/rag/uploads endpoint and return a result summary."""
+    try:
+        import urllib.request
+        import urllib.error
+    except ImportError:
+        raise SystemExit("urllib is required for --apply mode")
+
+    spec = plan.get("spec", {})
+    doc = spec.get("document", {})
+    chunks = spec.get("chunks", [])
+    source = Path(str(spec.get("document", {}).get("sourceUri", "")))
+
+    try:
+        raw_content = source.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"Cannot read source file for --apply: {exc}")
+
+    payload = {
+        "title": source.stem,
+        "content": raw_content,
+        "sourceUri": doc.get("sourceUri", ""),
+        "sourceType": doc.get("sourceType", "runbook"),
+        "customer": doc.get("customer", "komsco"),
+        "namespace": doc.get("namespace", "komsco-ai-kugnus"),
+        "version": doc.get("version", "v0.1.1"),
+        "collection": spec.get("collection", "komsco-aiops-runbooks"),
+        "aclGroups": doc.get("aclGroups", []),
+        "labels": doc.get("labels", {}),
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    url = gateway_url.rstrip("/") + "/v1/rag/uploads"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            response_body = json.loads(resp.read().decode("utf-8"))
+            return {
+                "status": "applied",
+                "httpStatus": resp.status,
+                "documentId": doc.get("documentId"),
+                "expectedChunks": len(chunks),
+                "gatewayUrl": url,
+                "response": response_body,
+            }
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        return {
+            "status": "error",
+            "httpStatus": exc.code,
+            "documentId": doc.get("documentId"),
+            "gatewayUrl": url,
+            "error": error_body[:500],
+        }
+    except OSError as exc:
+        return {
+            "status": "error",
+            "httpStatus": None,
+            "documentId": doc.get("documentId"),
+            "gatewayUrl": url,
+            "error": str(exc),
+        }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a local RAG ingestion plan. This does not connect to pgvector or write secrets.",
+        description=(
+            "Build a local RAG ingestion plan. "
+            "By default (--dry-run), prints the plan JSON without writing to any backend. "
+            "With --apply, POSTs the document to the Gateway API."
+        ),
     )
     parser.add_argument("--source", required=True, help="Markdown, text, or extracted runbook file path")
     parser.add_argument("--source-type", default="runbook", help="runbook, sop, rca, pdf-extract, or note")
@@ -130,8 +207,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label", action="append", default=[], help="key=value metadata label; repeatable")
     parser.add_argument("--max-chunk-chars", type=int, default=1200)
     parser.add_argument("--encoding", default="utf-8")
-    parser.add_argument("--dry-run", action="store_true", help="Kept for clarity; this script is always dry-run")
-    parser.add_argument("--output", help="Optional output file path")
+    parser.add_argument("--dry-run", action="store_true", help="Print plan JSON only; do not call Gateway API (default)")
+    parser.add_argument("--apply", action="store_true", help="POST document to the Gateway API after building the plan")
+    parser.add_argument("--gateway-url", default="http://localhost:18080", help="Gateway base URL for --apply")
+    parser.add_argument("--token", default="", help="Bearer token for --apply (or set KOMSCO_INGEST_TOKEN env var)")
+    parser.add_argument("--output", help="Optional output file path for the plan JSON")
     return parser.parse_args()
 
 
@@ -141,6 +221,23 @@ def main() -> int:
         if "=" not in label:
             raise SystemExit(f"Invalid --label {label!r}; expected key=value")
     plan = build_plan(args)
+
+    if args.apply and not args.dry_run:
+        token = args.token or os.environ.get("KOMSCO_INGEST_TOKEN", "")
+        if not token:
+            print(
+                "ERROR: --apply requires a bearer token via --token or KOMSCO_INGEST_TOKEN env var.",
+                file=sys.stderr,
+            )
+            return 1
+        result = apply_plan(plan, args.gateway_url, token)
+        output = json.dumps(result, ensure_ascii=False, indent=2)
+        if args.output:
+            Path(args.output).write_text(output + "\n", encoding="utf-8")
+        else:
+            print(output)
+        return 0 if result.get("status") == "applied" else 1
+
     rendered = json.dumps(plan, ensure_ascii=False, indent=2)
     if args.output:
         Path(args.output).write_text(rendered + "\n", encoding="utf-8")

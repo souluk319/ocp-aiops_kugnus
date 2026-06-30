@@ -119,6 +119,7 @@ type Message = {
   fallbackAnswer?: boolean;
   gatewayContextDigest?: string;
   progressSteps?: ProgressStep[];
+  timestamp?: number;
 };
 
 type EvidenceFooterRef = {
@@ -321,6 +322,8 @@ const RCA_CONTEXT_STEP_ID = 'assistant-rca-context';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
 const RESPONSE_WAIT_STEP_ID = 'assistant-response-wait';
 const ANSWER_STREAM_STEP_ID = 'assistant-answer-stream';
+const ASSISTANT_TYPEWRITER_CHARS = 18;
+const ASSISTANT_TYPEWRITER_INTERVAL_MS = 24;
 const flushReactSync = (callback: () => void) => {
   const flushSync = (ReactDOM as unknown as { flushSync?: (syncCallback: () => void) => void })
     .flushSync;
@@ -853,6 +856,7 @@ const setLastAssistantContentIfEmpty = (messages: Message[], content: string): M
     ...next[assistantIndex],
     content,
     evidenceFooter: undefined,
+    timestamp: next[assistantIndex].timestamp ?? Date.now(),
   };
 
   return next;
@@ -1001,6 +1005,17 @@ const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =
       role: message.role,
       content: message.content.slice(0, 4000),
     }));
+
+const formatMessageTime = (timestamp: number | undefined): string => {
+  if (!timestamp) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+};
 
 const getElapsedMs = (step: ProgressStep): number => {
   if (step.status === 'running') {
@@ -1621,6 +1636,37 @@ const getDisplaySteps = (steps: ProgressStep[]): ProgressStep[] =>
         !(isAnswerStreamStep(step) && step.status === 'completed' && getElapsedMs(step) < 300),
     );
 
+const getCurrentProgressStep = (steps: ProgressStep[]): ProgressStep =>
+  steps.find((step) => step.status === 'running') ?? steps[steps.length - 1];
+
+const getArchitectureLayerLabel = (step: ProgressStep): string => {
+  if (step.id === GATEWAY_PREP_STEP_ID) {
+    return 'Console 요청 -> Gateway 검증';
+  }
+
+  if (step.name === 'runtime_tool_plan') {
+    return 'Gateway -> Tool Plan';
+  }
+
+  if (step.name === 'rca_context') {
+    return 'Gateway -> Evidence/RAG';
+  }
+
+  if (isResponseWaitStep(step)) {
+    return 'Gateway -> OLS/LLM';
+  }
+
+  if (isAnswerStreamStep(step)) {
+    return 'OLS/LLM -> 브라우저 답변';
+  }
+
+  if (step.name.includes('pod') || step.name.includes('resource') || step.name.includes('cluster')) {
+    return 'Gateway -> OpenShift API';
+  }
+
+  return 'AIOps 작업 흐름';
+};
+
 const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = ({
   active,
   steps,
@@ -1631,38 +1677,54 @@ const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = (
     return null;
   }
 
+  const currentStep = getCurrentProgressStep(displaySteps);
+
   return (
-    <details className="komsco-ai__progress" key={active ? 'active' : 'complete'} open={active}>
-      <summary className="komsco-ai__progress-summary">
-        <span className="komsco-ai__progress-toggle" aria-hidden="true" />
-        <span className="komsco-ai__progress-title">
-          {getProgressSummary(displaySteps, active)}
+    <div className="komsco-ai__progress-wrap">
+      <div className="komsco-ai__flow-status" aria-live="polite">
+        <span
+          className={`komsco-ai__flow-pulse komsco-ai__flow-pulse--${currentStep.status}`}
+          aria-hidden="true"
+        />
+        <span className="komsco-ai__flow-copy">
+          <span className="komsco-ai__flow-layer">{getArchitectureLayerLabel(currentStep)}</span>
+          <span className="komsco-ai__flow-activity">{getStepActivity(currentStep)}</span>
         </span>
-      </summary>
-      <div className="komsco-ai__progress-list">
-        {displaySteps.map((step) => {
-          return (
-            <div
-              className={`komsco-ai__progress-step komsco-ai__progress-step--${step.status}`}
-              key={step.id}
-            >
-              <span
-                className={`komsco-ai__progress-status komsco-ai__progress-status--${step.status}`}
-                aria-hidden="true"
-              />
-              <span className="komsco-ai__progress-step-copy">
-                <span className="komsco-ai__progress-step-title">{step.title}</span>
-                <span className="komsco-ai__progress-step-separator" aria-hidden="true">
-                  ·
-                </span>
-                <span className="komsco-ai__progress-step-activity">{getStepActivity(step)}</span>
-              </span>
-              <span className="komsco-ai__progress-step-meta">{getStepElapsed(step)}</span>
-            </div>
-          );
-        })}
       </div>
-    </details>
+      <details className="komsco-ai__progress" key={active ? 'active' : 'complete'}>
+        <summary className="komsco-ai__progress-summary">
+          <span className="komsco-ai__progress-toggle" aria-hidden="true" />
+          <span className="komsco-ai__progress-title">
+            {getProgressSummary(displaySteps, active)}
+          </span>
+        </summary>
+        <div className="komsco-ai__progress-list">
+          {displaySteps.map((step) => {
+            return (
+              <div
+                className={`komsco-ai__progress-step komsco-ai__progress-step--${step.status}`}
+                key={step.id}
+              >
+                <span
+                  className={`komsco-ai__progress-status komsco-ai__progress-status--${step.status}`}
+                  aria-hidden="true"
+                />
+                <span className="komsco-ai__progress-step-copy">
+                  <span className="komsco-ai__progress-step-title">{step.title}</span>
+                  <span className="komsco-ai__progress-step-separator" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="komsco-ai__progress-step-activity">
+                    {getStepActivity(step)}
+                  </span>
+                </span>
+                <span className="komsco-ai__progress-step-meta">{getStepElapsed(step)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    </div>
   );
 };
 
@@ -3192,6 +3254,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const taskModeMenuRef = React.useRef<HTMLDivElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
   const assistantTypewriterTimerRef = React.useRef<number | undefined>();
+  const assistantTextDrainResolversRef = React.useRef<Array<() => void>>([]);
   const chatAbortControllerRef = React.useRef<AbortController | null>(null);
   const stopRequestedRef = React.useRef(false);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
@@ -3830,13 +3893,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setMessages((prev) => {
       const assistantIndex = findLastAssistantIndex(prev);
       if (assistantIndex < 0) {
-        return [...prev, { role: 'assistant', content }];
+        return [...prev, { role: 'assistant', content, timestamp: Date.now() }];
       }
 
       const next = [...prev];
       next[assistantIndex] = {
         ...next[assistantIndex],
         content: next[assistantIndex].content + content,
+        timestamp: next[assistantIndex].timestamp ?? Date.now(),
       };
 
       return next;
@@ -3862,23 +3926,63 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
     assistantTextQueueRef.current = '';
     appendAssistantText(queuedText);
+    const resolvers = assistantTextDrainResolversRef.current;
+    assistantTextDrainResolversRef.current = [];
+    resolvers.forEach((resolve) => resolve());
   }, [appendAssistantText, clearAssistantTypewriterTimer]);
+
+  const scheduleAssistantTextDrain = React.useCallback(() => {
+    if (assistantTypewriterTimerRef.current !== undefined) {
+      return;
+    }
+
+    const drain = () => {
+      const queuedText = assistantTextQueueRef.current;
+      if (!queuedText) {
+        assistantTypewriterTimerRef.current = undefined;
+        const resolvers = assistantTextDrainResolversRef.current;
+        assistantTextDrainResolversRef.current = [];
+        resolvers.forEach((resolve) => resolve());
+        return;
+      }
+
+      const chunk = queuedText.slice(0, ASSISTANT_TYPEWRITER_CHARS);
+      assistantTextQueueRef.current = queuedText.slice(chunk.length);
+      appendAssistantText(chunk);
+      assistantTypewriterTimerRef.current = window.setTimeout(
+        drain,
+        ASSISTANT_TYPEWRITER_INTERVAL_MS,
+      );
+    };
+
+    assistantTypewriterTimerRef.current = window.setTimeout(drain, 0);
+  }, [appendAssistantText]);
 
   const enqueueAssistantText = React.useCallback(
     (content: string) => {
       assistantTextQueueRef.current += content;
-      flushAssistantTextQueueNow();
+      scheduleAssistantTextDrain();
     },
-    [flushAssistantTextQueueNow],
+    [scheduleAssistantTextDrain],
   );
 
   const waitForAssistantTextQueue = React.useCallback(async () => {
-    flushAssistantTextQueueNow();
-  }, [flushAssistantTextQueueNow]);
+    if (!assistantTextQueueRef.current && assistantTypewriterTimerRef.current === undefined) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      assistantTextDrainResolversRef.current.push(resolve);
+      scheduleAssistantTextDrain();
+    });
+  }, [scheduleAssistantTextDrain]);
 
   React.useEffect(
     () => () => {
       clearAssistantTypewriterTimer();
+      const resolvers = assistantTextDrainResolversRef.current;
+      assistantTextDrainResolversRef.current = [];
+      resolvers.forEach((resolve) => resolve());
     },
     [clearAssistantTypewriterTimer],
   );
@@ -4132,9 +4236,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       flushAssistantTextQueueNow();
       window.setTimeout(() => scrollToBottom('auto'), 0);
       const recentMessages = buildRecentContextMessages(messages);
+      const messageTimestamp = Date.now();
       setMessages((prev) => [
         ...prev,
-        { role: 'user', attachments, content: question },
+        { role: 'user', attachments, content: question, timestamp: messageTimestamp },
         { role: 'assistant', content: '', progressSteps: [] },
       ]);
 
@@ -4538,12 +4643,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             markRunningProgressFailed(event.message || 'AI response failed.');
             flushAssistantTextQueueNow();
             setMessages((prev) => [
-              ...prev,
-              {
-                role: 'system',
-                content: event.message || 'AI response failed.',
-              },
-            ]);
+            ...prev,
+            {
+              role: 'system',
+              content: event.message || 'AI response failed.',
+              timestamp: Date.now(),
+            },
+          ]);
           }
 
           if (event.type === 'end' && event.conversationId) {
@@ -4571,6 +4677,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             {
               role: 'system',
               content: error instanceof Error ? error.message : 'AI response failed.',
+              timestamp: Date.now(),
             },
           ]);
         }
@@ -4874,6 +4981,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const activeMessage = loading && index === messages.length - 1;
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
+                        const messageTime = formatMessageTime(message.timestamp);
 
                         return (
                           <div
@@ -4925,7 +5033,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 hasContent &&
                                 renderEvidenceFooter(message.evidenceFooter)}
                               {hasProgress && message.progressSteps && (
-                                <ProgressTimeline active={false} steps={message.progressSteps} />
+                                <ProgressTimeline
+                                  active={activeMessage}
+                                  steps={message.progressSteps}
+                                />
+                              )}
+                              {messageTime && (
+                                <div className="komsco-ai__message-time">{messageTime}</div>
                               )}
                             </div>
                           </div>

@@ -47,6 +47,7 @@ type AiopsPageData = {
 };
 
 type Tone = 'danger' | 'info' | 'success' | 'warning';
+type RagBackendStatus = NonNullable<AiopsRuntimeStatus['spec']['capabilities']['rag']>;
 
 type AssistantDraftPromptRequest = {
   id: string;
@@ -131,6 +132,16 @@ const formatBytes = (value?: number): string => {
 
 const uploadedDocumentQuery = (document: RagUploadedDocument): string =>
   [document.title, document.sourceUri, document.documentId].filter(Boolean).join(' ');
+
+const ragBackendTone = (status?: string): Tone => {
+  if (status === 'configured') {
+    return 'success';
+  }
+  if (status === 'unavailable') {
+    return 'danger';
+  }
+  return 'warning';
+};
 
 const clampScore = (value?: number): number => {
   if (typeof value !== 'number' || Number.isNaN(value)) {
@@ -864,6 +875,81 @@ const DataSourceBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overvie
   );
 };
 
+const CustomerTopologyPanel: React.FC<{ data: AiopsPageData }> = ({ data }) => {
+  const summary = data.summary;
+  const status = data.status;
+  const overview = data.overview;
+  const rag = status?.spec.capabilities.rag;
+  const lightspeed = status?.spec.safetyContract?.lightspeedStatus;
+  const dataSources = overview?.spec.dataSources ?? [];
+  const availableSources = dataSources.filter((source) => source.status === 'available').length;
+  const auditCount = status?.spec.records.auditRecords?.length ?? 0;
+  const mutationEnabled = Boolean(status?.spec.capabilities.mutationsEnabled);
+  const nodes = [
+    {
+      detail: summary?.apiUrl ?? 'API 상태 확인 중',
+      icon: <ServerIcon />,
+      label: '고객 OCP',
+      tone: !summary || summary.nodes.notReady ? 'warning' : 'success',
+      value: summary ? `${summary.nodes.ready}/${summary.nodes.total} nodes` : '수집 중',
+    },
+    {
+      detail: overview ? `${availableSources}/${dataSources.length} data sources` : 'overview 수집 중',
+      icon: <ChartLineIcon />,
+      label: '관측 신호',
+      tone: overview && availableSources === dataSources.length ? 'success' : 'warning',
+      value: overview?.spec.controlTower.statusLabel ?? '확인 중',
+    },
+    {
+      detail: rag?.collection || rag?.backendType || rag?.reason || 'RAG backend 확인 중',
+      icon: <ClipboardCheckIcon />,
+      label: 'LLM Wiki/RAG',
+      tone: ragBackendTone(rag?.status),
+      value: rag?.status ?? '확인 중',
+    },
+    {
+      detail: lightspeed?.baseService ?? 'openshift-lightspeed',
+      icon: <RobotIcon />,
+      label: 'LLM 경로',
+      tone: lightspeed?.fallbackActive ? 'warning' : status ? 'info' : 'warning',
+      value: lightspeed?.streamProbe ?? 'probe 확인 중',
+    },
+    {
+      detail: `${auditCount} audit records`,
+      icon: <ShieldAltIcon />,
+      label: '정책/감사',
+      tone: status ? (mutationEnabled ? 'danger' : 'success') : 'warning',
+      value: status?.spec.safetyContract?.mode ?? '확인 중',
+    },
+  ] as const;
+
+  return (
+    <section className="komsco-ai-page__customer-topology" aria-label="Customer operations topology">
+      <div className="komsco-ai-page__customer-topology-head">
+        <div>
+          <span className="komsco-ai-page__section-kicker">Customer topology</span>
+          <h2>고객 운영 토폴로지</h2>
+        </div>
+        <code>{status?.spec.subject?.username ?? 'subject 확인 중'}</code>
+      </div>
+      <div className="komsco-ai-page__customer-topology-grid">
+        {nodes.map((node) => (
+          <article
+            className={`komsco-ai-page__customer-topology-node is-${node.tone}`}
+            data-customer-topology-node={node.label}
+            key={node.label}
+          >
+            <span className="komsco-ai-page__customer-topology-icon">{node.icon}</span>
+            <span>{node.label}</span>
+            <strong>{node.value}</strong>
+            <small>{node.detail}</small>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 const HealthDial: React.FC<{ score?: number }> = ({ score }) => {
   if (score === undefined) {
     return (
@@ -1359,6 +1445,8 @@ export const AiopsDashboardPage: React.FC = () => {
 
       <DataSourceBoard overview={data.overview} />
 
+      <CustomerTopologyPanel data={data} />
+
       <section
         ref={assistantStageRef}
         className="komsco-ai-page__assistant-stage"
@@ -1442,6 +1530,8 @@ export const AiopsDocsPage: React.FC = () => {
   const data = useAiopsPageData();
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = React.useState<RagUploadedDocument[]>([]);
+  const [documentsReason, setDocumentsReason] = React.useState('');
+  const [ragBackend, setRagBackend] = React.useState<RagBackendStatus | null>(null);
   const [documentsLoading, setDocumentsLoading] = React.useState(true);
   const [documentsError, setDocumentsError] = React.useState('');
   const [selectedDocumentId, setSelectedDocumentId] = React.useState('');
@@ -1467,6 +1557,8 @@ export const AiopsDocsPage: React.FC = () => {
     try {
       const payload = await fetchUploadedRagDocuments();
       const nextDocuments = payload.spec.documents ?? [];
+      setDocumentsReason(payload.spec.reason ?? '');
+      setRagBackend(payload.spec.backend ?? null);
       setDocuments(nextDocuments);
       setSelectedDocumentId((current) => {
         if (current && nextDocuments.some((document) => document.documentId === current)) {
@@ -1576,16 +1668,17 @@ export const AiopsDocsPage: React.FC = () => {
 
   const totalChunks = documents.reduce((total, document) => total + (document.chunkCount ?? 0), 0);
   const totalBytes = documents.reduce((total, document) => total + (document.contentBytes ?? 0), 0);
+  const activeRagBackend = ragBackend ?? data.status?.spec.capabilities.rag ?? null;
+  const ragStatus = activeRagBackend?.status ?? (documentsLoading ? 'checking' : 'unknown');
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="Docs">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="LLM Wiki">
       <section className="komsco-ai-page__docs-hero">
         <div>
-          <span className="komsco-ai-page__section-kicker">User upload RAG</span>
-          <h2>업로드 문서 관리</h2>
+          <span className="komsco-ai-page__section-kicker">Customer LLM Wiki</span>
+          <h2>고객 지식/RAG 저장소</h2>
           <p>
-            챗봇과 Docs 화면에서 업로드한 문서가 pgvector RAG 저장소에 적재됐는지 확인하고, 검색
-            가능한 chunk preview를 검토합니다.
+            고객 문서를 업로드하고 pgvector RAG 적재, ACL, 검색 가능한 chunk preview를 확인합니다.
           </p>
         </div>
         <div className="komsco-ai-page__docs-actions">
@@ -1616,8 +1709,18 @@ export const AiopsDocsPage: React.FC = () => {
 
       {uploadMessage && <div className="komsco-ai-page__docs-notice">{uploadMessage}</div>}
       {documentsError && <div className="komsco-ai-page__error">{documentsError}</div>}
+      {!documentsError && documentsReason && (
+        <div className="komsco-ai-page__docs-status-line">{documentsReason}</div>
+      )}
 
       <div className="komsco-ai-page__metrics">
+        <MetricTile
+          detail={activeRagBackend?.collection || activeRagBackend?.backendType || 'gateway-only'}
+          icon={<ServerIcon />}
+          label="RAG backend"
+          tone={ragBackendTone(activeRagBackend?.status)}
+          value={ragStatus}
+        />
         <MetricTile
           detail="visible to current OpenShift subject"
           icon={<ClipboardCheckIcon />}
@@ -1631,6 +1734,13 @@ export const AiopsDocsPage: React.FC = () => {
           label="Chunks"
           tone={totalChunks > 0 ? 'success' : 'warning'}
           value={documentsLoading ? '...' : totalChunks}
+        />
+        <MetricTile
+          detail={activeRagBackend?.accessPath || 'gateway-only'}
+          icon={<LockIcon />}
+          label="ACL"
+          tone={activeRagBackend?.aclRequired === false ? 'warning' : 'success'}
+          value={activeRagBackend?.aclRequired === false ? 'OFF' : 'ON'}
         />
         <MetricTile
           detail="redacted preview only"

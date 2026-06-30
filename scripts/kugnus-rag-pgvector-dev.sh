@@ -44,5 +44,9 @@ RAG pgvector dev backend is ready.
 Container: ${CONTAINER_NAME}
 DSN env: KOMSCO_AI_RAG_BACKEND_URL=${DSN}
 Use with Gateway:
-  KOMSCO_AI_RAG_BACKEND_URL='${DSN}' KOMSCO_AI_RAG_EMBEDDING_MODEL=hashing-bow-v1 KOMSCO_AI_RAG_VECTOR_DIMENSIONS=64 task kugnus:dev:be:execute
+  KOMSCO_AI_RAG_BACKEND_URL='${DSN}' task kugnus:dev:be:execute:rag
+
+Embedding/LLM provider settings are read from .env:
+  KOMSCO_AI_LLM_*
+  KOMSCO_AI_EMBEDDING_*
 EOF

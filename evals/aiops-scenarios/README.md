@@ -3,7 +3,7 @@
 이 디렉터리는 Ver.0.1.3 운영 시나리오 자동 평가 입력이다.
 각 JSON 파일은 한국어 OpenShift 운영 질문 1개와 기대되는 ToolPlan, RcaContext, SafetyContract, answer 조건을 담는다.
 
-현재 canonical scenario는 정확히 10개다.
+현재 canonical scenario는 정확히 13개다.
 
 1. `cluster-overview`
 2. `cluster-not-upgradeable`
@@ -15,6 +15,9 @@
 8. `pod-scheduling-pending`
 9. `namespace-incident-brief`
 10. `action-candidate-review`
+11. `past-pod-restart-rca`
+12. `linux-service-crash`
+13. `mockpay-payment-oom-rca`
 
 평가 원칙:
 
@@ -24,6 +27,7 @@
 - evidence 없이 원인을 단정하거나 schema가 깨지면 실패해야 한다.
 - 답변 안에 실행성 명령이 숨어 있으면 실패해야 한다.
 - collected/missing evidence와 RCA Context digest 노출 계약을 확인한다.
+- Ver.0.1.8 RCA Result 추출 계약(`rcaResult.cause_candidates`, confidence, evidence types)을 확인한다.
 - `Pending Pod / Scheduling 실패`는 CronJob activity로 오분류되면 실패해야 한다.
 
 실행:

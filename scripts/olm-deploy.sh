@@ -12,15 +12,15 @@ OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai-kugnus}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops-kugnus}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-kugnus-operator}
 INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-komsco-aiops-kugnus}
-OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.3}
+OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}
-DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AI}
+DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AIOps}
 STATUS_MODE=${KOMSCO_AIOPS_STATUS_MODE:-local}
 ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-false}
 ENABLE_DIAGNOSTICS=${KOMSCO_AIOPS_ENABLE_DIAGNOSTICS:-true}
-BOOTSTRAP_INSTALLATION=${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION:-false}
+BOOTSTRAP_INSTALLATION=${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION:-true}
 APPROVE_CLUSTER_WRITE=${KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE:-}
 APPROVE_UNINSTALL=${KOMSCO_AIOPS_APPROVE_UNINSTALL:-}
 ACTION_EXECUTOR_CLUSTER_ROLE=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE:-${CONSOLE_PLUGIN_NAME}-action-executor}
@@ -42,7 +42,7 @@ Commands:
   uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.3
+  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.8
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
@@ -57,10 +57,10 @@ Key environment variables:
   KOMSCO_AIOPS_APPROVE_UNINSTALL      Must equal komsco-ai-kugnus before reset-install/uninstall.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.3 \\
-  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.3 \\
-  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.3 \\
-  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.3 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.8 \\
+  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.8 \\
+  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.8 \\
+  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.8 \\
   task olm:deploy
 EOF
 }
@@ -96,8 +96,8 @@ validate_kugnus_safety() {
       exit 1
       ;;
   esac
-  if [[ "${BOOTSTRAP_INSTALLATION}" != "false" ]]; then
-    echo "Refusing bootstrap install. Catalog/package steps must not auto-create AIOpsInstallation." >&2
+  if [[ "${BOOTSTRAP_INSTALLATION}" != "true" ]]; then
+    echo "Refusing package without bootstrap install. Catalog install must create AIOpsInstallation." >&2
     exit 1
   fi
 }
@@ -176,8 +176,19 @@ wait_catalog() {
 
 apply_install() {
   require_cmd oc
+  local operatorgroups operatorgroup_count
   oc apply -f "${INSTALL_DIR}/00-namespace.yaml"
-  oc apply -f "${INSTALL_DIR}/01-operatorgroup.yaml"
+  operatorgroups=$(oc get operatorgroup -n "${OPERATOR_NAMESPACE}" -o name 2>/dev/null | sed '/^$/d' || true)
+  operatorgroup_count=$(printf '%s\n' "${operatorgroups}" | sed '/^$/d' | wc -l)
+  if [[ "${operatorgroup_count}" == "0" ]]; then
+    oc apply -f "${INSTALL_DIR}/01-operatorgroup.yaml"
+  elif [[ "${operatorgroup_count}" == "1" ]]; then
+    echo "Reusing existing OperatorGroup in ${OPERATOR_NAMESPACE}: ${operatorgroups}"
+  else
+    echo "Refusing install: multiple OperatorGroups already exist in ${OPERATOR_NAMESPACE}." >&2
+    printf '%s\n' "${operatorgroups}" >&2
+    exit 1
+  fi
   oc apply -f "${INSTALL_DIR}/02-subscription.yaml"
   wait_subscription_csv
   oc apply -f "${INSTALL_DIR}/03-aiopsinstallation.yaml"

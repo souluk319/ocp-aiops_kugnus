@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-26T21:40:37.427404+00:00",
+  "generatedAt": "2026-06-30T05:27:05.071210+00:00",
   "gatewayUrl": "http://127.0.0.1:18080",
   "result": "pass",
   "httpStatus": 200,
@@ -25,5 +25,5 @@
       "detail": "uploaded document id/title appears in RAG stream evidence"
     }
   ],
-  "streamBytes": 36547
+  "streamBytes": 38184
 }

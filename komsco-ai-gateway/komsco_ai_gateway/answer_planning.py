@@ -9,6 +9,8 @@ from typing import Any, Literal
 ANSWER_KIND_ACTION_PROPOSAL = "action_proposal"
 ANSWER_KIND_RCA = "rca"
 ANSWER_KIND_RUNTIME_HEALTH = "runtime_health"
+ANSWER_KIND_CASUAL = "casual"
+ANSWER_KIND_PLATFORM_CONCEPT = "platform_concept"
 
 ComponentStatus = Literal["ok", "failed", "unknown"]
 
@@ -79,7 +81,23 @@ RUNTIME_HEALTH_EXCLUDE_RE = _compile(
     r"(파드|노드|이벤트|경고|로그|원인|분석|장애|몇)"
 )
 
+_CASUAL_RE = _compile(
+    r"(헤이|안녕|ㅎㅇ|반가|오케이|뭐야|잘있어|테스트)"
+    r"|\b(hi|hello|hey|test|ok)\b"
+)
+
+_PLATFORM_TERM_RE = _compile(r"(오픈\s*시프트|openshift|ocp|쿠버네티스|kubernetes|k8s)")
+_CONCEPT_QUESTION_RE = _compile(
+    r"(뭐야|무엇|뭔가|뭔지|설명|개념|뜻|정의|알려줘|what\s+is|explain|describe)"
+)
+
 INTENT_RULES: tuple[IntentRule, ...] = (
+    IntentRule(
+        id="casual-greeting",
+        answer_kind=ANSWER_KIND_CASUAL,
+        max_chars=40,
+        include_any=(_CASUAL_RE,),
+    ),
     IntentRule(
         id="generic-runtime-health",
         answer_kind=ANSWER_KIND_RUNTIME_HEALTH,
@@ -133,11 +151,18 @@ def normalize_message(message: str) -> str:
     return re.sub(r"\s+", " ", message.strip().lower())
 
 
+def is_platform_concept_question(message: str) -> bool:
+    return bool(_PLATFORM_TERM_RE.search(message) and _CONCEPT_QUESTION_RE.search(message))
+
+
 def classify_fallback_answer_kind(message: str, policy: Mapping[str, Any]) -> str:
     if policy.get("decision") == "action_proposal_only":
         return ANSWER_KIND_ACTION_PROPOSAL
 
     normalized = normalize_message(message)
+    if is_platform_concept_question(normalized):
+        return ANSWER_KIND_PLATFORM_CONCEPT
+
     for rule in INTENT_RULES:
         if rule.matches(normalized):
             return rule.answer_kind
@@ -260,6 +285,40 @@ def build_runtime_health_plan(snapshot: GatewayEvidenceSnapshot) -> AnswerPlan:
     )
 
 
+def build_casual_plan() -> AnswerPlan:
+    return AnswerPlan(
+        kind=ANSWER_KIND_CASUAL,
+        title="안내",
+        verdict=(
+            "안녕하세요! OCP 운영 관련 질문을 해주시면 도와드리겠습니다.\n\n"
+            "예시:\n"
+            "- Pod가 자꾸 재시작돼요\n"
+            "- CPU 사용량이 갑자기 높아요\n"
+            "- 네임스페이스 상태 확인해줘"
+        ),
+    )
+
+
+def build_platform_concept_plan() -> AnswerPlan:
+    return AnswerPlan(
+        kind=ANSWER_KIND_PLATFORM_CONCEPT,
+        title="OpenShift 개념",
+        verdict=(
+            "OpenShift는 Kubernetes를 기업 운영 환경에서 쓰기 좋게 묶은 컨테이너 플랫폼입니다.\n\n"
+            "쉽게 말하면:\n"
+            "- 컨테이너로 만든 서비스를 Pod/Deployment로 올립니다.\n"
+            "- Service/Route로 접속 경로를 만들고, 로그/Event/Metric으로 상태를 봅니다.\n"
+            "- Operator와 콘솔을 통해 설치, 업그레이드, 권한, 배포를 표준 방식으로 관리합니다.\n\n"
+            "이 KOMSCO AIOps에서는 OpenShift 상태를 읽고, RAG/운영 근거와 합쳐 "
+            "장애 원인 후보와 다음 확인 명령을 만드는 대상입니다."
+        ),
+    )
+
+
+def render_casual_plan(plan: AnswerPlan) -> str:
+    return plan.verdict
+
+
 def build_gateway_fallback_answer_plan(
     message: str,
     policy: Mapping[str, Any],
@@ -267,6 +326,10 @@ def build_gateway_fallback_answer_plan(
     gateway_evidence: str | None,
 ) -> AnswerPlan | None:
     answer_kind = classify_fallback_answer_kind(message, policy)
+    if answer_kind == ANSWER_KIND_PLATFORM_CONCEPT:
+        return build_platform_concept_plan()
+    if answer_kind == ANSWER_KIND_CASUAL:
+        return build_casual_plan()
     if answer_kind != ANSWER_KIND_RUNTIME_HEALTH:
         return None
 
@@ -307,11 +370,13 @@ def render_runtime_health_plan(plan: AnswerPlan) -> str:
 
 ANSWER_RENDERERS = {
     ANSWER_KIND_RUNTIME_HEALTH: render_runtime_health_plan,
+    ANSWER_KIND_CASUAL: render_casual_plan,
+    ANSWER_KIND_PLATFORM_CONCEPT: render_casual_plan,
 }
 
 
 def render_answer_plan(plan: AnswerPlan) -> str:
     renderer = ANSWER_RENDERERS.get(plan.kind)
     if not renderer:
-        raise ValueError(f"Unsupported answer plan kind: {plan.kind}")
+        return plan.verdict or ""
     return renderer(plan)

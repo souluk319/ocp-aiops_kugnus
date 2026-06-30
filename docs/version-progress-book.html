@@ -22,6 +22,14 @@
       --shadow: 0 14px 34px rgba(21, 25, 29, 0.08);
     }
 
+    @font-face {
+      font-family: "KugnusHangul";
+      src: local("Malgun Gothic"), local("맑은 고딕"), url("file:///mnt/c/Windows/Fonts/malgun.ttf") format("truetype");
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+
     * {
       box-sizing: border-box;
     }
@@ -34,7 +42,7 @@
       margin: 0;
       background: var(--bg);
       color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+      font-family: "KugnusHangul", "Malgun Gothic", "맑은 고딕", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
       line-height: 1.62;
     }
 
@@ -184,7 +192,7 @@
       border: 1px solid var(--line-soft);
       border-radius: 4px;
       background: #f6f8fa;
-      font-family: "Cascadia Mono", Consolas, monospace;
+      font-family: "Cascadia Mono", Consolas, "KugnusHangul", "Malgun Gothic", "맑은 고딕", monospace;
       font-size: 0.92em;
     }
 
@@ -352,6 +360,98 @@
       border-bottom: 0;
     }
 
+    .deploy-panel {
+      margin: 18px 0 26px;
+      border: 1px solid #b7d5f5;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f8fbff;
+    }
+
+    .deploy-panel__head {
+      padding: 18px 20px;
+      border-bottom: 1px solid #d7e7f8;
+      background: #eef6ff;
+    }
+
+    .deploy-panel__head h3 {
+      margin: 0 0 6px;
+      font-size: 22px;
+    }
+
+    .deploy-panel__head p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .deploy-flow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .deploy-step {
+      min-height: 156px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .deploy-step strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .deploy-step code {
+      display: block;
+      margin: 8px 0;
+      padding: 8px;
+      border-color: #cfe1f3;
+      background: #f4f9ff;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .deploy-step p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .deploy-step--danger {
+      border-color: #ffd7a8;
+      background: #fffaf2;
+    }
+
+    .deploy-cheatsheet {
+      margin: 0 16px 16px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .deploy-cheatsheet pre {
+      margin: 8px 0 0;
+      padding: 12px;
+      overflow: auto;
+      border-radius: 6px;
+      background: #101820;
+      color: #f4f7fb;
+      line-height: 1.5;
+    }
+
+    .deploy-cheatsheet pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 13px;
+    }
+
     @media (max-width: 920px) {
       .layout {
         display: block;
@@ -377,6 +477,10 @@
         grid-template-columns: 1fr;
       }
 
+      .deploy-flow {
+        grid-template-columns: 1fr;
+      }
+
       .progress-row {
         grid-template-columns: 1fr;
       }
@@ -387,11 +491,16 @@
   <div class="layout">
     <aside class="sidebar">
       <h1>Kugnus OCP AIOps</h1>
-      <p class="meta">버전별 작업 기록<br />갱신일: 2026-06-26 KST<br />브랜치: <code>feat/v.0.1.6</code><br />최신 증거: 각 report JSON과 HTML 참조</p>
+      <p class="meta">버전별 작업 기록<br />갱신일: 2026-06-29 KST<br />브랜치: <code>feat/v.0.1.6</code><br />최신 증거: 각 report JSON과 HTML 참조</p>
 
       <nav aria-label="문서 목차">
         <div class="nav-group">
           <p class="nav-title">공통</p>
+          <a class="nav-link" href="#beginner-route">초보자 학습 루트</a>
+          <a class="nav-link" href="#beginner-glossary">용어 사전</a>
+          <a class="nav-link" href="#company-deploy">회사 서버 배포</a>
+          <a class="nav-link" href="#failure-guide">실패 해석</a>
+          <a class="nav-link" href="#rollback-guide">롤백</a>
           <a class="nav-link" href="#overview">개요</a>
           <a class="nav-link" href="#goal">목표</a>
           <a class="nav-link" href="#scope">기능범위</a>
@@ -399,7 +508,7 @@
         </div>
 
         <div class="nav-group">
-          <p class="nav-title">버전</p>
+          <p class="nav-title">고급 기록</p>
           <a class="nav-link" href="#v010">Ver.0.1.0</a>
           <a class="nav-link" href="#v011">Ver.0.1.1</a>
           <a class="nav-link" href="#v012">Ver.0.1.2</a>
@@ -418,7 +527,7 @@
           <a class="nav-link" href="#weekend-test-master">주말 테스트 마스터</a>
           <a class="nav-link" href="#operator-learning">운영 학습</a>
           <a class="nav-link" href="#working-principles">작업 원칙</a>
-          <a class="nav-link" href="#review-board">검수반장 판정</a>
+          <a class="nav-link" href="#review-board">검수 기준</a>
           <a class="nav-link" href="#next">다음 작업</a>
           <a class="nav-link" href="#artifact-atlas">산출물 지도</a>
           <a class="nav-link" href="#evidence">근거 파일</a>
@@ -432,14 +541,339 @@
     <main class="main">
       <article class="book">
         <header class="cover">
-          <p class="eyebrow">Fact-based Version Book</p>
-          <h2>Kugnus OCP AIOps 버전별 작업 기록</h2>
+          <p class="eyebrow">Beginner-first Web Book</p>
+          <h2>Kugnus OCP AIOps 초보자 웹북</h2>
           <p>
-            이 문서는 <code>Ver.0.1.0</code>부터 <code>Ver.0.1.6</code>까지의 산출물과 커밋 흐름을 기준으로 작성한 단일 HTML 기록이다.
-            목적은 처음 pull 받은 시점부터 지금까지 어떤 작업이 실제로 이루어졌는지, 어떤 문제를 겪었고 어떻게 해결했는지,
-            앞으로 어떤 방식으로 테스트하고 학습하면 되는지를 꾸밈없이 정리하는 것이다.
+            이 문서는 처음 보는 사람이 Kugnus AIOps를 안전하게 실습하도록 만든 단일 HTML 웹북이다.
+            1부는 회사 서버 배포 흐름이고, 2부는 로컬 WSL 시연 복구와 과거 기록이다.
+            후반부의 버전별 기록은 근거와 이력이므로 처음에는 앞의 학습 루트부터 읽는다.
           </p>
         </header>
+
+        <section id="beginner-route">
+          <h2>초보자 학습 루트</h2>
+          <div class="callout">
+            <strong>오늘 할 일은 설치가 아니다.</strong>
+            오늘은 <code>task kugnus:company:check</code> 하나로 두 가지만 확인한다.
+            터미널이 회사 서버를 보고 있는지, 그리고 로컬에서 만들어지는 패키지 버전이 <code>0.1.6</code>인지 확인한다.
+            <strong>check는 서버에 아무것도 만들지 않음</strong>. <strong>publish/install은 승인 후 실행</strong>.
+          </div>
+
+          <h3>오늘 바로 치는 명령</h3>
+          <pre><code>task kugnus:company:check</code></pre>
+          <p>
+            이 명령은 회사 서버에 아무것도 만들지 않는다.
+            서버 주소를 확인하고, 설치에 사용할 로컬 패키지 파일을 만들어 검사한다.
+            그래서 첫 실습으로 사용한다.
+          </p>
+
+          <h3>아직 치지 않는 명령</h3>
+          <table>
+            <thead>
+              <tr><th>명령</th><th>쉽게 말하면</th><th>왜 지금 하지 않는가</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>publish</code></td><td>회사 서버의 OperatorHub에 Kugnus 카탈로그를 올린다.</td><td>회사 서버에 리소스가 생긴다. 승인 후 실행한다.</td></tr>
+              <tr><td><code>install</code></td><td>Kugnus 프로그램과 콘솔 플러그인을 실제로 만든다.</td><td>실제 설치 단계다. 승인 후 실행한다.</td></tr>
+              <tr><td><code>uninstall</code></td><td>Kugnus 관련 리소스를 삭제한다.</td><td>삭제 명령이다. 서버와 namespace 확인 후 실행한다.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>정상 결과 읽기</h3>
+          <p>명령이 끝나면 아래 세 줄을 찾는다. 세 줄이 보이면 오늘 목표는 통과다.</p>
+          <table>
+            <thead>
+              <tr><th>찾을 출력</th><th>뜻</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>target=https://api.ocp.cywell.server:6443</code></td><td>터미널이 회사 서버를 보고 있다.</td></tr>
+              <tr><td><code>CSV: komsco-aiops-kugnus-operator.v0.1.6</code></td><td>패키지 버전이 현재 기준인 <code>0.1.6</code>으로 만들어졌다.</td></tr>
+              <tr><td><code>Kugnus package verification passed</code></td><td>로컬 패키지 검사가 통과했다.</td></tr>
+            </tbody>
+          </table>
+
+          <h3>명령 하나가 안에서 하는 일</h3>
+          <p>
+            <code>task kugnus:company:check</code>는 짧은 이름이다.
+            이 짧은 이름은 repo 안의 <code>Taskfile.yml</code>에 적혀 있고,
+            그 안에서 실제 검사 script를 실행한다.
+            처음에는 이 구조를 외울 필요가 없다. "짧은 명령이 긴 확인 절차를 대신 실행한다"까지만 알면 된다.
+          </p>
+          <div class="deploy-cheatsheet">
+            <strong>오늘 명령 흐름</strong>
+            <pre><code>task kugnus:company:check
+  -> 회사 서버 주소 확인
+  -> 로컬 패키지 생성
+  -> 패키지 버전과 기본 정보 검사
+  -> 회사 서버에는 아무것도 만들지 않음</code></pre>
+          </div>
+        </section>
+
+        <section id="beginner-glossary">
+          <h2>용어 사전</h2>
+          <p>
+            이 사전은 정의를 외우는 표가 아니다. 모든 용어를 같은 다섯 질문으로 읽는다:
+            원래 직접 하면 무엇을 해야 하는가, 왜 어려운가, 이 프로젝트가 어떻게 감쌌는가,
+            사용자는 무엇을 입력하거나 확인하는가, 서버에 무엇이 생기는가.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>용어</th>
+                <th>원래 직접 하면</th>
+                <th>왜 어렵거나 위험한가</th>
+                <th>어떻게 감쌌나</th>
+                <th>실제 입력/확인</th>
+                <th>서버 영향</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>task</code></td><td>긴 환경변수와 script 명령을 직접 친다.</td><td>오타가 나면 다른 서버에 적용하거나 승인값을 빼먹을 수 있다.</td><td><code>Taskfile.yml</code>에 긴 명령을 저장했다.</td><td><code>task kugnus:company:check</code></td><td>task 자체는 만들지 않고 저장된 명령만 실행한다.</td></tr>
+              <tr><td><code>oc</code></td><td>OKD/OCP 서버에 직접 물어본다.</td><td>브라우저 로그인과 터미널 로그인이 달라 헷갈릴 수 있다.</td><td>company task가 먼저 서버 주소를 확인한다.</td><td><code>oc whoami --show-server</code></td><td>조회만 하면 만들지 않는다.</td></tr>
+              <tr><td><code>check</code></td><td>서버 주소 확인과 패키지 생성을 따로 실행한다.</td><td>초보자가 publish/install과 섞을 수 있다.</td><td>읽기/로컬 생성만 하는 안전 명령으로 묶었다.</td><td><code>task kugnus:company:check</code></td><td>회사 서버에는 아무것도 만들지 않는다.</td></tr>
+              <tr><td><code>package</code></td><td>설치용 파일 묶음을 직접 만든다.</td><td>버전이나 이름이 틀리면 나중에 설치 대상이 달라진다.</td><td><code>check</code>가 로컬 <code>olm/generated</code>에 만든다.</td><td><code>CSV: ...v0.1.6</code> 확인</td><td>로컬 파일만 생긴다.</td></tr>
+              <tr><td><code>CSV</code></td><td>설치 버전 카드를 직접 찾아 확인한다.</td><td><code>0.1.3</code>과 <code>0.1.6</code>처럼 버전이 섞이면 배포 판단이 틀어진다.</td><td>check 출력에 CSV 이름을 보여준다.</td><td><code>komsco-aiops-kugnus-operator.v0.1.6</code></td><td>확인만 하면 만들지 않는다.</td></tr>
+              <tr><td><code>OLM</code></td><td>Operator 설치/업데이트 방식을 직접 이해하고 리소스를 적용한다.</td><td>설치 흐름이 여러 리소스로 나뉘어 초보자가 순서를 놓치기 쉽다.</td><td>package, publish, install 명령으로 작업을 나누었다.</td><td>처음에는 출력의 CSV 이름만 확인한다.</td><td>check만 하면 서버에 만들지 않는다. publish/install부터 서버에 반영된다.</td></tr>
+              <tr><td><code>publish</code></td><td>이미지 빌드와 카탈로그 등록 명령을 길게 친다.</td><td>회사 서버에 리소스가 생기므로 오타와 대상 서버가 위험하다.</td><td>서버 확인, 승인값, 빌드 전략을 task 안에 묶었다.</td><td><code>task kugnus:company:publish</code></td><td>namespace, build, CatalogSource, PackageManifest가 생길 수 있다.</td></tr>
+              <tr><td><code>status</code></td><td>여러 리소스 상태를 각각 조회한다.</td><td>어떤 이름을 어디 namespace에서 봐야 하는지 외우기 어렵다.</td><td>여러 조회 명령을 하나의 task로 묶었다.</td><td><code>task kugnus:company:status</code></td><td>읽기 명령이다. 새 리소스를 만들지 않는다.</td></tr>
+              <tr><td><code>install</code></td><td>Subscription과 runtime 설정을 직접 적용한다.</td><td>실제 프로그램이 뜨는 단계라 영향이 크다.</td><td>회사 서버 확인과 승인값을 task 안에 묶었다.</td><td><code>task kugnus:company:install</code></td><td>runtime, deployment, ConsolePlugin이 생긴다.</td></tr>
+              <tr><td><code>uninstall</code></td><td>관련 리소스를 직접 찾아 삭제한다.</td><td>삭제 명령이라 대상 서버와 namespace를 틀리면 위험하다.</td><td>승인 환경변수와 uninstall script로 묶었다.</td><td><code>KOMSCO_AIOPS_APPROVE_UNINSTALL=... task kugnus:uninstall</code></td><td>Kugnus 관련 리소스를 삭제할 수 있다.</td></tr>
+              <tr><td><code>Taskfile.yml</code></td><td>긴 명령을 매번 직접 기억한다.</td><td>반복할수록 오타와 누락이 늘어난다.</td><td>긴 명령에 짧은 이름을 붙여 저장했다.</td><td><code>task --list | rg 'kugnus:company'</code></td><td>파일 자체는 서버에 만들지 않는다.</td></tr>
+              <tr><td><code>scripts/kugnus-olm.sh</code></td><td>빌드, 패키지, 카탈로그, 설치 작업을 각각 직접 실행한다.</td><td>순서가 틀리면 결과 해석이 어려워진다.</td><td>Taskfile이 이 script를 대신 호출한다.</td><td>직접 치기보다 task로 실행한다.</td><td>호출한 모드에 따라 로컬 파일 또는 서버 리소스가 생긴다.</td></tr>
+              <tr><td><code>CatalogSource</code></td><td>OperatorHub가 읽을 카탈로그 원천을 직접 등록한다.</td><td>등록되면 회사 콘솔 검색 결과에 영향을 준다.</td><td><code>publish</code> 안에 포함했다.</td><td><code>CatalogSource: ...komsco-aiops-catalog-kugnus</code></td><td>publish 후 회사 서버에 생긴다.</td></tr>
+              <tr><td><code>PackageManifest</code></td><td>OperatorHub 검색 결과를 직접 확인한다.</td><td>안 보이면 카탈로그가 제대로 올라간 것이 아니다.</td><td><code>status</code>가 조회한다.</td><td><code>PackageManifest: komsco-aiops-kugnus</code></td><td>조회는 만들지 않는다. publish 후 보인다.</td></tr>
+              <tr><td><code>Subscription</code></td><td>Operator 설치 요청을 직접 만든다.</td><td>실제 설치를 시작하는 리소스다.</td><td><code>install</code> 안에 포함했다.</td><td><code>task kugnus:company:install</code></td><td>install 후 회사 서버에 생긴다.</td></tr>
+              <tr><td><code>AIOpsInstallation</code></td><td>Kugnus runtime 설정을 직접 만든다.</td><td>Gateway와 plugin 생성 기준이 된다.</td><td><code>install</code> 안에 포함했다.</td><td><code>oc get aiopsinstallation</code></td><td>install 후 회사 서버에 생긴다.</td></tr>
+              <tr><td><code>ConsolePlugin</code></td><td>OKD/OCP 콘솔에 UI 플러그인을 직접 붙인다.</td><td>사용자 콘솔 화면에 영향을 준다.</td><td><code>install</code> 안에 포함했다.</td><td><code>oc get consoleplugin</code></td><td>install 후 회사 서버에 생긴다.</td></tr>
+              <tr><td><code>ImageStreamTag</code></td><td>빌드된 이미지를 직접 찾아 태그를 확인한다.</td><td>이미지 버전이 틀리면 다른 코드가 올라갈 수 있다.</td><td><code>publish</code>가 빌드와 태그를 처리한다.</td><td><code>oc get imagestreamtag</code></td><td>publish 후 회사 서버 namespace에 생길 수 있다.</td></tr>
+              <tr><td><code>BuildConfig</code></td><td>OpenShift 빌드 설정을 직접 만들고 실행한다.</td><td>회사 서버 자원을 사용하고 실패 로그를 봐야 한다.</td><td><code>publish</code>가 binary build로 묶어 실행한다.</td><td><code>oc get build -n komsco-ai-kugnus</code></td><td>publish 중 회사 서버에 생길 수 있다.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="company-deploy">
+          <h2>회사 서버 배포</h2>
+          <p>
+            이 장은 회사 서버 기준 실습 루트다. 실제 대상 서버는 <code>https://api.ocp.cywell.server:6443</code>이고,
+            현재 기본 배포 패키지 버전은 <code>0.1.6</code>이다.
+            생성되는 CSV는 <code>komsco-aiops-kugnus-operator.v0.1.6</code>이어야 한다.
+          </p>
+          <div class="warning">
+            <code>check</code>와 <code>status</code>는 읽기/검증 중심이다. <code>publish</code>와 <code>install</code>은 회사 서버에 반영되므로 승인 후 실행한다.
+            이 task들은 내부에서 승인용 환경변수를 붙이며, 실행 중 별도 대화형 확인을 다시 묻지 않는다.
+            승인자와 승인 기록이 없으면 실행하지 않는다.
+            짧은 요약본은 <code>COMPANY_DEPLOY.md</code>에 있다.
+          </div>
+
+          <div class="deploy-cheatsheet">
+            <strong>긴 명령을 짧게 만든 구조</strong>
+            <p>
+              아래 두 묶음은 같은 일을 가리킨다. 긴 명령은 <code>Taskfile.yml</code> 안에 저장되어 있고,
+              사용자는 짧은 이름만 입력한다.
+            </p>
+            <table>
+              <thead>
+                <tr><th>원래 길게 쓰면</th><th>짧게 만든 명령</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <pre><code>server="$(oc whoami --show-server)"
+expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+test "$server" = "$expected" || exit 1
+
+KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift \
+KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" \
+KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus \
+./scripts/kugnus-olm.sh publish</code></pre>
+                  </td>
+                  <td><pre><code>task kugnus:company:publish</code></pre></td>
+                </tr>
+              </tbody>
+            </table>
+            <p>
+              읽는 법은 간단하다. <code>task</code>가 <code>Taskfile.yml</code>에서
+              <code>kugnus:company:publish</code>라는 이름을 찾고, 그 안에 저장된 긴 명령을 대신 실행한다.
+            </p>
+          </div>
+
+          <h3>회사 서버 배포 명령을 읽는 법</h3>
+          <p>아래 표는 모든 명령을 같은 다섯 질문으로 해석한다. 먼저 서버 영향 칸을 보고, 실행해도 되는 명령인지 판단한다.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>명령</th>
+                <th>원래 직접 하면</th>
+                <th>왜 어렵거나 위험한가</th>
+                <th>어떻게 감쌌나</th>
+                <th>실제 입력</th>
+                <th>서버 영향</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>check</code></td>
+                <td>서버 주소를 확인하고 로컬 패키지를 만든 뒤 버전을 확인한다.</td>
+                <td>처음에는 이 확인과 실제 배포 명령을 구분하기 어렵다.</td>
+                <td>회사 서버 확인과 로컬 패키지 검사를 하나로 묶었다.</td>
+                <td><code>task kugnus:company:check</code></td>
+                <td>회사 서버에 아무것도 만들지 않는다.</td>
+              </tr>
+              <tr>
+                <td><code>publish</code></td>
+                <td>회사 서버 확인, 이미지 빌드, 카탈로그 등록 명령을 길게 실행한다.</td>
+                <td>회사 서버에 리소스가 생기므로 대상 서버와 승인값이 중요하다.</td>
+                <td>서버 guard, 승인값, build 전략을 <code>Taskfile.yml</code>에 저장했다.</td>
+                <td><code>task kugnus:company:publish</code></td>
+                <td>CatalogSource, PackageManifest, build 관련 리소스가 생길 수 있다.</td>
+              </tr>
+              <tr>
+                <td><code>status</code></td>
+                <td>CatalogSource, PackageManifest, Subscription, CSV 등을 각각 조회한다.</td>
+                <td>어떤 리소스를 봐야 하는지 외우기 어렵다.</td>
+                <td>여러 조회 명령을 하나로 묶었다.</td>
+                <td><code>task kugnus:company:status</code></td>
+                <td>읽기 명령이다. 새 리소스를 만들지 않는다.</td>
+              </tr>
+              <tr>
+                <td><code>install</code></td>
+                <td>Subscription과 AIOpsInstallation을 적용하고 deployment를 기다린다.</td>
+                <td>실제 runtime이 생기는 단계라 영향이 크다.</td>
+                <td>회사 서버 확인과 승인값을 task 안에 넣었다.</td>
+                <td><code>task kugnus:company:install</code></td>
+                <td>runtime, deployment, ConsolePlugin이 생긴다.</td>
+              </tr>
+              <tr>
+                <td><code>uninstall</code></td>
+                <td>Kugnus 관련 리소스를 찾아 삭제한다.</td>
+                <td>삭제 명령이라 대상 서버와 namespace 확인이 먼저다.</td>
+                <td>승인 환경변수와 uninstall script로 묶었다.</td>
+                <td><code>KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus task kugnus:uninstall</code></td>
+                <td>Kugnus 관련 catalog/install/runtime 리소스를 삭제할 수 있다.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="deploy-flow">
+            <div class="deploy-step">
+              <span class="tag pass">1. 명령 찾기</span>
+              <strong>입력 명령</strong>
+              <code>task --list | rg 'kugnus:company'</code>
+              <p><strong>Task가 대신 하는 일:</strong> 아무것도 실행하지 않고, 등록된 회사 서버용 task 이름만 보여준다.</p>
+              <p><strong>생기는 것:</strong> 없음.</p>
+              <p><strong>아직 안 생기는 것:</strong> 이미지, CatalogSource, Subscription, ConsolePlugin 모두 없음.</p>
+              <p><strong>정상 출력 예시:</strong> <code>kugnus:company:check</code>, <code>kugnus:company:publish</code>, <code>kugnus:company:install</code>, <code>kugnus:company:status</code>.</p>
+              <p><strong>실패하면 볼 곳:</strong> <code>Taskfile.yml</code>과 <code>task --list</code>.</p>
+            </div>
+            <div class="deploy-step">
+              <span class="tag pass">2. 안전 확인</span>
+              <strong>입력 명령</strong>
+              <code>task kugnus:company:check</code>
+              <p><strong>Task가 대신 하는 일:</strong> <code>oc</code> 대상 서버가 회사 서버인지 보고, 로컬 OLM 패키지를 만든다.</p>
+              <p><strong>생기는 것:</strong> 로컬 <code>olm/generated</code> 패키지.</p>
+              <p><strong>아직 안 생기는 것:</strong> 서버 리소스. 이 단계는 서버에 아무것도 만들지 않는다.</p>
+              <p><strong>정상 출력 예시:</strong> <code>target=https://api.ocp.cywell.server:6443</code>, <code>CSV: komsco-aiops-kugnus-operator.v0.1.6</code>, <code>Kugnus package verification passed</code>.</p>
+              <p><strong>실패하면 볼 곳:</strong> 서버 주소가 다르면 <code>oc whoami --show-server</code>, 패키지 실패면 <code>scripts/olm-package.py</code>.</p>
+            </div>
+            <div class="deploy-step">
+              <span class="tag pending">3. 카탈로그 등록</span>
+              <strong>입력 명령</strong>
+              <code>task kugnus:company:publish</code>
+              <p><strong>실행 전 승인:</strong> 관리자에게 회사 OCP Kugnus catalog publish 실행 승인을 받고 기록을 남긴다.</p>
+              <p><strong>Task가 대신 하는 일:</strong> 회사 서버 확인 후 OpenShift binary build로 이미지를 만들고 OLM catalog를 등록한다.</p>
+              <p><strong>생기는 것:</strong> namespace, ImageStreamTag, BuildConfig, build pod, CatalogSource, PackageManifest.</p>
+              <p><strong>아직 안 생기는 것:</strong> Subscription, AIOpsInstallation, ConsolePlugin. 즉 runtime 설치는 아직 아니다.</p>
+              <p><strong>정상 출력 예시:</strong> <code>CatalogSource: openshift-marketplace/komsco-aiops-catalog-kugnus</code>, <code>PackageManifest: komsco-aiops-kugnus</code>.</p>
+              <p><strong>실패하면 볼 곳:</strong> build 실패는 <code>oc get build -n komsco-ai-kugnus</code>, catalog 실패는 <code>oc get catalogsource -n openshift-marketplace</code>.</p>
+            </div>
+            <div class="deploy-step">
+              <span class="tag pass">4. 상태 확인</span>
+              <strong>입력 명령</strong>
+              <code>task kugnus:company:status</code>
+              <p><strong>Task가 대신 하는 일:</strong> 카탈로그와 설치 관련 리소스를 조회한다.</p>
+              <p><strong>생기는 것:</strong> 없음. 읽기 명령이다.</p>
+              <p><strong>아직 안 생기는 것:</strong> status는 새 리소스를 만들지 않는다.</p>
+              <p><strong>정상 출력 예시:</strong> <code># CatalogSource</code>, <code># PackageManifest</code> 섹션이 보이고, install 전에는 Subscription/AIOpsInstallation/ConsolePlugin이 없어야 정상이다.</p>
+              <p><strong>실패하면 볼 곳:</strong> <code>oc get packagemanifest komsco-aiops-kugnus -n openshift-marketplace</code>.</p>
+            </div>
+            <div class="deploy-step deploy-step--danger">
+              <span class="tag stop">5. 설치</span>
+              <strong>입력 명령</strong>
+              <code>task kugnus:company:install</code>
+              <p><strong>실행 전 승인:</strong> 관리자에게 회사 OCP Kugnus runtime install 실행 승인을 받고 기록을 남긴다.</p>
+              <p><strong>Task가 대신 하는 일:</strong> 승인 후 Subscription, AIOpsInstallation, ConsolePlugin을 만든다.</p>
+              <p><strong>생기는 것:</strong> 실제 runtime, Gateway/plugin deployment, ConsolePlugin.</p>
+              <p><strong>아직 안 생기는 것:</strong> 승인 없이 자동 설치되는 것은 없다.</p>
+              <p><strong>정상 출력 예시:</strong> <code>CSV komsco-aiops-kugnus-operator.v0.1.6 is Succeeded.</code>, <code>Waiting for KOMSCO AIOps operands...</code>.</p>
+              <p><strong>실패하면 볼 곳:</strong> <code>oc get subscription,csv,aiopsinstallation -n komsco-ai-kugnus</code>와 <code>oc get deploy,svc -n komsco-ai-kugnus</code>.</p>
+            </div>
+            <div class="deploy-step">
+              <span class="tag pending">예외</span>
+              <strong>기존 이미지 재사용</strong>
+              <code>KOMSCO_AIOPS_FORCE_IMAGE_BUILD=false task kugnus:company:publish</code>
+              <p><strong>Task가 대신 하는 일:</strong> 기존 ImageStreamTag가 있을 때 재빌드하지 않고 catalog를 갱신한다.</p>
+              <p><strong>생기는 것:</strong> catalog 갱신.</p>
+              <p><strong>아직 안 생기는 것:</strong> 새 이미지.</p>
+              <p><strong>정상 출력 예시:</strong> 기존 image stream tag 사용 메시지.</p>
+              <p><strong>실패하면 볼 곳:</strong> <code>oc get imagestreamtag -n komsco-ai-kugnus</code>.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="failure-guide">
+          <h2>실패 해석</h2>
+          <p>실패 메시지는 어느 단계가 막혔는지 알려주는 진단 단서다.</p>
+          <table>
+            <thead>
+              <tr><th>보이는 말</th><th>뜻</th><th>먼저 확인할 것</th><th>다음 행동</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>Refusing: expected ...</code></td><td>현재 <code>oc</code>가 허용된 회사 서버를 보고 있지 않다.</td><td><code>oc whoami --show-server</code></td><td>올바른 서버로 로그인한 뒤 다시 <code>check</code>.</td></tr>
+              <tr><td><code>oc CLI is required</code></td><td><code>oc</code> 명령을 찾지 못했다.</td><td><code>which oc</code></td><td>OKD/OCP CLI 경로를 잡는다.</td></tr>
+              <tr><td><code>You must be logged in</code></td><td>브라우저가 아니라 WSL CLI의 <code>oc</code> 인증이 끊겼다.</td><td><code>oc whoami</code></td><td>WSL에서 <code>oc login</code> 후 <code>task kugnus:ocp:doctor</code>.</td></tr>
+              <tr><td><code>Kugnus package verification failed</code></td><td>로컬 OLM 패키지 내용이 기대와 다르다.</td><td><code>olm/generated</code>, <code>scripts/olm-package.py</code></td><td>package/check 단계에서 멈추고 publish하지 않는다.</td></tr>
+              <tr><td><code>PackageManifest did not publish</code></td><td>CatalogSource는 적용됐지만 OperatorHub 패키지가 아직 안 보인다.</td><td><code>oc get catalogsource -n openshift-marketplace</code></td><td>CatalogSource pod/log와 currentCSV를 본다.</td></tr>
+              <tr><td><code>Subscription did not reach</code></td><td>설치 요청은 됐지만 CSV가 성공 상태가 아니다.</td><td><code>oc get subscription,csv -n komsco-ai-kugnus</code></td><td>installPlan, CSV events, image pull 상태를 본다.</td></tr>
+              <tr><td><code>Deployment did not appear</code></td><td>Operator가 runtime deployment를 만들지 못했다.</td><td><code>oc logs deployment/komsco-aiops-kugnus-operator -n komsco-ai-kugnus</code></td><td>AIOpsInstallation 상태와 operator log를 같이 본다.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="rollback-guide">
+          <h2>롤백</h2>
+          <p>롤백은 서버를 이전 상태로 돌리는 안전 절차다.</p>
+          <div class="warning">
+            uninstall은 runtime 리소스를 삭제할 수 있다. 먼저 <code>oc whoami --show-server</code>가
+            <code>https://api.ocp.cywell.server:6443</code>인지 확인한다. 대상 namespace가
+            <code>komsco-ai-kugnus</code>인지 확인하고, 승인 후에만 실행한다.
+            아래 명령은 catalog-only rollback이 아니라 Kugnus 설치/runtime 리소스까지 지울 수 있는 full uninstall이다.
+          </div>
+          <table>
+            <thead>
+              <tr><th>상황</th><th>명령</th><th>지워지는 것</th><th>지우지 않는 것</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>package/check만 한 경우</td>
+                <td>없음</td>
+                <td>서버에는 만든 것이 없다.</td>
+                <td>회사 서버 리소스 전체.</td>
+              </tr>
+              <tr>
+                <td>publish 후 Kugnus 등록 전체를 내려야 하는 경우</td>
+                <td><code>KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus task kugnus:uninstall</code></td>
+                <td>Kugnus 전용 catalog/install/runtime 리소스. 설치 전이면 없는 리소스는 건너뛴다.</td>
+                <td>공용 <code>komsco-ai-console-plugin</code>, <code>lightspeed-console-plugin</code>.</td>
+              </tr>
+              <tr>
+                <td>install 후 runtime까지 내려야 하는 경우</td>
+                <td><code>KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus task kugnus:uninstall</code></td>
+                <td>Kugnus Subscription, CSV, AIOpsInstallation, ConsolePlugin, Gateway/plugin runtime.</td>
+                <td>기존 공용 plugin과 Lightspeed.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
 
         <section id="overview">
           <h2>개요</h2>
@@ -460,9 +894,11 @@
           <h2>현재 기준점</h2>
           <table>
             <tbody>
-              <tr><th>작업 브랜치</th><td><code>feat/v.0.1.5</code></td></tr>
-              <tr><th>최신 커밋</th><td><code>45a13fe align history new chat control</code></td></tr>
+              <tr><th>작업 브랜치</th><td><code>feat/v.0.1.6</code></td></tr>
+              <tr><th>최신 커밋</th><td><code>06e09c7 refresh 0.1.6 preflight after cleanup</code></td></tr>
               <tr><th>핵심 환경</th><td>WSL native repo <code>/home/kugnus/cywell/ocp-aiops_kugnus</code>, 로컬 콘솔 <code>http://localhost:9000/dashboards</code>, Gateway <code>127.0.0.1:18080</code></td></tr>
+              <tr><th>0.1.6 preflight</th><td><code>docs/Ver.0.1.6/preflight-report.json</code>: <code>readyForOfficialDemo=true</code>, <code>blockerCount=0</code></td></tr>
+              <tr><th>0.1.6 smoke</th><td><code>runtime-smoke</code>, <code>rag-file-upload</code>, <code>rag-mock-customer</code>, <code>rag-chat-citation</code> report를 별도 보관한다.</td></tr>
               <tr><th>UI 검증</th><td><code>docs/Ver.0.1.5/ui-verifier-report.json</code>: <code>ok=true</code>, <code>checked=107</code>, <code>failed=[]</code></td></tr>
               <tr><th>Lightspeed 최종 응답</th><td><code>docs/Ver.0.1.5/live-lightspeed-final-response-verification.json</code>: <code>allSucceeded=true</code></td></tr>
               <tr><th>Strict demo audit</th><td><code>docs/Ver.0.1.5/strict-demo-audit-report.json</code>: <code>successClaimAllowed=true</code>, <code>blockingGates=[]</code></td></tr>
@@ -627,15 +1063,20 @@
                 <th>안전선</th>
                 <td>기존 공용 ConsolePlugin/Lightspeed 미수정, token/kubeconfig/.env commit 금지, 설치성 task 금지</td>
               </tr>
-              <tr>
-                <th>실행 문서</th>
-                <td>WSL 개발, <code>task be:dev</code>, <code>task fe:dev</code>, <code>task kugnus:package</code>, <code>task kugnus:publish</code>, <code>task kugnus:status</code> 기준 정리</td>
-              </tr>
-            </tbody>
-          </table>
+	              <tr>
+	                <th>실행 문서</th>
+	                <td>WSL 개발, <code>task be:dev</code>, <code>task fe:dev</code>, 등록 담당자용 <code>task kugnus:company:*</code> 기준 정리</td>
+	              </tr>
+	            </tbody>
+	          </table>
 
-          <h3>구현된 것</h3>
-          <ul>
+	          <div class="callout">
+	            회사 서버 배포 실습은 초보자용 앞장 <a href="#company-deploy">회사 서버 배포</a>로 옮겼다.
+	            이 Ver.0.1.0 장은 왜 Kugnus 전용 catalog/package 방향을 잡았는지 남겨둔 고급 기록이다.
+	          </div>
+
+	          <h3>구현된 것</h3>
+	          <ul>
             <li>0.1.0 README에 PDF 요구사항 추적표, 금지 명령, Kugnus 전용 이름 기준, 완료 기준이 정리되었다.</li>
             <li>문서상 2026-06-24 publish 결과로 <code>komsco-aiops-catalog-kugnus</code> CatalogSource와 <code>komsco-aiops-kugnus</code> PackageManifest가 기록되어 있다.</li>
             <li>문서상 Gateway/Console plugin ImageStreamTag, catalog READY, PackageManifest currentCSV가 기록되어 있다.</li>
@@ -1000,7 +1441,7 @@
             <li><code>task kugnus:ocp:ladder:verify</code>: PASS. 네트워크 접속 없이 route parsing, MAC masking, likelyCause 판정 계약을 검증한다.</li>
             <li><code>task kugnus:vpn:doctor</code>: READY. Fortinet/company VPN 연결 직후 짧은 timeout과 fast-fail로 Windows private route가 살아났는지 빠르게 확인한다. 이 task는 로컬 진단만 수행하고 회사 OCP에는 변경을 만들지 않는다.</li>
             <li><code>task kugnus:demo:after-vpn</code>: READY. Windows company VPN 연결 후 <code>vpn:doctor</code>, <code>ocp:doctor</code>, <code>demo:resume</code>을 순서대로 실행하는 원샷 재개 task다. <code>demo:resume</code>은 strict Lightspeed gate 실패 여부와 상관없이 <code>strict:audit</code>를 실행해 최종 감사 report를 갱신한다.</li>
-            <li><code>ocp-connectivity-ladder-report.json</code>: <code>interpretation</code>, Windows route snapshot, VPN-like adapter 상태를 추가해 <code>DNS PASS != VPN connected != Windows route PASS != TCP route PASS</code>를 명시했다. 현재 추정 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>이며, token length나 <code>oc whoami --show-server</code>만으로 live OCP 연결 성공을 말하지 않는다.</li>
+            <li><code>ocp-connectivity-ladder-report.json</code>: <code>interpretation</code>, Windows route snapshot, VPN-like adapter 상태를 추가해 <code>DNS PASS != VPN connected != Windows route PASS != TCP route PASS</code>를 명시했다. 최신 report의 핵심 원인은 <code>oc_login_or_auth_session_invalid</code>이며, token length나 <code>oc whoami --show-server</code>만으로 live OCP 연결 성공을 말하지 않는다.</li>
             <li><code>task kugnus:demo:wait</code>: fast-fail connectivity ladder가 PASS될 때까지 반복 대기한 뒤 <code>task kugnus:demo:resume</code>을 자동 실행하도록 준비됐다. 실패 중에는 <code>likelyCause</code>, Windows hint, next action을 출력한다. 반복용 report는 <code>.tmp-kugnus-demo</code>에 남기고, 공식 증거용 full report는 <code>task kugnus:ocp:doctor</code>가 갱신한다.</li>
             <li><code>task kugnus:strict:audit</code>: PASS. local RCA 준비와 fallback 없는 Lightspeed 최종 응답을 한 번에 판정했고 <code>localRcaReady=true</code>, <code>strictLightspeedReady=true</code>, <code>successClaimAllowed=true</code>, <code>blockingGates=[]</code>를 기록했다.</li>
           </ul>
@@ -1012,7 +1453,7 @@
             <li>말해도 되는 것: PDF 업로드 RAG smoke와 citation 연결은 확인했다.</li>
             <li>말하면 안 되는 것: production RAG 품질과 장기 검색 품질까지 완성됐다.</li>
             <li>말해도 되는 것: 로컬 WSL 시연 스택에서 strict verifier와 strict audit 기준 Lightspeed 최종 응답까지 완전 성공했다.</li>
-            <li>김성욱봇 기준: <code>live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code>를 확인했으므로, 이 로컬 시연 범위 안에서는 RCA/Lightspeed 흐름 완성으로 보고할 수 있다.</li>
+            <li>최종 검수 기준: <code>live-lightspeed-final-response-verification.json</code>의 <code>allSucceeded=true</code>를 확인했으므로, 이 로컬 시연 범위 안에서는 RCA/Lightspeed 흐름 완성으로 보고할 수 있다.</li>
             <li>최종 감사 기준: <code>strict-demo-audit-report.json</code>의 <code>successClaimAllowed=true</code>가 확인됐다. 단, 이 성공 범위는 회사 OCP 설치 완료가 아니라 로컬 WSL 시연 스택의 strict 검증 성공이다.</li>
           </ul>
 
@@ -1123,8 +1564,8 @@
           <h2>작업 회고</h2>
           <p>
             이 프로젝트에서 중요한 학습은 "문제가 생겼다"가 아니라 "어떤 증상이 어떤 원인 후보로 연결되는가"를 남기는 것이다.
-            아래 항목은 앞으로 작업이 끊겼다가 다시 시작될 때 먼저 확인할 기준이다. 이 표는 사용자가 단순히 명령을 복붙하는 사람이 아니라,
-            시연장에서 "왜 이 절차가 필요한지"를 설명할 수 있게 만들기 위한 운영 근육 기록이다.
+            아래 항목은 앞으로 작업이 끊겼다가 다시 시작될 때 먼저 확인할 기준이다. 이 표는 사용자가 단순히 명령을 그대로 치는 단계에 머물지 않고,
+            시연장에서 "왜 이 절차가 필요한지"를 설명할 수 있게 만들기 위한 운영 판단 기록이다.
           </p>
 
           <table>
@@ -1266,7 +1707,7 @@
               <tr><th>순서</th><th>명령/행동</th><th>증명하는 것</th><th>증명하지 않는 것</th><th>실패 시 먼저 볼 것</th></tr>
             </thead>
             <tbody>
-              <tr><td>1</td><td><code>git status --short --branch</code>, <code>git log -1 --oneline</code></td><td>현재 브랜치와 기준 커밋</td><td>서버 실행 상태</td><td>브랜치가 <code>feat/v.0.1.5</code>인지 확인</td></tr>
+              <tr><td>1</td><td><code>git status --short --branch</code>, <code>git log -1 --oneline</code></td><td>현재 브랜치와 기준 커밋</td><td>서버 실행 상태</td><td>브랜치가 <code>feat/v.0.1.6</code>인지 확인</td></tr>
               <tr><td>2</td><td><code>task kugnus:dev:doctor</code></td><td>WSL, Node/Corepack, oc, Docker, port, local endpoint 상태</td><td>제품 답변 품질</td><td>첫 FAIL 섹션. WARN은 의도된 실행 중 포트인지 구분</td></tr>
               <tr><td>3</td><td><code>task kugnus:demo:after-vpn</code></td><td>VPN 후 OCP ladder, local demo resume, strict gate, strict audit 재개</td><td>회사 OCP runtime 설치</td><td><code>ocp-connectivity-ladder-report.json</code>의 first failing layer</td></tr>
               <tr><td>4</td><td><code>task kugnus:runtime:smoke</code></td><td>Gateway health, auth subject, cluster summary, overview, runbook registry, RAG search contract</td><td>브라우저 UI 품질</td><td>Gateway 18080, oc login, RAG/pgvector 상태</td></tr>
@@ -1287,7 +1728,7 @@
           <h2>운영 학습 기록</h2>
           <p>
             이 장은 단순한 작업 로그가 아니다. 사용자가 기술시연에서 흔들리지 않도록, 우리가 작업 중 겪은 혼선과 복구 과정을
-            원인, 판단, 다음 행동으로 정리한 학습용 기록이다. 같은 문제가 다시 나오면 감으로 헤매지 않고 먼저 어떤 증거를 볼지 결정하는 데 목적이 있다.
+            원인, 판단, 다음 행동으로 정리한 학습용 기록이다. 같은 문제가 다시 나오면 추측으로 반복하지 않고 먼저 어떤 증거를 볼지 결정하는 데 목적이 있다.
           </p>
 
           <h3>이번 작업에서 단단해진 판단</h3>
@@ -1329,7 +1770,7 @@
               <tr>
                 <td>VPN route 장애</td>
                 <td>DNS가 풀리면 회사 OCP에 연결된 것으로 오해할 수 있었다.</td>
-                <td>DNS PASS, Windows route PASS, TCP 6443 PASS, oc identity PASS를 따로 본다. 현재 핵심 원인은 <code>windows_vpn_adapter_disabled_and_private_route_missing</code>다.</td>
+                <td>DNS, Windows route, TCP 6443, oc identity를 따로 본다. 최신 report 기준 현재 핵심 원인은 <code>oc_login_or_auth_session_invalid</code>다.</td>
               </tr>
             </tbody>
           </table>
@@ -1358,19 +1799,19 @@
                 <td>회사 OCP 설치까지 다 됐다, 운영 제품 SLA까지 보장된다.</td>
               </tr>
               <tr>
-                <td>왜 회사 서버에 안 박았나?</td>
+                <td>왜 회사 서버에 설치하지 않았나?</td>
                 <td>이번 단계는 로컬 개발 콘솔과 read-only 관측 검증이며, install/deploy는 별도 승인 전 금지선으로 분리했다.</td>
                 <td>회사 OCP에 설치 완료했다.</td>
               </tr>
               <tr>
                 <td>왜 실패했나?</td>
-                <td>최신 report 기준 DNS는 되지만 TCP 6443 route가 없고 Fortinet adapter가 Disabled라 OCP API에 닿지 못한다.</td>
-                <td>그냥 Docker나 터미널이 이상하다.</td>
+                <td>최신 report 기준 네트워크보다 <code>oc login</code> 세션이 먼저 막혔다. <code>oc whoami</code>와 <code>task kugnus:ocp:doctor</code>로 다시 확인한다.</td>
+                <td>Docker나 터미널 문제로 단정한다.</td>
               </tr>
               <tr>
                 <td>어떻게 다시 시작하나?</td>
                 <td>Fortinet/company VPN 연결 후 <code>task kugnus:demo:after-vpn</code>을 실행한다.</td>
-                <td>터미널을 여러 개 켜서 감으로 반복한다.</td>
+                <td>근거 없이 같은 명령을 반복 실행한다.</td>
               </tr>
             </tbody>
           </table>
@@ -1434,7 +1875,7 @@
               </tr>
               <tr>
                 <td>사용자의 경험도 산출물화</td>
-                <td>분노, 혼란, 긴 대기, 재시작, 인증 문제도 제품 운영 학습으로 남긴다.</td>
+                <td>혼란, 긴 대기, 재시작, 인증 문제도 제품 운영 학습으로 남긴다.</td>
                 <td>다음 세션에서 같은 문제를 다시 겪을 때 더 짧은 체크리스트로 복구할 수 있어야 한다.</td>
               </tr>
               <tr>
@@ -1457,29 +1898,29 @@
         </section>
 
         <section id="review-board">
-          <h2>검수반장 판정</h2>
+          <h2>검수 기준</h2>
           <p>
-            이번 웹북의 검수반장은 김성욱봇으로 둔다. 역할은 친절한 칭찬이 아니라, 발표장에서 틀린 말을 하게 만들 문장과 증거 없는 완료 주장을 걸러내는 것이다.
-            작업반장들은 테스트, 산출물, UI/제품 흐름을 나눠 본다.
+            이 장은 발표 전 팩트 검수 기준을 정리한다. 목적은 발표장에서 틀린 말을 만들 수 있는 문장과
+            증거 없는 완료 주장을 걸러내는 것이다. 검수 영역은 테스트, 산출물, UI/제품 흐름으로 나눈다.
           </p>
           <table>
             <thead>
               <tr><th>검수자</th><th>담당</th><th>PASS 기준</th><th>현재 판정</th></tr>
             </thead>
             <tbody>
-              <tr><td>김성욱봇</td><td>총괄/팩트 검수</td><td>회사 OCP 설치 완료 같은 과장 표현이 없고, 최신 report와 모순되지 않는다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
-              <tr><td>테스트반장</td><td>주말 테스트 순서</td><td>명령마다 증명하는 것과 증명하지 않는 것이 분리되어 있다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
-              <tr><td>산출물반장</td><td>흩어진 문서 묶기</td><td>버전별 README, review, smoke report, verifier JSON, HTML 책자가 목적별로 연결된다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
-              <tr><td>제품반장</td><td>사용자 시연 흐름</td><td>관제탑, 챗봇, RAG, ToolPlan, Lightspeed, 실행모드가 하나의 설명으로 이어진다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>최종 검수</td><td>총괄/팩트 검수</td><td>회사 OCP 설치 완료 같은 과장 표현이 없고, 최신 report와 모순되지 않는다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>테스트 검수</td><td>주말 테스트 순서</td><td>명령마다 증명하는 것과 증명하지 않는 것이 분리되어 있다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>산출물 검수</td><td>흩어진 문서 묶기</td><td>버전별 README, review, smoke report, verifier JSON, HTML 책자가 목적별로 연결된다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
+              <tr><td>제품 흐름 검수</td><td>사용자 시연 흐름</td><td>관제탑, 챗봇, RAG, ToolPlan, Lightspeed, 실행모드가 하나의 설명으로 이어진다.</td><td><span class="tag pass">PASS 기준 적용</span></td></tr>
             </tbody>
           </table>
-          <h3>김성욱봇 빠꾸 기준</h3>
+          <h3>되돌림 기준</h3>
           <ul>
-            <li>terminal에 PASS가 떴다는 이유만으로 완료라고 쓰면 fail이다. report 파일명을 같이 써야 한다.</li>
-            <li>로컬 WSL 시연 성공을 회사 OCP runtime 설치 완료로 바꾸어 말하면 fail이다.</li>
-            <li>RAG smoke 성공을 production RAG 품질 보장으로 말하면 fail이다.</li>
-            <li>UI verifier PASS를 Cypress E2E PASS처럼 말하면 fail이다.</li>
-            <li>어떤 버튼이나 배지가 무엇을 뜻하는지 한 문장으로 설명하지 못하면 제품 설명 fail이다.</li>
+            <li>terminal에 PASS가 떴다는 이유만으로 완료라고 쓰면 검수 보류다. report 파일명을 같이 써야 한다.</li>
+            <li>로컬 WSL 시연 성공을 회사 OCP runtime 설치 완료로 바꾸어 말하면 검수 보류다.</li>
+            <li>RAG smoke 성공을 production RAG 품질 보장으로 말하면 검수 보류다.</li>
+            <li>UI verifier PASS를 Cypress E2E PASS처럼 말하면 검수 보류다.</li>
+            <li>어떤 버튼이나 배지가 무엇을 뜻하는지 한 문장으로 설명하지 못하면 제품 설명 검수 보류다.</li>
           </ul>
         </section>
         <section id="next">
@@ -1687,11 +2128,17 @@
             <summary><strong>Ver.0.1.6</strong> 산출물</summary>
             <ul>
               <li><code>docs/Ver.0.1.6/README.md</code></li>
+              <li><code>docs/Ver.0.1.6/beginner-webbook-editor-brief.md</code></li>
               <li><code>docs/Ver.0.1.6/demo-readiness-and-rag-docs-plan.html</code></li>
               <li><code>docs/Ver.0.1.6/preflight-contract.md</code></li>
               <li><code>docs/Ver.0.1.6/official-demo-scenario.md</code></li>
               <li><code>docs/Ver.0.1.6/preflight-report.json</code></li>
               <li><code>docs/Ver.0.1.6/preflight-report.html</code></li>
+              <li><code>docs/Ver.0.1.6/runtime-smoke-report.json</code></li>
+              <li><code>docs/Ver.0.1.6/rag-file-upload-smoke-report.json</code></li>
+              <li><code>docs/Ver.0.1.6/rag-mock-customer-smoke-report.json</code></li>
+              <li><code>docs/Ver.0.1.6/rag-chat-citation-smoke-report.json</code></li>
+              <li><code>docs/Ver.0.1.6/customer-customization-readiness-report.md</code></li>
               <li><code>docs/Ver.0.1.6/ubuntu-codex-handoff.html</code></li>
               <li><code>docs/Ver.0.1.6/ubuntu-codex-handoff.md</code></li>
             </ul>

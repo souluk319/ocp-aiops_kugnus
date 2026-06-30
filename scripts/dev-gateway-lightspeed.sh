@@ -19,6 +19,7 @@ OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
 PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
 PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
+PF_HEALTH_FAILURE_THRESHOLD="${PF_HEALTH_FAILURE_THRESHOLD:-3}"
 MANAGE_OLS_PORT_FORWARD="${KUGNUS_MANAGE_OLS_PORT_FORWARD:-true}"
 ACTION_EXECUTOR="${ACTION_EXECUTOR:-}"
 ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-}"
@@ -92,7 +93,7 @@ https_responds() {
 }
 
 lightspeed_forward_healthy() {
-  https_responds "https://${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}/"
+  https_responds "https://${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}/readiness"
 }
 
 action_executor_forward_healthy() {
@@ -258,6 +259,7 @@ log_port_forward() {
 
 run_port_forward_supervisor() {
   local pf_pid=""
+  local health_failures=0
 
   cleanup_supervisor() {
     if [ -n "$pf_pid" ] && kill -0 "$pf_pid" >/dev/null 2>&1; then
@@ -274,17 +276,26 @@ run_port_forward_supervisor() {
       wait "$pf_pid" >/dev/null 2>&1 || true
       log_port_forward "Lightspeed port-forward exited; restarting after ${PF_RESTART_DELAY}s"
       pf_pid=""
+      health_failures=0
       sleep "$PF_RESTART_DELAY"
     fi
 
     if [ -z "$pf_pid" ]; then
       if lightspeed_forward_healthy; then
+        health_failures=0
         sleep "$PF_CHECK_INTERVAL"
         continue
       fi
       if port_open "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT"; then
-        log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} is open but HTTPS probe failed; restarting matching port-forward"
+        health_failures=$((health_failures + 1))
+        if [ "$health_failures" -lt "$PF_HEALTH_FAILURE_THRESHOLD" ]; then
+          log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} is open but readiness probe failed (${health_failures}/${PF_HEALTH_FAILURE_THRESHOLD}); keeping port-forward"
+          sleep "$PF_CHECK_INTERVAL"
+          continue
+        fi
+        log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} failed readiness ${health_failures} times; restarting matching port-forward"
         stop_matching_port_forward "$OLS_NAMESPACE" "$OLS_SERVICE" "$OLS_LOCAL_PORT" "$OLS_SERVICE_PORT"
+        health_failures=0
         if port_open "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT"; then
           sleep "$PF_CHECK_INTERVAL"
           continue
@@ -300,6 +311,7 @@ run_port_forward_supervisor() {
       pf_pid="$!"
 
       if wait_for_port "$LOCAL_CONNECT_HOST" "$OLS_LOCAL_PORT" 40 && wait_for_lightspeed_forward 40; then
+        health_failures=0
         sleep "$PF_CHECK_INTERVAL"
         continue
       fi
@@ -314,18 +326,27 @@ run_port_forward_supervisor() {
       fi
 
       pf_pid=""
+      health_failures=0
       sleep "$PF_RESTART_DELAY"
       continue
     fi
 
     if ! lightspeed_forward_healthy; then
-      log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} failed its HTTPS probe; restarting port-forward"
+      health_failures=$((health_failures + 1))
+      if [ "$health_failures" -lt "$PF_HEALTH_FAILURE_THRESHOLD" ]; then
+        log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} failed readiness probe (${health_failures}/${PF_HEALTH_FAILURE_THRESHOLD}); keeping port-forward"
+        sleep "$PF_CHECK_INTERVAL"
+        continue
+      fi
+      log_port_forward "Lightspeed local port ${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT} failed readiness ${health_failures} times; restarting port-forward"
       kill "$pf_pid" >/dev/null 2>&1 || true
       wait "$pf_pid" >/dev/null 2>&1 || true
       pf_pid=""
+      health_failures=0
       sleep "$PF_RESTART_DELAY"
       continue
     fi
+    health_failures=0
 
     sleep "$PF_CHECK_INTERVAL"
   done
@@ -454,6 +475,9 @@ fi
 export KOMSCO_AI_DEV_ECHO="${KOMSCO_AI_DEV_ECHO:-false}"
 export OLS_BASE_URL="${OLS_BASE_URL:-https://${LOCAL_CONNECT_HOST}:${OLS_LOCAL_PORT}}"
 export OLS_CA_FILE="${OLS_CA_FILE:-false}"
+export KOMSCO_AI_LLM_PROVIDER="${KOMSCO_AI_LLM_PROVIDER:-lightspeed}"
+export KOMSCO_AI_LLM_API_STYLE="${KOMSCO_AI_LLM_API_STYLE:-lightspeed}"
+export KOMSCO_AI_LLM_BASE_URL="${KOMSCO_AI_LLM_BASE_URL:-$OLS_BASE_URL}"
 export OPENSHIFT_API_URL="${OPENSHIFT_API_URL:-$(oc whoami --show-server)}"
 export OPENSHIFT_API_CA_FILE="${OPENSHIFT_API_CA_FILE:-false}"
 export KOMSCO_AI_SECURITY_PHASE="${KOMSCO_AI_SECURITY_PHASE:-phase5-action-execution}"
@@ -469,6 +493,15 @@ fi
 echo "Gateway URL: http://${GATEWAY_HOST}:${GATEWAY_PORT}"
 echo "AIOPS_GATEWAY_MODE: ${AIOPS_GATEWAY_MODE_SELECTED}"
 echo "ACTION_EXECUTOR: ${ACTION_EXECUTOR_ENABLED}"
+echo "KOMSCO_AI_LLM_PROVIDER: ${KOMSCO_AI_LLM_PROVIDER}"
+echo "KOMSCO_AI_LLM_API_STYLE: ${KOMSCO_AI_LLM_API_STYLE}"
+echo "KOMSCO_AI_LLM_BASE_URL: ${KOMSCO_AI_LLM_BASE_URL}"
+echo "KOMSCO_AI_LLM_MODEL: ${KOMSCO_AI_LLM_MODEL:-}"
+echo "KOMSCO_AI_EMBEDDING_PROVIDER: ${KOMSCO_AI_EMBEDDING_PROVIDER:-}"
+echo "KOMSCO_AI_EMBEDDING_API_STYLE: ${KOMSCO_AI_EMBEDDING_API_STYLE:-}"
+echo "KOMSCO_AI_EMBEDDING_BASE_URL: ${KOMSCO_AI_EMBEDDING_BASE_URL:-}"
+echo "KOMSCO_AI_EMBEDDING_MODEL: ${KOMSCO_AI_EMBEDDING_MODEL:-}"
+echo "KOMSCO_AI_EMBEDDING_DIMENSIONS: ${KOMSCO_AI_EMBEDDING_DIMENSIONS:-}"
 echo "OLS_BASE_URL: ${OLS_BASE_URL}"
 echo "OLS_CA_FILE: ${OLS_CA_FILE}"
 echo "OPENSHIFT_API_URL: ${OPENSHIFT_API_URL}"

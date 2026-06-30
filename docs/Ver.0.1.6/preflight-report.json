@@ -1,14 +1,36 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "KugnusDemoPreflightReport",
-  "generatedAt": "2026-06-26T21:42:10.297672Z",
+  "generatedAt": "2026-06-29T10:18:26.869551Z",
   "summary": {
-    "result": "pass",
-    "readyForOfficialDemo": true,
-    "blockerCount": 0,
-    "warningCount": 0,
-    "blockers": [],
-    "warnings": []
+    "result": "fail",
+    "readyForOfficialDemo": false,
+    "blockerCount": 3,
+    "warningCount": 1,
+    "blockers": [
+      {
+        "id": "tool.yarn",
+        "title": "yarn command is available",
+        "nextAction": "Install yarn in Ubuntu/WSL or fix PATH."
+      },
+      {
+        "id": "rag.uploads",
+        "title": "Gateway lists uploaded RAG documents without raw content",
+        "nextAction": "Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke."
+      },
+      {
+        "id": "rag.search",
+        "title": "Gateway retrieves RAG evidence for the demo query",
+        "nextAction": "Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke."
+      }
+    ],
+    "warnings": [
+      {
+        "id": "workspace.git",
+        "title": "Git branch and worktree are visible",
+        "nextAction": "Commit or review intentional local changes before publishing the demo baseline."
+      }
+    ]
   },
   "targets": {
     "gatewayUrl": "http://127.0.0.1:18080",
@@ -37,15 +59,65 @@
       "id": "workspace.git",
       "group": "workspace",
       "title": "Git branch and worktree are visible",
-      "status": "pass",
+      "status": "warn",
       "required": false,
-      "durationMs": 12,
+      "durationMs": 17,
       "nextAction": "Commit or review intentional local changes before publishing the demo baseline.",
       "details": {
-        "branch": "feat/v.0.1.6",
-        "head": "f8f8fa70b7c4",
-        "statusShort": "## feat/v.0.1.6...origin/feat/v.0.1.6 [ahead 2]",
-        "dirtyNonReportLines": []
+        "branch": "feat/v.0.1.8",
+        "head": "06e09c7bd3ad",
+        "statusShort": "## feat/v.0.1.8\n M .env.example\n M .gitignore\n M README.md\n M Taskfile.yml\n M docs/Ver.0.1.0/deployment-runbook.md\n M docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\n M docs/Ver.0.1.4/rag-upload-smoke-report.json\n M docs/Ver.0.1.5/ocp-connectivity-ladder-report.json\n M docs/Ver.0.1.5/strict-demo-audit-report.json\n M docs/Ver.0.1.6/README.md\n M docs/Ver.0.1.6/preflight-report.html\n M docs/Ver.0.1.6/preflight-report.json\n M docs/Ver.0.1.6/rag-chat-citation-smoke-report.json\n M docs/Ver.0.1.6/rag-file-upload-smoke-report.json\n M docs/Ver.0.1.6/runtime-smoke-report.json\n M docs/version-progress-book.html\n M evals/aiops-scenarios/06-crashloopbackoff.json\n M evals/aiops-scenarios/README.md\n M komsco-ai-console-plugin/console-extensions.json\n M komsco-ai-console-plugin/src/pages/AiopsPages.tsx\n M komsco-ai-console-plugin/src/pages/aiops-pages.css\n M komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py\n M komsco-ai-gateway/komsco_ai_gateway/answer_planning.py\n M komsco-ai-gateway/komsco_ai_gateway/main.py\n M komsco-ai-gateway/scripts/ingest-rag-documents.py\n M komsco-ai-gateway/tests/test_health.py\n M komsco-ai-gateway/tests/test_rag_ingestion_cli.py\n M scripts/dev-gateway-lightspeed.sh\n M scripts/evaluate-aiops-scenarios.py\n M scripts/kugnus-dev-doctor.sh\n M scripts/kugnus-olm.sh\n M scripts/kugnus-strict-demo-audit.py\n M scripts/olm-deploy.sh\n M scripts/olm-package.py\n M scripts/olm-release-images.sh\n M scripts/verify-crashloop-screen-cycle-readiness.py\n M scripts/verify-kugnus-ui.mjs\n?? .agents/\n?? .claude/\n?? AGENTS.md\n?? COMPANY_DEPLOY.md\n?? docs/Komsco_AIOps_agent_final.md\n?? docs/Ver.0.1.6/beginner-webbook-editor-brief.md\n?? docs/Ver.0.1.6/customer-customization-readiness-report.md\n?? docs/Ver.0.1.6/mock-customer-ops-pack/\n?? docs/Ver.0.1.6/rag-mock-customer-smoke-report.json\n?? docs/Ver.0.1.7/\n?? docs/Ver.0.1.8/\n?? evals/aiops-scenarios/11-past-pod-restart-rca.json\n?? evals/aiops-scenarios/12-linux-service-crash.json\n?? evals/aiops-scenarios/13-mockpay-payment",
+        "dirtyNonReportLines": [
+          " M .env.example",
+          " M .gitignore",
+          " M README.md",
+          " M Taskfile.yml",
+          " M docs/Ver.0.1.0/deployment-runbook.md",
+          " M docs/Ver.0.1.3/aiops-scenario-evaluation-report.json",
+          " M docs/Ver.0.1.4/rag-upload-smoke-report.json",
+          " M docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
+          " M docs/Ver.0.1.5/strict-demo-audit-report.json",
+          " M docs/Ver.0.1.6/README.md",
+          " M docs/Ver.0.1.6/rag-chat-citation-smoke-report.json",
+          " M docs/Ver.0.1.6/rag-file-upload-smoke-report.json",
+          " M docs/Ver.0.1.6/runtime-smoke-report.json",
+          " M docs/version-progress-book.html",
+          " M evals/aiops-scenarios/06-crashloopbackoff.json",
+          " M evals/aiops-scenarios/README.md",
+          " M komsco-ai-console-plugin/console-extensions.json",
+          " M komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
+          " M komsco-ai-console-plugin/src/pages/aiops-pages.css",
+          " M komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py",
+          " M komsco-ai-gateway/komsco_ai_gateway/answer_planning.py",
+          " M komsco-ai-gateway/komsco_ai_gateway/main.py",
+          " M komsco-ai-gateway/scripts/ingest-rag-documents.py",
+          " M komsco-ai-gateway/tests/test_health.py",
+          " M komsco-ai-gateway/tests/test_rag_ingestion_cli.py",
+          " M scripts/dev-gateway-lightspeed.sh",
+          " M scripts/evaluate-aiops-scenarios.py",
+          " M scripts/kugnus-dev-doctor.sh",
+          " M scripts/kugnus-olm.sh",
+          " M scripts/kugnus-strict-demo-audit.py",
+          " M scripts/olm-deploy.sh",
+          " M scripts/olm-package.py",
+          " M scripts/olm-release-images.sh",
+          " M scripts/verify-crashloop-screen-cycle-readiness.py",
+          " M scripts/verify-kugnus-ui.mjs",
+          "?? .agents/",
+          "?? .claude/",
+          "?? AGENTS.md",
+          "?? COMPANY_DEPLOY.md",
+          "?? docs/Komsco_AIOps_agent_final.md",
+          "?? docs/Ver.0.1.6/beginner-webbook-editor-brief.md",
+          "?? docs/Ver.0.1.6/customer-customization-readiness-report.md",
+          "?? docs/Ver.0.1.6/mock-customer-ops-pack/",
+          "?? docs/Ver.0.1.6/rag-mock-customer-smoke-report.json",
+          "?? docs/Ver.0.1.7/",
+          "?? docs/Ver.0.1.8/",
+          "?? evals/aiops-scenarios/11-past-pod-restart-rca.json",
+          "?? evals/aiops-scenarios/12-linux-service-crash.json",
+          "?? evals/aiops-scenarios/13-mockpay-payment"
+        ]
       }
     },
     {
@@ -54,14 +126,14 @@
       "title": ".env exists, is LF-only, private, and ignored",
       "status": "pass",
       "required": true,
-      "durationMs": 8,
+      "durationMs": 4,
       "nextAction": "Run chmod 600 .env, remove CRLF, and ensure .env stays git-ignored.",
       "details": {
         "exists": true,
         "mode": "600",
         "crlfCount": 0,
         "gitIgnored": true,
-        "activeKeyCount": 3
+        "activeKeyCount": 21
       }
     },
     {
@@ -121,19 +193,19 @@
       "durationMs": 0,
       "nextAction": "Install node in Ubuntu/WSL or fix PATH.",
       "details": {
-        "path": "/home/kugnus/.nvm/versions/node/v24.14.0/bin/node"
+        "path": "/usr/bin/node"
       }
     },
     {
       "id": "tool.yarn",
       "group": "toolchain",
       "title": "yarn command is available",
-      "status": "pass",
+      "status": "fail",
       "required": true,
-      "durationMs": 0,
+      "durationMs": 100,
       "nextAction": "Install yarn in Ubuntu/WSL or fix PATH.",
       "details": {
-        "path": "/home/kugnus/.nvm/versions/node/v24.14.0/bin/yarn"
+        "path": ""
       }
     },
     {
@@ -178,10 +250,10 @@
       "title": "Core tool versions are callable from Ubuntu",
       "status": "pass",
       "required": true,
-      "durationMs": 2639,
+      "durationMs": 2921,
       "nextAction": "Fix nvm/corepack/task availability in the Ubuntu shell.",
       "details": {
-        "node": "v24.14.0",
+        "node": "v18.19.1",
         "yarn": "1.22.22",
         "task": "3.51.1"
       }
@@ -192,13 +264,13 @@
       "title": "Ubuntu Chrome can run headless UI checks",
       "status": "pass",
       "required": true,
-      "durationMs": 2559,
+      "durationMs": 6666,
       "nextAction": "Check ~/.local/bin/google-chrome and the Chrome for Testing local library wrapper.",
       "details": {
         "path": "/home/kugnus/.local/bin/google-chrome",
         "version": "Google Chrome for Testing 150.0.7871.24",
         "headlessDomContainsOk": true,
-        "stderrPreview": "[51670:51694:0627/064201.995987:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[51670:51694:0627/064202.001812:ERROR:dbus/bus.cc:405] Failed to connect"
+        "stderrPreview": "[95995:96015:0629/191808.028906:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: No such file or directory\n[95995:96015:0629/191808.111458:ERROR:dbus/bus.cc:405] Failed to connect"
       }
     },
     {
@@ -207,7 +279,7 @@
       "title": "Docker daemon is reachable",
       "status": "pass",
       "required": true,
-      "durationMs": 2144,
+      "durationMs": 7195,
       "nextAction": "Start Docker Desktop or the Docker daemon, then rerun preflight.",
       "details": {
         "serverVersion": "29.4.2",
@@ -220,7 +292,7 @@
       "title": "Local pgvector RAG container is running",
       "status": "pass",
       "required": true,
-      "durationMs": 95,
+      "durationMs": 146,
       "nextAction": "Run task kugnus:rag:dev:up.",
       "details": {
         "container": "kugnus-rag-pgvector",
@@ -233,7 +305,7 @@
       "title": "Local pgvector database accepts connections",
       "status": "pass",
       "required": true,
-      "durationMs": 355,
+      "durationMs": 535,
       "nextAction": "Run task kugnus:rag:dev:up and inspect the container logs.",
       "details": {
         "stdout": "/var/run/postgresql:5432 - accepting connections",
@@ -246,7 +318,7 @@
       "title": "OpenShift identity and company API server are available",
       "status": "pass",
       "required": true,
-      "durationMs": 1308,
+      "durationMs": 2115,
       "nextAction": "Run oc login, then task kugnus:ocp:doctor if the API still does not answer.",
       "details": {
         "user": "admin",
@@ -263,7 +335,7 @@
       "title": "Can read openshift-lightspeed/lightspeed-app-server",
       "status": "pass",
       "required": true,
-      "durationMs": 391,
+      "durationMs": 712,
       "nextAction": "Check VPN, oc login, RBAC, namespace, and service name.",
       "details": {
         "namespace": "openshift-lightspeed",
@@ -278,7 +350,7 @@
       "title": "Can read komsco-ai-dev/komsco-ai-action-executor",
       "status": "pass",
       "required": true,
-      "durationMs": 721,
+      "durationMs": 748,
       "nextAction": "Check VPN, oc login, RBAC, namespace, and service name.",
       "details": {
         "namespace": "komsco-ai-dev",
@@ -293,7 +365,7 @@
       "title": "Lightspeed local port-forward answers HTTPS",
       "status": "pass",
       "required": true,
-      "durationMs": 128,
+      "durationMs": 119,
       "nextAction": "Run task kugnus:demo:resume to restore local port-forwarding.",
       "details": {
         "host": "127.0.0.1",
@@ -309,7 +381,7 @@
       "title": "Action Executor local port-forward healthz responds",
       "status": "pass",
       "required": true,
-      "durationMs": 51,
+      "durationMs": 134,
       "nextAction": "Run task kugnus:demo:resume to restore local port-forwarding.",
       "details": {
         "host": "127.0.0.1",
@@ -328,7 +400,7 @@
       "title": "Gateway healthz responds",
       "status": "pass",
       "required": true,
-      "durationMs": 1,
+      "durationMs": 2,
       "nextAction": "Run task kugnus:demo:resume or inspect .tmp-kugnus-demo/gateway.log.",
       "details": {
         "url": "http://127.0.0.1:18080/healthz",
@@ -345,7 +417,7 @@
       "title": "Gateway auth subject responds",
       "status": "pass",
       "required": true,
-      "durationMs": 26,
+      "durationMs": 704,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/auth/subject",
@@ -365,7 +437,7 @@
       "title": "Gateway AIOps status responds",
       "status": "pass",
       "required": true,
-      "durationMs": 53,
+      "durationMs": 482,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/aiops/status",
@@ -387,7 +459,7 @@
       "title": "Gateway cluster summary responds",
       "status": "pass",
       "required": true,
-      "durationMs": 103,
+      "durationMs": 125,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/cluster/summary",
@@ -411,7 +483,7 @@
       "title": "Gateway AIOps overview responds",
       "status": "pass",
       "required": true,
-      "durationMs": 536,
+      "durationMs": 685,
       "nextAction": "Run task kugnus:demo:resume; if it repeats, inspect Gateway logs and oc login.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/aiops/overview",
@@ -426,18 +498,18 @@
       "id": "rag.uploads",
       "group": "rag",
       "title": "Gateway lists uploaded RAG documents without raw content",
-      "status": "pass",
+      "status": "fail",
       "required": true,
-      "durationMs": 63,
+      "durationMs": 46,
       "nextAction": "Run task kugnus:rag:dev:up, then task kugnus:rag:file-upload:smoke.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/rag/uploads",
         "statusCode": 200,
         "summary": {
           "kind": "RagUploadedDocumentList",
-          "status": "collected",
+          "status": "empty",
           "reason": "Uploaded RAG documents retrieved from pgvector.",
-          "documentCount": 3,
+          "documentCount": 0,
           "backendStatus": "configured",
           "rawContentReturned": false
         },
@@ -448,18 +520,18 @@
       "id": "rag.search",
       "group": "rag",
       "title": "Gateway retrieves RAG evidence for the demo query",
-      "status": "pass",
+      "status": "fail",
       "required": true,
-      "durationMs": 73,
+      "durationMs": 202,
       "nextAction": "Run task kugnus:rag:dev:up and task kugnus:rag:file-upload:smoke.",
       "details": {
         "url": "http://127.0.0.1:18080/v1/rag/search",
         "statusCode": 200,
         "summary": {
           "kind": "RagSearchResult",
-          "status": "collected",
-          "reason": "pgvector runbook evidence retrieved from local Gateway-controlled backend.",
-          "resultCount": 5,
+          "status": "empty",
+          "reason": "pgvector backend is configured but no runbook matched the query and filters.",
+          "resultCount": 0,
           "backendStatus": "configured",
           "mockResultsAreProductionEvidence": false
         },
@@ -472,7 +544,7 @@
       "title": "Local console dashboard route responds",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 5,
       "nextAction": "Run task kugnus:dev:fe or task kugnus:demo:resume.",
       "details": {
         "url": "http://127.0.0.1:9000/dashboards",
@@ -489,7 +561,7 @@
       "title": "Cywell AI route responds",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 4,
       "nextAction": "Run task kugnus:dev:fe and verify the local console bridge.",
       "details": {
         "url": "http://127.0.0.1:9000/aiops-kugnus",
@@ -523,7 +595,7 @@
       "title": "Plugin manifest responds",
       "status": "pass",
       "required": true,
-      "durationMs": 2,
+      "durationMs": 85,
       "nextAction": "Run task kugnus:dev:fe or inspect the webpack dev server on 9001.",
       "details": {
         "url": "http://127.0.0.1:9001/plugin-manifest.json",

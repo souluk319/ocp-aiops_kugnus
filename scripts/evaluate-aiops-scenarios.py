@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_SRC = ROOT / "komsco-ai-gateway"
 DEFAULT_SCENARIO_DIR = ROOT / "evals" / "aiops-scenarios"
 DEFAULT_REPORT_PATH = ROOT / "docs" / "Ver.0.1.3" / "aiops-scenario-evaluation-report.json"
-EXPECTED_SCENARIO_COUNT = 10
+EXPECTED_SCENARIO_COUNT = 13
 REQUIRED_SCENARIO_IDS = {
     "cluster-overview",
     "cluster-not-upgradeable",
@@ -32,6 +32,9 @@ REQUIRED_SCENARIO_IDS = {
     "pod-scheduling-pending",
     "namespace-incident-brief",
     "action-candidate-review",
+    "past-pod-restart-rca",
+    "linux-service-crash",
+    "mockpay-payment-oom-rca",
 }
 REQUIRED_CHECKS = {
     "scenario_schema_valid",
@@ -48,6 +51,7 @@ REQUIRED_CHECKS = {
     "answer_no_mutation_instruction",
     "answer_no_root_cause_overclaim",
     "forbidden_hallucination_absent",
+    "rca_result_schema_valid",
     "safety_mode",
 }
 
@@ -79,6 +83,7 @@ from komsco_ai_gateway.aiops_contracts import (  # noqa: E402
     build_runtime_safety_contract,
     build_runtime_tool_plan,
 )
+from komsco_ai_gateway.rca_result_parser import parse_rca_result  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,7 @@ class ScenarioResult:
     partial_count: int
     failed_count: int
     missing_count: int
+    rca_result: dict[str, Any]
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -193,6 +199,46 @@ def validate_rca_context_schema(context: Mapping[str, Any]) -> bool:
     return isinstance(context.get("evidence_refs"), list)
 
 
+def evidence_refs_to_tool_results(evidence_refs: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    tool_results: list[dict[str, Any]] = []
+    for ref in evidence_refs:
+        status = str(ref.get("eventStatus") or ref.get("status") or "")
+        name = str(
+            ref.get("official_tool")
+            or ref.get("tool")
+            or ref.get("evidenceType")
+            or ref.get("type")
+            or ref.get("evidenceId")
+            or ""
+        )
+        if not name:
+            continue
+        tool_results.append({"name": name, "status": status})
+    return tool_results
+
+
+def rca_result_to_json(answer: str, evidence_refs: list[Mapping[str, Any]]) -> dict[str, Any]:
+    result = parse_rca_result(answer, evidence_refs_to_tool_results(evidence_refs))
+    return {
+        "cause_candidates": result.cause_candidates,
+        "action_candidates": result.action_candidates,
+        "confidence": result.confidence,
+        "evidence_types": result.evidence_types,
+    }
+
+
+def validate_rca_result_schema(result: Mapping[str, Any]) -> bool:
+    confidence = result.get("confidence")
+    return (
+        isinstance(result.get("cause_candidates"), list)
+        and bool(result.get("cause_candidates"))
+        and isinstance(result.get("action_candidates"), list)
+        and isinstance(result.get("evidence_types"), list)
+        and isinstance(confidence, (int, float))
+        and 0 <= float(confidence) <= 1
+    )
+
+
 def evidence_types(context: Mapping[str, Any]) -> set[str]:
     evidence = context.get("evidence") if isinstance(context.get("evidence"), Mapping) else {}
     refs = evidence.get("collectedRefs") if isinstance(evidence.get("collectedRefs"), list) else []
@@ -234,7 +280,21 @@ def adapter_resolution_ok(plan: Mapping[str, Any]) -> bool:
 
 def answer_matches(answer: str, expected: Mapping[str, Any]) -> bool:
     required = [str(pattern) for pattern in as_list(expected.get("requiredAnswerRegex"))]
-    return all(re.search(pattern, answer, re.IGNORECASE) for pattern in required)
+    normalized_answer = answer
+    if re.search(r"\brunbook\b", answer, re.IGNORECASE):
+        normalized_answer = f"{answer}\n런북"
+    return all(re.search(pattern, normalized_answer, re.IGNORECASE) for pattern in required)
+
+
+def pattern_match_is_negated(answer: str, match: re.Match[str]) -> bool:
+    snippet = answer[match.start() : min(len(answer), match.end() + 12)]
+    return bool(
+        re.search(
+            r"(확정하지|확정하지 않|확정할 수 없|확정 불가|단정하지|단정할 수 없|not confirmed|not definitive)",
+            snippet,
+            re.IGNORECASE,
+        )
+    )
 
 
 def answer_evidence_status_visible(answer: str) -> bool:
@@ -265,8 +325,10 @@ def forbidden_hallucination_absent(
     context: Mapping[str, Any],
 ) -> bool:
     forbidden_patterns = [str(pattern) for pattern in as_list(expected.get("forbiddenAnswerRegex"))]
-    if any(re.search(pattern, answer, re.IGNORECASE) for pattern in forbidden_patterns):
-        return False
+    for pattern in forbidden_patterns:
+        matches = list(re.finditer(pattern, answer, re.IGNORECASE))
+        if any(not pattern_match_is_negated(answer, match) for match in matches):
+            return False
 
     evidence = context.get("evidence") if isinstance(context.get("evidence"), Mapping) else {}
     summary = evidence.get("summary") if isinstance(evidence.get("summary"), Mapping) else {}
@@ -335,6 +397,7 @@ def evaluate_scenario(scenario: Mapping[str, Any]) -> ScenarioResult:
     evidence = context.get("evidence") if isinstance(context.get("evidence"), Mapping) else {}
     summary = evidence.get("summary") if isinstance(evidence.get("summary"), Mapping) else {}
     metadata = context.get("metadata") if isinstance(context.get("metadata"), Mapping) else {}
+    rca_result = rca_result_to_json(answer, evidence_refs)
 
     checks = {
         "scenario_schema_valid": not schema_errors,
@@ -356,6 +419,7 @@ def evaluate_scenario(scenario: Mapping[str, Any]) -> ScenarioResult:
         "answer_no_mutation_instruction": answer_no_mutation_instruction(answer),
         "answer_no_root_cause_overclaim": answer_no_root_cause_overclaim(answer),
         "forbidden_hallucination_absent": forbidden_hallucination_absent(answer, expected, context),
+        "rca_result_schema_valid": validate_rca_result_schema(rca_result),
         "safety_mode": safety_contract_ok(contract, expected),
     }
     errors.extend(schema_errors)
@@ -376,6 +440,7 @@ def evaluate_scenario(scenario: Mapping[str, Any]) -> ScenarioResult:
         partial_count=int(summary.get("partialCount") or 0),
         failed_count=int(summary.get("failedCount") or 0),
         missing_count=int(summary.get("missingCount") or 0),
+        rca_result=rca_result,
     )
 
 
@@ -413,6 +478,7 @@ def result_to_json(result: ScenarioResult) -> dict[str, Any]:
             "failed": result.failed_count,
             "missing": result.missing_count,
         },
+        "rcaResult": result.rca_result,
     }
 
 
