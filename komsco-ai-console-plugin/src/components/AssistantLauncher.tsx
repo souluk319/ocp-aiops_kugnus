@@ -519,6 +519,7 @@ const UI_COPY: Record<
   {
     emptyHistory: string;
     emptyUploadedDocs: string;
+    fileAttach: string;
     history: string;
     inputPlaceholder: string;
     newChat: string;
@@ -527,6 +528,11 @@ const UI_COPY: Record<
     openSidebar: string;
     sidebar: string;
     switchLanguage: string;
+    userLabel: string;
+    systemLabel: string;
+    answerCopy: string;
+    answerCopied: string;
+    scrollToLatest: string;
     uploadedDocs: string;
     uploadedDocsError: string;
     uploadedDocsLoading: string;
@@ -535,6 +541,7 @@ const UI_COPY: Record<
   ko: {
     emptyHistory: '아직 저장된 대화가 없습니다.',
     emptyUploadedDocs: '업로드된 문서가 없습니다. 파일 첨부 RAG 연결 후 이곳에 표시됩니다.',
+    fileAttach: '파일 첨부',
     history: '지난 대화',
     inputPlaceholder: '현재 화면이나 클러스터 상태를 질문하세요',
     newChat: '새 채팅',
@@ -542,7 +549,12 @@ const UI_COPY: Record<
     openUploadedDocs: '업로드 문서 패널',
     openSidebar: '대화 사이드바',
     sidebar: '대화 기록',
-    switchLanguage: 'English',
+    switchLanguage: 'Switch to English',
+    userLabel: '사용자',
+    systemLabel: '시스템',
+    answerCopy: '복사',
+    answerCopied: '복사됨',
+    scrollToLatest: '최신 답변으로 이동',
     uploadedDocs: '업로드 문서',
     uploadedDocsError: '업로드 문서 목록을 불러오지 못했습니다.',
     uploadedDocsLoading: '업로드 문서를 확인하는 중입니다.',
@@ -551,6 +563,7 @@ const UI_COPY: Record<
     emptyHistory: 'No saved conversations yet.',
     emptyUploadedDocs:
       'No uploaded documents yet. They will appear here after file-attachment RAG ingestion is connected.',
+    fileAttach: 'Attach file',
     history: 'Recent chats',
     inputPlaceholder: 'Ask about the current screen or cluster state',
     newChat: 'New chat',
@@ -558,20 +571,25 @@ const UI_COPY: Record<
     openUploadedDocs: 'Uploaded documents panel',
     openSidebar: 'Conversation sidebar',
     sidebar: 'Conversation history',
-    switchLanguage: 'Korean',
+    switchLanguage: '한국어로 전환',
+    userLabel: 'User',
+    systemLabel: 'System',
+    answerCopy: 'Copy',
+    answerCopied: 'Copied',
+    scrollToLatest: 'Jump to latest answer',
     uploadedDocs: 'Uploaded documents',
     uploadedDocsError: 'Unable to load uploaded documents.',
     uploadedDocsLoading: 'Checking uploaded documents.',
   },
 };
 
-const getMessageLabel = (role: Message['role']): string => {
+const getMessageLabel = (role: Message['role'], language: UiLanguage): string => {
   if (role === 'user') {
-    return '사용자';
+    return UI_COPY[language].userLabel;
   }
 
   if (role === 'system') {
-    return '시스템';
+    return UI_COPY[language].systemLabel;
   }
 
   return 'KOMSCO AI AGENT';
@@ -660,6 +678,7 @@ const getConversationTitle = (messages: Message[], language: UiLanguage): string
 
 const STORED_CONVERSATION_HISTORY_KEY = 'komsco-ai.assistant.conversation-history.v1';
 const STORED_ACTIVE_CONVERSATION_KEY = 'komsco-ai.assistant.active-conversation.v1';
+const STORED_UI_LANGUAGE_KEY = 'komsco-ai.assistant.ui-language.v1';
 const MAX_STORED_CONVERSATIONS = 12;
 
 type StoredActiveConversation = {
@@ -832,8 +851,19 @@ const writeStoredActiveConversation = (snapshot: StoredActiveConversation): void
   });
 };
 
-const formatHistoryTime = (timestamp: number): string =>
-  new Date(timestamp).toLocaleTimeString('ko-KR', {
+const normalizeUiLanguage = (value: unknown): UiLanguage =>
+  value === 'en' || value === 'ko' ? value : 'ko';
+
+const readStoredUiLanguage = (): UiLanguage => normalizeUiLanguage(readStoredJson(STORED_UI_LANGUAGE_KEY));
+
+const writeStoredUiLanguage = (language: UiLanguage): void => {
+  writeStoredJson(STORED_UI_LANGUAGE_KEY, language);
+};
+
+const languageLocale = (language: UiLanguage): string => (language === 'ko' ? 'ko-KR' : 'en-US');
+
+const formatHistoryTime = (timestamp: number, language: UiLanguage): string =>
+  new Date(timestamp).toLocaleTimeString(languageLocale(language), {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -1241,12 +1271,12 @@ const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =
       content: message.content.slice(0, 4000),
     }));
 
-const formatMessageTime = (timestamp: number | undefined): string => {
+const formatMessageTime = (timestamp: number | undefined, language: UiLanguage): string => {
   if (!timestamp) {
     return '';
   }
 
-  return new Intl.DateTimeFormat('ko-KR', {
+  return new Intl.DateTimeFormat(languageLocale(language), {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp));
@@ -3405,12 +3435,15 @@ const messagePreview = (content: string, limit = 110): string => {
   return collapsed.length > limit ? `${collapsed.slice(0, limit - 1)}...` : collapsed;
 };
 
-const messageTime = (timestamp?: number): string => {
+const messageTime = (timestamp: number | undefined, language: UiLanguage): string => {
   if (!timestamp) {
     return '시간 대기';
   }
 
-  return new Date(timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return new Date(timestamp).toLocaleTimeString(languageLocale(language), {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 };
 
 const conversationMessages = (messages: Message[]): Message[] =>
@@ -3425,6 +3458,7 @@ const latestMessageByRole = (
 const renderConversationSnapshot = (
   messages: Message[],
   conversationHistory: ConversationHistoryItem[],
+  language: UiLanguage,
 ) => {
   const visibleMessages = conversationMessages(messages);
   const latestUser = latestMessageByRole(visibleMessages, 'user');
@@ -3441,11 +3475,11 @@ const renderConversationSnapshot = (
         {latestUser || latestAssistant ? (
           <>
             <div className="komsco-ai__rail-command">
-              <code>최근 질문 · {messageTime(latestUser?.timestamp)}</code>
+              <code>최근 질문 · {messageTime(latestUser?.timestamp, language)}</code>
               <p>{latestUser ? messagePreview(latestUser.content) : '아직 질문이 없습니다.'}</p>
             </div>
             <div className="komsco-ai__rail-command">
-              <code>최근 답변 · {messageTime(latestAssistant?.timestamp)}</code>
+              <code>최근 답변 · {messageTime(latestAssistant?.timestamp, language)}</code>
               <p>
                 {latestAssistant
                   ? messagePreview(latestAssistant.content)
@@ -3475,7 +3509,7 @@ const renderConversationSnapshot = (
               <div className="komsco-ai__rail-command-head">
                 <div className="komsco-ai__rail-command-title">
                   <span>{message.role === 'user' ? '사용자' : 'KOMSCO AI AGENT'}</span>
-                  <code>{messageTime(message.timestamp)}</code>
+                  <code>{messageTime(message.timestamp, language)}</code>
                 </div>
                 {renderStatusTag(message.role === 'user' ? '질문' : '답변', 'neutral')}
               </div>
@@ -3495,7 +3529,7 @@ const renderConversationSnapshot = (
         {conversationHistory.length > 0 ? (
           conversationHistory.slice(0, 3).map((item) => (
             <div className="komsco-ai__rail-command" key={item.id}>
-              <code>{formatHistoryTime(item.updatedAt)}</code>
+              <code>{formatHistoryTime(item.updatedAt, language)}</code>
               <p>{item.title}</p>
             </div>
           ))
@@ -3522,6 +3556,7 @@ const renderInsightRail = (
   onAiopsAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
   messages: Message[],
   conversationHistory: ConversationHistoryItem[],
+  language: UiLanguage,
 ) => (
   <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
     <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
@@ -3561,7 +3596,7 @@ const renderInsightRail = (
             : 'Gateway와 cluster summary를 가져오는 중입니다.'}
       </div>
     </div>
-    {renderConversationSnapshot(messages, conversationHistory)}
+    {renderConversationSnapshot(messages, conversationHistory, language)}
 
     {renderRailSummaryBadges(summary, loading, error)}
     <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
@@ -3913,7 +3948,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }>({});
   const [stickToBottom, setStickToBottom] = React.useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
-  const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>('ko');
+  const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>(() => readStoredUiLanguage());
   const [loading, setLoading] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
@@ -3957,6 +3992,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   React.useEffect(() => {
     writeStoredConversationHistory(conversationHistory);
   }, [conversationHistory]);
+
+  React.useEffect(() => {
+    writeStoredUiLanguage(uiLanguage);
+  }, [uiLanguage]);
 
   React.useEffect(() => {
     if (!draftPrompt || consumedDraftPromptIdRef.current === draftPrompt.id) {
@@ -5483,7 +5522,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 type="button"
               >
                 <span>{conversation.title}</span>
-                <small>{formatHistoryTime(conversation.updatedAt)}</small>
+                <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
               </button>
             ))
           )}
@@ -5518,6 +5557,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   return (
     <div
       className={assistantRootClassName}
+      data-ui-language={uiLanguage}
     >
       {!open && !embedded && (
         <Button
@@ -5599,7 +5639,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   >
                     <CoolGlobeIcon />
                     <span className="komsco-ai__language-code">
-                      {uiLanguage === 'ko' ? 'EN' : 'KO'}
+                      {uiLanguage === 'ko' ? 'KR' : 'EN'}
                     </span>
                   </Button>
                   <Button
@@ -5667,7 +5707,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                             : [];
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
-                        const messageTime = formatMessageTime(message.timestamp);
+                        const messageTime = formatMessageTime(message.timestamp, uiLanguage);
                         const assistantSourceLabel =
                           message.role === 'assistant' && hasContent
                             ? message.fallbackAnswer
@@ -5693,7 +5733,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                   </div>
                                 )}
                                 <div className="komsco-ai__message-label">
-                                  {getMessageLabel(message.role)}
+                                  {getMessageLabel(message.role, uiLanguage)}
                                 </div>
                                 {assistantSourceLabel && (
                                   <span
@@ -5709,14 +5749,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 )}
                                 {message.role === 'assistant' && hasContent && (
                                   <button
-                                    aria-label="답변 복사"
+                                    aria-label={copy.answerCopy}
                                     className="komsco-ai__message-copy"
                                     onClick={() => copyMessage(message, index)}
-                                    title="답변 복사"
+                                    title={copy.answerCopy}
                                     type="button"
                                   >
                                     <CoolCopyIcon />
-                                    <span>{copiedMessageIndex === index ? '복사됨' : '복사'}</span>
+                                    <span>
+                                      {copiedMessageIndex === index
+                                        ? copy.answerCopied
+                                        : copy.answerCopy}
+                                    </span>
                                   </button>
                                 )}
                               </div>
@@ -5772,7 +5816,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   >
                     {showScrollToBottom && (
                       <Button
-                        aria-label="최신 답변으로 이동"
+                        aria-label={copy.scrollToLatest}
                         className="komsco-ai__scroll-bottom"
                         onClick={() => {
                           setStickToBottom(true);
@@ -5787,7 +5831,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     <div className="komsco-ai__input">
                       <input
                         accept={FILE_INPUT_ACCEPT}
-                        aria-label="파일 첨부"
+                        aria-label={copy.fileAttach}
                         className="komsco-ai__file-input"
                         disabled={loading}
                         multiple
@@ -5986,6 +6030,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   handleAiopsAction,
                   messages,
                   conversationHistory,
+                  uiLanguage,
                 )}
               </div>
             </Card>

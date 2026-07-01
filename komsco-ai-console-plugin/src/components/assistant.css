@@ -3333,18 +3333,18 @@
 }
 
 .komsco-ai__formatted {
-  gap: 7px;
+  gap: 10px;
   max-width: 100%;
-  font-size: 13px;
-  line-height: 1.62;
+  font-size: 14.5px;
+  line-height: 1.7;
   color: var(--komsco-ink-700);
 }
 
 .komsco-ai__formatted-heading {
-  margin-block: 2px 0;
-  font-size: 14px;
+  margin-block: 4px 1px;
+  font-size: 16px;
   font-weight: 760;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .komsco-ai__formatted-line {
@@ -3354,8 +3354,8 @@
 .komsco-ai__formatted-list,
 .komsco-ai__formatted-list--ordered {
   display: grid;
-  gap: 4px;
-  padding-inline-start: 18px;
+  gap: 7px;
+  padding-inline-start: 20px;
 }
 
 .komsco-ai__formatted-list--ordered {
@@ -3378,6 +3378,15 @@
 
 .komsco-ai__formatted-list--ordered > .komsco-ai__formatted-list-item::before {
   display: none;
+}
+
+.komsco-ai__formatted-code {
+  font-size: 0.94em;
+}
+
+.komsco-ai__formatted-code-block {
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .komsco-ai__progress {
