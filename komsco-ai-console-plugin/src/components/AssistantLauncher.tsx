@@ -653,6 +653,180 @@ const getConversationTitle = (messages: Message[], language: UiLanguage): string
   return content.length > 34 ? `${content.slice(0, 34)}...` : content;
 };
 
+const STORED_CONVERSATION_HISTORY_KEY = 'komsco-ai.assistant.conversation-history.v1';
+const STORED_ACTIVE_CONVERSATION_KEY = 'komsco-ai.assistant.active-conversation.v1';
+const MAX_STORED_CONVERSATIONS = 12;
+
+type StoredActiveConversation = {
+  activeSessionId: string;
+  conversationId?: string;
+  messages: Message[];
+};
+
+const getAssistantStorage = (): Storage | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const isStorageRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const readStoredJson = (key: string): unknown => {
+  const storage = getAssistantStorage();
+  if (!storage) {
+    return undefined;
+  }
+
+  try {
+    const raw = storage.getItem(key);
+    return raw ? JSON.parse(raw) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const writeStoredJson = (key: string, value: unknown): void => {
+  const storage = getAssistantStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Browser storage is best-effort UI state. Gateway JSONL remains the audit source.
+  }
+};
+
+const sanitizeMessageForStorage = (message: Message): Message => {
+  const { attachments: _attachments, ...storedMessage } = message;
+  return storedMessage;
+};
+
+const normalizeStoredMessage = (value: unknown): Message | undefined => {
+  if (!isStorageRecord(value)) {
+    return undefined;
+  }
+
+  const { role, content } = value;
+  if (
+    (role !== 'user' && role !== 'assistant' && role !== 'system') ||
+    typeof content !== 'string'
+  ) {
+    return undefined;
+  }
+
+  return sanitizeMessageForStorage({
+    ...(value as Message),
+    content,
+    role,
+  });
+};
+
+const normalizeStoredMessages = (value: unknown): Message[] =>
+  Array.isArray(value)
+    ? value.flatMap((message) => {
+        const normalized = normalizeStoredMessage(message);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+
+const normalizeStoredConversation = (value: unknown): ConversationHistoryItem | undefined => {
+  if (!isStorageRecord(value)) {
+    return undefined;
+  }
+
+  const messages = normalizeStoredMessages(value.messages);
+  if (messages.length === 0) {
+    return undefined;
+  }
+
+  const id = typeof value.id === 'string' && value.id ? value.id : createRunId();
+  const title =
+    typeof value.title === 'string' && value.title.trim()
+      ? value.title
+      : getConversationTitle(messages, 'ko');
+  const updatedAt =
+    typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
+      ? value.updatedAt
+      : Date.now();
+  const conversationId =
+    typeof value.conversationId === 'string' && value.conversationId
+      ? value.conversationId
+      : undefined;
+
+  return {
+    id,
+    title,
+    updatedAt,
+    conversationId,
+    messages,
+  };
+};
+
+const readStoredConversationHistory = (): ConversationHistoryItem[] => {
+  const stored = readStoredJson(STORED_CONVERSATION_HISTORY_KEY);
+  if (!Array.isArray(stored)) {
+    return [];
+  }
+
+  return stored
+    .flatMap((conversation) => {
+      const normalized = normalizeStoredConversation(conversation);
+      return normalized ? [normalized] : [];
+    })
+    .slice(0, MAX_STORED_CONVERSATIONS);
+};
+
+const writeStoredConversationHistory = (
+  conversationHistory: ConversationHistoryItem[],
+): void => {
+  writeStoredJson(
+    STORED_CONVERSATION_HISTORY_KEY,
+    conversationHistory.slice(0, MAX_STORED_CONVERSATIONS).map((conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map(sanitizeMessageForStorage),
+    })),
+  );
+};
+
+const readStoredActiveConversation = (): StoredActiveConversation | undefined => {
+  const stored = readStoredJson(STORED_ACTIVE_CONVERSATION_KEY);
+  if (!isStorageRecord(stored)) {
+    return undefined;
+  }
+
+  const messages = normalizeStoredMessages(stored.messages);
+  const activeSessionId =
+    typeof stored.activeSessionId === 'string' && stored.activeSessionId
+      ? stored.activeSessionId
+      : createRunId();
+  const conversationId =
+    typeof stored.conversationId === 'string' && stored.conversationId
+      ? stored.conversationId
+      : undefined;
+
+  return {
+    activeSessionId,
+    conversationId,
+    messages,
+  };
+};
+
+const writeStoredActiveConversation = (snapshot: StoredActiveConversation): void => {
+  writeStoredJson(STORED_ACTIVE_CONVERSATION_KEY, {
+    ...snapshot,
+    messages: snapshot.messages.map(sanitizeMessageForStorage),
+  });
+};
+
 const formatHistoryTime = (timestamp: number): string =>
   new Date(timestamp).toLocaleTimeString('ko-KR', {
     hour: '2-digit',
@@ -3485,11 +3659,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     DEFAULT_AIOPS_EXECUTION_MODE,
   );
   const [dragActive, setDragActive] = React.useState(false);
-  const [messages, setMessages] = React.useState<Message[]>([]);
-  const [conversationId, setConversationId] = React.useState<string | undefined>();
-  const [activeSessionId, setActiveSessionId] = React.useState(() => createRunId());
+  const initialActiveConversation = React.useMemo(readStoredActiveConversation, []);
+  const [messages, setMessages] = React.useState<Message[]>(
+    () => initialActiveConversation?.messages ?? [],
+  );
+  const [conversationId, setConversationId] = React.useState<string | undefined>(
+    () => initialActiveConversation?.conversationId,
+  );
+  const [activeSessionId, setActiveSessionId] = React.useState(
+    () => initialActiveConversation?.activeSessionId ?? createRunId(),
+  );
   const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>(
-    [],
+    readStoredConversationHistory,
   );
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
@@ -3540,6 +3721,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     ASSISTANT_TASK_MODES[0];
   const emptyStateCopy =
     TASK_MODE_EMPTY_COPY[assistantTaskMode]?.[uiLanguage] ?? TASK_MODE_EMPTY_COPY.ask[uiLanguage];
+
+  React.useEffect(() => {
+    writeStoredActiveConversation({
+      activeSessionId,
+      conversationId,
+      messages,
+    });
+  }, [activeSessionId, conversationId, messages]);
+
+  React.useEffect(() => {
+    writeStoredConversationHistory(conversationHistory);
+  }, [conversationHistory]);
 
   React.useEffect(() => {
     if (!draftPrompt || consumedDraftPromptIdRef.current === draftPrompt.id) {
@@ -3802,7 +3995,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       };
 
       setConversationHistory((prev) =>
-        [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(0, 12),
+        [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(
+          0,
+          MAX_STORED_CONVERSATIONS,
+        ),
       );
     },
     [activeSessionId, conversationId, messages, uiLanguage],
