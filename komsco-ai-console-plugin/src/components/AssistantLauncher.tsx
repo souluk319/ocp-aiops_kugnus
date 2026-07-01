@@ -480,32 +480,32 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
 });
 const PREP_SUBTASKS = [
   {
-    detail: 'Console UserToken과 요청 본문을 확인한 뒤 OpenShift Lightspeed(OLS)로 전달합니다.',
+    detail: '사용자 권한과 질문 내용을 확인한 뒤 답변 생성을 요청합니다.',
     label: '요청 확인',
     toolName: 'access_check',
   },
   {
-    detail: '첨부 이미지 형식과 크기를 검증한 뒤 메타데이터만 OpenShift Lightspeed(OLS) 컨텍스트에 포함합니다.',
+    detail: '첨부 이미지 형식과 크기를 확인한 뒤 필요한 메타데이터만 답변 요청에 포함합니다.',
     label: '첨부 확인',
     toolName: 'attachment_check',
   },
 ];
 const RESPONSE_WAIT_PHASES = [
   {
-    activity: 'Gateway가 OpenShift Lightspeed(OLS) streaming endpoint로 요청을 전달했습니다.',
-    title: 'OLS 질의 전달',
+    activity: 'Gateway가 OpenShift Lightspeed에 답변 생성을 요청했습니다.',
+    title: '답변 요청',
   },
   {
-    activity: 'OpenShift Lightspeed(OLS)가 UserToken 기준으로 질의를 처리합니다.',
-    title: 'OLS 응답 처리',
+    activity: 'OpenShift Lightspeed가 사용자 권한 범위 안에서 질문을 처리합니다.',
+    title: '질문 처리',
   },
   {
-    activity: 'OpenShift Lightspeed(OLS)에서 필요한 도구 호출 또는 답변 생성을 기다립니다.',
-    title: 'OLS 응답 준비',
+    activity: '필요한 도구 조회와 답변 생성을 기다립니다.',
+    title: '답변 준비',
   },
   {
-    activity: 'OpenShift Lightspeed(OLS) 응답 스트림을 브라우저로 중계할 준비를 합니다.',
-    title: 'OLS 스트림 중계',
+    activity: '생성된 답변을 화면에 표시할 준비를 합니다.',
+    title: '화면 표시 준비',
   },
 ];
 
@@ -1194,7 +1194,7 @@ const getStepActivity = (step: ProgressStep): string => {
   }
 
   if (isAnswerStreamStep(step)) {
-    return step.status === 'running' ? '본문을 실시간으로 수신하고 있습니다.' : '답변 생성 완료';
+    return step.status === 'running' ? '답변을 화면에 표시하는 중입니다.' : '답변 표시 완료';
   }
 
   if (step.status === 'running') {
@@ -4542,7 +4542,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           responseWaitStartedAt = now;
           responseWaitStepId = id;
           upsertProgressStep({
-            detail: 'OpenShift Lightspeed(OLS)가 실제 응답 스트림을 시작하기를 기다리는 중입니다.',
+            detail: 'OpenShift Lightspeed가 답변 생성을 시작하기를 기다리는 중입니다.',
             id,
             name: RESPONSE_WAIT_STEP_ID,
             startedAt: now,
@@ -4581,13 +4581,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           const now = Date.now();
           answerStreamStartedAt = now;
           upsertProgressStep({
-            detail: '응답 본문 스트림을 수신하고 화면에 렌더링합니다.',
+            detail: '답변 본문을 받아 화면에 표시합니다.',
             id: ANSWER_STREAM_STEP_ID,
             name: ANSWER_STREAM_STEP_ID,
             startedAt: now,
             status: 'running',
-            summary: '본문 스트리밍',
-            title: '답변 생성',
+            summary: '답변 표시 중',
+            title: '답변 표시',
           });
         };
 
@@ -4598,15 +4598,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
           const now = Date.now();
           upsertProgressStep({
-            detail: '응답 본문 스트리밍이 완료되었습니다.',
+            detail: '답변 본문 표시가 완료되었습니다.',
             elapsedMs: now - answerStreamStartedAt,
             endedAt: now,
             id: ANSWER_STREAM_STEP_ID,
             name: ANSWER_STREAM_STEP_ID,
             startedAt: answerStreamStartedAt,
             status: 'completed',
-            summary: '본문 스트리밍 완료',
-            title: '답변 생성',
+            summary: '답변 표시 완료',
+            title: '답변 표시',
           });
           answerStreamStartedAt = undefined;
         };
@@ -4844,7 +4844,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               });
             }
             if (event.content.trim()) {
-              finishResponseWaitStep('본문 스트리밍 시작');
+              finishResponseWaitStep('답변 표시 시작');
               startAnswerStreamStep();
             }
             enqueueAssistantText(event.content);
