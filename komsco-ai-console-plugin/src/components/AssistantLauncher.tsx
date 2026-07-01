@@ -149,6 +149,11 @@ type EvidenceFooterQueryStep = {
   tool?: string;
 };
 
+type RagAppendixRef = {
+  sourceUri?: string;
+  title: string;
+};
+
 type EvidenceFooter = {
   collectedCount: number;
   collectedRefs: EvidenceFooterRef[];
@@ -1291,6 +1296,37 @@ const stripDefaultEvidenceAppendix = (content: string): string => {
   return lines.slice(0, appendixIndex).join('\n').trimEnd();
 };
 
+const extractRagAppendixRefs = (content: string): RagAppendixRef[] => {
+  const lines = content.split('\n');
+  const appendixIndex = lines.findIndex((line) =>
+    /^\s*\[?\s*RAG\s*근거\s*\]?\s*$/i.test(line.trim()),
+  );
+
+  if (appendixIndex < 0) {
+    return [];
+  }
+
+  const refs: RagAppendixRef[] = [];
+  lines.slice(appendixIndex + 1).forEach((rawLine) => {
+    const line = rawLine.trim();
+    const titleMatch = line.match(/^\d+\.\s+(.+?)(?:\s+\([^)]*\))?$/);
+    if (titleMatch) {
+      refs.push({ title: titleMatch[1].trim() });
+      return;
+    }
+
+    const sourceMatch = line.match(/^[-*]\s*source:\s*(.+)$/i);
+    if (sourceMatch && refs.length > 0) {
+      refs[refs.length - 1] = {
+        ...refs[refs.length - 1],
+        sourceUri: sourceMatch[1].trim(),
+      };
+    }
+  });
+
+  return refs.slice(0, 5);
+};
+
 const evidenceTypeLabel = (type?: string): string => {
   const normalized = String(type || '').trim().toLowerCase();
   if (normalized === 'node') {
@@ -1338,6 +1374,115 @@ const evidenceStepStatusLabel = (status?: string): string => {
     return '확인 필요';
   }
   return status || '대기';
+};
+
+const rcaContextPhaseLabel = (phase?: string): string => {
+  const normalized = String(phase || '').trim().toLowerCase();
+  if (normalized === 'post_answer') {
+    return '답변 근거 연결 완료';
+  }
+  if (normalized === 'pre_answer' || normalized === 'plan_ready') {
+    return '답변 근거 준비 완료';
+  }
+  return '답변 근거 연결 완료';
+};
+
+const rcaStatusLabel = (status?: string): string => {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'available' || normalized === 'success' || normalized === 'ready') {
+    return '연결됨';
+  }
+  if (normalized === 'failed' || normalized === 'error') {
+    return '확인 필요';
+  }
+  return status || '대기';
+};
+
+const productProgressText = (value?: string): string => {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+
+  const phaseMatch = text.match(/^RCA\s*문맥\s*연결\s*:\s*([a-z_]+)/i);
+  if (phaseMatch) {
+    return rcaContextPhaseLabel(phaseMatch[1]);
+  }
+  if (/^RCA\s*문맥\s*연결$/i.test(text)) {
+    return '답변 근거';
+  }
+  if (text === 'RCA 문맥 연결 실패') {
+    return '답변 근거 연결 실패';
+  }
+  const legacyRcaDigestText = ['RCA Context', 'digest와', ['evidence', 'refs'].join(' ')].join(
+    ' ',
+  );
+  if (text.includes(legacyRcaDigestText)) {
+    return '최종 답변에 사용한 근거를 연결했습니다.';
+  }
+  if (text.includes('수집/누락/실패 근거를 RCA Context로 연결')) {
+    return '답변 전에 수집 근거와 추가 확인 항목을 정리했습니다.';
+  }
+  if (/^ev-[a-z0-9-]+\s+기록$/i.test(text)) {
+    return '근거 기록 완료';
+  }
+  if (text === '증거 참조 기록 시작') {
+    return '근거 기록 시작';
+  }
+  if (text === '증거 참조 기록') {
+    return '근거 기록';
+  }
+  if (text === 'Rag Context Evidence') {
+    return '문서 근거';
+  }
+  if (text === 'RCA Context' || text === 'RCA Evidence Context' || text === 'RCA 근거 문맥') {
+    return '답변 근거';
+  }
+  if (text === 'Active Alerts Evidence') {
+    return '경고 근거';
+  }
+  if (text === 'Node Status Evidence') {
+    return '노드 상태 근거';
+  }
+  if (text === 'Restart Metric Evidence') {
+    return '재시작 지표 근거';
+  }
+  const ragSearchMatch = text.match(/^RAG 근거\s+(\d+)건\s+검색$/);
+  if (ragSearchMatch) {
+    return `문서 근거 ${ragSearchMatch[1]}건 확인`;
+  }
+
+  return text
+    .replace(/Node 상태 RCA 증거 수집 완료/g, '노드 상태 근거 수집 완료')
+    .replace(/Active Alert RCA 증거 수집 완료/g, '경고 근거 수집 완료')
+    .replace(/Restart metric RCA 증거 수집 완료/g, '재시작 지표 수집 완료')
+    .replace(/Node Status Evidence 시작/g, '노드 상태 근거 확인 시작')
+    .replace(/Active Alerts Evidence 시작/g, '경고 근거 확인 시작')
+    .replace(/Restart Metric Evidence 시작/g, '재시작 지표 확인 시작')
+    .replace(/Node 상태 근거 수집 완료/g, '노드 상태 근거 수집 완료')
+    .replace(/Active Alert 근거 수집 완료/g, '경고 근거 수집 완료')
+    .replace(/Restart metric 근거 수집 완료/g, '재시작 지표 수집 완료')
+    .replace(/문서 근거 시작/g, '문서 근거 확인 시작')
+    .replace(/Rag Context Evidence 시작/g, '문서 근거 확인 시작')
+    .replace(/Rag Context Evidence/g, '문서 근거')
+    .replace(/RCA Evidence Context/g, '답변 근거')
+    .replace(/RCA 근거 문맥/g, '답변 근거')
+    .replace(/Node Status 근거 시작/g, '노드 상태 근거 확인 시작')
+    .replace(/Active Alerts 근거 시작/g, '경고 근거 확인 시작')
+    .replace(/Restart Metric 근거 시작/g, '재시작 지표 확인 시작')
+    .replace(/문서 Context 근거 시작/g, '문서 근거 확인 시작')
+    .replace(/RCA 증거/g, '근거')
+    .replace(/실행형 Tool Plan/g, '증거 수집 계획')
+    .replace(/Tool Plan/g, '증거 수집 계획')
+    .replace(/RCA Context/g, '답변 근거')
+    .replace(/RCA\s*문맥/g, '답변 근거')
+    .replace(/\bEvidence\b/g, '근거')
+    .replace(/\bRag\b/g, '문서')
+    .replace(/evidence\s+refs/g, '근거')
+    .replace(/digest/g, '연결 정보')
+    .replace(/post_answer/g, '답변 완료 후')
+    .replace(/pre_answer/g, '답변 전')
+    .replace(/plan_ready/g, '답변 준비');
 };
 
 const compactEvidenceTypeSummary = (refs: EvidenceFooterRef[]): string => {
@@ -1413,6 +1558,8 @@ const renderCodeBlock = (lines: string[], key: string, language?: string): React
 };
 
 const getStepActivity = (step: ProgressStep): string => {
+  const summary = productProgressText(step.summary);
+
   if (step.status === 'failed') {
     return '오류 확인 필요';
   }
@@ -1435,7 +1582,7 @@ const getStepActivity = (step: ProgressStep): string => {
   }
 
   if (step.name === RUN_LOOP_STEP_ID) {
-    return step.status === 'running' ? step.summary || '장기 실행 루프 유지 중' : '실행 루프 완료';
+    return step.status === 'running' ? summary || '장기 실행 루프 유지 중' : '실행 루프 완료';
   }
 
   if (isAnswerStreamStep(step)) {
@@ -1443,10 +1590,10 @@ const getStepActivity = (step: ProgressStep): string => {
   }
 
   if (step.status === 'running') {
-    return step.summary || '도구 응답을 기다리는 중입니다.';
+    return summary || '도구 응답을 기다리는 중입니다.';
   }
 
-  return step.summary || '완료';
+  return summary || '완료';
 };
 
 const renderInlineText = (text: string, keyPrefix: string): React.ReactNode[] =>
@@ -1839,7 +1986,10 @@ const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
   return lines.join('\n');
 };
 
-const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNode => {
+const renderEvidenceFooter = (
+  footer: EvidenceFooter | undefined,
+  messageContent = '',
+): React.ReactNode => {
   if (!footer) {
     return null;
   }
@@ -1847,6 +1997,7 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
   const collectedRefs = footer.collectedRefs.slice(0, 3);
   const missing = footer.missing.slice(0, 3);
   const queryPlan = footer.queryPlan.slice(0, 6);
+  const ragAppendixRefs = extractRagAppendixRefs(messageContent);
   const evidenceSummary = compactEvidenceTypeSummary(footer.collectedRefs);
 
   return (
@@ -1868,11 +2019,23 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
         <span className="komsco-ai__evidence-summary">{evidenceSummary}</span>
       </div>
 
-      {(collectedRefs.length > 0 || missing.length > 0 || queryPlan.length > 0) && (
+      {(collectedRefs.length > 0 || missing.length > 0 || queryPlan.length > 0 || ragAppendixRefs.length > 0) && (
         <details className="komsco-ai__evidence-detail">
           <summary>
-            <span>상세 보기</span>
+            <span>근거 상세보기</span>
           </summary>
+          {ragAppendixRefs.length > 0 && (
+            <div className="komsco-ai__rag-source-list" aria-label="문서 근거">
+              <strong>문서 근거</strong>
+              {ragAppendixRefs.map((ref, index) => (
+                <div className="komsco-ai__rag-source-item" key={`${ref.title}-${index}`}>
+                  <span>{ref.title}</span>
+                  {ref.sourceUri && <code>{ref.sourceUri}</code>}
+                </div>
+              ))}
+            </div>
+          )}
+
           {collectedRefs.length > 0 && (
             <div className="komsco-ai__evidence-list" aria-label="수집된 답변 근거">
               {collectedRefs.map((ref, index) => (
@@ -1989,7 +2152,9 @@ const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = (
                   aria-hidden="true"
                 />
                 <span className="komsco-ai__progress-step-copy">
-                  <span className="komsco-ai__progress-step-title">{step.title}</span>
+                  <span className="komsco-ai__progress-step-title">
+                    {productProgressText(step.title)}
+                  </span>
                   <span className="komsco-ai__progress-step-separator" aria-hidden="true">
                     ·
                   </span>
@@ -3600,22 +3765,18 @@ const renderInsightRail = (
 
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
-        <strong>RCA Context</strong>
-        <span>{aiopsStatus?.spec.safetyContract?.rcaContextStatus?.status ?? '대기'}</span>
+        <strong>답변 근거</strong>
+        <span>{rcaStatusLabel(aiopsStatus?.spec.safetyContract?.rcaContextStatus?.status)}</span>
       </div>
       <div className="komsco-ai__scope-list">
-        {renderStatusTag(`Collected ${rcaRailEvidenceCounts(aiopsStatus).collected}`, 'ok')}
-        {renderStatusTag(`Missing ${rcaRailEvidenceCounts(aiopsStatus).missing}`, 'warn')}
+        {renderStatusTag(`수집 ${rcaRailEvidenceCounts(aiopsStatus).collected}건`, 'ok')}
+        {renderStatusTag(`추가 확인 ${rcaRailEvidenceCounts(aiopsStatus).missing}건`, 'warn')}
       </div>
       <div className="komsco-ai__rail-command">
-        <code>
-          {aiopsStatus?.spec.safetyContract?.rcaContextStatus?.digest ??
-            'waiting_for_first_question'}
-        </code>
         <p>
           {aiopsStatus?.spec.safetyContract?.rcaContextStatus?.latestContext
-            ? 'RCA Context JSON is linked to the latest chat run.'
-            : '질문 실행 후 evidence/missing evidence context가 연결됩니다.'}
+            ? '최근 답변에 사용한 근거가 연결되어 있습니다.'
+            : '질문 실행 후 답변 근거가 연결됩니다.'}
         </p>
       </div>
     </div>
@@ -4999,8 +5160,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             upsertProgressStep({
               detail:
                 event.status === 'success'
-                  ? '질문을 실행형 Tool Plan으로 분해하고 필요한 증거 수집 순서를 고정했습니다.'
-                  : '질문별 Tool Plan 검증에 실패했습니다. 답변은 부족한 근거를 명시해야 합니다.',
+                  ? '질문을 증거 수집 계획으로 분해하고 필요한 확인 순서를 고정했습니다.'
+                  : '질문별 증거 수집 계획 검증에 실패했습니다. 답변은 부족한 근거를 명시해야 합니다.',
               elapsedMs: 0,
               endedAt: now,
               id: RCA_PLAN_STEP_ID,
@@ -5041,8 +5202,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             upsertProgressStep({
               detail:
                 event.phase === 'post_answer'
-                  ? '최종 답변과 연결되는 RCA Context digest와 evidence refs를 갱신했습니다.'
-                  : '답변 전에 수집/누락/실패 근거를 RCA Context로 연결했습니다.',
+                  ? '최종 답변에 사용한 근거를 연결했습니다.'
+                  : '답변 전에 수집 근거와 추가 확인 항목을 정리했습니다.',
               elapsedMs: 0,
               endedAt: now,
               id: `${RCA_CONTEXT_STEP_ID}-${event.phase || 'unknown'}`,
@@ -5051,9 +5212,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               status: event.status === 'success' ? 'completed' : 'failed',
               summary:
                 event.status === 'success'
-                  ? `RCA 문맥 연결: ${event.phase || 'phase unknown'}`
-                  : 'RCA 문맥 연결 실패',
-              title: 'RCA 근거 문맥',
+                  ? rcaContextPhaseLabel(event.phase)
+                  : '답변 근거 연결 실패',
+              title: '답변 근거',
             });
             setMessages((prev) => attachEvidenceFooterToLastAssistant(prev, evidenceFooter));
             setAiopsStatus((prev) => {
@@ -5566,7 +5727,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               )}
                               {message.role === 'assistant' &&
                                 hasContent &&
-                                renderEvidenceFooter(message.evidenceFooter)}
+                                renderEvidenceFooter(message.evidenceFooter, message.content)}
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 renderAssistantAnswerActions(

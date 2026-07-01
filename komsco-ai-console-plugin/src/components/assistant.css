@@ -1774,6 +1774,36 @@
   list-style: none;
 }
 
+.komsco-ai__rag-source-list {
+  display: grid;
+  gap: 5px;
+  padding: 6px 7px;
+  color: #4b5b70;
+  background: #f8fbff;
+  border: 1px solid #dbe6f2;
+  border-radius: 6px;
+}
+
+.komsco-ai__rag-source-list > strong {
+  color: var(--komsco-ink-700);
+}
+
+.komsco-ai__rag-source-item {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.komsco-ai__rag-source-item span,
+.komsco-ai__rag-source-item code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .komsco-ai__evidence-query-plan li {
   display: grid;
   grid-template-columns: minmax(70px, max-content) minmax(0, 1fr) max-content;
