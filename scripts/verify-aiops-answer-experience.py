@@ -61,6 +61,7 @@ def main() -> None:
     require(CONTRACT, "pod_screen_rca", "contract locks current screen Pod RCA promotion")
     require(CONTRACT, "새로고침해도 현재 대화와 최근 대화 목록이 복원", "contract keeps refresh-safe chat history")
     require(CONTRACT, "첨부 이미지 원본 데이터", "contract forbids storing raw attachment data in UI history")
+    require(CONTRACT, "evidence-grounded-pod-rca-v0.2.2", "contract locks grounded Pod RCA renderer")
 
     require(AIOPS_CONTRACTS, '"answerExperience"', "RcaContext carries answer experience")
     require(AIOPS_CONTRACTS, '"queryPlan"', "RcaContext carries human query plan")
@@ -77,6 +78,12 @@ def main() -> None:
     require(GATEWAY_MAIN, "raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요", "Gateway prompt hides raw JSON")
     require(GATEWAY_MAIN, "should_collect_pod_status_evidence_for_request(req)", "Gateway collects Pod evidence from page context")
     require(GATEWAY_MAIN, "단순 절차 안내로 끝내지 마세요", "Gateway prompt forbids procedure-only screen answers")
+    require(GATEWAY_MAIN, "def build_grounded_aiops_answer", "Gateway has grounded answer renderer")
+    require(GATEWAY_MAIN, 'task_type == "pod_screen_rca"', "Gateway grounds current Pod screen answers")
+    require(GATEWAY_MAIN, "page_context_is_pod_workload(req)", "Gateway limits grounded renderer to current Pod screen context")
+    require(GATEWAY_MAIN, "source\": \"gateway_evidence_renderer\"", "Gateway streams grounded evidence answer")
+    require(GATEWAY_MAIN, "evidence-grounded-pod-rca-v0.2.2", "Gateway stamps grounded answer contract")
+    require(GATEWAY_MAIN, "조치 레코드가 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시", "Gateway states when no action record was created")
     require(GATEWAY_MAIN, '"answerMode": answer_mode', "transcript stores answerMode")
     require(GATEWAY_MAIN, '"assistantAnswer"', "transcript stores assistantAnswer")
     require(GATEWAY_MAIN, '"toolPlanDigest": tool_plan_digest', "transcript stores toolPlanDigest")
@@ -122,6 +129,7 @@ def main() -> None:
     require(GATEWAY_TESTS, "read_only_action_request_skips_plan", "tests cover read-only action skip")
     require(GATEWAY_TESTS, "execute_action_request_emits_plan", "tests cover execute action planning")
     require(GATEWAY_TESTS, "test_runtime_tool_plan_promotes_current_pod_screen_to_rca", "tests cover current Pod screen promotion")
+    require(GATEWAY_TESTS, "test_grounded_pod_screen_rca_uses_evidence_renderer_instead_of_generic_answer", "tests cover grounded Pod RCA renderer")
     require_ignored("komsco-ai-gateway/var/aiops/chat-transcripts.jsonl", "runtime transcript JSONL ignored")
 
 

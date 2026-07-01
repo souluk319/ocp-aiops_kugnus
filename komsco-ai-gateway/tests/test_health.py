@@ -68,6 +68,7 @@ from komsco_ai_gateway.main import (
     build_diagnostic_request_candidate,
     build_diagnostic_request_record,
     build_empty_answer_fallback,
+    build_grounded_aiops_answer,
     build_evidence_reference_events,
     build_ols_gateway_context,
     build_ols_context_handoff,
@@ -3703,6 +3704,41 @@ def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_ta
     assert "oc rollout status deployment/sample-crashy -n team-a" in fallback
     assert "oc get pod -n team-a -l app=sample-crashy" in fallback
     assert "<app-label>" not in fallback
+
+
+def test_grounded_pod_screen_rca_uses_evidence_renderer_instead_of_generic_answer() -> None:
+    gateway_evidence = "\n".join(
+        [
+            "Gateway-collected Pod status evidence from Kubernetes API `/api/v1/pods`.",
+            "Currently non-healthy or waiting container evidence:",
+            "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |",
+            "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+            "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | Running (CrashLoopBackOff) / waiting:CrashLoopBackOff | 2026-06-22T00:54:32Z | 0/1 | 158 | Error/1 | ReplicaSet/sample-crashy-6fd7d7cfd7 |",
+            "Spec evidence for currently non-healthy or waiting containers:",
+            "Use command/args/image/labels below as concrete evidence for root-cause and remediation planning.",
+            "| Namespace | Pod | Container | Image | Command | Args | Pod Labels | Owner Chain |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+            "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | registry.example.com/team-a/sample-crashy:v2 | [\"python\", \"-c\", \"raise SystemExit('boom')\"] | - | app=sample-crashy, aiops.komsco/scenario=sample, pod-template-hash=6fd7d7cfd7 | ReplicaSet/sample-crashy-6fd7d7cfd7 -> Deployment/sample-crashy |",
+        ]
+    )
+
+    answer = build_grounded_aiops_answer(
+        ChatRequest(
+            message="현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 증적과 원인 후보, 승인 가능한 조치 후보를 정리해줘.",
+            pageContext={"resourceKind": "Pod", "namespace": "team-a", "resourceName": "sample-crashy-6fd7d7cfd7-r4nd0"},
+        ),
+        {"task_type": "pod_screen_rca"},
+        gateway_evidence,
+    )
+
+    assert answer is not None
+    assert "Gateway가 수집한 Kubernetes 증거 기준" in answer
+    assert "sample-crashy-6fd7d7cfd7-r4nd0" in answer
+    assert "raise SystemExit('boom')" in answer
+    assert "즉시 종료" in answer
+    assert "ActionProposal/SealedActionPlan/Approval/ExecutionRecord는 `0건`" in answer
+    assert "조치 레코드가 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시" in answer
+    assert "DB, API" not in answer
 
 
 def test_pod_list_request_fallback_returns_list_instead_of_single_pod_analysis() -> None:

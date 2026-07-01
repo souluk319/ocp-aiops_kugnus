@@ -10110,6 +10110,10 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
         lines.append(
             "- 상위 Deployment가 Gateway evidence에서 확정되지 않았습니다. Pod owner chain을 먼저 확인한 뒤 관리 객체를 대상으로 수정하세요."
         )
+    lines.append(
+        "- 이번 응답에서 생성된 ActionProposal/SealedActionPlan/Approval/ExecutionRecord는 `0건`입니다. "
+        "현재 요청은 evidence-check RCA로 처리됐으며, 조치 레코드가 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시해야 합니다."
+    )
     if looks_non_production_context(row) and deployment:
         lines.append(
             "- 테스트/시나리오 리소스라면 정리 여부를 별도 조치 후보로 검토하세요. "
@@ -10149,6 +10153,17 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
     )
 
     return "\n".join(lines)
+
+
+def build_grounded_aiops_answer(
+    req: ChatRequest,
+    runtime_tool_plan: Mapping[str, Any],
+    gateway_evidence: str | None,
+) -> str | None:
+    task_type = str(runtime_tool_plan.get("task_type") or "")
+    if task_type == "pod_screen_rca" and page_context_is_pod_workload(req):
+        return build_pod_evidence_fallback(req, gateway_evidence)
+    return None
 
 
 def build_empty_answer_fallback(
@@ -14564,6 +14579,78 @@ async def chat_stream(
             rca_context_event = current_rca_context_event("pre_answer")
             LAST_RCA_CONTEXT = rca_context_event["context"]
             yield sse(rca_context_event)
+            grounded_answer = build_grounded_aiops_answer(
+                req,
+                runtime_tool_plan,
+                gateway_evidence,
+            )
+            if grounded_answer:
+                transcript_answer_chunks.append(grounded_answer)
+                transcript_answer_contracts.append("evidence-grounded-pod-rca-v0.2.2")
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": grounded_answer,
+                        "source": "gateway_evidence_renderer",
+                        "answerContract": "evidence-grounded-pod-rca-v0.2.2",
+                        "gatewayContextDigest": rca_context_event["context"]["metadata"]["digest"],
+                    }
+                )
+                rca_context_event = current_rca_context_event("post_answer")
+                rca_result = parse_rca_result(grounded_answer, [])
+                rca_context_event["context"]["rcaResult"] = {
+                    "cause_candidates": rca_result.cause_candidates,
+                    "action_candidates": rca_result.action_candidates,
+                    "confidence": rca_result.confidence,
+                    "evidence_types": rca_result.evidence_types,
+                    "extractedAt": now_rfc3339(),
+                }
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
+                await persist_chat_transcript_record(
+                    build_chat_transcript_record(
+                        req=req,
+                        answer_text="".join(transcript_answer_chunks),
+                        answer_contracts=transcript_answer_contracts,
+                        incident_id=incident_id,
+                        policy=policy,
+                        request_id=request_id,
+                        rca_context=rca_context_event["context"],
+                        run_id=run_id,
+                        runtime_tool_plan=runtime_tool_plan,
+                        status="completed",
+                        subject=subject,
+                    )
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway evidence 기반 RCA 답변 완료",
+                    }
+                )
+                completed_audit_record = build_trace_record(
+                    action="chat_request_completed",
+                    incident_id=incident_id,
+                    policy=policy,
+                    request_id=request_id,
+                    run_id=run_id,
+                    subject=subject,
+                )
+                log_audit_record(completed_audit_record)
+                increment_metric("aiops_chat_completed_total")
+                record_workflow(
+                    run_id=run_id,
+                    incident_id=incident_id,
+                    policy=policy,
+                    request_id=request_id,
+                    stage="completed",
+                    status="completed",
+                    subject=subject,
+                )
+                yield sse("[DONE]")
+                return
             pre_ols_safety_contract = build_runtime_safety_contract(
                 mutations_enabled=MUTATIONS_ENABLED,
                 unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
