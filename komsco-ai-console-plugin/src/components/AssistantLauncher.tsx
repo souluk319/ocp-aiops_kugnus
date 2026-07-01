@@ -1278,6 +1278,77 @@ const cleanMarkdownLabel = (label: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const stripDefaultEvidenceAppendix = (content: string): string => {
+  const lines = content.split('\n');
+  const appendixIndex = lines.findIndex((line) =>
+    /^\s*\[?\s*RAG\s*근거\s*\]?\s*$/i.test(line.trim()),
+  );
+
+  if (appendixIndex < 0) {
+    return content;
+  }
+
+  return lines.slice(0, appendixIndex).join('\n').trimEnd();
+};
+
+const evidenceTypeLabel = (type?: string): string => {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized === 'node') {
+    return '노드';
+  }
+  if (normalized === 'alert') {
+    return '경고';
+  }
+  if (normalized === 'metric') {
+    return '메트릭';
+  }
+  if (normalized === 'pod_status' || normalized === 'pod') {
+    return 'Pod';
+  }
+  if (normalized === 'snapshot') {
+    return '스냅샷';
+  }
+  if (normalized === 'event') {
+    return '이벤트';
+  }
+  if (normalized === 'runbook') {
+    return '런북';
+  }
+  if (normalized === 'openshift_api') {
+    return 'OpenShift API';
+  }
+  if (normalized === 'openshift') {
+    return 'OpenShift';
+  }
+  if (!normalized) {
+    return '근거';
+  }
+  return type || '근거';
+};
+
+const evidenceStepStatusLabel = (status?: string): string => {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'collected' || normalized === 'success' || normalized === 'succeeded') {
+    return '수집됨';
+  }
+  if (normalized === 'not_attempted' || normalized === 'planned' || normalized === 'pending') {
+    return '대기';
+  }
+  if (normalized === 'failed' || normalized === 'error') {
+    return '확인 필요';
+  }
+  return status || '대기';
+};
+
+const compactEvidenceTypeSummary = (refs: EvidenceFooterRef[]): string => {
+  const labels = [...new Set(refs.map((ref) => evidenceTypeLabel(ref.type)).filter(Boolean))];
+  if (labels.length === 0) {
+    return '수집 근거 없음';
+  }
+
+  return labels.slice(0, 4).join(', ');
+};
+
 const parseMarkdownLink = (line: string): { href: string; label: string } | null => {
   const match = line.match(MARKDOWN_LINK_PATTERN);
 
@@ -1479,7 +1550,7 @@ const renderFormattedContent = (
     );
   }
 
-  const lines = message.content.split('\n');
+  const lines = stripDefaultEvidenceAppendix(message.content).split('\n');
   const nodes: React.ReactNode[] = [];
   let bulletItems: string[] = [];
   let orderedItems: string[] = [];
@@ -1750,31 +1821,18 @@ const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
 
   const lines = [
     '',
-    '[Evidence]',
-    `- context: ${footer.contextId || shortDigest(footer.digest) || 'unavailable'}`,
-    `- collected: ${footer.collectedCount}`,
-    `- additional_check_required: ${footer.missingCount}`,
+    '[근거 요약]',
+    `- 수집 근거: ${footer.collectedCount}건`,
+    `- 추가 확인: ${footer.missingCount}건`,
   ];
 
   footer.collectedRefs.slice(0, 3).forEach((ref) => {
-    lines.push(
-      `- ref: ${ref.evidenceId || 'evidence'} ${ref.type || 'evidence'} ${shortDigest(
-        ref.contentDigest,
-      )}`,
-    );
-  });
-
-  footer.missing.slice(0, 3).forEach((item) => {
-    lines.push(
-      `- missing: ${item.type || 'evidence'} ${item.reason || 'additional evidence required'}`,
-    );
+    lines.push(`- ${evidenceTypeLabel(ref.type)}: ${ref.summary || '근거 수집 완료'}`);
   });
 
   footer.queryPlan.slice(0, 5).forEach((step) => {
     lines.push(
-      `- query_plan: ${step.step || '-'} ${step.tool || 'tool'} ${step.evidenceType || 'evidence'} ${
-        step.status || 'planned'
-      }`,
+      `- 조회 계획: ${evidenceTypeLabel(step.evidenceType || step.tool)} ${step.reason || '근거 수집 단계'}`,
     );
   });
 
@@ -1789,7 +1847,7 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
   const collectedRefs = footer.collectedRefs.slice(0, 3);
   const missing = footer.missing.slice(0, 3);
   const queryPlan = footer.queryPlan.slice(0, 6);
-  const traceLabel = footer.contextId || shortDigest(footer.digest) || 'context pending';
+  const evidenceSummary = compactEvidenceTypeSummary(footer.collectedRefs);
 
   return (
     <div
@@ -1800,51 +1858,51 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
       <div className="komsco-ai__evidence-footer-head">
         <span className="komsco-ai__evidence-title">근거</span>
         <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
-          수집 {footer.collectedCount}
+          수집 {footer.collectedCount}건
         </span>
-        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
-          추가 확인 {footer.missingCount}
-        </span>
-        <code>{traceLabel}</code>
+        {footer.missingCount > 0 && (
+          <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
+            추가 확인 {footer.missingCount}건
+          </span>
+        )}
+        <span className="komsco-ai__evidence-summary">{evidenceSummary}</span>
       </div>
 
-      {collectedRefs.length > 0 && (
-        <div className="komsco-ai__evidence-list" aria-label="수집된 답변 근거">
-          {collectedRefs.map((ref, index) => (
-            <div
-              className="komsco-ai__evidence-ref"
-              key={`${ref.evidenceId || ref.type || 'ref'}-${index}`}
-            >
-              <strong>{ref.type || 'evidence'}</strong>
-              <span>{ref.summary || ref.sourceType || 'runtime evidence'}</span>
-              <code>{ref.evidenceId || shortDigest(ref.contentDigest) || 'ref'}</code>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {missing.length > 0 && (
-        <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
-          {missing.map((item, index) => (
-            <span key={`${item.type || 'missing'}-${index}`}>
-              {item.type || 'evidence'}: {item.reason || '추가 확인 필요'}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {queryPlan.length > 0 && (
+      {(collectedRefs.length > 0 || missing.length > 0 || queryPlan.length > 0) && (
         <details className="komsco-ai__evidence-detail">
           <summary>
             <span>상세 보기</span>
-            <code>조회 계획 {queryPlan.length}</code>
           </summary>
+          {collectedRefs.length > 0 && (
+            <div className="komsco-ai__evidence-list" aria-label="수집된 답변 근거">
+              {collectedRefs.map((ref, index) => (
+                <div
+                  className="komsco-ai__evidence-ref"
+                  key={`${ref.evidenceId || ref.type || 'ref'}-${index}`}
+                >
+                  <strong>{evidenceTypeLabel(ref.type)}</strong>
+                  <span>{ref.summary || ref.sourceType || '근거 수집 완료'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {missing.length > 0 && (
+            <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
+              {missing.map((item, index) => (
+                <span key={`${item.type || 'missing'}-${index}`}>
+                  {evidenceTypeLabel(item.type)}: {item.reason || '추가 확인 필요'}
+                </span>
+              ))}
+            </div>
+          )}
+
           <ol className="komsco-ai__evidence-query-plan" aria-label="조회 계획">
             {queryPlan.map((step, index) => (
               <li key={`${step.step || index}-${step.tool || 'tool'}`}>
-                <strong>{step.evidenceType || step.tool || 'evidence'}</strong>
+                <strong>{evidenceTypeLabel(step.evidenceType || step.tool)}</strong>
                 <span>{step.reason || '근거 수집 단계'}</span>
-                <code>{step.status || 'planned'}</code>
+                <code>{evidenceStepStatusLabel(step.status)}</code>
               </li>
             ))}
           </ol>
@@ -4431,7 +4489,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   );
 
   const copyMessage = React.useCallback((message: Message, index: number) => {
-    const redactedContent = redactSensitiveText(message.content.trim());
+    const redactedContent = redactSensitiveText(stripDefaultEvidenceAppendix(message.content).trim());
     const text = `${redactedContent}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
     if (!text || !navigator.clipboard) {
       return;
