@@ -4,7 +4,7 @@
 This verifier does not call OpenShift, Docker, the local gateway HTTP server,
 or any LLM endpoint. It checks that the local source code can carry a selected
 CrashLoopBackOff finding through the dashboard prompt bridge into RCA Context
-metadata/scenarioContext while preserving read-only and redaction guardrails.
+metadata/scenarioContext while preserving evidence-check and redaction guardrails.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def build_demo_rca_context() -> dict[str, Any]:
             "candidateStatusLabel": "제안만 함 / 실행 안 함",
             "findingId": "pod-crashloop-demo",
             "findingTitle": "CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop",
-            "readOnlyOnly": True,
+            "evidenceOnly": True,
             "scenarioId": "crashloop",
             "selectedAt": "2026-06-25T00:00:00Z",
             "source": "aiops-dashboard-anomaly-board",
@@ -84,7 +84,7 @@ def build_demo_rca_context() -> dict[str, Any]:
         "pathname": "/dashboards",
     }
     return build_rca_context(
-        message="다음 OpenShift 이상 징후를 read-only로 RCA 분석해줘.",
+        message="다음 OpenShift 이상 징후를 evidence-check로 RCA 분석해줘.",
         tool_plan={
             "metadata": {"planner": "ver-0.1.3-demo-verifier"},
             "missing_evidence": [
@@ -93,7 +93,7 @@ def build_demo_rca_context() -> dict[str, Any]:
                     "type": "pod_log",
                 },
                 {
-                    "reason": "pod-specific warning events require live cluster read-only API access",
+                    "reason": "pod-specific warning events require live cluster evidence-check API access",
                     "type": "event",
                 },
             ],
@@ -177,7 +177,7 @@ def verify_source_wiring(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
             [
                 "data-aiops-demo-action=\"seed-chat-prompt\"",
                 "crashLoopDemo && (",
-                "readOnlyOnly: true",
+                "evidenceOnly: true",
                 "safeEvidenceText(finding.evidence || finding.message",
                 "findingId: finding.id",
                 "scenarioId: isCrashLoopFinding(finding) ? 'crashloop'",
@@ -189,8 +189,8 @@ def verify_source_wiring(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "draftPrompt?: AssistantDraftPrompt",
                 "onRunComplete?: () => Promise<void> | void",
                 "void onRunComplete?.()",
-                "setExecutionMode('read-only')",
-                "activeDraftPageContext?.readOnlyOnly === true ? 'read-only' : executionMode",
+                "setExecutionMode('evidence-check')",
+                "activeDraftPageContext?.evidenceOnly === true ? 'evidence-check' : executionMode",
                 "aiopsDemoCycle: activeDraftPageContext",
             ],
         ),

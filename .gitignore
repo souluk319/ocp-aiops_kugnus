@@ -10,6 +10,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+var/aiops/
+komsco-ai-gateway/var/aiops/
 *.pyc
 *.log
 .tmp-*
@@ -18,4 +20,5 @@ __pycache__/
 .claude/
 *:Zone.Identifier
 docs/aiops-beginner-guide.html
-docs/Ver.0.1.9/komsco-aiops-agent-brief.html
+docs/Ver.0.1.9/JK_AIOps.png
+docs/Ver.0.1.9/KJK_-_AIOps_Semina_slides_01-10.pdf

@@ -3,13 +3,15 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
-NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai}}
+VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
+NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai-kugnus}}
 PUSH_REGISTRY=${KOMSCO_AIOPS_PUSH_REGISTRY:-}
 PULL_REGISTRY=${KOMSCO_AIOPS_PULL_REGISTRY:-}
 TLS_VERIFY=${KOMSCO_AIOPS_REGISTRY_TLS_VERIFY:-false}
 CONTAINER_ENGINE=${KOMSCO_AIOPS_CONTAINER_ENGINE:-}
 GRANT_IMAGE_PULL=${KOMSCO_AIOPS_GRANT_IMAGE_PULL:-true}
+APPROVE_CLUSTER_WRITE=${KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE:-}
+COMPANY_SERVER=${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}
 
 usage() {
   cat <<EOF
@@ -21,17 +23,18 @@ Commands:
   env         Print the image references that would be used.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.8
-  KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: komsco-ai
+  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.9
+  KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: komsco-ai-kugnus
   KOMSCO_AIOPS_PUSH_REGISTRY         Registry used by the local machine for push.
   KOMSCO_AIOPS_PULL_REGISTRY         Registry used by cluster workloads for pull.
   KOMSCO_AIOPS_REGISTRY_TLS_VERIFY   true or false for podman login/push. Default: false
   KOMSCO_AIOPS_CONTAINER_ENGINE      podman or docker. Auto-detected if unset.
   KOMSCO_AIOPS_GRANT_IMAGE_PULL      Grant all service accounts image pull access to the image namespace. Default: true
+  KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE Must equal komsco-ai-kugnus before image namespace/OLM writes.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.8 \\
-  KOMSCO_AIOPS_NAMESPACE=komsco-ai \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.9 \\
+  KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus \\
   task olm:release
 EOF
 }
@@ -40,6 +43,28 @@ require_cmd() {
   local command_name=$1
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "${command_name} CLI is required." >&2
+    exit 1
+  fi
+}
+
+require_company_server() {
+  require_cmd oc
+  local server
+  server=$(oc whoami --show-server 2>/dev/null || true)
+  if [[ "${server}" != "${COMPANY_SERVER}" ]]; then
+    echo "Refusing cluster write: oc server is ${server:-unavailable}, expected ${COMPANY_SERVER}." >&2
+    exit 1
+  fi
+}
+
+require_cluster_write_approval() {
+  if [[ "${APPROVE_CLUSTER_WRITE}" != "komsco-ai-kugnus" ]]; then
+    echo "Refusing cluster write. Re-run with KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=komsco-ai-kugnus after explicit approval." >&2
+    exit 1
+  fi
+  require_company_server
+  if [[ "${NAMESPACE}" != "komsco-ai-kugnus" ]]; then
+    echo "Refusing cluster write: this local release path only targets komsco-ai-kugnus, got ${NAMESPACE}." >&2
     exit 1
   fi
 }
@@ -175,6 +200,8 @@ build_push() {
   local plugin_push
   local plugin_pull
 
+  require_cluster_write_approval
+
   engine=$(detect_engine)
   push_registry_value=$(push_registry)
   gateway_push=$(gateway_push_image)
@@ -206,10 +233,12 @@ EOF
 }
 
 deploy_release() {
+  require_cluster_write_approval
   build_push
   KOMSCO_AIOPS_OPERATOR_IMAGE="$(gateway_pull_image)" \
   KOMSCO_AIOPS_GATEWAY_IMAGE="$(gateway_pull_image)" \
   KOMSCO_AIOPS_PLUGIN_IMAGE="$(plugin_pull_image)" \
+  KOMSCO_AIOPS_NAMESPACE="${NAMESPACE}" \
     "${ROOT_DIR}/scripts/olm-deploy.sh" deploy
 }
 

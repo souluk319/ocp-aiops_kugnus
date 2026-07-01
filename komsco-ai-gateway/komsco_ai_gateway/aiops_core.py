@@ -414,7 +414,7 @@ HOST_DIAGNOSTIC_COLLECTORS: dict[str, dict[str, Any]] = {
         "collector": "node_os_readonly_triage",
         "collectorVersion": "v1",
         "collectorProfile": "passive-readonly",
-        "risk": "read-only",
+        "risk": "evidence-check",
         "hostAccess": {
             "hostPID": False,
             "hostNetwork": False,
@@ -445,7 +445,7 @@ HOST_DIAGNOSTIC_COLLECTORS: dict[str, dict[str, Any]] = {
             "hostNetwork": False,
             "runtimeSocket": True,
             "hostPaths": [
-                {"path": "/run/crio/crio.sock", "readOnly": True, "reason": "read-only runtime inspection adapter"},
+                {"path": "/run/crio/crio.sock", "readOnly": True, "reason": "evidence-check runtime inspection adapter"},
                 {"path": "/var/lib/kubelet", "readOnly": True, "reason": "pod volume and kubelet state summary"},
             ],
         },

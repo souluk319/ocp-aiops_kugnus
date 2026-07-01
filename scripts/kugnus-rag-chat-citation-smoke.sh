@@ -27,7 +27,7 @@ body = {
     "message": "KUGNUS_UPLOAD_RAG_SMOKE uploaded runbook 근거를 참고해서 사용자 업로드 RAG 동작을 요약해줘",
     "runId": run_id,
     "conversationId": run_id,
-    "pageContext": {"aiopsExecutionMode": "read-only"},
+    "pageContext": {"aiopsExecutionMode": "evidence-check"},
 }
 Path(sys.argv[1]).write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
 PY

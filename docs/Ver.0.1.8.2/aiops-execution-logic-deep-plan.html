@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KOMSCO AIOps 0.1.8.2 실행 로직 심층 계획</title>
+  <style>
+    :root {
+      --ink: #1f2937;
+      --muted: #5f6b7a;
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --line: #d8dee9;
+      --navy: #172033;
+      --blue: #2563eb;
+      --teal: #0f766e;
+      --green: #15803d;
+      --amber: #b45309;
+      --red: #b91c1c;
+      --code: #111827;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+      line-height: 1.65;
+    }
+
+    header {
+      background: var(--navy);
+      color: #fff;
+      padding: 42px 48px 34px;
+    }
+
+    header .eyebrow {
+      color: #93c5fd;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 10px 0 12px;
+      font-size: 32px;
+      line-height: 1.25;
+    }
+
+    header p {
+      max-width: 980px;
+      color: #dbeafe;
+      font-size: 15px;
+      margin: 0;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 72px;
+    }
+
+    section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 26px 30px;
+      margin-bottom: 22px;
+      box-shadow: 0 10px 28px rgba(31, 41, 55, .05);
+    }
+
+    h2 {
+      font-size: 21px;
+      margin: 0 0 16px;
+      color: var(--navy);
+    }
+
+    h3 {
+      font-size: 16px;
+      margin: 22px 0 10px;
+      color: var(--navy);
+    }
+
+    p { margin: 8px 0 12px; }
+    ul { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 5px 0; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    code {
+      background: #eef2ff;
+      border: 1px solid #dbe4ff;
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .92em;
+    }
+
+    pre {
+      background: var(--code);
+      color: #e5e7eb;
+      border-radius: 10px;
+      padding: 16px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 12px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 4px;
+      font-size: 14px;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f1f5f9;
+      color: #111827;
+      font-weight: 700;
+    }
+
+    .lead {
+      font-size: 17px;
+      color: #111827;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: #fbfdff;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--navy);
+    }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 5px;
+    }
+
+    .done { background: #dcfce7; color: var(--green); }
+    .partial { background: #fef3c7; color: var(--amber); }
+    .missing { background: #fee2e2; color: var(--red); }
+    .planned { background: #dbeafe; color: var(--blue); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .flow div {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 12px;
+      background: #f8fafc;
+      min-height: 94px;
+    }
+
+    .flow b {
+      display: block;
+      color: var(--blue);
+      margin-bottom: 6px;
+    }
+
+    .callout {
+      border-left: 5px solid var(--blue);
+      background: #eff6ff;
+      padding: 13px 16px;
+      border-radius: 8px;
+      margin: 14px 0;
+    }
+
+    .danger {
+      border-left-color: var(--red);
+      background: #fef2f2;
+    }
+
+    .ok {
+      border-left-color: var(--green);
+      background: #f0fdf4;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      header { padding: 30px 24px; }
+      main { padding: 22px 14px 48px; }
+      section { padding: 20px 18px; }
+      .grid, .flow { grid-template-columns: 1fr; }
+      h1 { font-size: 25px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Version 0.1.8.2 Deep Plan</div>
+    <h1>KOMSCO AIOps 실행 로직 심층 계획</h1>
+    <p>
+      이 문서는 가이드문서가 말하는 <code>Tool Plan JSON</code>을 제품 실행 로직으로 해석하고,
+      현재 구현 상태와 공식 문서 근거를 대조하여 다음 구현 순서를 정리한 산출물이다.
+      목표는 “챗봇이 말만 하는 상태”가 아니라 “근거를 수집하고, 판단하고, 승인된 조치만 실행하는 AIOps”로 가는 것이다.
+    </p>
+  </header>
+
+  <main>
+    <section>
+      <h2>한 줄 결론</h2>
+      <p class="lead">
+        가이드문서의 핵심은 “LLM이 바로 답변하거나 명령을 실행하는 것”이 아니다.
+        먼저 <code>ToolPlan</code>을 만들고, 그 계획대로 증거를 수집하고,
+        그 결과를 <code>RcaContext</code>로 묶은 뒤, 필요한 경우에만
+        <code>proposal -> sealed plan -> approval -> execute</code> 경로로 넘어가는 것이다.
+      </p>
+      <div class="callout ok">
+        오늘의 설계 기준은 명확하다. AIOps 기능은 “질문 응답 UI”가 아니라
+        <strong>증거 기반 운영 판단 엔진 + 승인 기반 조치 실행 엔진</strong>이다.
+      </div>
+    </section>
+
+    <section>
+      <h2>가이드문서와 공식 PDF에서 확인한 요구사항</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>근거</th>
+            <th>확인한 내용</th>
+            <th>구현 의미</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>docs/Komsco_ai_agent_final.pdf</code> p1</td>
+            <td>기존 OpenShift 환경을 보존하고, OpenShift Lightspeed REST API 연동을 유지하며, RAG/Agent Tool/보안/감사는 AI Gateway가 담당한다.</td>
+            <td>Lightspeed를 버리는 구조가 아니다. Gateway가 사내 증거와 실행 통제를 보강하고, 최종 답변은 Lightspeed 또는 연결 LLM 경로로 흘려야 한다.</td>
+          </tr>
+          <tr>
+            <td>PDF p2-p4, 가이드문서 37-92행</td>
+            <td>질문을 OS Context로 분류하고, Tool Plan JSON을 만들고, Evidence 기반 RCA Reasoning을 수행한다.</td>
+            <td>질문마다 <code>task_type</code>, <code>target</code>, <code>execution_policy</code>, <code>tool_plan</code>이 먼저 생성되어야 한다.</td>
+          </tr>
+          <tr>
+            <td>PDF p6, 가이드문서 130행</td>
+            <td>모델은 운영 명령을 직접 실행하지 않는다. 추상 Tool Plan을 만들고, 실제 실행은 AI Gateway Tool Adapter가 담당한다.</td>
+            <td><code>event_tool</code>, <code>grep_tool</code>, <code>metric_tool</code> 같은 추상 도구를 OpenShift/Linux/Windows 어댑터가 실제 조회로 바꾼다.</td>
+          </tr>
+          <tr>
+            <td>PDF p8-p9, 가이드문서 180-260행</td>
+            <td>Tool 계획, 증적 수집 범위, 위험도, 신뢰도를 RCA Context JSON으로 구조화한 뒤 Lightspeed에 전달한다.</td>
+            <td>최종 답변은 “말”이 아니라 <code>ToolPlan + EvidenceRefs + RcaContext</code>를 근거로 생성되어야 한다.</td>
+          </tr>
+          <tr>
+            <td>PDF p10, 가이드문서 317행</td>
+            <td>Operator/OLM 기반 Software Catalog 표준 배포, Channel/Subscription/InstallPlan/CSV 상태 점검이 필요하다.</td>
+            <td>카탈로그 설치 후 Gateway, Console Plugin, Action Executor, RAG 설정이 CR/Operator 경로로 재현되어야 한다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>공식 문서로 대조한 설계 원칙</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>분야</th>
+            <th>공식 근거</th>
+            <th>우리 설계에 들어가야 하는 규칙</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>OpenShift Lightspeed</td>
+            <td><a href="https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html/about/ols-about-openshift-lightspeed">Red Hat OpenShift Lightspeed 문서</a></td>
+            <td>OLS는 콘솔 안에서 운영 질문에 답하는 공식 경로다. 우리 Gateway는 OLS 앞단에서 사내 RAG, 증거, 감사, 보안 Context를 보강하는 계층이어야 한다.</td>
+          </tr>
+          <tr>
+            <td>Console Plugin</td>
+            <td><a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/web_console/dynamic-plugins">OpenShift Dynamic Plugins 문서</a></td>
+            <td>콘솔 UI는 정식 Dynamic Plugin으로 배포해야 한다. 로컬 개발 서버에서 보이는 화면과 카탈로그 설치 후 화면이 같은 경로로 재현되어야 한다.</td>
+          </tr>
+          <tr>
+            <td>OLM 배포</td>
+            <td><a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/operators/understanding-operators">OpenShift Operators/OLM 문서</a></td>
+            <td>제품 설치 단위는 CatalogSource, CSV, Subscription, CR이다. 설치 후 수동 포트포워딩이나 로컬 서버 의존 없이 동작해야 한다.</td>
+          </tr>
+          <tr>
+            <td>권한 확인</td>
+            <td><a href="https://kubernetes.io/docs/reference/kubernetes-api/authorization-resources/self-subject-access-review-v1/">Kubernetes SelfSubjectAccessReview API</a></td>
+            <td>사용자 토큰으로 “이 사용자가 이 조치를 할 수 있는가”를 실행 직전에 확인해야 한다. 관리자 토큰으로 몰래 우회하면 안 된다.</td>
+          </tr>
+          <tr>
+            <td>메트릭 증거</td>
+            <td><a href="https://prometheus.io/docs/prometheus/latest/querying/api/">Prometheus HTTP API 문서</a></td>
+            <td><code>metric_tool</code>은 PromQL instant/range query와 결과 digest를 남겨야 한다. 메트릭이 없으면 “없음”을 근거로 기록해야 한다.</td>
+          </tr>
+          <tr>
+            <td>JSON 계약</td>
+            <td><a href="https://json-schema.org/learn/getting-started-step-by-step">JSON Schema 공식 가이드</a></td>
+            <td>ToolPlan/RcaContext/ActionPlan은 감으로 만든 dict가 아니라 스키마 검증 대상이어야 한다. LLM 출력도 스키마를 통과해야 한다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>현재 구현 지도</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>구성</th>
+            <th>현재 상태</th>
+            <th>확인 위치</th>
+            <th>판단</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>질문별 ToolPlan 생성</td>
+            <td><span class="tag partial">부분 구현</span> 키워드 기반 deterministic planner가 <code>pod_restart_rca</code>, <code>cluster_operator_status</code> 등으로 분류한다.</td>
+            <td><code>komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py:927</code></td>
+            <td>가이드 방향과 맞지만 아직 Agentic Model 출력이 아니라 규칙 기반이다. 스키마 고정과 LLM planner 옵션이 필요하다.</td>
+          </tr>
+          <tr>
+            <td>Tool Adapter 해석</td>
+            <td><span class="tag partial">부분 구현</span> OpenShift와 AI Gateway 어댑터는 resolved로 나오고, Linux/Windows는 계획 또는 비활성 상태로 남아 있다.</td>
+            <td><code>aiops_contracts.py:349</code>, <code>test_health.py:412</code></td>
+            <td>OpenShift 중심 PoC는 가능하다. OS 진단까지 제품화하려면 어댑터 레지스트리를 별도 계약으로 분리해야 한다.</td>
+          </tr>
+          <tr>
+            <td>RCA Context JSON</td>
+            <td><span class="tag partial">부분 구현</span> evidence refs, missing evidence, confidence, actionCandidates를 구조화한다.</td>
+            <td><code>aiops_contracts.py:584</code></td>
+            <td>좋은 뼈대다. 다만 수집 step과 실제 evidence id가 1:1로 매칭되는 검증이 더 필요하다.</td>
+          </tr>
+          <tr>
+            <td>스트리밍 이벤트</td>
+            <td><span class="tag done">구현됨</span> 채팅 중 <code>runtime_tool_plan</code>, <code>tool_plan</code>, <code>tool_result</code>, <code>rca_context</code> 이벤트를 흘린다.</td>
+            <td><code>main.py:12780</code></td>
+            <td>UI에서 이 이벤트를 “현재 무엇을 하는 중인지”로 보여주면 가이드문서의 실행 흐름이 사용자에게 보인다.</td>
+          </tr>
+          <tr>
+            <td>승인 기반 실행 경로</td>
+            <td><span class="tag partial">부분 구현</span> proposal, sealed plan, approval, execute API가 있다. digest, SSAR, freshness gate도 들어가 있다.</td>
+            <td><code>main.py:12022</code>, <code>main.py:12136</code></td>
+            <td>가이드 방향과 가장 가까운 부분이다. 문제는 ToolPlan/RCA 결과와 ActionProposal 생성이 아직 제품 흐름으로 단단히 묶이지 않은 점이다.</td>
+          </tr>
+          <tr>
+            <td>Action Executor</td>
+            <td><span class="tag partial">부분 구현</span> 별도 FastAPI 실행자가 있고, Gateway에서 승인된 sealed plan을 넘긴다.</td>
+            <td><code>komsco-ai-gateway/komsco_ai_gateway/action_executor.py:41</code></td>
+            <td>카탈로그 설치 시 함께 배포되고 상태가 보장되어야 한다. 지금은 “연결되면 실행 가능” 수준이다.</td>
+          </tr>
+          <tr>
+            <td>콘솔 UI 실행 모드</td>
+            <td><span class="tag partial">부분 구현</span> 읽기/실행/실험 모드 토글과 action lifecycle 표시가 있다.</td>
+            <td><code>AssistantLauncher.tsx:2204</code>, <code>AssistantLauncher.tsx:2609</code></td>
+            <td>기능은 있으나 초보자/운영자 관점에서 “왜 버튼이 막혔는지, 어디까지 진행됐는지”가 더 명확해야 한다.</td>
+          </tr>
+          <tr>
+            <td>OLM 설치 재현성</td>
+            <td><span class="tag partial">부분 구현</span> Catalog/Subscription/CSV 경로는 있으나 카탈로그 설치만으로 완성 상태가 되는지 별도 검증 필요.</td>
+            <td><code>scripts/kugnus-olm.sh</code>, <code>scripts/olm-package.py</code>, <code>scripts/olm-deploy.sh</code></td>
+            <td>“카탈로그에서 설치했더니 짠 하고 같은 상태”가 0.1.8.2의 핵심 검증 항목이다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>목표 실행 로직</h2>
+      <p>
+        이 흐름이 제품의 중심이어야 한다. UI, Gateway, RAG, OLS, Action Executor는 이 흐름을 구현하기 위한 부품이다.
+      </p>
+      <div class="flow">
+        <div>
+          <b>1. 질문 수신</b>
+          사용자 토큰, namespace, 화면 context, 질문 원문을 받는다.
+        </div>
+        <div>
+          <b>2. ToolPlan 생성</b>
+          질문을 분류하고 필요한 도구, 대상, 읽기/실행 정책, 위험도를 JSON으로 고정한다.
+        </div>
+        <div>
+          <b>3. 증거 수집</b>
+          Event, Snapshot, Log pattern, Metric, Runbook/RAG를 adapter가 실행하고 evidenceRef를 남긴다.
+        </div>
+        <div>
+          <b>4. RCA Context</b>
+          수집된 근거, 빠진 근거, 원인 후보, 신뢰도, 조치 후보를 구조화한다.
+        </div>
+        <div>
+          <b>5. 답변/조치</b>
+          OLS/LLM이 RCA를 스트리밍하고, 조치는 승인된 Action Plan 경로로만 실행한다.
+        </div>
+      </div>
+      <pre>사용자 질문
+  -> Auth/Context 수집
+  -> ToolPlan JSON 생성 및 스키마 검증
+  -> Adapter Resolution
+  -> Evidence Runner 실행
+  -> RcaContext JSON 생성
+  -> Lightspeed 또는 LLM에 Context 전달
+  -> RCA 답변 스트리밍
+  -> 필요 시 ActionCandidate 생성
+  -> ActionProposal
+  -> SealedActionPlan + planDigest
+  -> ApprovalDecision
+  -> 실행 직전 SSAR + evidence freshness 확인
+  -> ActionExecutor 실행
+  -> Postcondition 검증 + Audit 기록</pre>
+    </section>
+
+    <section>
+      <h2>0.1.8.2에서 고정할 JSON 계약</h2>
+      <p>
+        지금의 <code>dict</code> 구조를 유지하되, 아래 필드를 “계약”으로 고정해야 한다.
+        이후 LLM planner를 붙이더라도 이 스키마를 통과하지 못하면 실행하지 않는다.
+      </p>
+      <pre>{
+  "apiVersion": "aiops.komsco/v1alpha1",
+  "kind": "ToolPlan",
+  "metadata": {
+    "planner": "deterministic_gateway_planner | aiops_agentic_model",
+    "generatedAt": "RFC3339",
+    "version": "0.1.8.2"
+  },
+  "task_type": "pod_restart_rca | cluster_operator_status | action_lifecycle_review | ...",
+  "target": {
+    "platform": "openshift | linux | windows",
+    "namespace": "default",
+    "resourceKind": "Pod | Deployment | Node | ClusterOperator",
+    "resourceName": "optional"
+  },
+  "execution_policy": {
+    "mode": "read_only | approval_required | execute_after_approval",
+    "allowed_verbs": ["get", "list", "watch"],
+    "forbidden_actions": ["delete", "patch", "scale", "rollout", "exec"],
+    "approval_required": true
+  },
+  "tool_plan": [
+    {
+      "step": 1,
+      "official_tool": "event_tool",
+      "tool": "openshift_event_lookup",
+      "adapter": "OpenShift",
+      "verb": "list",
+      "evidence_type": "event",
+      "reason": "재시작 시점 주변 Event 확인"
+    }
+  ],
+  "adapter_resolution": [],
+  "missing_evidence": [],
+  "validation": {
+    "ok": true,
+    "violations": []
+  }
+}</pre>
+      <div class="callout danger">
+        실행 정책의 기본값은 조회와 증거 수집이다. 변경성 작업은 <code>ToolPlan</code> 내부에서 바로 실행하지 않고,
+        반드시 <code>ActionCandidate</code>와 승인 경로로 분리한다.
+      </div>
+    </section>
+
+    <section>
+      <h2>Action 실행 계약</h2>
+      <p>
+        “AIOps가 실행한다”는 말은 위험하다. 제품에서는 아래 조건을 모두 통과했을 때만 실행이라고 부른다.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>단계</th>
+            <th>생성물</th>
+            <th>필수 검증</th>
+            <th>실패 시 표시</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>조치 후보</td>
+            <td><code>ActionCandidate</code></td>
+            <td>RCA Context의 근거와 연결되어야 함</td>
+            <td>근거 부족, 대상 불명확</td>
+          </tr>
+          <tr>
+            <td>제안</td>
+            <td><code>ActionProposal</code></td>
+            <td>사용자, 대상, 의도, 위험도 기록</td>
+            <td>proposal 생성 실패</td>
+          </tr>
+          <tr>
+            <td>봉인 계획</td>
+            <td><code>SealedActionPlan</code></td>
+            <td>planDigest 생성, evidence snapshot 연결</td>
+            <td>digest 없음, evidence 없음</td>
+          </tr>
+          <tr>
+            <td>승인</td>
+            <td><code>ApprovalDecision</code></td>
+            <td>사용자 권한, 만료 시간, planDigest 일치</td>
+            <td>승인 만료, digest 불일치</td>
+          </tr>
+          <tr>
+            <td>실행</td>
+            <td><code>ExecutionRecord</code></td>
+            <td>SSAR, evidence freshness, mutation flag, Action Executor 연결</td>
+            <td>권한 없음, 근거 오래됨, executor 미연결</td>
+          </tr>
+          <tr>
+            <td>사후 확인</td>
+            <td><code>PostconditionResult</code></td>
+            <td>rollout status, pod health, event 감소, alert 변화</td>
+            <td>실행은 됐지만 정상화 확인 실패</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>현재 가장 큰 빈칸</h2>
+      <div class="grid">
+        <div class="card">
+          <strong><span class="tag missing">빈칸 1</span> ToolPlan이 스키마 계약이 아님</strong>
+          지금은 Python 함수가 dict를 만든다. 테스트는 있지만 JSON Schema 파일, fixture, schema validation gate가 부족하다.
+        </div>
+        <div class="card">
+          <strong><span class="tag missing">빈칸 2</span> Planner와 Adapter가 강하게 결합됨</strong>
+          질문 분류, 도구 선택, 어댑터 매핑이 한 함수에 몰려 있다. 모델 planner를 붙이려면 planner 출력과 adapter resolution을 분리해야 한다.
+        </div>
+        <div class="card">
+          <strong><span class="tag missing">빈칸 3</span> Evidence Runner가 계약 중심이 아님</strong>
+          수집 결과가 evidenceRef로 남지만, 각 planned step이 어떤 evidenceRef로 충족됐는지 제품 수준으로 보장해야 한다.
+        </div>
+        <div class="card">
+          <strong><span class="tag missing">빈칸 4</span> 답변 품질 gate가 약함</strong>
+          OLS/LLM fallback이 발생할 때 이유는 보이지만, “근거 없는 최종 답변 금지”와 “빠진 근거 명시”가 더 강하게 걸려야 한다.
+        </div>
+        <div class="card">
+          <strong><span class="tag missing">빈칸 5</span> 설치 후 완성 상태 검증 미흡</strong>
+          카탈로그 설치로 Console Plugin, Gateway, Action Executor, Service/Route/Proxy, Secret/ConfigMap이 모두 이어지는지 시나리오 smoke가 필요하다.
+        </div>
+        <div class="card">
+          <strong><span class="tag missing">빈칸 6</span> 고객 문서/RAG와 조치 로직 연결 미흡</strong>
+          고객 운영 문서가 runbook evidence로 검색되고, 그 근거가 RCA와 action candidate에 붙는지 확인해야 한다.
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>구현 순서</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>순서</th>
+            <th>작업</th>
+            <th>수정 대상</th>
+            <th>완료 기준</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>A</td>
+            <td>ToolPlan/RcaContext/ActionPlan JSON Schema 작성</td>
+            <td><code>komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py</code>, 새 schema fixture</td>
+            <td>대표 질문 5개가 schema validation 통과. 실패 시 어떤 필드가 틀렸는지 표시.</td>
+          </tr>
+          <tr>
+            <td>B</td>
+            <td>Planner 출력과 Adapter Resolution 분리</td>
+            <td><code>aiops_contracts.py</code></td>
+            <td>planner는 추상 도구만 만들고, adapter registry가 실제 collector를 결정.</td>
+          </tr>
+          <tr>
+            <td>C</td>
+            <td>Evidence Runner step 매칭 강화</td>
+            <td><code>main.py</code>, evidence collector 함수</td>
+            <td>모든 planned step에 <code>collected | partial | missing | failed</code> 상태가 붙음.</td>
+          </tr>
+          <tr>
+            <td>D</td>
+            <td>RCA 답변 gate 강화</td>
+            <td><code>build_ols_gateway_context</code>, stream response path</td>
+            <td>근거 부족이면 최종 답변에 “확인 불가”가 필수로 표시되고 hallucination 금지.</td>
+          </tr>
+          <tr>
+            <td>E</td>
+            <td>ActionCandidate를 RCA Context에서 생성</td>
+            <td><code>build_aiops_action_candidates</code>, Action Proposal API</td>
+            <td>조치 후보가 원인 후보/evidenceRef와 연결되고, UI에서 계획 생성 가능.</td>
+          </tr>
+          <tr>
+            <td>F</td>
+            <td>승인 실행 경로 end-to-end 테스트</td>
+            <td><code>tests/test_health.py</code>, smoke task</td>
+            <td>proposal -> plan -> approval -> execute disabled/enabled 경로가 모두 테스트됨.</td>
+          </tr>
+          <tr>
+            <td>G</td>
+            <td>콘솔 진행상태 UI 정리</td>
+            <td><code>AssistantLauncher.tsx</code>, <code>assistant.css</code></td>
+            <td>답변 스트리밍 옆에 “ToolPlan 생성 중 / 증거 수집 중 / RCA 구성 중 / OLS 전달 중”이 보임. 상세 JSON은 기본 접힘.</td>
+          </tr>
+          <tr>
+            <td>H</td>
+            <td>OLM 설치 후 완성 상태 smoke</td>
+            <td><code>scripts/kugnus-olm.sh</code>, <code>Taskfile.yml</code></td>
+            <td>카탈로그 설치만으로 Plugin/Gateway/Executor/RAG 설정 상태가 점검되고, 실패 지점이 출력됨.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>검증 시나리오</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>시나리오</th>
+            <th>질문</th>
+            <th>기대 ToolPlan</th>
+            <th>합격 기준</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>과거 Pod 재시작 RCA</td>
+            <td>어제 새벽에 default namespace Pod가 왜 재시작됐어?</td>
+            <td><code>event_tool</code>, <code>snapshot_tool</code>, <code>grep_tool</code>, <code>metric_tool</code>, <code>runbook_tool</code></td>
+            <td>evidenceRef 2개 이상, missing evidence 명시, OLS/LLM 답변에 RCA/즉시 조치/재발 방지 포함.</td>
+          </tr>
+          <tr>
+            <td>ClusterOperator 상태</td>
+            <td>현재 클러스터 오퍼레이터 상태 알려줘</td>
+            <td><code>openshift_clusteroperator_lookup</code>, <code>openshift_clusterversion_lookup</code></td>
+            <td>Degraded/Progressing/Available 상태가 근거로 표시됨.</td>
+          </tr>
+          <tr>
+            <td>조치 후보</td>
+            <td>문제 Deployment 재시작 계획 만들어줘</td>
+            <td><code>action_lifecycle_review</code></td>
+            <td>직접 실행하지 않고 ActionProposal을 만들며, 승인 전 실행 버튼은 막힘.</td>
+          </tr>
+          <tr>
+            <td>승인 후 실행</td>
+            <td>승인된 plan 실행</td>
+            <td><code>approval_required</code> 경로</td>
+            <td>planDigest, approval status, SSAR, evidence freshness를 통과해야 실행됨.</td>
+          </tr>
+          <tr>
+            <td>OLS 장애</td>
+            <td>RCA 질문</td>
+            <td>ToolPlan은 정상 생성</td>
+            <td>OLS 연결 실패 이유가 명확히 표시되고, Gateway fallback은 “수집 근거 기반 요약”으로 제한됨.</td>
+          </tr>
+          <tr>
+            <td>RAG 연결 장애</td>
+            <td>사내 runbook 기반 조치 알려줘</td>
+            <td><code>runbook_tool</code></td>
+            <td>RAG 미연결이면 runbook missing evidence로 기록되고, 없는 문서를 지어내지 않음.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>바로 실행할 확인 명령</h2>
+      <p>코드 수정 전에도 아래 명령으로 현재 뼈대가 살아있는지 확인할 수 있다.</p>
+      <pre># ToolPlan/RcaContext 단위 테스트
+komsco-ai-gateway/.venv/bin/python -m pytest \
+  komsco-ai-gateway/tests/test_health.py \
+  -k "runtime_tool_plan or rca_context or action_candidates" -q
+
+# 로컬 Gateway 상태 확인
+TOKEN=$(oc whoami -t)
+curl -ksS -H "Authorization: Bearer ${TOKEN}" \
+  http://127.0.0.1:18080/v1/aiops/status
+
+# 대표 질문으로 ToolPlan 스트리밍 확인
+curl -ksS -N -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"어제 새벽에 default namespace Pod가 왜 재시작됐어?","stream":true}' \
+  http://127.0.0.1:18080/v1/chat/stream</pre>
+      <p class="small">
+        토큰 값은 출력하거나 문서에 저장하지 않는다. 실패하면 401은 사용자 토큰/콘솔 세션, 504는 OpenShift API/VPN,
+        fallback은 OLS 연결 또는 LLM provider 설정을 먼저 본다.
+      </p>
+    </section>
+
+    <section>
+      <h2>0.1.8.2 완료 정의</h2>
+      <ul>
+        <li><code>ToolPlan</code>, <code>RcaContext</code>, <code>ActionPlan</code> JSON 계약이 문서와 테스트로 고정된다.</li>
+        <li>대표 RCA 질문에서 ToolPlan이 생성되고, 각 step의 증거 수집 상태가 UI와 API에 보인다.</li>
+        <li>조치 요청은 직접 실행되지 않고 proposal/plan/approval/execute 단계로만 진행된다.</li>
+        <li>실행 직전 SSAR, planDigest, approval status, evidence freshness, mutation flag, executor 연결을 모두 확인한다.</li>
+        <li>OLS/LLM/RAG 중 하나가 끊겼을 때 어디가 끊겼는지 화면과 API에 같은 이유로 표시된다.</li>
+        <li>카탈로그 설치 후 같은 상태가 재현되는 smoke task가 생긴다.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>판단</h2>
+      <p>
+        지금 우리가 해야 할 일은 “AIOps 메뉴에 버튼을 더 붙이는 것”이 아니다.
+        가이드문서가 요구한 실행 로직을 제품 계약으로 고정하는 것이다.
+        이미 코드에는 ToolPlan, RCA Context, Action Lifecycle의 조각이 있다.
+        0.1.8.2는 이 조각들을 하나의 실행 경로로 묶고, 검증 가능한 JSON 계약과 smoke test로 고정하는 버전이 되어야 한다.
+      </p>
+    </section>
+
+    <section>
+      <h2>참고 근거</h2>
+      <ul>
+        <li><code>docs/Komsco_ai_agent_final.pdf</code> p1-p10: 공식 제품 방향, Lightspeed/Gateway/ToolPlan/RCA/OLM 구조</li>
+        <li><code>docs/Komsco_AIOps_agent_final.md</code>: 사용자가 “가이드문서”라고 지정한 구현 가이드</li>
+        <li><a href="https://docs.redhat.com/en/documentation/red_hat_openshift_lightspeed/1.0/html/about/ols-about-openshift-lightspeed">Red Hat OpenShift Lightspeed 문서</a></li>
+        <li><a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/web_console/dynamic-plugins">OpenShift Dynamic Plugins 문서</a></li>
+        <li><a href="https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/operators/understanding-operators">OpenShift Operators/OLM 문서</a></li>
+        <li><a href="https://kubernetes.io/docs/reference/kubernetes-api/authorization-resources/self-subject-access-review-v1/">Kubernetes SelfSubjectAccessReview API</a></li>
+        <li><a href="https://prometheus.io/docs/prometheus/latest/querying/api/">Prometheus HTTP API 문서</a></li>
+        <li><a href="https://json-schema.org/learn/getting-started-step-by-step">JSON Schema 공식 가이드</a></li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

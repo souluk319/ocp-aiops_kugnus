@@ -1,26 +1,35 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-06-28T18:12:21.266967Z",
-  "branch": "feat/v.0.1.6",
-  "headSha": "06e09c7bd3ad6e592c4bd26f20d0212f8b790be0",
+  "generatedAt": "2026-06-30T23:25:50.925607Z",
+  "branch": "feat/v.0.1.9",
+  "headSha": "28aa2297881fc85c21b7a924f25041b50f88fffe",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
   "timeoutSeconds": 8,
   "summary": {
     "readyForStrictLightspeedGate": false,
-    "firstFailingLayer": "ocIdentity",
-    "message": "oc whoami did not return a non-empty user"
+    "firstFailingLayer": "tcp",
+    "message": "TCP 6443 connection failed"
   },
   "interpretation": {
-    "likelyCause": "oc_login_or_auth_session_invalid",
-    "confidence": "medium",
-    "explanation": "The network path reached later layers, but live oc identity/token/auth review failed.",
+    "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
+    "confidence": "high",
+    "explanation": "DNS resolves the company OCP API to a private IP, but TCP 6443 times out. Windows route print shows no active route for that target, and at least one VPN-like adapter is disabled: Fortinet SSL VPN Virtual Ethernet Adapter. The next practical check is the Windows-side company VPN client before WSL or Gateway code.",
     "nextActions": [
-      "Run oc login in WSL, then rerun task kugnus:ocp:doctor.",
-      "Do not commit tokens, kubeconfig, or .env files."
+      "Connect the Windows-side company VPN client that owns the OCP private route.",
+      "Confirm Windows route print for the OCP private IP shows an active route.",
+      "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
+      "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+      "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
     ],
-    "notCodeBlocker": true
+    "notCodeBlocker": true,
+    "importantDistinctions": [
+      "A VPN adapter being present is not the same as being connected.",
+      "DNS PASS does not mean Windows has a route to the private IP.",
+      "Windows route missing is earlier than WSL route propagation.",
+      "Gateway health does not prove access to the company OCP API."
+    ]
   },
   "results": {
     "dns": {
@@ -28,32 +37,28 @@
       "addresses": [
         "10.0.1.230"
       ],
-      "durationMs": 14
+      "durationMs": 3
     },
     "tcp": {
-      "ok": true,
-      "durationMs": 12
+      "ok": false,
+      "error": "timed out",
+      "durationMs": 8010
     },
     "tls": {
-      "ok": true,
-      "durationMs": 42,
-      "cipher": "TLS_AES_128_GCM_SHA256",
-      "subject": ""
+      "ok": false,
+      "error": "timed out",
+      "durationMs": 8039
     },
     "versionEndpoint": {
-      "ok": true,
-      "statusCode": 200,
-      "durationMs": 16,
-      "jsonKind": null,
-      "jsonApiVersion": null,
-      "accessReviewStatus": {},
-      "lightspeedStatus": {},
-      "bodyPreview": "{\n  \"major\": \"1\",\n  \"minor\": \"33\",\n  \"emulationMajor\": \"1\",\n  \"emulationMinor\": \"33\",\n  \"minCompatibilityMajor\": \"1\",\n  \"minCompatibilityMinor\": \"32\",\n  \"gitVersion\": \"v1.33.11\",\n  \"gitCommit\": \"93dd7418665a017d87ffa64773c352898345920d\",\n  \"gitTreeState\": \"clean\",\n  \"buildDate\": \"2026-04-30T21:19:27"
+      "ok": false,
+      "statusCode": 0,
+      "durationMs": 8012,
+      "error": "<urlopen error timed out>"
     },
     "ocServer": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 88,
+      "durationMs": 70,
       "stdout": "https://api.ocp.cywell.server:6443",
       "stderr": "",
       "timeoutSeconds": 8,
@@ -61,10 +66,11 @@
     },
     "ocIdentity": {
       "ok": false,
-      "returnCode": 1,
-      "durationMs": 116,
+      "returnCode": null,
+      "durationMs": 8013,
       "stdout": "",
-      "stderr": "error: You must be logged in to the server (Unauthorized)",
+      "stderr": "",
+      "timeout": true,
       "timeoutSeconds": 8,
       "identityPresent": false,
       "reason": "oc whoami returned an empty identity"
@@ -79,14 +85,14 @@
     },
     "selfSubjectReview": {
       "ok": false,
-      "statusCode": 401,
-      "durationMs": 20,
-      "bodyPreview": "{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"Unauthorized\",\"reason\":\"Unauthorized\",\"code\":401}\n"
+      "statusCode": 0,
+      "durationMs": 8011,
+      "error": "<urlopen error timed out>"
     },
     "gatewayStatus": {
       "ok": true,
       "statusCode": 200,
-      "durationMs": 290,
+      "durationMs": 5003,
       "jsonKind": "AIOpsRuntimeStatus",
       "jsonApiVersion": "aiops.komsco/v1",
       "accessReviewStatus": {
@@ -95,28 +101,28 @@
         "reason": "OpenShift subject review unavailable; runtime safety status is returned without user-scoped records.",
         "subjectReview": {
           "ok": false,
-          "statusCode": 401,
+          "statusCode": 504,
           "detail": {
-            "code": "openshift_user_auth_failed",
-            "message": "OpenShift 사용자 인증이 만료되었거나 Gateway로 전달된 사용자 토큰이 유효하지 않습니다. OpenShift 콘솔을 새로고침하거나 다시 로그인한 뒤 요청을 재시도하세요.",
-            "remediation": "OpenShift 콘솔 세션을 갱신한 뒤 AIOps 요청을 다시 실행하세요.",
-            "upstreamStatus": 401,
-            "upstreamReason": "Unauthorized"
+            "code": "openshift_api_unavailable",
+            "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
+            "operation": "self_subject_review",
+            "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
+            "upstreamReason": "ConnectTimeout:"
           }
         }
       },
       "lightspeedStatus": {
         "status": "configured",
         "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
-        "streamProbe": "failed",
-        "lastStatus": "failed",
-        "lastContextDigest": "sha256:36a9bcc64cae8cf9200242383bf527d704c3c3477e9243874d063fcbb22568bf",
-        "lastStartedAt": "2026-06-26T21:42:31.832007+00:00",
-        "lastCompletedAt": "2026-06-26T21:42:41.834425+00:00",
-        "lastError": "OLS stream ended without answer text; Gateway fallback emitted",
-        "fallbackActive": true
+        "streamProbe": "succeeded",
+        "lastStatus": "succeeded",
+        "lastContextDigest": "sha256:30aeab24e50d0b4063a49e3038e60c059fc5cbb48ba40227364fbe6d2fc5b9d0",
+        "lastStartedAt": "2026-06-30T22:37:38.196571+00:00",
+        "lastCompletedAt": "2026-06-30T22:38:27.883803+00:00",
+        "lastError": "",
+        "fallbackActive": false
       },
-      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-28T18:12:21.239054+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
+      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-06-30T23:25:50.924112+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
     }
   },
   "wslNetwork": {
@@ -124,7 +130,7 @@
     "ipRouteGet": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 14,
+      "durationMs": 2,
       "stdout": "10.0.1.230 via 172.29.160.1 dev eth0 src 172.29.163.203 uid 1001 \n    cache",
       "stderr": "",
       "timeoutSeconds": 8
@@ -132,8 +138,8 @@
     "ipBriefAddr": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 3,
-      "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:74d9/64",
+      "durationMs": 1,
+      "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fed8:7fb6/64",
       "stderr": "",
       "timeoutSeconds": 8
     },
@@ -151,8 +157,8 @@
     "routePrint": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 746,
-      "stdout": "===========================================================================\nInterface List\n 22...<mac> ......Fortinet SSL VPN Virtual Ethernet Adapter\n 20...<mac> ......Realtek USB GbE Family Controller\n 47...........................Tailscale Tunnel\n 21...<mac> ......Intel(R) Ethernet Connection (24) I219-V\n  9...<mac> ......Intel(R) Wi-Fi 6E AX211 160MHz\n 10...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter\n 24...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter #2\n 17...<mac> ......Bluetooth Device (Personal Area Network)\n  1...........................Software Loopback Interface 1\n 11...<mac> ......Hyper-V Virtual Ethernet Adapter\n 53...<mac> ......Hyper-V Virtual Ethernet Adapter #2\n===========================================================================\n\nIPv4 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None\n\nIPv6 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None",
+      "durationMs": 254,
+      "stdout": "===========================================================================\nInterface List\n 20...<mac> ......Realtek USB GbE Family Controller\n 47...........................Tailscale Tunnel\n 21...<mac> ......Intel(R) Ethernet Connection (24) I219-V\n  9...<mac> ......Intel(R) Wi-Fi 6E AX211 160MHz\n 10...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter\n 24...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter #2\n 17...<mac> ......Bluetooth Device (Personal Area Network)\n  1...........................Software Loopback Interface 1\n 11...<mac> ......Hyper-V Virtual Ethernet Adapter\n 53...<mac> ......Hyper-V Virtual Ethernet Adapter #2\n===========================================================================\n\nIPv4 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None\n\nIPv6 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None",
       "stderr": "",
       "timeoutSeconds": 8
     },
@@ -160,7 +166,7 @@
       {
         "Name": "이더넷 3",
         "InterfaceDescription": "Fortinet SSL VPN Virtual Ethernet Adapter",
-        "Status": "Up",
+        "Status": "Disabled",
         "ifIndex": 22
       },
       {
@@ -170,14 +176,15 @@
         "ifIndex": 47
       }
     ],
-    "disabledVpnAdapters": [],
-    "upVpnAdapters": [
+    "disabledVpnAdapters": [
       {
         "Name": "이더넷 3",
         "InterfaceDescription": "Fortinet SSL VPN Virtual Ethernet Adapter",
-        "Status": "Up",
+        "Status": "Disabled",
         "ifIndex": 22
-      },
+      }
+    ],
+    "upVpnAdapters": [
       {
         "Name": "Tailscale",
         "InterfaceDescription": "Tailscale Tunnel",
@@ -187,7 +194,8 @@
     ],
     "hints": [
       "Windows route print has no active route for the private OCP API IP; verify VPN/private route on Windows first.",
-      "VPN-like adapter(s) are up but do not provide the OCP private route: Fortinet SSL VPN Virtual Ethernet Adapter, Tailscale Tunnel."
+      "VPN-like adapter is disabled on Windows: Fortinet SSL VPN Virtual Ethernet Adapter.",
+      "VPN-like adapter(s) are up but do not provide the OCP private route: Tailscale Tunnel."
     ]
   },
   "note": "Bearer tokens and full response bodies are intentionally not persisted."

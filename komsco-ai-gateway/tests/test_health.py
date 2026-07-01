@@ -1,3 +1,4 @@
+import base64
 import asyncio
 import json
 from collections.abc import Mapping
@@ -7,6 +8,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
+import komsco_ai_gateway.action_executor as action_executor
 import komsco_ai_gateway.main as gateway_main
 import komsco_ai_gateway.olm_operator as olm_operator
 from komsco_ai_gateway.answer_planning import (
@@ -32,10 +34,13 @@ from komsco_ai_gateway.main import (
     RUNBOOK_REGISTRY_DIGEST,
     RUNBOOK_REGISTRY_ENTRIES,
     SEALED_ACTION_PLANS,
+    ActionCandidatePlanCreate,
+    ActionCandidateTargetCreate,
     ActionProposalCreate,
     ActionTarget,
     BreakGlassRequestCreate,
     BreakGlassTargetNode,
+    CHAT_TRANSCRIPTS,
     ChatRequest,
     DIAGNOSTIC_REQUESTS,
     EVIDENCE_RECORDS,
@@ -51,6 +56,7 @@ from komsco_ai_gateway.main import (
     build_action_proposal_record,
     build_action_proposal_fallback,
     build_action_access_review_request,
+    build_aiops_answer_contract_text,
     build_aiops_action_candidates,
     build_aiops_anomaly_summary,
     build_aiops_overview,
@@ -78,6 +84,7 @@ from komsco_ai_gateway.main import (
     build_rag_upload_document,
     build_sealed_action_plan_record,
     build_restart_metric_rca_evidence,
+    action_candidate_plan_intent,
     candidate_action_request_digest,
     can_subject_read_record,
     compact_controller_submission,
@@ -125,7 +132,7 @@ from komsco_ai_gateway.aiops_core import (
     matching_hpas_for_deployment,
 )
 from komsco_ai_gateway.aiops_contracts import (
-    assert_read_only_tool_plan,
+    assert_evidence_check_tool_plan,
     build_adapter_registry,
     build_rca_context,
     build_runtime_safety_contract,
@@ -338,9 +345,9 @@ def test_verify_bearer_header_rejects_empty_bearer_token() -> None:
 
 
 def test_aiops_contract_rejects_mutating_tool_plan() -> None:
-    result = assert_read_only_tool_plan(
+    result = assert_evidence_check_tool_plan(
         {
-            "execution_policy": {"mode": "read_only"},
+            "execution_policy": {"mode": "evidence_check"},
             "tool_plan": [
                 {"step": 1, "tool": "get_pod", "verb": "get"},
                 {"step": 2, "tool": "rollout_restart_deployment", "verb": "patch"},
@@ -380,7 +387,7 @@ def test_aiops_contract_summarizes_missing_evidence() -> None:
     assert by_type["metric"]["reason"] == "Prometheus unavailable"
 
 
-def test_runtime_safety_contract_defaults_to_read_only() -> None:
+def test_runtime_safety_contract_defaults_to_evidence_check() -> None:
     contract = build_runtime_safety_contract(
         mutations_enabled=False,
         unrestricted_commands_enabled=False,
@@ -388,7 +395,7 @@ def test_runtime_safety_contract_defaults_to_read_only() -> None:
         record_store_enabled=False,
     )
 
-    assert contract["mode"] == "read_only"
+    assert contract["mode"] == "evidence_check"
     assert "patch" in contract["forbiddenActions"]
     assert contract["capabilityGates"]["mutationsEnabled"] is False
     assert contract["toolPlanStatus"]["status"] == "waiting_for_first_question"
@@ -457,16 +464,16 @@ def test_adapter_registry_resolves_cronjob_event_lookup() -> None:
     assert all(item["adapter"] == "OpenShift" for item in resolutions)
 
 
-def test_runtime_tool_plan_generates_read_only_pod_restart_rca() -> None:
+def test_runtime_tool_plan_generates_controlled_execution_pod_restart_rca() -> None:
     plan = build_runtime_tool_plan(
         "어제 새벽 default 네임스페이스 pod가 왜 재시작됐어?",
-        execution_mode="read-only",
+        execution_mode="execute",
     )
 
     assert plan["kind"] == "ToolPlan"
     assert plan["task_type"] == "pod_restart_rca"
     assert plan["target"]["namespace"] == "default"
-    assert plan["execution_policy"]["mode"] == "read_only"
+    assert plan["execution_policy"]["mode"] == "controlled_execution"
     assert plan["validation"]["ok"] is True
     assert len(plan["adapter_resolution"]) >= 3
     resolution_by_tool = {item["tool"]: item for item in plan["adapter_resolution"]}
@@ -779,7 +786,7 @@ def test_runtime_safety_contract_counts_pod_count_direct_evidence_as_openshift_c
     assert openshift_status["count"] == 1
 
 
-def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:
+def test_olm_operator_evidence_check_installation_skips_mutating_operands() -> None:
     config = olm_operator.installation_config(
         {
             "metadata": {"namespace": "komsco-ai-kugnus"},
@@ -800,10 +807,195 @@ def test_olm_operator_read_only_installation_skips_mutating_operands() -> None:
     assert ("Deployment", "komsco-ai-gateway") in names
     assert ("Deployment", "komsco-ai-console-plugin") in names
     assert ("ConsolePlugin", "komsco-ai-console-plugin-kugnus") in names
+    assert ("NetworkPolicy", "allow-komsco-ai-kugnus-gateway-to-lightspeed-app-server") in names
     assert ("Deployment", "komsco-ai-action-executor") not in names
     assert ("Deployment", "komsco-ai-host-diagnostics-controller") not in names
     assert ("ServiceAccount", "komsco-ai-action-executor") not in names
     assert ("ServiceAccount", "komsco-ai-host-diagnostics-controller") not in names
+
+    lightspeed_policy = next(
+        resource
+        for resource in resources
+        if resource["kind"] == "NetworkPolicy"
+        and resource["metadata"]["name"] == "allow-komsco-ai-kugnus-gateway-to-lightspeed-app-server"
+    )
+    assert lightspeed_policy["metadata"]["namespace"] == "openshift-lightspeed"
+    assert lightspeed_policy["spec"]["ingress"][0]["from"][0]["namespaceSelector"]["matchLabels"] == {
+        "kubernetes.io/metadata.name": "komsco-ai-kugnus"
+    }
+
+
+def test_olm_operator_default_installation_runs_action_executor() -> None:
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus"},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+            },
+        }
+    )
+    resources = olm_operator.resources_for(config)
+    names = {(resource["kind"], resource["metadata"]["name"]) for resource in resources}
+
+    assert config["mode"] == "execute"
+    assert config["mutationsEnabled"] is True
+    assert config["unrestrictedEnabled"] is False
+    assert ("ServiceAccount", "komsco-ai-action-executor") in names
+    assert ("Secret", "komsco-ai-action-executor-auth") in names
+    assert ("Service", "komsco-ai-action-executor") in names
+    assert ("Deployment", "komsco-ai-action-executor") in names
+    gateway = next(
+        resource
+        for resource in resources
+        if resource["kind"] == "Deployment" and resource["metadata"]["name"] == "komsco-ai-gateway"
+    )
+    executor = next(
+        resource
+        for resource in resources
+        if resource["kind"] == "Deployment" and resource["metadata"]["name"] == "komsco-ai-action-executor"
+    )
+    gateway_env = {item["name"]: item for item in gateway["spec"]["template"]["spec"]["containers"][0]["env"]}
+    executor_env = {item["name"]: item for item in executor["spec"]["template"]["spec"]["containers"][0]["env"]}
+    expected_ref = {
+        "secretKeyRef": {"name": "komsco-ai-action-executor-auth", "key": "shared-token"}
+    }
+
+    assert gateway_env["KOMSCO_AI_ACTION_EXECUTOR_SHARED_TOKEN"]["valueFrom"] == expected_ref
+    assert executor_env["KOMSCO_AI_ACTION_EXECUTOR_SHARED_TOKEN"]["valueFrom"] == expected_ref
+    assert gateway["spec"]["template"]["metadata"]["annotations"][
+        "aiops.komsco/action-executor-token-digest"
+    ]
+    assert (
+        gateway["spec"]["template"]["metadata"]["annotations"][
+            "aiops.komsco/action-executor-token-digest"
+        ]
+        == executor["spec"]["template"]["metadata"]["annotations"][
+            "aiops.komsco/action-executor-token-digest"
+        ]
+    )
+
+
+def test_olm_operator_reuses_existing_action_executor_secret(monkeypatch) -> None:
+    existing_token = "existing-action-executor-token"
+
+    def fake_get_resource(
+        api_version: str,
+        kind: str,
+        name: str,
+        resource_namespace: str | None = None,
+    ) -> dict[str, object] | None:
+        if (
+            api_version,
+            kind,
+            name,
+            resource_namespace,
+        ) == ("v1", "Secret", "komsco-ai-action-executor-auth", "komsco-ai-kugnus"):
+            return {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": name, "namespace": resource_namespace},
+                "data": {"shared-token": base64.b64encode(existing_token.encode("utf-8")).decode("ascii")},
+            }
+        return None
+
+    monkeypatch.setattr(olm_operator, "get_resource", fake_get_resource)
+
+    config = olm_operator.installation_config(
+        {
+            "metadata": {"namespace": "komsco-ai-kugnus"},
+            "spec": {
+                "targetNamespace": "komsco-ai-kugnus",
+                "consolePluginName": "komsco-ai-console-plugin-kugnus",
+            },
+        }
+    )
+    resources = olm_operator.resources_for(config)
+    secret = next(
+        resource
+        for resource in resources
+        if resource["kind"] == "Secret" and resource["metadata"]["name"] == "komsco-ai-action-executor-auth"
+    )
+    gateway = next(
+        resource
+        for resource in resources
+        if resource["kind"] == "Deployment" and resource["metadata"]["name"] == "komsco-ai-gateway"
+    )
+    executor = next(
+        resource
+        for resource in resources
+        if resource["kind"] == "Deployment" and resource["metadata"]["name"] == "komsco-ai-action-executor"
+    )
+    expected_digest = olm_operator.token_digest(existing_token)
+
+    assert secret["stringData"]["shared-token"] == existing_token
+    assert gateway["spec"]["template"]["metadata"]["annotations"][
+        "aiops.komsco/action-executor-token-digest"
+    ] == expected_digest
+    assert executor["spec"]["template"]["metadata"]["annotations"][
+        "aiops.komsco/action-executor-token-digest"
+    ] == expected_digest
+
+
+def test_action_executor_requires_shared_token(monkeypatch) -> None:
+    monkeypatch.setattr(action_executor, "EXECUTOR_ENABLED", True)
+    monkeypatch.setattr(action_executor, "EXECUTOR_SHARED_TOKEN", "")
+
+    with pytest.raises(HTTPException) as missing_config:
+        action_executor.verify_executor_ingress(None)
+    assert missing_config.value.status_code == 503
+
+    monkeypatch.setattr(action_executor, "EXECUTOR_SHARED_TOKEN", "shared")
+    with pytest.raises(HTTPException) as bad_token:
+        action_executor.verify_executor_ingress(None)
+    assert bad_token.value.status_code == 401
+
+    action_executor.verify_executor_ingress("Bearer shared")
+
+
+def test_olm_operator_console_transition_disables_legacy_aiops_plugin(monkeypatch) -> None:
+    calls = []
+
+    def fake_request(method: str, path: str, **kwargs):
+        if method == "GET":
+            return {
+                "spec": {
+                    "plugins": [
+                        "komsco-ai-console-plugin",
+                        "komsco-ai-console-plugin-kugnus",
+                        "lightspeed-console-plugin",
+                        "monitoring-plugin",
+                    ]
+                }
+            }
+        calls.append((method, path, kwargs))
+        return {}
+
+    monkeypatch.setattr(olm_operator, "request", fake_request)
+
+    olm_operator.patch_console_plugin_enabled(
+        "komsco-ai-console-plugin-kugnus",
+        ["komsco-ai-console-plugin"],
+    )
+
+    assert calls == [
+        (
+            "PATCH",
+            "/apis/operator.openshift.io/v1/consoles/cluster",
+            {
+                "body": {
+                    "spec": {
+                        "plugins": [
+                            "komsco-ai-console-plugin-kugnus",
+                            "lightspeed-console-plugin",
+                            "monitoring-plugin",
+                        ]
+                    }
+                },
+                "content_type": "application/merge-patch+json",
+            },
+        )
+    ]
 
 
 def test_olm_operator_can_wire_rag_backend_url_from_secret() -> None:
@@ -1009,14 +1201,14 @@ def test_olm_operator_status_rejects_execute_mode_without_mutations(monkeypatch)
     assert by_type["SafetyModeReady"]["reason"] == "ExecuteCapabilityMismatch"
 
 
-def test_olm_operator_status_rejects_read_only_mode_with_mutations(monkeypatch) -> None:
+def test_olm_operator_status_rejects_evidence_check_mode_with_mutations(monkeypatch) -> None:
     monkeypatch.setattr(olm_operator, "get_resource", _ready_olm_resource)
     config = olm_operator.installation_config(
         {
             "metadata": {"namespace": "komsco-ai-kugnus", "generation": 10},
             "spec": {
                 "targetNamespace": "komsco-ai-kugnus",
-                "mode": "read-only",
+                "mode": "evidence-check",
                 "pluginReplicas": 1,
                 "gatewayReplicas": 1,
                 "consolePluginName": "komsco-ai-console-plugin-kugnus",
@@ -1388,6 +1580,13 @@ def test_chat_stream_emits_rca_context_event(monkeypatch) -> None:
             for event in events
             if isinstance(event, dict) and event.get("type") == "rca_context"
         ]
+        answer_contracts = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and event.get("answerContract") == "aiops-action-v0.1.9"
+        ]
         assert len(rca_events) >= 2
         latest_context = rca_events[-1]["context"]
         assert latest_context["kind"] == "RcaContext"
@@ -1395,7 +1594,86 @@ def test_chat_stream_emits_rca_context_event(monkeypatch) -> None:
         assert latest_context["metadata"]["phase"] == "post_answer"
         assert latest_context["metadata"]["digest"].startswith("sha256:")
         assert latest_context["evidence"]["summary"]["missingCount"] >= 1
+        assert answer_contracts == []
+        assert "ActionProposal -> SealedActionPlan" not in response.text
         assert gateway_main.LAST_RCA_CONTEXT["metadata"]["digest"] == latest_context["metadata"]["digest"]
+
+    asyncio.run(run())
+
+
+def test_chat_stream_persists_chat_transcript_record(monkeypatch, tmp_path) -> None:
+    CHAT_TRANSCRIPTS.clear()
+    EVIDENCE_RECORDS.clear()
+    gateway_main.LAST_RCA_CONTEXT = None
+    transcript_jsonl_path = tmp_path / "chat-transcripts.jsonl"
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_ols_stream(*_args, **_kwargs):
+        yield {
+            "type": "text",
+            "content": "현재 확인된 OpenShift 상태를 기준으로 답변합니다.",
+        }
+        yield {"type": "end", "conversationId": "conv-transcript-test"}
+
+    async def fake_rag_search(*_args, **_kwargs):
+        return ("not_configured", "RAG backend not configured", [])
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fake_ols_stream)
+    monkeypatch.setattr(gateway_main, "search_pgvector_runbooks", fake_rag_search)
+    monkeypatch.setattr(gateway_main, "CHAT_TRANSCRIPT_JSONL_PATH", str(transcript_jsonl_path))
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "conversationId": "conv-transcript-test",
+                    "message": "최근 OpenShift 경고를 근거와 추가 확인으로 나눠줘",
+                    "runId": "run-transcript-test",
+                },
+            )
+            status_response = await client.get(
+                "/v1/aiops/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        assert status_response.status_code == 200
+        assert len(CHAT_TRANSCRIPTS) == 1
+        transcript = next(iter(CHAT_TRANSCRIPTS.values()))
+        assert transcript["kind"] == "ChatTranscriptRecord"
+        assert transcript["spec"]["conversationId"] == "conv-transcript-test"
+        assert transcript["spec"]["runId"] == "run-transcript-test"
+        assert "최근 OpenShift 경고" in transcript["spec"]["userMessage"]
+        assert "현재 확인된 OpenShift 상태" in transcript["spec"]["assistantAnswer"]
+        assert transcript["spec"]["observedState"]["rcaContextDigest"].startswith("sha256:")
+        assert transcript["spec"]["observedState"]["taskType"]
+        assert transcript["spec"]["workflow"]["incidentId"] == "conv-transcript-test"
+        assert status_response.json()["spec"]["records"]["chatTranscripts"][0]["kind"] == "ChatTranscriptRecord"
+        jsonl_records = [
+            json.loads(line)
+            for line in transcript_jsonl_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert len(jsonl_records) == 1
+        assert jsonl_records[0]["kind"] == "ChatTranscriptRecord"
+        assert jsonl_records[0]["spec"]["conversationId"] == "conv-transcript-test"
+        assert "최근 OpenShift 경고" in jsonl_records[0]["spec"]["userMessage"]
+        assert "현재 확인된 OpenShift 상태" in jsonl_records[0]["spec"]["assistantAnswer"]
 
     asyncio.run(run())
 
@@ -1561,6 +1839,109 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
     asyncio.run(run())
 
 
+def test_chat_stream_ops_question_connects_plan_evidence_final_text_and_action_contract(monkeypatch) -> None:
+    EVIDENCE_RECORDS.clear()
+    gateway_main.LAST_RCA_CONTEXT = None
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_call_ols_stream(*_args, **_kwargs):
+        yield {
+            "type": "tool_result",
+            "name": "openshift_event_lookup",
+            "status": "success",
+            "summary": "default namespace restart event evidence collected",
+        }
+        yield {
+            "type": "text",
+            "content": (
+                "원인: OOMKilled 가능성이 가장 큽니다.\n"
+                "조치: resource limit과 최근 배포 변경을 확인한 뒤 승인 계획으로 복구합니다.\n"
+            ),
+        }
+        yield {"type": "end"}
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fake_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+                    "runId": "run-full-aiops-contract",
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        assert events[-1] == "[DONE]"
+        tool_plan_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict) and event.get("type") == "tool_plan"
+        )
+        evidence_ref_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "evidence_ref"
+        )
+        pre_answer_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "rca_context"
+            and event.get("context", {}).get("metadata", {}).get("phase") == "pre_answer"
+        )
+        final_text_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and "원인: OOMKilled" in event.get("content", "")
+        )
+        action_contract_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and event.get("answerContract") == "aiops-action-v0.1.9"
+        )
+        post_answer_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "rca_context"
+            and event.get("context", {}).get("metadata", {}).get("phase") == "post_answer"
+        ]
+
+        assert tool_plan_index < evidence_ref_index < pre_answer_index < final_text_index
+        assert final_text_index < action_contract_index
+        assert post_answer_events
+        action_candidates = post_answer_events[-1]["context"]["rcaResult"]["action_candidates"]
+        assert any("resource limit" in candidate for candidate in action_candidates)
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in events[
+            action_contract_index
+        ]["content"]
+
+    asyncio.run(run())
+
+
 def test_chat_stream_unexpected_exception_emits_failed_rca_context_before_done(monkeypatch) -> None:
     EVIDENCE_RECORDS.clear()
     gateway_main.LAST_RCA_CONTEXT = None
@@ -1720,7 +2101,19 @@ def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> 
         assert len(SEALED_ACTION_PLANS) == 1
         assert len(APPROVAL_DECISIONS) == 1
         assert len(EXECUTION_RECORDS) == 1
-        assert any("실행까지 완료" in event.get("content", "") for event in text_events)
+        answer_text = "\n".join(event.get("content", "") for event in text_events)
+        plan_id = next(iter(SEALED_ACTION_PLANS))
+        approval_id = next(iter(APPROVAL_DECISIONS))
+        execution_id = next(iter(EXECUTION_RECORDS))
+        assert "실행까지 완료" in answer_text
+        assert "- Parameters: `" in answer_text
+        assert '"replicas": 3' in answer_text
+        assert '"hpaReviewed": false' in answer_text
+        assert f"- Plan: `{plan_id}`" in answer_text
+        assert f"- Approval: `{approval_id}`" in answer_text
+        assert f"- Execution: `{execution_id}`" in answer_text
+        assert "- Mutation: `mutation_succeeded` / `typed_action_executed`" in answer_text
+        assert "- Verification: `verified` / `scale_spec_matches`" in answer_text
         context = assert_post_answer_rca_before_done(events)
         assert context["confidence"]["level"] == "insufficient_evidence"
 
@@ -1970,6 +2363,17 @@ def test_classify_request_policy_blocks_mutation_action_plan_intent() -> None:
     assert policy["risk"] == "approval_required"
 
 
+def test_classify_request_policy_routes_action_candidate_button_prompt() -> None:
+    policy = classify_request_policy(
+        "Deployment `komsco-ai-dev/aiops-two-pod-exec` rollout restart 실행 계획을 생성해줘.\n\n"
+        "실행은 바로 하지 말고, 먼저 Action Plan을 만들고 승인 버튼을 기다려."
+    )
+
+    assert policy["decision"] == "action_proposal_only"
+    assert policy["mutationAllowed"] is False
+    assert policy["risk"] == "approval_required"
+
+
 def test_classify_request_policy_blocks_rollback_action_plan_intent() -> None:
     policy = classify_request_policy("deployment rollout 문제가 있을 때 롤백 계획을 세워줘")
 
@@ -1981,7 +2385,7 @@ def test_classify_request_policy_blocks_rollback_action_plan_intent() -> None:
 def test_classify_request_policy_allows_restart_count_analysis() -> None:
     policy = classify_request_policy("현재 클러스터에서 재시작이 많은 Pod를 분석해줘")
 
-    assert policy["decision"] == "allow_read_only_evidence"
+    assert policy["decision"] == "allow_evidence_collection"
     assert policy["mutationAllowed"] is False
     assert policy["risk"] == "low"
 
@@ -1989,7 +2393,7 @@ def test_classify_request_policy_allows_restart_count_analysis() -> None:
 def test_classify_request_policy_allows_pod_count_question() -> None:
     policy = classify_request_policy("aiops-two-pod-exec 파드 몇개 띄었어?")
 
-    assert policy["decision"] == "allow_read_only_evidence"
+    assert policy["decision"] == "allow_evidence_collection"
     assert policy["mutationAllowed"] is False
     assert policy["risk"] == "low"
 
@@ -2007,7 +2411,7 @@ def test_parse_pod_count_query_extracts_target_without_hardcoded_name() -> None:
     }
 
 
-def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> None:
+def test_pod_status_evidence_trigger_only_for_evidence_check_status_analysis() -> None:
     assert should_collect_pod_status_evidence("현재 클러스터의 Pod 상태와 재시작이 많은 Pod를 분석해줘")
     assert should_collect_pod_status_evidence("파드리스트 조회해줘")
     assert should_collect_pod_status_evidence("aiops-two-pod-exec 파드 몇개 띄었어?")
@@ -2017,21 +2421,21 @@ def test_pod_status_evidence_trigger_only_for_read_only_status_analysis() -> Non
     assert should_collect_rca_signal_evidence("노드 pressure와 CPU metric도 같이 봐줘")
 
 
-def test_classify_request_policy_allows_read_only_investigation() -> None:
+def test_classify_request_policy_allows_evidence_check_investigation() -> None:
     policy = classify_request_policy("최근 경고와 원인을 근거 기준으로 정리해줘")
 
-    assert policy["decision"] == "allow_read_only_evidence"
+    assert policy["decision"] == "allow_evidence_collection"
     assert policy["mutationAllowed"] is False
 
 
 def test_policy_check_progress_copy_uses_operator_language() -> None:
-    read_only_policy = classify_request_policy("최근 에러로그 20건 가져와봐")
+    evidence_check_policy = classify_request_policy("최근 에러로그 20건 가져와봐")
     action_policy = classify_request_policy("web-api 파드 3개로 올려줘")
 
-    assert policy_check_summary(read_only_policy) == "조회/증거 수집 허용"
-    assert "Read-only evidence allowed" not in policy_check_summary(read_only_policy)
-    assert "정책 결정: 조회/증거 수집 허용" in summarize_policy_detail(read_only_policy)
-    assert "내부 결정값: allow_read_only_evidence" in summarize_policy_detail(read_only_policy)
+    assert policy_check_summary(evidence_check_policy) == "조회/증거 수집 허용"
+    assert "Evidence-check evidence allowed" not in policy_check_summary(evidence_check_policy)
+    assert "정책 결정: 조회/증거 수집 허용" in summarize_policy_detail(evidence_check_policy)
+    assert "내부 결정값: allow_evidence_collection" in summarize_policy_detail(evidence_check_policy)
     assert policy_check_summary(action_policy) == "조치 요청은 Action Plan 경로로 처리"
     assert "Action proposal only" not in policy_check_summary(action_policy)
 
@@ -2194,7 +2598,7 @@ def test_rag_search_acl_filter_hides_other_subject_documents() -> None:
         "namespace": "openshift-marketplace",
         "source_type": "user-upload",
         "version": "v0.1.4",
-        "labels": {"freshness": "fresh", "safetyClass": "read-only"},
+        "labels": {"freshness": "fresh", "safetyClass": "evidence-check"},
     }
     other_row = {
         "acl_groups": ["other-team", "user:other"],
@@ -2203,7 +2607,7 @@ def test_rag_search_acl_filter_hides_other_subject_documents() -> None:
         "namespace": "openshift-marketplace",
         "source_type": "user-upload",
         "version": "v0.1.4",
-        "labels": {"freshness": "fresh", "safetyClass": "read-only"},
+        "labels": {"freshness": "fresh", "safetyClass": "evidence-check"},
     }
 
     assert gateway_main.row_matches_rag_filters(admin_row, filters, admin_principals) is True
@@ -2219,7 +2623,7 @@ def test_rag_search_acl_filter_rejects_requested_group_not_owned_by_subject() ->
         "namespace": "openshift-marketplace",
         "source_type": "user-upload",
         "version": "v0.1.4",
-        "labels": {"freshness": "fresh", "safetyClass": "read-only"},
+        "labels": {"freshness": "fresh", "safetyClass": "evidence-check"},
     }
 
     assert (
@@ -2253,7 +2657,7 @@ def test_rag_search_filter_excludes_stale_and_dangerous_documents_by_default() -
 
     assert (
         gateway_main.row_matches_rag_filters(
-            {**base_row, "labels": {"freshness": "fresh", "safetyClass": "read-only"}},
+            {**base_row, "labels": {"freshness": "fresh", "safetyClass": "evidence-check"}},
             gateway_main.RagSearchFilters(),
             subject_principals,
         )
@@ -2261,7 +2665,7 @@ def test_rag_search_filter_excludes_stale_and_dangerous_documents_by_default() -
     )
     assert (
         gateway_main.row_matches_rag_filters(
-            {**base_row, "labels": {"freshness": "stale", "safetyClass": "read-only"}},
+            {**base_row, "labels": {"freshness": "stale", "safetyClass": "evidence-check"}},
             gateway_main.RagSearchFilters(),
             subject_principals,
         )
@@ -2277,7 +2681,7 @@ def test_rag_search_filter_excludes_stale_and_dangerous_documents_by_default() -
     )
     assert (
         gateway_main.row_matches_rag_filters(
-            {**base_row, "labels": {"freshness": "stale", "safetyClass": "read-only"}},
+            {**base_row, "labels": {"freshness": "stale", "safetyClass": "evidence-check"}},
             gateway_main.RagSearchFilters(labels={"freshness": "stale"}),
             subject_principals,
         )
@@ -2293,11 +2697,11 @@ def test_rag_upload_safety_and_freshness_metadata_are_classified() -> None:
         }
     )
 
-    stale_read_only = build_rag_upload_document(
+    stale_evidence_check = build_rag_upload_document(
         RagDocumentUploadCreate(
             name="ops-runbook.md",
-            content="Read-only runbook. First inspect events and logs.",
-            labels={"freshness": "stale", "safetyClass": "read-only"},
+            content="Evidence-check runbook. First inspect events and logs.",
+            labels={"freshness": "stale", "safetyClass": "evidence-check"},
         ),
         subject,
     )
@@ -2305,13 +2709,13 @@ def test_rag_upload_safety_and_freshness_metadata_are_classified() -> None:
         RagDocumentUploadCreate(
             name="dangerous-runbook.md",
             content="운영자가 승인 없이 oc delete pod bad -n default 를 실행하라고 적은 문서",
-            labels={"safetyClass": "read-only"},
+            labels={"safetyClass": "evidence-check"},
         ),
         subject,
     )
 
-    assert stale_read_only["document"]["labels"]["freshness"] == "stale"
-    assert stale_read_only["document"]["labels"]["safetyClass"] == "read-only"
+    assert stale_evidence_check["document"]["labels"]["freshness"] == "stale"
+    assert stale_evidence_check["document"]["labels"]["safetyClass"] == "evidence-check"
     assert dangerous["document"]["labels"]["safetyClass"] == "dangerous"
     assert dangerous["chunks"][0]["labels"]["safetyClass"] == "dangerous"
 
@@ -2456,7 +2860,7 @@ def test_build_ols_payload_keeps_gateway_context_out_of_ols_body() -> None:
         tool_plan=plan,
         rca_context=rca_context,
         safety_contract=safety_contract,
-        policy={"decision": "allow_read_only_evidence", "token": "secret-token-value-1234567890"},
+        policy={"decision": "allow_evidence_collection", "token": "secret-token-value-1234567890"},
         gateway_evidence="safe line\nAuthorization: Bearer secret-token-value-1234567890",
     )
 
@@ -2472,7 +2876,7 @@ def test_build_ols_payload_keeps_gateway_context_out_of_ols_body() -> None:
     assert gateway_context["kind"] == "GatewayContext"
     assert gateway_context["toolPlan"]["kind"] == "ToolPlan"
     assert gateway_context["rcaContext"]["kind"] == "RcaContext"
-    assert gateway_context["safetyContract"]["mode"] == "read_only"
+    assert gateway_context["safetyContract"]["mode"] == "evidence_check"
     assert gateway_context["missingEvidence"]
     assert gateway_context["metadata"]["digest"].startswith("sha256:")
     assert gateway_context["metadata"]["rcaContextDigest"] == rca_context["metadata"]["digest"]
@@ -2517,7 +2921,7 @@ def test_build_ols_query_defaults_to_minimal_safe_prompt() -> None:
     assert "최근 OpenShift 경고" in query
     assert "[KOMSCO AI Gateway handoff]" not in query
     assert "[User question]" not in query
-    assert "Use read-only OpenShift checks only" in query
+    assert "Use evidence-check OpenShift checks only" in query
     assert "Do not invent alert, pod, node, namespace, resource names" in query
     assert "If no screenshot/image is attached" in query
     assert "Policy decision:" in query
@@ -2556,7 +2960,7 @@ def test_build_ols_context_handoff_summarizes_plan_and_redacts_evidence() -> Non
             latest_runtime_tool_plan=plan,
             latest_rca_context=rca_context,
         ),
-        policy={"decision": "allow_read_only_evidence"},
+        policy={"decision": "allow_evidence_collection"},
         gateway_evidence="Authorization: Bearer secret-token-value-1234567890\nOOMKilled observed",
     )
 
@@ -2571,6 +2975,65 @@ def test_build_ols_context_handoff_summarizes_plan_and_redacts_evidence() -> Non
     assert "OOMKilled observed" in handoff
     assert "secret-token-value" not in handoff
     assert "Authorization: [REDACTED] [REDACTED]" in handoff
+
+
+def test_build_aiops_answer_contract_exposes_action_path() -> None:
+    plan = build_runtime_tool_plan("어제 새벽에 default namespace Pod가 왜 재시작됐어?")
+    rca_context = build_rca_context(
+        message="어제 새벽에 default namespace Pod가 왜 재시작됐어?",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "contentDigest": "sha256:event",
+                "evidenceId": "ev-event",
+                "eventStatus": "success",
+                "evidenceType": "event",
+            }
+        ],
+        run_id="run-aiops-answer-contract",
+        incident_id="inc-aiops-answer-contract",
+    )
+
+    text = build_aiops_answer_contract_text(
+        policy={"decision": "action_proposal_only"},
+        rca_context=rca_context,
+        runtime_tool_plan=plan,
+    )
+
+    assert "## 승인 대기 조치" in text
+    assert "Tool Plan: `pod_restart_rca`" in text
+    assert "RCA Context: 수집 근거 1건" in text
+    assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in text
+    assert "/v1/actions/rejections" in text
+    assert "rejected" in text
+
+
+def test_build_aiops_answer_contract_omits_action_text_for_evidence_check_analysis() -> None:
+    plan = build_runtime_tool_plan("최근 OpenShift 경고와 우선 확인할 항목을 정리해줘")
+    rca_context = build_rca_context(
+        message="최근 OpenShift 경고와 우선 확인할 항목을 정리해줘",
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "contentDigest": "sha256:alert",
+                "evidenceId": "ev-alert",
+                "eventStatus": "success",
+                "evidenceType": "alert",
+            }
+        ],
+        run_id="run-aiops-evidence-check-answer-contract",
+        incident_id="inc-aiops-evidence-check-answer-contract",
+    )
+
+    text = build_aiops_answer_contract_text(
+        policy={"decision": "evidence_check"},
+        rca_context=rca_context,
+        runtime_tool_plan=plan,
+    )
+
+    assert text == ""
+    assert "ActionProposal" not in text
+    assert "ApprovalDecision" not in text
 
 
 def test_build_ols_query_minimal_includes_short_verified_context() -> None:
@@ -2593,7 +3056,7 @@ def test_build_ols_query_minimal_includes_short_verified_context() -> None:
             latest_runtime_tool_plan=plan,
             latest_rca_context=rca_context,
         ),
-        policy={"decision": "allow_read_only_evidence"},
+        policy={"decision": "allow_evidence_collection"},
         gateway_evidence="Event: default/web-0 restarted at 03:14; reason=OOMKilled",
     )
 
@@ -3251,8 +3714,22 @@ def test_parse_natural_action_intent_scales_named_deployment() -> None:
     assert intent["parameters"]["replicas"] == 3
 
 
-def test_page_context_aiops_execution_mode_defaults_read_only() -> None:
-    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "read-only"
+def test_page_context_aiops_execution_mode_defaults_execute_and_accepts_read_only() -> None:
+    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "execute"
+
+    read_only_req = ChatRequest(
+        message="재시작해줘",
+        pageContext={"aiopsExecutionMode": "read-only"},
+    )
+    assert page_context_aiops_execution_mode(read_only_req) == "evidence-check"
+    assert not gateway_main.execution_mode_allows_actions(read_only_req)
+
+    evidence_check_req = ChatRequest(
+        message="재시작해줘",
+        pageContext={"aiopsExecutionMode": "evidence-check"},
+    )
+    assert page_context_aiops_execution_mode(evidence_check_req) == "evidence-check"
+    assert not gateway_main.execution_mode_allows_actions(evidence_check_req)
 
 
 def test_page_context_aiops_execution_mode_accepts_execute() -> None:
@@ -3338,6 +3815,12 @@ def test_parse_natural_action_intent_uses_deployment_page_context_for_restart() 
         ("team-c 네임스페이스의 api-gateway 재시작해줘", "team-c", "api-gateway"),
         ("deployment/worker-a rollout restart", "workers", "worker-a"),
         ("`checkout-api` 리스타트", "shop", "checkout-api"),
+        (
+            "Deployment `komsco-ai-dev/aiops-two-pod-exec` rollout restart 실행 계획을 생성해줘.\n\n"
+            "실행은 바로 하지 말고, 먼저 Action Plan을 만들고 승인 버튼을 기다려.",
+            "komsco-ai-dev",
+            "aiops-two-pod-exec",
+        ),
     ],
 )
 def test_parse_natural_action_intent_accepts_restart_variants(
@@ -3356,6 +3839,30 @@ def test_parse_natural_action_intent_accepts_restart_variants(
     assert intent["toolName"] == "rollout_restart_deployment"
     assert intent["namespace"] == expected_namespace
     assert intent["targetName"] == expected_target
+
+
+def test_create_natural_action_plan_reports_missing_openshift_api(monkeypatch) -> None:
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "")
+
+    result = asyncio.run(
+        gateway_main.create_natural_action_plan(
+            ChatRequest(
+                message=(
+                    "Deployment `komsco-ai-dev/aiops-two-pod-exec` rollout restart 실행 계획을 생성해줘.\n\n"
+                    "실행은 바로 하지 말고, 먼저 Action Plan을 만들고 승인 버튼을 기다려."
+                ),
+                pageContext={"aiopsExecutionMode": "execute"},
+            ),
+            "Bearer test-token",
+            safe_subject({"username": "dev-user", "uid": "uid-dev"}),
+            incident_id="incident-test",
+            run_id="run-test",
+        )
+    )
+
+    assert result
+    assert result["status"] == "unavailable"
+    assert "OpenShift API URL" in gateway_main.natural_action_plan_response(result)
 
 
 @pytest.mark.parametrize(
@@ -3657,9 +4164,9 @@ def test_agentic_safety_and_evidence_scenario_matrix_covers_non_mutating_paths()
     assert parse_natural_action_intent(ambiguous) is None
     assert "대상 리소스 이름이 명확하지 않습니다" in unresolved_natural_action_response(ambiguous)
     assert is_pod_list_request("team-a 네임스페이스 파드 리스트 조회해줘")
-    assert pod_list_policy["decision"] == "allow_read_only_evidence"
+    assert pod_list_policy["decision"] == "allow_evidence_collection"
     assert should_collect_pod_status_evidence("CrashLoopBackOff 파드 원인 분석해줘")
-    assert crashloop_policy["decision"] == "allow_read_only_evidence"
+    assert crashloop_policy["decision"] == "allow_evidence_collection"
     assert diagnostic_candidate["collector"] == "node_os_readonly_triage"
     assert diagnostic_candidate["targetNode"]["name"] == "worker-a"
     assert diagnostic_request_digest(diagnostic_candidate).startswith("sha256:")
@@ -3937,6 +4444,7 @@ def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
                 "targetName": "web-api",
                 "toolName": "set_replicas_within_bounds",
             },
+            "planDigest": "sha256:execute-mode-plan",
             "planId": "plan-execute-mode",
             "status": "planned",
             "target": {"kind": "Deployment", "namespace": "team-a", "name": "web-api"},
@@ -3973,6 +4481,259 @@ def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)
+        tool_plan_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict) and event.get("type") == "tool_plan"
+        )
+        plan_result_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_plan"
+        )
+        plan_results = [events[plan_result_index]]
+        answer_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and "plan-execute-mode" in event.get("content", "")
+        )
+        post_answer_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "rca_context"
+            and event.get("context", {}).get("metadata", {}).get("phase") == "post_answer"
+        )
+        run_completed_index = next(
+            index
+            for index, event in enumerate(events)
+            if isinstance(event, dict)
+            and event.get("type") == "run_status"
+            and event.get("stage") == "completed"
+            and "조치 계획 생성 완료" in event.get("message", "")
+        )
+        assert [
+            tool_plan_index,
+            plan_result_index,
+            answer_index,
+            run_completed_index,
+            post_answer_index,
+            len(events) - 1,
+        ] == sorted(
+            [
+                tool_plan_index,
+                plan_result_index,
+                answer_index,
+                run_completed_index,
+                post_answer_index,
+                len(events) - 1,
+            ]
+        )
+        assert events[-1] == "[DONE]"
+        assert plan_results[0]["result"]["planDigest"] == "sha256:execute-mode-plan"
+        assert plan_results
+        assert plan_results[0]["status"] == "success"
+        assert "plan-execute-mode" in response.text
+        assert "sha256:execute-mode-plan" in response.text
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in response.text
+        assert "natural_action_execute" not in response.text
+        assert "lightspeed_stream" not in response.text
+        context = assert_post_answer_rca_before_done(events)
+        assert context["confidence"]["level"] == "insufficient_evidence"
+
+    asyncio.run(run())
+
+
+def test_chat_action_plan_can_continue_through_standard_approval_api(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    requester = safe_subject({"username": "requester@example.com", "uid": "uid-requester", "groups": ["ops"]})
+    approver = safe_subject({"username": "approver@example.com", "uid": "uid-approver", "groups": ["ops"]})
+
+    async def fake_subject_review(user_auth_header: str) -> dict:
+        return requester if user_auth_header == "Bearer requester-token" else approver
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_action_access_review(_user_auth_header: str, plan: dict) -> dict:
+        target = plan["target"]
+        return {
+            "allowed": True,
+            "enabled": True,
+            "resourceAttributes": {
+                "group": "apps",
+                "name": target["name"],
+                "namespace": target["namespace"],
+                "resource": "deployments",
+                "subresource": "scale",
+                "verb": "update",
+            },
+        }
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, *_, **__) -> dict:
+        assert "/apis/apps/v1/namespaces/team-a/deployments/web-api" in path
+        return {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "web-api",
+                "namespace": "team-a",
+                "uid": "deployment-uid-a",
+            },
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for action plan responses")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "MUTATIONS_ENABLED", False)
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_action_access_review", fake_action_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            chat_response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer requester-token"},
+                json={
+                    "message": "team-a 네임스페이스의 web-api 파드 4개로 올려줘",
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                },
+            )
+            events = parse_sse_events(chat_response.text)
+            plan_result = next(
+                event["result"]
+                for event in events
+                if isinstance(event, dict)
+                and event.get("type") == "tool_result"
+                and event.get("name") == "natural_action_plan"
+            )
+            approval_response = await client.post(
+                "/v1/actions/approvals",
+                headers={"Authorization": "Bearer approver-token"},
+                json={
+                    "planId": plan_result["planId"],
+                    "expectedPlanDigest": plan_result["planDigest"],
+                },
+            )
+            approval_id = approval_response.json()["metadata"]["name"]
+            execution_response = await client.post(
+                "/v1/actions/execute",
+                headers={"Authorization": "Bearer approver-token"},
+                json={
+                    "approvalId": approval_id,
+                    "planId": plan_result["planId"],
+                    "expectedPlanDigest": plan_result["planDigest"],
+                },
+            )
+
+        assert chat_response.status_code == 200
+        assert approval_response.status_code == 200
+        assert execution_response.status_code == 403
+        assert execution_response.json()["detail"]["mutationOutcome"]["status"] == "mutation_disabled"
+        assert len(ACTION_PROPOSALS) == 1
+        assert len(SEALED_ACTION_PLANS) == 1
+        assert len(APPROVAL_DECISIONS) == 1
+        assert len(EXECUTION_RECORDS) == 1
+        execution_record = next(iter(EXECUTION_RECORDS.values()))
+        assert execution_record["spec"]["planId"] == plan_result["planId"]
+        assert execution_record["spec"]["planDigest"] == plan_result["planDigest"]
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in chat_response.text
+        context = assert_post_answer_rca_before_done(events)
+        assert context["metadata"]["phase"] == "post_answer"
+
+    asyncio.run(run())
+
+
+def test_chat_stream_action_candidate_pod_prompt_prefers_action_plan_over_pod_count(
+    monkeypatch,
+) -> None:
+    prompt = (
+        "Pod `komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz` evict 실행 계획을 생성해줘.\n\n"
+        "조치 후보: CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보\n"
+        "대상: komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz\n"
+        "위험도: 높음\n"
+        "근거: container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=2321, "
+        "message=back-off 5m0s restarting failed container=crashloop "
+        "pod=aiops-scenario-1-crashloop-7448bf8897-57pjz_komsco-ai-dev(f0119e12-b8d1-4fc4-82df-a6516de8e800)\n"
+        "선행 확인: oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev\n"
+        "예상 영향: komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 "
+        "잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.\n\n"
+        "실행은 바로 하지 말고, 먼저 Action Plan을 만들고 승인 버튼을 기다려."
+    )
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_create_natural_action_plan(req, *_args, **_kwargs):
+        assert req.message == prompt
+        return {
+            "intent": {
+                "kind": "Pod",
+                "namespace": "komsco-ai-dev",
+                "parameters": {"reason": "natural_language_unhealthy_pod_eviction"},
+                "targetName": "aiops-scenario-1-crashloop-7448bf8897-57pjz",
+                "toolName": "evict_one_unhealthy_controller_owned_pod",
+            },
+            "parameters": {"reason": "natural_language_unhealthy_pod_eviction"},
+            "planId": "plan-action-candidate-pod",
+            "proposalId": "proposal-action-candidate-pod",
+            "risk": "medium",
+            "status": "planned",
+            "target": {
+                "kind": "Pod",
+                "namespace": "komsco-ai-dev",
+                "name": "aiops-scenario-1-crashloop-7448bf8897-57pjz",
+            },
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for action candidate plan responses")
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "create_natural_action_plan", fake_create_natural_action_plan)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": prompt,
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
         plan_results = [
             event
             for event in events
@@ -3981,12 +4742,9 @@ def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
             and event.get("name") == "natural_action_plan"
         ]
         assert plan_results
-        assert plan_results[0]["status"] == "success"
-        assert "plan-execute-mode" in response.text
-        assert "natural_action_execute" not in response.text
+        assert "plan-action-candidate-pod" in response.text
+        assert "pod_count_investigation" not in response.text
         assert "lightspeed_stream" not in response.text
-        context = assert_post_answer_rca_before_done(events)
-        assert context["confidence"]["level"] == "insufficient_evidence"
 
     asyncio.run(run())
 
@@ -4332,7 +5090,105 @@ def test_chat_stream_unparsed_mutation_request_does_not_fall_through_to_ols(monk
     asyncio.run(run())
 
 
-def test_chat_stream_read_only_action_request_emits_post_answer_rca_context(monkeypatch) -> None:
+def test_chat_stream_execute_action_request_emits_plan_and_post_answer_rca_context(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, *_, **__) -> dict:
+        assert "/apis/apps/v1/namespaces/team-a/deployments/web-api" in path
+        return {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "web-api",
+                "namespace": "team-a",
+                "uid": "deployment-uid-a",
+            },
+        }
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for action plan responses")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "MUTATIONS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "team-a 네임스페이스의 web-api 파드 3개로 올려줘",
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        action_plan_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "natural_action_plan"
+        ]
+        rca_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "rca_context"
+        ]
+        text_events = [
+            event
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        ]
+        assert action_plan_results
+        assert action_plan_results[0]["status"] == "success"
+        assert action_plan_results[0]["result"]["status"] == "planned"
+        assert rca_events
+        assert rca_events[-1]["context"]["metadata"]["phase"] == "post_answer"
+        assert rca_events[-1]["context"]["safety"]["mode"] == "controlled_execution"
+        assert rca_events[-1]["context"]["evidence"]["summary"]["collectedCount"] == 0
+        assert any(
+            event.get("answerContract") == "natural-action-plan-v0.2.1"
+            for event in text_events
+        )
+        assert "실행 계획까지 생성했습니다" in response.text
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in response.text
+        assert "natural_action_execute" not in response.text
+        assert "lightspeed_stream" not in response.text
+        assert len(ACTION_PROPOSALS) == 1
+        assert len(SEALED_ACTION_PLANS) == 1
+        assert len(APPROVAL_DECISIONS) == 0
+        assert len(EXECUTION_RECORDS) == 0
+
+    asyncio.run(run())
+
+
+def test_chat_stream_read_only_action_request_skips_plan_and_emits_post_answer_rca_context(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
     async def fake_subject_review(_user_auth_header: str) -> dict:
         return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
 
@@ -4345,7 +5201,7 @@ def test_chat_stream_read_only_action_request_emits_post_answer_rca_context(monk
         }
 
     async def fail_call_ols_stream(*_args, **_kwargs):
-        raise AssertionError("OLS must not be called for read-only action requests")
+        raise AssertionError("OLS must not be called for read-only action gate responses")
 
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
@@ -4379,12 +5235,18 @@ def test_chat_stream_read_only_action_request_emits_post_answer_rca_context(monk
         ]
         assert read_only_results
         assert read_only_results[0]["status"] == "skipped"
+        assert read_only_results[0]["result"]["executionMode"] == "evidence-check"
         assert rca_events
         assert rca_events[-1]["context"]["metadata"]["phase"] == "post_answer"
-        assert rca_events[-1]["context"]["safety"]["mode"] == "read_only"
-        assert rca_events[-1]["context"]["evidence"]["summary"]["collectedCount"] == 0
-        assert "읽기 전용 모드" in response.text
+        assert rca_events[-1]["context"]["safety"]["mode"] == "evidence_check"
+        assert "읽기 전용" in response.text
+        assert "조치 후보만 정리" in response.text
+        assert "natural_action_execute" not in response.text
         assert "lightspeed_stream" not in response.text
+        assert len(ACTION_PROPOSALS) == 0
+        assert len(SEALED_ACTION_PLANS) == 0
+        assert len(APPROVAL_DECISIONS) == 0
+        assert len(EXECUTION_RECORDS) == 0
 
     asyncio.run(run())
 
@@ -5002,11 +5864,11 @@ def test_build_aiops_overview_exposes_control_tower_and_data_sources() -> None:
     assert overview["kind"] == "AIOpsOverview"
     assert overview["spec"]["clusterSummary"] == cluster_summary
     assert overview["spec"]["controlTower"]["status"] == "healthy"
-    assert overview["spec"]["controlTower"]["statusLabel"] == "회사 OCP 읽기 전용 관제 정상"
+    assert overview["spec"]["controlTower"]["statusLabel"] == "회사 OCP 승인 실행 관제 정상"
     assert overview["spec"]["dataSources"][0]["name"] == "nodes"
     assert overview["spec"]["monitoring"]["probe"]["resultCount"] == 7
     assert overview["spec"]["monitoring"]["urls"]["thanosConfigured"] is True
-    assert overview["spec"]["safety"]["readOnlyDefault"] is True
+    assert overview["spec"]["safety"]["executionDefault"] is True
 
 
 def test_build_aiops_anomaly_summary_orders_stage2_signals() -> None:
@@ -5162,7 +6024,7 @@ def test_build_aiops_anomaly_summary_does_not_report_false_normal_on_source_gap(
     assert failed_required["spec"]["statusLabel"] == "필수 이상 징후 데이터 소스 확인 실패"
 
 
-def test_build_aiops_action_candidates_are_read_only_and_not_action_records() -> None:
+def test_build_aiops_action_candidates_are_execute_candidates_and_not_action_records() -> None:
     before_counts = {
         "approvals": len(APPROVAL_DECISIONS),
         "executions": len(EXECUTION_RECORDS),
@@ -5223,9 +6085,9 @@ def test_build_aiops_action_candidates_are_read_only_and_not_action_records() ->
 
     assert action_candidates["kind"] == "AIOpsActionCandidateSummary"
     assert candidate_spec["status"] == "candidates"
-    assert candidate_spec["safety"]["mode"] == "read-only"
+    assert candidate_spec["safety"]["mode"] == "execute"
     assert candidate_spec["safety"]["proposalOnly"] is True
-    assert candidate_spec["safety"]["mutationsEnabled"] is False
+    assert candidate_spec["safety"]["mutationsEnabled"] is True
     assert candidate["approvalRequired"] is True
     assert candidate["executable"] is False
     assert candidate["mutationSubmitted"] is False
@@ -5248,6 +6110,52 @@ def test_build_aiops_action_candidates_are_read_only_and_not_action_records() ->
         "plans": len(SEALED_ACTION_PLANS),
         "proposals": len(ACTION_PROPOSALS),
     }
+
+
+def test_build_aiops_action_candidates_use_execution_gate_when_available(monkeypatch) -> None:
+    monkeypatch.setattr(gateway_main, "MUTATIONS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "ACTION_EXECUTOR_URL", "http://action-executor.test")
+
+    anomaly_summary = {
+        "spec": {
+            "findings": [
+                {
+                    "id": "finding-1",
+                    "priority": 1,
+                    "resource": {"kind": "Deployment", "name": "api", "namespace": "prod"},
+                    "severity": "danger",
+                    "source": "pods",
+                    "title": "CrashLoopBackOff",
+                    "type": "pod_crashloop",
+                }
+            ],
+            "status": "attention",
+        }
+    }
+    data_sources = [
+        {"label": "Pod anomaly signals", "name": "pods", "required": True, "status": "available"},
+        {
+            "label": "Warning events",
+            "name": "events",
+            "reason": "Kubernetes list response is paginated",
+            "required": True,
+            "status": "partial",
+        },
+    ]
+
+    action_candidates = build_aiops_action_candidates(anomaly_summary, data_sources)
+    candidate_spec = action_candidates["spec"]
+    candidate = candidate_spec["candidates"][0]
+
+    assert candidate_spec["status"] == "candidates"
+    assert candidate_spec["safety"]["mode"] == "execute"
+    assert candidate_spec["safety"]["proposalOnly"] is False
+    assert candidate_spec["safety"]["mutationsEnabled"] is True
+    assert candidate["executable"] is True
+    assert candidate["executionPolicy"]["executionEnabled"] is True
+    assert candidate["executionPolicy"]["proposalOnly"] is False
+    assert candidate["statusLabel"] == "승인 후 실행 계획 생성 가능"
+    assert candidate["blockedActions"] == []
 
 
 def test_data_source_status_marks_paginated_lists_as_partial() -> None:
@@ -5496,7 +6404,7 @@ def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch)
         assert payload["kind"] == "AIOpsOverview"
         assert payload["spec"]["clusterSummary"]["nodes"]["ready"] == 1
         assert payload["spec"]["clusterSummary"]["nodes"]["items"][0]["usage"]["cpu"] == "42m"
-        assert payload["spec"]["controlTower"]["mode"] == "read-only"
+        assert payload["spec"]["controlTower"]["mode"] == "controlled_execution"
         assert payload["spec"]["monitoring"]["probe"]["resultCount"] == 3
         assert {source["name"] for source in payload["spec"]["dataSources"]} == {
             "nodes",
@@ -5718,7 +6626,7 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
         "action": "chat_request_accepted",
         "auditId": "audit-runtime",
         "incidentId": "incident-runtime",
-        "policy": {"decision": "allow_read_only_evidence"},
+        "policy": {"decision": "allow_evidence_collection"},
         "requestId": "request-runtime",
         "runId": "run-runtime",
         "subject": subject,
@@ -6328,6 +7236,50 @@ def test_action_proposal_digest_uses_runtime_target_not_hardcoded_target() -> No
     assert candidate_action_request_digest(candidate) != candidate_action_request_digest(changed_candidate)
 
 
+def test_action_candidate_plan_intent_maps_deployment_to_restart_action() -> None:
+    intent = action_candidate_plan_intent(
+        ActionCandidatePlanCreate(
+            candidateId="action-candidate-deploy",
+            title="Deployment restart candidate",
+            target=ActionCandidateTargetCreate(
+                apiVersion="apps/v1",
+                kind="Deployment",
+                namespace="team-a",
+                name="web",
+            ),
+        )
+    )
+
+    assert intent["apiVersion"] == "apps/v1"
+    assert intent["kind"] == "Deployment"
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "web"
+    assert intent["toolName"] == "rollout_restart_deployment"
+    assert "restartedAt" in intent["parameters"]
+
+
+def test_action_candidate_plan_intent_maps_pod_to_eviction_action() -> None:
+    intent = action_candidate_plan_intent(
+        ActionCandidatePlanCreate(
+            candidateId="action-candidate-pod",
+            title="Pod eviction candidate",
+            target=ActionCandidateTargetCreate(
+                apiVersion="v1",
+                kind="Pod",
+                namespace="team-a",
+                name="web-abc",
+            ),
+        )
+    )
+
+    assert intent["apiVersion"] == "v1"
+    assert intent["kind"] == "Pod"
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "web-abc"
+    assert intent["toolName"] == "evict_one_unhealthy_controller_owned_pod"
+    assert intent["parameters"] == {"reason": "action_candidate_unhealthy_pod_eviction"}
+
+
 def test_action_access_review_request_is_derived_from_sealed_plan_target() -> None:
     subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
     proposal = build_action_proposal_record(
@@ -6388,6 +7340,77 @@ def test_sealed_action_plan_digest_excludes_mutable_status_and_digest_fields() -
     assert grant_ref["grantId"].startswith("validation-")
     assert grant_ref["grantDigest"].startswith("sha256:")
     assert grant_ref["bearerGrantStored"] is False
+
+
+def test_action_executor_rejects_missing_or_mismatched_execution_grant() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    proposal = build_action_proposal_record(
+        ActionProposalCreate(
+            toolName="rollout_restart_deployment",
+            target=ActionTarget(
+                apiVersion="apps/v1",
+                kind="Deployment",
+                namespace="team-a",
+                name="web-a",
+                uid="deployment-uid-a",
+            ),
+            parameters={"restartedAt": "2026-06-21T00:00:00Z"},
+        ),
+        subject,
+    )
+    plan_record = build_sealed_action_plan_record(proposal)
+    plan = plan_record["spec"]["sealedActionPlan"]
+
+    with pytest.raises(HTTPException) as missing_claims:
+        action_executor.verify_execution_grant(plan, {"grantDigest": "sha256:missing"})
+    assert missing_claims.value.status_code == 403
+
+    claims = {
+        "audience": "aiops-action-executor",
+        "planDigest": "sha256:wrong",
+    }
+    with pytest.raises(HTTPException) as digest_mismatch:
+        action_executor.verify_execution_grant(
+            plan,
+            {
+                "claims": claims,
+                "grantDigest": gateway_main.canonical_digest(claims),
+            },
+        )
+    assert digest_mismatch.value.status_code == 403
+
+    claims = {
+        "audience": "aiops-action-executor",
+        "notBefore": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+        "expiresAt": (datetime.now(UTC) + timedelta(minutes=1)).isoformat(),
+        "planDigest": plan["digest"]["planDigest"],
+        "action": plan["action"],
+        "target": plan["target"],
+        "policyBundleHash": plan["safety"]["policy"]["policyBundleHash"],
+    }
+    action_executor.verify_execution_grant(
+        plan,
+        {
+            "claims": claims,
+            "grantDigest": gateway_main.canonical_digest(claims),
+        },
+    )
+
+    expired_claims = {
+        **claims,
+        "notBefore": (datetime.now(UTC) - timedelta(minutes=3)).isoformat(),
+        "expiresAt": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+    }
+    with pytest.raises(HTTPException) as expired_grant:
+        action_executor.verify_execution_grant(
+            plan,
+            {
+                "claims": expired_claims,
+                "grantDigest": gateway_main.canonical_digest(expired_claims),
+            },
+        )
+    assert expired_grant.value.status_code == 403
+    assert "time window" in str(expired_grant.value.detail)
 
 
 def test_execution_evidence_freshness_rejects_expired_evidence_refs() -> None:
@@ -6467,6 +7490,50 @@ def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> N
                     "expectedPlanDigest": plan_digest,
                 },
             )
+            rejected_proposal_response = await client.post(
+                "/v1/actions/proposals",
+                headers=headers,
+                json={
+                    "incidentId": "inc-rejected-action",
+                    "runId": "run-rejected-action",
+                    "toolName": "rollout_restart_deployment",
+                    "target": {
+                        "apiVersion": "apps/v1",
+                        "kind": "Deployment",
+                        "namespace": "team-a",
+                        "name": "web-b",
+                        "uid": "deployment-uid-b",
+                    },
+                    "parameters": {"restartedAt": "2026-06-21T00:00:00Z"},
+                },
+            )
+            rejected_plan_response = await client.post(
+                "/v1/actions/plans",
+                headers=headers,
+                json={"proposalId": rejected_proposal_response.json()["metadata"]["name"]},
+            )
+            rejected_plan_payload = rejected_plan_response.json()
+            rejected_plan_id = rejected_plan_payload["metadata"]["name"]
+            rejected_plan_digest = rejected_plan_payload["spec"]["sealedActionPlan"]["digest"]["planDigest"]
+            rejection_response = await client.post(
+                "/v1/actions/rejections",
+                headers=headers,
+                json={
+                    "planId": rejected_plan_id,
+                    "expectedPlanDigest": rejected_plan_digest,
+                    "reason": "operator selected reject",
+                },
+            )
+            approve_rejected_response = await client.post(
+                "/v1/actions/approvals",
+                headers=headers,
+                json={"planId": rejected_plan_id, "expectedPlanDigest": rejected_plan_digest},
+            )
+            reject_approved_response = await client.post(
+                "/v1/actions/rejections",
+                headers=headers,
+                json={"planId": plan_id, "expectedPlanDigest": plan_digest},
+            )
 
         assert registry_response.status_code == 200
         assert registry_response.json()["spec"]["mutationsEnabled"] is False
@@ -6480,6 +7547,13 @@ def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> N
         assert approval_decision["kubernetesAuthorization"]["ssarDecision"] == "allowed"
         assert execution_response.status_code == 403
         assert execution_response.json()["detail"]["mutationOutcome"]["status"] == "mutation_disabled"
+        assert rejection_response.status_code == 200
+        rejection_decision = rejection_response.json()["spec"]["approvalDecision"]
+        assert rejection_decision["status"] == "rejected"
+        assert rejection_decision["reason"] == "operator selected reject"
+        assert approve_rejected_response.status_code == 409
+        assert "rejected" in approve_rejected_response.json()["detail"]
+        assert reject_approved_response.status_code == 409
         assert len(EXECUTION_RECORDS) == 1
         execution_record = next(iter(EXECUTION_RECORDS.values()))
         assert execution_record["spec"]["executionGrantRef"]["bearerGrantStored"] is False
@@ -6756,7 +7830,7 @@ def test_break_glass_request_records_disabled_status_without_job_submission() ->
     request = BreakGlassRequestCreate(
         profileId="node_readonly_triage_v1",
         targetNode=BreakGlassTargetNode(name="worker-a.example.com", uid="node-uid-a"),
-        justification="Need emergency read-only node diagnostics for incident review.",
+        justification="Need emergency evidence-check node diagnostics for incident review.",
     )
 
     record = build_break_glass_request_record(request, subject)
@@ -6785,7 +7859,7 @@ def test_break_glass_api_rejects_arbitrary_command_input_and_records_request() -
                 json={
                     "profileId": "node_readonly_triage_v1",
                     "targetNode": {"name": "worker-a.example.com", "uid": "node-uid-a"},
-                    "justification": "Need emergency read-only node diagnostics for incident review.",
+                    "justification": "Need emergency evidence-check node diagnostics for incident review.",
                     "command": "nsenter --mount=/proc/1/ns/mnt sh",
                 },
             )
@@ -6795,7 +7869,7 @@ def test_break_glass_api_rejects_arbitrary_command_input_and_records_request() -
                 json={
                     "profileId": "node_readonly_triage_v1",
                     "targetNode": {"name": "worker-a.example.com", "uid": "node-uid-a"},
-                    "justification": "Need emergency read-only node diagnostics for incident review.",
+                    "justification": "Need emergency evidence-check node diagnostics for incident review.",
                 },
             )
 

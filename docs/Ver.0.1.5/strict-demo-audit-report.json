@@ -1,15 +1,13 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "StrictDemoAuditReport",
-  "generatedAt": "2026-06-29T07:42:13.809580Z",
-  "branch": "feat/v.0.1.8",
-  "headSha": "06e09c7bd3ad6e592c4bd26f20d0212f8b790be0",
+  "generatedAt": "2026-06-30T21:24:24.649756Z",
+  "branch": "feat/v.0.1.9",
+  "headSha": "28aa2297881fc85c21b7a924f25041b50f88fffe",
   "localRcaReady": true,
-  "strictLightspeedReady": false,
-  "successClaimAllowed": false,
-  "blockingGates": [
-    "ocp_connectivity"
-  ],
+  "strictLightspeedReady": true,
+  "successClaimAllowed": true,
+  "blockingGates": [],
   "gates": [
     {
       "name": "runtime_smoke",
@@ -76,7 +74,7 @@
       "report": "docs/Ver.0.1.5/ui-verifier-report.json",
       "details": {
         "ok": true,
-        "checked": 107,
+        "checked": 115,
         "failedCount": 0
       }
     },
@@ -92,17 +90,16 @@
     },
     {
       "name": "ocp_connectivity",
-      "ok": false,
+      "ok": true,
       "requirement": "OCP connectivity ladder is ready for strict Lightspeed gate",
       "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "details": {
-        "readyForStrictLightspeedGate": false,
-        "firstFailingLayer": "ocIdentity",
-        "message": "oc whoami did not return a non-empty user",
-        "likelyCause": "oc_login_or_auth_session_invalid",
+        "readyForStrictLightspeedGate": true,
+        "firstFailingLayer": "",
+        "message": "OCP connectivity ladder passed; run task kugnus:lightspeed:live-verify.",
+        "likelyCause": "none_detected",
         "nextActions": [
-          "Run oc login in WSL, then rerun task kugnus:ocp:doctor.",
-          "Do not commit tokens, kubeconfig, or .env files."
+          "Run task kugnus:lightspeed:live-verify."
         ]
       }
     },

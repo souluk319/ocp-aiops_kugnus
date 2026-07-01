@@ -118,8 +118,8 @@ COMPONENT_DEFINITIONS: dict[str, ComponentDefinition] = {
         "현재 답변은 Lightspeed 최종 응답이 아니라 Gateway fallback입니다.",
     ),
     "rag_search": ComponentDefinition("rag_search", "Gateway RAG 검색"),
-    "openshift_nodes": ComponentDefinition("openshift_nodes", "OpenShift read-only 노드 조회"),
-    "openshift_pods": ComponentDefinition("openshift_pods", "OpenShift read-only Pod 조회"),
+    "openshift_nodes": ComponentDefinition("openshift_nodes", "OpenShift evidence-check 노드 조회"),
+    "openshift_pods": ComponentDefinition("openshift_pods", "OpenShift evidence-check Pod 조회"),
 }
 
 EVIDENCE_SIGNALS: tuple[EvidenceSignal, ...] = (
@@ -263,7 +263,7 @@ def build_runtime_health_plan(snapshot: GatewayEvidenceSnapshot) -> AnswerPlan:
     elif failed:
         verdict = "현재 수집된 근거 기준으로 실패한 구성요소가 확인됩니다."
     elif non_gateway_confirmed:
-        verdict = "현재 수집된 근거 기준으로는 핵심 read-only 응답 경로가 작동합니다."
+        verdict = "현재 수집된 근거 기준으로는 핵심 evidence-check 응답 경로가 작동합니다."
     elif confirmed:
         verdict = "Gateway fallback 응답 경로는 작동했지만, 전체 서비스 상태를 단정할 추가 근거가 부족합니다."
     else:

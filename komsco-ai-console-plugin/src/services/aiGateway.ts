@@ -175,12 +175,40 @@ export type AiopsActionCandidate = {
   sourceType?: string;
   statusLabel?: string;
   target?: {
+    apiVersion?: string;
     kind?: string;
     name?: string;
     namespace?: string;
+    uid?: string;
   };
   title: string;
   verificationChecks?: string[];
+};
+
+export type AiopsActionCandidatePlanResult = {
+  apiVersion?: string;
+  kind?: 'ActionCandidatePlan' | string;
+  metadata?: {
+    createdAt?: string;
+    name?: string;
+  };
+  spec?: {
+    candidateId?: string;
+    plan?: AiopsRecord;
+    planDigest?: string;
+    planId?: string;
+    proposal?: AiopsRecord;
+    proposalId?: string;
+    status?: string;
+    target?: {
+      apiVersion?: string;
+      kind?: string;
+      name?: string;
+      namespace?: string;
+      uid?: string;
+    };
+    title?: string;
+  };
 };
 
 export type AiopsActionCandidateSummary = {
@@ -229,7 +257,7 @@ export type AiopsOverview = {
     controlTower: {
       attentionCount: number;
       healthScore: number;
-      mode: 'read-only' | string;
+      mode: 'evidence-check' | string;
       name: string;
       status: 'healthy' | 'attention' | 'risk' | 'error' | string;
       statusLabel: string;
@@ -254,7 +282,7 @@ export type AiopsOverview = {
     };
     safety?: {
       mutationsEnabled?: boolean;
-      readOnlyDefault?: boolean;
+      executionDefault?: boolean;
       unrestrictedCommandsEnabled?: boolean;
     };
   };
@@ -481,7 +509,7 @@ export type AiopsRuntimeStatus = {
         status?: string;
         streamProbe?: string;
       };
-      mode: 'controlled_execution' | 'read_only' | string;
+      mode: 'controlled_execution' | 'evidence_check' | string;
       product: {
         mission?: string;
         mode?: string;
@@ -515,6 +543,7 @@ export type AiopsRuntimeStatus = {
       actionProposals: AiopsRecord[];
       auditRecords?: AiopsRecord[];
       approvalDecisions: AiopsRecord[];
+      chatTranscripts?: AiopsRecord[];
       diagnosticRequests: AiopsRecord[];
       executionRecords: AiopsRecord[];
       sealedActionPlans: AiopsRecord[];
@@ -565,6 +594,7 @@ type StreamEvent =
   | {
       type: 'text';
       content: string;
+      answerContract?: string;
       fallbackAnswer?: boolean;
       gatewayContextDigest?: string;
       source?: string;
@@ -847,6 +877,31 @@ export async function createActionPlan(proposalId: string): Promise<AiopsRecord>
   return postGatewayJson<AiopsRecord>('/plans', { proposalId });
 }
 
+export async function createActionCandidatePlan(
+  candidate: AiopsActionCandidate,
+): Promise<AiopsActionCandidatePlanResult> {
+  const target = candidate.target ?? {};
+  return postGatewayJson<AiopsActionCandidatePlanResult>('/candidate-plans', {
+    candidateId: candidate.id,
+    evidenceRefs: candidate.evidenceRefs ?? [],
+    sourceFindingId: candidate.sourceFindingId,
+    sourceType: candidate.sourceType,
+    target: {
+      apiVersion:
+        target.apiVersion ??
+        (target.kind === 'Pod'
+          ? 'v1'
+          : target.kind === 'HorizontalPodAutoscaler'
+            ? 'autoscaling/v2'
+            : 'apps/v1'),
+      kind: target.kind ?? 'Deployment',
+      name: target.name ?? candidate.title,
+      namespace: target.namespace,
+    },
+    title: candidate.title,
+  });
+}
+
 export async function approveActionPlan(
   planId: string,
   expectedPlanDigest: string,
@@ -855,6 +910,18 @@ export async function approveActionPlan(
     approvalScope: 'single-target',
     expectedPlanDigest,
     planId,
+  });
+}
+
+export async function rejectActionPlan(
+  planId: string,
+  expectedPlanDigest: string,
+  reason = 'operator rejected the proposed action',
+): Promise<AiopsRecord> {
+  return postGatewayJson<AiopsRecord>('/rejections', {
+    expectedPlanDigest,
+    planId,
+    reason,
   });
 }
 

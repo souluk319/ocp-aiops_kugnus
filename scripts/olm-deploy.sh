@@ -12,17 +12,18 @@ OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai-kugnus}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops-kugnus}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-kugnus-operator}
 INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-komsco-aiops-kugnus}
-OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
+OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}
 DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AIOps}
 STATUS_MODE=${KOMSCO_AIOPS_STATUS_MODE:-local}
-ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-false}
+ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}
 ENABLE_DIAGNOSTICS=${KOMSCO_AIOPS_ENABLE_DIAGNOSTICS:-true}
 BOOTSTRAP_INSTALLATION=${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION:-true}
 APPROVE_CLUSTER_WRITE=${KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE:-}
 APPROVE_UNINSTALL=${KOMSCO_AIOPS_APPROVE_UNINSTALL:-}
+COMPANY_SERVER=${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}
 ACTION_EXECUTOR_CLUSTER_ROLE=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE:-${CONSOLE_PLUGIN_NAME}-action-executor}
 ACTION_EXECUTOR_CLUSTER_ROLE_BINDING=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE_BINDING:-${CONSOLE_PLUGIN_NAME}-action-executor}
 GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING=${KOMSCO_AIOPS_GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING:-${CONSOLE_PLUGIN_NAME}-gateway-auth-delegator}
@@ -42,13 +43,13 @@ Commands:
   uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.8
+  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.9
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
   KOMSCO_AIOPS_OPERATOR_NAMESPACE   Operator install namespace. Default: komsco-ai-kugnus
   KOMSCO_AIOPS_NAMESPACE            Operand target namespace. Default: operator namespace
-  KOMSCO_AIOPS_MODE                 read-only, execute, or unrestricted. Default: read-only
+  KOMSCO_AIOPS_MODE                 evidence-check, execute, or unrestricted. Default: execute
   KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME  Cluster-scoped ConsolePlugin name.
   KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION
                                       true creates AIOpsInstallation automatically after UI install.
@@ -57,10 +58,10 @@ Key environment variables:
   KOMSCO_AIOPS_APPROVE_UNINSTALL      Must equal komsco-ai-kugnus before reset-install/uninstall.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.8 \\
-  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.8 \\
-  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.8 \\
-  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.8 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.9 \\
+  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.9 \\
+  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.9 \\
+  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.9 \\
   task olm:deploy
 EOF
 }
@@ -108,6 +109,7 @@ require_cluster_write_approval() {
     echo "Refusing cluster write. Re-run with KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=komsco-ai-kugnus after explicit approval." >&2
     exit 1
   fi
+  require_company_server
 }
 
 require_uninstall_approval() {
@@ -116,12 +118,23 @@ require_uninstall_approval() {
     echo "Refusing uninstall/reset. Re-run with KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus after explicit approval." >&2
     exit 1
   fi
+  require_company_server
 }
 
 require_cmd() {
   local command_name=$1
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "${command_name} CLI is required." >&2
+    exit 1
+  fi
+}
+
+require_company_server() {
+  require_cmd oc
+  local server
+  server=$(oc whoami --show-server 2>/dev/null || true)
+  if [[ "${server}" != "${COMPANY_SERVER}" ]]; then
+    echo "Refusing cluster write: oc server is ${server:-unavailable}, expected ${COMPANY_SERVER}." >&2
     exit 1
   fi
 }
@@ -438,19 +451,19 @@ case "${command}" in
     package_olm
     ;;
   catalog)
-    package_olm
     require_cluster_write_approval
+    package_olm
     apply_catalog
     wait_catalog
     ;;
   install)
-    package_olm
     require_cluster_write_approval
+    package_olm
     apply_install
     ;;
   deploy)
-    package_olm
     require_cluster_write_approval
+    package_olm
     apply_catalog
     wait_catalog
     apply_install

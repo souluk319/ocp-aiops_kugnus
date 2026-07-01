@@ -66,12 +66,12 @@ KOREAN_EXPLICIT_MUTATION_EXECUTION_RE = re.compile(
     r"코든\s*(해|해주세요|수행|실행)|"
     r"언코든\s*(해|해주세요|수행|실행))"
 )
-READ_ONLY_OPERATIONAL_ANALYSIS_RE = re.compile(
+EVIDENCE_OPERATIONAL_ANALYSIS_RE = re.compile(
     r"(?i)(분석|확인|조회|알려|정리|상태|현황|이력|횟수|많은|높은|원인|왜|최근|"
     r"restart\s+(count|history|status|analysis|summary)|"
     r"(many|high|top)\s+restarts|status)"
 )
-POD_COUNT_READ_ONLY_RE = re.compile(
+POD_COUNT_EVIDENCE_RE = re.compile(
     r"(?i)((pod|pods|파드).*(몇\s*개|몇개|개수|count|떠\s*있|떠있|띄|running|ready)|"
     r"(몇\s*개|몇개|개수|count|떠\s*있|떠있|띄|running|ready).*(pod|pods|파드))"
 )
@@ -148,12 +148,12 @@ def safe_subject(user_info: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def classify_request_policy(message: str) -> dict[str, Any]:
     normalized_message = message.strip()
-    has_read_only_analysis_intent = bool(
-        READ_ONLY_OPERATIONAL_ANALYSIS_RE.search(normalized_message)
-        or POD_COUNT_READ_ONLY_RE.search(normalized_message)
+    has_evidence_check_analysis_intent = bool(
+        EVIDENCE_OPERATIONAL_ANALYSIS_RE.search(normalized_message)
+        or POD_COUNT_EVIDENCE_RE.search(normalized_message)
     )
     has_direct_english_mutation = bool(DIRECT_MUTATION_RE.search(normalized_message)) and not (
-        has_read_only_analysis_intent and "restart" in normalized_message.lower()
+        has_evidence_check_analysis_intent and "restart" in normalized_message.lower()
     )
     has_korean_mutation = bool(KOREAN_MUTATION_RE.search(normalized_message))
     has_direct_korean_request = bool(KOREAN_DIRECT_RE.search(normalized_message))
@@ -168,7 +168,7 @@ def classify_request_policy(message: str) -> dict[str, Any]:
         or (
             has_korean_mutation
             and has_direct_korean_request
-            and not has_read_only_analysis_intent
+            and not has_evidence_check_analysis_intent
         )
     )
 
@@ -189,11 +189,11 @@ def classify_request_policy(message: str) -> dict[str, Any]:
     return {
         "schemaVersion": "v1",
         "phase": "phase5-action-execution",
-        "decision": "allow_read_only_evidence",
+        "decision": "allow_evidence_collection",
         "identityMode": "user-token",
         "mutationAllowed": False,
         "risk": "low",
-        "reason": "Read-only evidence collection and OpenShift knowledge synthesis are allowed.",
+        "reason": "Evidence-check evidence collection and OpenShift knowledge synthesis are allowed.",
     }
 
 
@@ -210,7 +210,7 @@ def build_gateway_guardrail(policy: Mapping[str, Any]) -> str:
 
     return """
 [Gateway Phase 5 Action Execution Envelope]
-- 현재 요청은 읽기 전용 증거 수집과 OpenShift 지식/런북 설명 범위입니다.
+- 현재 요청은 승인 실행 증거 수집과 OpenShift 지식/런북 설명 범위입니다.
 - live cluster state가 필요한 경우 UserToken 범위의 조회 도구 결과만 근거로 사용하세요.
 - 사용자 토큰, Secret, kubeconfig, Authorization header, private key, raw credential은 출력하지 마세요.
 - mutation은 자연어 ActionProposal, 승인 API, Action Executor 경로에서만 실행할 수 있습니다.

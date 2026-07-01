@@ -7,7 +7,7 @@ that the local dashboard/gateway are reachable when running and that source code
 plus existing reports support the intended screen-level demo cycle:
 
 dashboard anomaly -> chat draft/context -> stream answer contract ->
-read-only action candidate -> refresh callback.
+evidence-check action candidate -> refresh callback.
 
 It is a readiness gate, not a screenshot/pixel proof. A later browser/screenshot
 artifact is still required before claiming the visible demo cycle is complete.
@@ -154,7 +154,7 @@ def evaluate_source_wiring(checks: list[dict[str, Any]]) -> None:
             "setAssistantDraftPrompt(buildFindingDemoDraft(finding, matchingCandidate))",
             "focusAssistant();",
             "findingId: finding.id",
-            "readOnlyOnly: true",
+            "evidenceOnly: true",
             "scenarioId: isCrashLoopFinding(finding) ? 'crashloop'",
             "source: 'aiops-dashboard-anomaly-board'",
             "taskMode: 'troubleshooting'",
@@ -162,7 +162,7 @@ def evaluate_source_wiring(checks: list[dict[str, Any]]) -> None:
     )
     check_contains(
         checks,
-        name="dashboard_action_candidate_read_only_policy_visible",
+        name="dashboard_action_candidate_evidence_check_policy_visible",
         path="komsco-ai-console-plugin/src/pages/AiopsPages.tsx",
         needles=[
             "data-action-candidate-execution=\"not-executed\"",
@@ -188,14 +188,14 @@ def evaluate_source_wiring(checks: list[dict[str, Any]]) -> None:
     )
     check_contains(
         checks,
-        name="assistant_draft_context_forces_read_only_and_stream_context",
+        name="assistant_draft_context_forces_evidence_check_and_stream_context",
         path="komsco-ai-console-plugin/src/components/AssistantLauncher.tsx",
         needles=[
             "setInput(draftPrompt.prompt)",
             "setDraftPageContext(draftPrompt.pageContext)",
             "setAssistantTaskMode(draftPrompt.taskMode ?? 'troubleshooting')",
-            "setExecutionMode('read-only')",
-            "activeDraftPageContext?.readOnlyOnly === true ? 'read-only' : executionMode",
+            "setExecutionMode('evidence-check')",
+            "activeDraftPageContext?.evidenceOnly === true ? 'evidence-check' : executionMode",
             "aiopsDemoCycle: activeDraftPageContext",
         ],
     )

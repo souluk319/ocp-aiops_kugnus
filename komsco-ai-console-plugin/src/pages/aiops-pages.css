@@ -533,6 +533,25 @@
   color: var(--pf-t--global--text--color--status--success--default);
 }
 
+.komsco-ai-page__action-candidate-feedback {
+  padding: 8px 10px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 6px;
+}
+
+.komsco-ai-page__action-candidate-feedback.is-error {
+  color: var(--pf-t--global--text--color--status--danger--default);
+  background: var(--pf-t--global--background--color--status--danger--default);
+  border-color: var(--pf-t--global--border--color--status--danger--default);
+}
+
+.komsco-ai-page__action-candidate-feedback.is-success {
+  color: var(--pf-t--global--text--color--status--success--default);
+  background: var(--pf-t--global--background--color--status--success--default);
+  border-color: var(--pf-t--global--border--color--status--success--default);
+}
+
 .komsco-ai-page__action-candidate-list {
   display: grid;
   gap: 10px;
@@ -1064,15 +1083,159 @@
   font-size: var(--pf-t--global--font--size--body--sm);
 }
 
+.komsco-ai-page__tool-plan {
+  display: grid;
+  gap: 10px;
+}
+
+.komsco-ai-page__tool-plan-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.komsco-ai-page__tool-plan-summary div {
+  min-width: 0;
+  padding: 8px;
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 6px;
+}
+
+.komsco-ai-page__tool-plan-summary span,
+.komsco-ai-page__tool-plan-step small,
+.komsco-ai-page__tool-plan-step p,
+.komsco-ai-page__tool-plan-step em,
+.komsco-ai-page__tool-plan-missing span {
+  display: block;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai-page__tool-plan-summary strong {
+  display: block;
+  min-width: 0;
+  margin-block-start: 2px;
+  color: var(--pf-t--global--text--color--regular);
+  overflow-wrap: anywhere;
+}
+
+.komsco-ai-page__tool-plan-steps {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.komsco-ai-page__tool-plan-step,
+.komsco-ai-page__tool-plan-missing,
+.komsco-ai-page__tool-plan-waiting {
+  min-width: 0;
+  padding: 10px;
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai-page__tool-plan-step.is-resolved {
+  border-inline-start: 3px solid #3e8635;
+}
+
+.komsco-ai-page__tool-plan-step.is-pending {
+  border-inline-start: 3px solid #f0ab00;
+}
+
+.komsco-ai-page__tool-plan-step-head {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 8px;
+  align-items: center;
+}
+
+.komsco-ai-page__tool-plan-step-index {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  font-weight: 700;
+  color: #fff;
+  background: #06c;
+  border-radius: 999px;
+}
+
+.komsco-ai-page__tool-plan-step strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.komsco-ai-page__tool-plan-step code,
+.komsco-ai-page__tool-plan-missing code {
+  padding: 3px 7px;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  white-space: nowrap;
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 999px;
+}
+
+.komsco-ai-page__tool-plan-step p,
+.komsco-ai-page__tool-plan-step em {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.komsco-ai-page__tool-plan-step em {
+  font-style: normal;
+}
+
+.komsco-ai-page__tool-plan-missing ul {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 8px 0 0;
+  list-style: none;
+}
+
+.komsco-ai-page__tool-plan-missing li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.komsco-ai-page__tool-plan details {
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai-page__tool-plan summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.komsco-ai-page__tool-plan summary span {
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai-page__tool-plan summary code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .komsco-ai-page__tool-plan pre {
   max-height: 260px;
   margin: 0;
   padding: 12px;
   line-height: 1.45;
   color: var(--pf-t--global--text--color--regular);
-  background: var(--pf-t--global--background--color--secondary--default);
-  border: 1px solid var(--pf-t--global--border--color--default);
-  border-radius: 8px;
+  border-block-start: 1px solid var(--pf-t--global--border--color--default);
 }
 
 .komsco-ai-page__adapter {
@@ -1171,6 +1334,17 @@
   font-size: var(--pf-t--global--font--size--body--sm);
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.komsco-ai-page__table--chat {
+  min-width: 920px;
+}
+
+.komsco-ai-page__table--chat td:nth-child(2),
+.komsco-ai-page__table--chat td:nth-child(3) {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .komsco-ai-page__docs-hero {

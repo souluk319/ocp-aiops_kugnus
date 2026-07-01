@@ -20,7 +20,7 @@ INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "komsco-aiops-ku
 CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "komsco-aiops-catalog-kugnus")
 CATALOG_NAMESPACE = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE", "openshift-marketplace")
 CHANNEL = os.getenv("KOMSCO_AIOPS_CHANNEL", "stable")
-VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.8")
+VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.9")
 CSV_NAME = f"{OPERATOR_NAME}.v{VERSION}"
 SKIPS_CSV = os.getenv("KOMSCO_AIOPS_SKIPS_CSV", "")
 VERSION_SCOPE = os.getenv("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{VERSION}")
@@ -38,6 +38,11 @@ OPERATOR_IMAGE = os.getenv("KOMSCO_AIOPS_OPERATOR_IMAGE", GATEWAY_IMAGE)
 DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "Cywell AIOps")
 CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "komsco-ai-console-plugin-kugnus")
 CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", DISPLAY_NAME)
+DISABLED_CONSOLE_PLUGIN_NAMES = [
+    item.strip()
+    for item in os.getenv("KOMSCO_AIOPS_DISABLED_CONSOLE_PLUGIN_NAMES", "komsco-ai-console-plugin").split(",")
+    if item.strip()
+]
 PROVIDER_NAME = os.getenv("KOMSCO_AIOPS_PROVIDER_NAME", "Cywell")
 CATALOG_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CATALOG_DISPLAY_NAME", f"{DISPLAY_NAME} Catalog")
 CATALOG_PUBLISHER = os.getenv("KOMSCO_AIOPS_CATALOG_PUBLISHER", PROVIDER_NAME)
@@ -246,8 +251,8 @@ def crd() -> dict[str, Any]:
                                         "createNamespace": {"type": "boolean", "default": True},
                                         "mode": {
                                             "type": "string",
-                                            "enum": ["read-only", "execute", "unrestricted"],
-                                            "default": "read-only",
+                                            "enum": ["execute", "unrestricted"],
+                                            "default": "execute",
                                         },
                                         "pluginReplicas": {"type": "integer", "minimum": 1, "default": 2},
                                         "gatewayReplicas": {"type": "integer", "minimum": 1, "default": 1},
@@ -259,6 +264,11 @@ def crd() -> dict[str, Any]:
                                         "consolePluginDisplayName": {
                                             "type": "string",
                                             "default": CONSOLE_PLUGIN_DISPLAY_NAME,
+                                        },
+                                        "disabledConsolePluginNames": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": DISABLED_CONSOLE_PLUGIN_NAMES,
                                         },
                                         "images": {
                                             "type": "object",
@@ -272,8 +282,8 @@ def crd() -> dict[str, Any]:
                                             "type": "object",
                                             "properties": {
                                                 "diagnostics": {"type": "boolean", "default": True},
-                                                "mutations": {"type": "boolean", "default": False},
-                                                "unrestrictedCommands": {"type": "boolean", "default": False},
+                                                "mutations": {"type": "boolean", "default": True},
+                                                "unrestrictedCommands": {"type": "boolean", "default": True},
                                             },
                                         },
                                         "rag": {
@@ -452,6 +462,10 @@ def csv() -> dict[str, Any]:
                                                         "value": CONSOLE_PLUGIN_DISPLAY_NAME,
                                                     },
                                                     {
+                                                        "name": "KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES",
+                                                        "value": ",".join(DISABLED_CONSOLE_PLUGIN_NAMES),
+                                                    },
+                                                    {
                                                         "name": "KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION",
                                                         "value": os.getenv("KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION", "true"),
                                                     },
@@ -459,11 +473,11 @@ def csv() -> dict[str, Any]:
                                                         "name": "KOMSCO_AI_DEFAULT_INSTALLATION_NAME",
                                                         "value": INSTALLATION_NAME,
                                                     },
-                                                    {"name": "KOMSCO_AI_DEFAULT_MODE", "value": os.getenv("KOMSCO_AIOPS_MODE", "read-only")},
-                                                    {"name": "KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "value": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "false")},
+                                                    {"name": "KOMSCO_AI_DEFAULT_MODE", "value": os.getenv("KOMSCO_AIOPS_MODE", "execute")},
+                                                    {"name": "KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "value": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true")},
                                                     {
                                                         "name": "KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS",
-                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false"),
+                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "true"),
                                                     },
                                                     {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_PROVIDER", "value": RAG_EMBEDDING_PROVIDER},
                                                     {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_API_STYLE", "value": RAG_EMBEDDING_API_STYLE},
@@ -578,12 +592,13 @@ def aiops_installation() -> dict[str, Any]:
         "spec": {
             "targetNamespace": TARGET_NAMESPACE,
             "createNamespace": True,
-            "mode": os.getenv("KOMSCO_AIOPS_MODE", "read-only"),
+            "mode": os.getenv("KOMSCO_AIOPS_MODE", "execute"),
             "pluginReplicas": int(os.getenv("KOMSCO_AIOPS_PLUGIN_REPLICAS", "2")),
             "gatewayReplicas": int(os.getenv("KOMSCO_AIOPS_GATEWAY_REPLICAS", "1")),
             "enableConsolePlugin": True,
             "consolePluginName": CONSOLE_PLUGIN_NAME,
             "consolePluginDisplayName": CONSOLE_PLUGIN_DISPLAY_NAME,
+            "disabledConsolePluginNames": DISABLED_CONSOLE_PLUGIN_NAMES,
             "images": {
                 "plugin": PLUGIN_IMAGE,
                 "gateway": GATEWAY_IMAGE,
@@ -591,8 +606,8 @@ def aiops_installation() -> dict[str, Any]:
             },
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AIOPS_ENABLE_DIAGNOSTICS", "true").lower() == "true",
-                "mutations": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "false").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+                "mutations": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
             },
             "rag": {
                 "embeddingProvider": RAG_EMBEDDING_PROVIDER,

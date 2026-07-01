@@ -26,7 +26,13 @@ tasks:
   catalog:runtime:apply:
     desc: Apply gateway, action executor, and diagnostics runtime prerequisites for catalog installs
     cmds:
-      - oc apply -k openshift/overlays/${KOMSCO_AIOPS_ENV:-prod}
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        echo "target=${server}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        test "${KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY:-}" = "komsco-ai-kugnus" || { echo "Refusing runtime apply. Re-run with KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY=komsco-ai-kugnus after explicit approval." >&2; exit 1; }
+        oc apply -k openshift/overlays/${KOMSCO_AIOPS_ENV:-prod}
 
   catalog:serve:
     desc: Serve the generated Helm chart repository for local catalog checks
@@ -183,10 +189,14 @@ tasks:
         server="$(oc whoami --show-server)"
         expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
         namespace="${KOMSCO_AIOPS_NAMESPACE:-komsco-ai-kugnus}"
+        operator="${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-kugnus-operator}"
         echo "target=${server}"
         echo "namespace=${namespace}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        test "${KOMSCO_AIOPS_APPROVE_REDEPLOY:-}" = "komsco-ai-kugnus" || { echo "Refusing redeploy. Re-run with KOMSCO_AIOPS_APPROVE_REDEPLOY=komsco-ai-kugnus after explicit approval." >&2; exit 1; }
         KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus ./scripts/kugnus-olm.sh publish
+        oc rollout restart deployment/"${operator}" -n "${namespace}"
+        oc rollout status deployment/"${operator}" -n "${namespace}" --timeout=180s
         oc rollout restart deployment/komsco-ai-console-plugin -n "${namespace}"
         oc rollout status deployment/komsco-ai-console-plugin -n "${namespace}" --timeout=300s
         oc rollout restart deployment/komsco-ai-gateway -n "${namespace}"
@@ -357,7 +367,7 @@ tasks:
   kugnus:ui:verify:
     desc: Verify local Cywell AI chat UI layout, header, sidebar, fullscreen, and resize controls
     cmds:
-      - bash -ic 'node ./scripts/verify-kugnus-ui.mjs'
+      - bash -ic 'KUGNUS_UI_VERIFY_REPORT=docs/Ver.0.1.5/ui-verifier-report.json node ./scripts/verify-kugnus-ui.mjs'
 
   kugnus:demo:verify:
     desc: Verify Ver.0.1.3 CrashLoopBackOff demo-cycle source and RCA context contract without OCP mutation
@@ -377,7 +387,34 @@ tasks:
   kugnus:lightspeed:live-verify:
     desc: Verify current local Gateway receives final OpenShift Lightspeed answers without Gateway fallback
     cmds:
-      - python3 scripts/verify-live-lightspeed-final-response.py --report docs/Ver.0.1.5/live-lightspeed-final-response-verification.json
+      - python3 scripts/verify-live-lightspeed-final-response.py --oc-timeout 30 --report docs/Ver.0.1.5/live-lightspeed-final-response-verification.json
+
+  kugnus:actions:live-verify:
+    desc: Verify live ActionProposal, SealedActionPlan, approval, and rejection flow without executing mutation
+    cmds:
+      - python3 scripts/verify-live-action-lifecycle.py --report docs/Ver.0.1.5/live-action-lifecycle-verification.json
+
+  kugnus:aiops:verify:
+    desc: Run the offline Ver.0.1.9 three-reviewer AIOps gate with at least five checks
+    cmds:
+      - python3 scripts/verify-aiops-review-gate.py
+
+  kugnus:aiops:live-verify:
+    desc: Run the live Ver.0.1.9 AIOps gate that requires VPN, local console bridge, Gateway, and OCP access
+    cmds:
+      - cd komsco-ai-console-plugin && ./node_modules/.bin/tsc --noEmit
+      - task: kugnus:ui:verify
+      - komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway/tests/test_health.py -q -k "chat_stream_emits_rca_context_event or actions_api_rejects_stale_approval_and_blocks_disabled_execution or action_executor_rejects_missing_or_mismatched_execution_grant"
+      - task: kugnus:scenario:verify
+      - task: kugnus:runtime:smoke
+      - task: kugnus:actions:live-verify
+      - task: kugnus:lightspeed:live-verify
+      - task: kugnus:package
+
+  kugnus:aiops:review-gate:
+    desc: Run the offline Ver.0.1.9 three-reviewer AIOps gate with at least five checks
+    cmds:
+      - task: kugnus:aiops:verify
 
   kugnus:strict:audit:
     desc: Strict audit for local RCA readiness and fallback-free Lightspeed success claim

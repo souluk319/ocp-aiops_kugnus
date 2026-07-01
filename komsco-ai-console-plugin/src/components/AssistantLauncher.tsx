@@ -45,6 +45,7 @@ import {
   fetchClusterSummary,
   fetchConsoleUserSubject,
   fetchUploadedRagDocuments,
+  rejectActionPlan,
   streamChat,
   uploadRagDocument,
   uploadRagDocumentFile,
@@ -56,7 +57,6 @@ import {
   shortDigest,
 } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
-import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
 
 const QUICK_PROMPTS = [
@@ -113,6 +113,7 @@ type HistoryPanelView = 'chats' | 'uploads';
 
 type Message = {
   role: 'user' | 'assistant' | 'system';
+  answerContract?: string;
   attachments?: ImageAttachment[];
   content: string;
   evidenceFooter?: EvidenceFooter;
@@ -163,6 +164,17 @@ type AssistantDraftPrompt = {
   taskMode?: AssistantTaskMode;
 };
 
+const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecutionMode | null => {
+  const value = String(pageContext?.aiopsExecutionMode ?? '').trim().toLowerCase();
+  if (value === 'read-only' || value === 'read_only' || value === 'evidence-check' || value === 'evidence_check') {
+    return 'read-only';
+  }
+  if (value === 'execute' || value === 'unrestricted') {
+    return value;
+  }
+  return null;
+};
+
 const TASK_MODE_EMPTY_COPY: Record<
   AssistantTaskMode,
   Record<UiLanguage, { title: string; text: string }>
@@ -170,11 +182,11 @@ const TASK_MODE_EMPTY_COPY: Record<
   ask: {
     ko: {
       title: '무엇을 확인할까요?',
-      text: '클러스터 상태, 최근 경고, 노드와 Pod 현황을 읽기 전용으로 확인합니다.',
+      text: '클러스터 상태, 최근 경고, 노드와 Pod 현황을 승인 실행으로 확인합니다.',
     },
     en: {
       title: 'What should I check?',
-      text: 'Ask about cluster status, recent alerts, nodes, and pods in read-only mode.',
+      text: 'Ask about cluster status, recent alerts, nodes, and pods in approval-gated execution mode.',
     },
   },
   troubleshooting: {
@@ -311,12 +323,13 @@ const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 const MAX_RAG_DOCUMENT_UPLOAD_BYTES = 5 * 1024 * 1024;
 const MAX_RECENT_CONTEXT_MESSAGES = 8;
 const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
-const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
+const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'execute';
 const HISTORY_DRAWER_WIDTH = 236;
 const MIN_STOP_BUTTON_VISIBLE_MS = 2000;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
+const ACTION_ANSWER_CONTRACT_PATTERN = /(^|[-_])action([-.]|$)/i;
 const RCA_PLAN_STEP_ID = 'assistant-rca-plan';
 const RCA_CONTEXT_STEP_ID = 'assistant-rca-context';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
@@ -388,7 +401,7 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
       actionExecutorConfigured: false,
       diagnosticsControllerConfigured: false,
       diagnosticsEnabled: false,
-      mutationsEnabled: false,
+      mutationsEnabled: true,
       rag: {
         accessPath: 'gateway-only',
         aclRequired: true,
@@ -410,7 +423,7 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
         vectorDimensions: 0,
       },
       recordStoreEnabled: false,
-      unrestrictedCommandsEnabled: false,
+      unrestrictedCommandsEnabled: true,
     },
     safetyContract: {
       adapterStatus: [],
@@ -428,10 +441,10 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
         'scale',
         'rollout',
       ],
-      mode: 'read_only',
+      mode: 'controlled_execution',
       product: {
         mission: 'Evidence-first OpenShift operations assistant',
-        mode: 'read_only_first',
+        mode: 'evidence_first_execution',
         name: 'Cywell AI',
       },
       rcaContextStatus: {
@@ -456,32 +469,32 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
 });
 const PREP_SUBTASKS = [
   {
-    detail: 'Console UserToken과 요청 본문을 확인한 뒤 Lightspeed로 전달합니다.',
+    detail: 'Console UserToken과 요청 본문을 확인한 뒤 OpenShift Lightspeed(OLS)로 전달합니다.',
     label: '요청 확인',
     toolName: 'access_check',
   },
   {
-    detail: '첨부 이미지 형식과 크기를 검증한 뒤 메타데이터만 Lightspeed 컨텍스트에 포함합니다.',
+    detail: '첨부 이미지 형식과 크기를 검증한 뒤 메타데이터만 OpenShift Lightspeed(OLS) 컨텍스트에 포함합니다.',
     label: '첨부 확인',
     toolName: 'attachment_check',
   },
 ];
 const RESPONSE_WAIT_PHASES = [
   {
-    activity: 'Gateway가 OLS streaming endpoint로 요청을 전달했습니다.',
+    activity: 'Gateway가 OpenShift Lightspeed(OLS) streaming endpoint로 요청을 전달했습니다.',
     title: 'OLS 질의 전달',
   },
   {
-    activity: 'OpenShift Lightspeed가 UserToken 기준으로 질의를 처리합니다.',
-    title: 'Lightspeed 처리',
+    activity: 'OpenShift Lightspeed(OLS)가 UserToken 기준으로 질의를 처리합니다.',
+    title: 'OLS 응답 처리',
   },
   {
-    activity: 'Lightspeed에서 필요한 도구 호출 또는 답변 생성을 기다립니다.',
-    title: '응답 준비',
+    activity: 'OpenShift Lightspeed(OLS)에서 필요한 도구 호출 또는 답변 생성을 기다립니다.',
+    title: 'OLS 응답 준비',
   },
   {
-    activity: 'Lightspeed 응답 스트림을 브라우저로 중계할 준비를 합니다.',
-    title: '답변 스트림 준비',
+    activity: 'OpenShift Lightspeed(OLS) 응답 스트림을 브라우저로 중계할 준비를 합니다.',
+    title: 'OLS 스트림 중계',
   },
 ];
 
@@ -559,14 +572,6 @@ const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
 
   return <img alt="" className="komsco-ai__message-logo" src={kIcon} />;
 };
-
-const TypingIndicator: React.FC = () => (
-  <div className="komsco-ai__typing" aria-label="응답 생성 중">
-    <span />
-    <span />
-    <span />
-  </div>
-);
 
 const normalizeToolName = (name: string): string =>
   name
@@ -996,6 +1001,28 @@ const markLastAssistantFallback = (
 
   return next;
 };
+
+const markLastAssistantAnswerContract = (messages: Message[], answerContract?: string): Message[] => {
+  if (!answerContract) {
+    return messages;
+  }
+
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    answerContract,
+  };
+
+  return next;
+};
+
+const isActionAnswerContract = (answerContract?: string): boolean =>
+  Boolean(answerContract && ACTION_ANSWER_CONTRACT_PATTERN.test(answerContract));
 
 const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =>
   messages
@@ -1607,9 +1634,7 @@ const getProgressSummary = (steps: ProgressStep[], active: boolean): string => {
   const runningStep = steps.find((step) => step.status === 'running');
 
   if (active && runningStep) {
-    return `${formatDuration(elapsedMs)} 동안 작업 중 · ${runningStep.title} · ${getStepActivity(
-      runningStep,
-    )}`;
+    return `${formatDuration(elapsedMs)} 동안 작업 중`;
   }
 
   return `${formatDuration(elapsedMs)} 동안 작업 완료`;
@@ -1639,34 +1664,6 @@ const getDisplaySteps = (steps: ProgressStep[]): ProgressStep[] =>
 const getCurrentProgressStep = (steps: ProgressStep[]): ProgressStep =>
   steps.find((step) => step.status === 'running') ?? steps[steps.length - 1];
 
-const getArchitectureLayerLabel = (step: ProgressStep): string => {
-  if (step.id === GATEWAY_PREP_STEP_ID) {
-    return 'Console 요청 -> Gateway 검증';
-  }
-
-  if (step.name === 'runtime_tool_plan') {
-    return 'Gateway -> Tool Plan';
-  }
-
-  if (step.name === 'rca_context') {
-    return 'Gateway -> Evidence/RAG';
-  }
-
-  if (isResponseWaitStep(step)) {
-    return 'Gateway -> OLS/LLM';
-  }
-
-  if (isAnswerStreamStep(step)) {
-    return 'OLS/LLM -> 브라우저 답변';
-  }
-
-  if (step.name.includes('pod') || step.name.includes('resource') || step.name.includes('cluster')) {
-    return 'Gateway -> OpenShift API';
-  }
-
-  return 'AIOps 작업 흐름';
-};
-
 const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = ({
   active,
   steps,
@@ -1681,19 +1678,13 @@ const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = (
 
   return (
     <div className="komsco-ai__progress-wrap">
-      <div className="komsco-ai__flow-status" aria-live="polite">
-        <span
-          className={`komsco-ai__flow-pulse komsco-ai__flow-pulse--${currentStep.status}`}
-          aria-hidden="true"
-        />
-        <span className="komsco-ai__flow-copy">
-          <span className="komsco-ai__flow-layer">{getArchitectureLayerLabel(currentStep)}</span>
-          <span className="komsco-ai__flow-activity">{getStepActivity(currentStep)}</span>
-        </span>
-      </div>
       <details className="komsco-ai__progress" key={active ? 'active' : 'complete'}>
-        <summary className="komsco-ai__progress-summary">
-          <span className="komsco-ai__progress-toggle" aria-hidden="true" />
+        <summary className="komsco-ai__progress-summary" aria-live="polite">
+          <span
+            className={`komsco-ai__flow-pulse komsco-ai__flow-pulse--${currentStep.status}`}
+            aria-hidden="true"
+          />
+          <span className="komsco-ai__progress-activity">{getStepActivity(currentStep)}</span>
           <span className="komsco-ai__progress-title">
             {getProgressSummary(displaySteps, active)}
           </span>
@@ -2200,7 +2191,7 @@ const getUnrestrictedDisabledReason = (status: AiopsRuntimeStatus | null): strin
 
   return status.spec.capabilities.unrestrictedCommandsEnabled
     ? ''
-    : 'unrestricted command gate disabled';
+    : 'unrestricted command gate not reported by runtime';
 };
 
 const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
@@ -2244,7 +2235,7 @@ const renderExecutionModeToggle = (
         executionMode === 'read-only' ? ' komsco-ai__mode-toggle-button--active' : ''
       }`}
       onClick={() => onExecutionModeChange('read-only')}
-      title="읽기 전용 모드"
+      title="조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다."
       type="button"
     >
       <CoolShieldCheckIcon />
@@ -2257,7 +2248,6 @@ const renderExecutionModeToggle = (
         executionMode === 'execute' ? ' komsco-ai__mode-toggle-button--active-execute' : ''
       }`}
       data-disabled-reason={!actionExecutionAvailable ? actionExecutionDisabledReason : undefined}
-      disabled={!actionExecutionAvailable}
       onClick={() => onExecutionModeChange('execute')}
       title={
         actionExecutionAvailable
@@ -2276,7 +2266,6 @@ const renderExecutionModeToggle = (
         executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
       }`}
       data-disabled-reason={!unrestrictedAvailable ? unrestrictedDisabledReason : undefined}
-      disabled={!unrestrictedAvailable}
       onClick={() => onExecutionModeChange('unrestricted')}
       title={
         unrestrictedAvailable
@@ -2326,7 +2315,7 @@ const getAssistantConnectionState = (
 };
 
 type AiopsRecordView = AiopsRecord;
-type AiopsActionStep = 'create-plan' | 'approve-plan' | 'execute-approval';
+type AiopsActionStep = 'create-plan' | 'approve-plan' | 'reject-plan' | 'execute-approval';
 type AiopsLifecycleStage = 'proposal' | 'plan' | 'approval' | 'execution';
 type UiTone = 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
 
@@ -2379,7 +2368,7 @@ const hasApprovalForPlan = (approvals: AiopsRecordView[], planDigest: string): b
     const decision = getApprovalDecision(record);
     const status = String(decision?.status ?? '');
 
-    return decision?.planDigest === planDigest && ['approved', 'executed'].includes(status);
+    return decision?.planDigest === planDigest && ['approved', 'executed', 'rejected'].includes(status);
   });
 
 const hasExecutionForApproval = (executions: AiopsRecordView[], approvalId: string): boolean =>
@@ -2545,10 +2534,10 @@ const getActionLifecycleSummary = (
     blockers.push('Action Executor URL not configured');
   }
   if (!mutationsEnabled) {
-    blockers.push('Mutation flag: read-only mode: mutation execution disabled');
+    blockers.push('Mutation gate disabled: approval execution cannot submit changes yet');
   }
   if (!executionModeAllowsActions(executionMode)) {
-    blockers.push('read-only UI blocks proposal, approval, and execution mutations');
+    blockers.push('UI mode blocks proposal, approval, and execution mutations');
   }
 
   if (blockers.length === 0 && actionsAllowed) {
@@ -2583,13 +2572,11 @@ const renderExecutionCapabilityBadges = (
       {renderStatusTag(
         '읽기 전용',
         readOnlyActive ? 'ok' : 'neutral',
-        readOnlyActive
-          ? '현재 UI는 조회와 분석 중심의 read-only 모드입니다.'
-          : '언제든 read-only 모드로 되돌릴 수 있습니다.',
+        '조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.',
         <CoolShieldCheckIcon />,
       )}
       {renderStatusTag(
-        '실행 가능',
+        '승인 실행',
         actionExecutionAvailable ? (executeActive ? 'review' : 'ok') : 'warn',
         actionExecutionAvailable
           ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
@@ -2677,7 +2664,7 @@ const getAiopsRecordAction = (
   const modeDisabledReason = !canUseActionExecution(aiopsStatus)
     ? 'Gateway 실행 기능 미구성'
     : !executionModeAllowsActions(executionMode)
-      ? '실행 가능 또는 실험 무제한 모드 선택 필요'
+      ? '읽기 전용 모드에서는 승인·실행 불가'
       : '';
   const withModeGate = (action: AiopsRecordAction): AiopsRecordAction =>
     modeDisabledReason
@@ -2803,8 +2790,12 @@ const renderActionRecordRows = (
   return records.slice(0, 6).map((record) => {
     const phase = getRecordPhase(record);
     const action = getAiopsRecordAction(record, aiopsStatus, executionMode);
-    const actionId = `${action?.step ?? 'none'}:${getRecordName(record)}`;
-    const busy = actionId === busyActionId;
+    const actions =
+      action?.step === 'approve-plan'
+        ? [action, { ...action, label: '거절', step: 'reject-plan' as const }]
+        : action
+          ? [action]
+          : [];
 
     return (
       <div
@@ -2821,23 +2812,30 @@ const renderActionRecordRows = (
         </div>
         <p>{getRecordTargetLabel(record)}</p>
         <p className="komsco-ai__rail-action-proof">{getActionRecordProof(record)}</p>
-        {action && (
+        {actions.length > 0 && (
           <div className="komsco-ai__rail-action-row">
-            <Button
-              className="komsco-ai__rail-action-button"
-              isDisabled={busy || Boolean(action.disabledReason)}
-              isLoading={busy}
-              onClick={() => onAction(record, action)}
-              size="sm"
-              title={action.disabledReason}
-              variant="secondary"
-            >
-              <span className="komsco-ai__rail-action-icon">
-                <CoolTerminalIcon />
-              </span>
-              {action.label}
-            </Button>
-            {action.disabledReason && (
+            {actions.map((item) => {
+              const actionId = `${item.step}:${getRecordName(record)}`;
+              const busy = actionId === busyActionId;
+              return (
+                <Button
+                  className="komsco-ai__rail-action-button"
+                  isDisabled={busy || Boolean(item.disabledReason)}
+                  isLoading={busy}
+                  key={item.step}
+                  onClick={() => onAction(record, item)}
+                  size="sm"
+                  title={item.disabledReason}
+                  variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
+                >
+                  <span className="komsco-ai__rail-action-icon">
+                    <CoolTerminalIcon />
+                  </span>
+                  {item.label}
+                </Button>
+              );
+            })}
+            {action?.disabledReason && (
               <span className="komsco-ai__rail-action-note">{action.disabledReason}</span>
             )}
           </div>
@@ -2845,6 +2843,220 @@ const renderActionRecordRows = (
       </div>
     );
   });
+};
+
+const latestAnswerActionRecords = (
+  aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+): AiopsRecordView[] => {
+  const records = aiopsStatus?.spec.records;
+  if (!records) {
+    return [];
+  }
+
+  return [
+    ...[...records.approvalDecisions].reverse(),
+    ...[...records.sealedActionPlans].reverse(),
+    ...[...records.actionProposals].reverse(),
+  ]
+    .filter((record) => Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)))
+    .slice(0, 3);
+};
+
+const renderAssistantAnswerActions = (
+  records: AiopsRecordView[],
+  aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+  busyActionId: string,
+  onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
+) => {
+  if (records.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className="komsco-ai__answer-actions"
+      data-komsco-answer-action-buttons
+      aria-label="챗봇 답변 직접 조치 버튼"
+    >
+      <div className="komsco-ai__answer-actions-head">
+        <strong>바로 해결</strong>
+        <span>검증된 AIOps 기록에서 다음 버튼만 표시합니다.</span>
+      </div>
+      <div className="komsco-ai__answer-action-list">
+        {records.map((record) => {
+          const action = getAiopsRecordAction(record, aiopsStatus, executionMode);
+          const actions =
+            action?.step === 'approve-plan'
+              ? [action, { ...action, label: '거절', step: 'reject-plan' as const }]
+              : action
+                ? [action]
+                : [];
+
+          if (actions.length === 0) {
+            return null;
+          }
+
+          const phase = getRecordPhase(record);
+
+          return (
+            <div
+              className="komsco-ai__answer-action-card"
+              data-action-lifecycle-stage={getActionRecordStage(record)}
+              key={getRecordName(record) || phase}
+            >
+              <div className="komsco-ai__answer-action-main">
+                <span>{getActionRecordStageLabel(record)}</span>
+                <strong>{getRecordTargetLabel(record)}</strong>
+                <small>{getActionRecordProof(record)}</small>
+              </div>
+              <div className="komsco-ai__answer-action-controls">
+                {actions.map((item) => {
+                  const actionId = `${item.step}:${getRecordName(record)}`;
+                  const busy = actionId === busyActionId;
+                  return (
+                    <Button
+                      className="komsco-ai__answer-action-button"
+                      data-answer-action-step={item.step}
+                      isDisabled={busy || Boolean(item.disabledReason)}
+                      isLoading={busy}
+                      key={item.step}
+                      onClick={() => onAction(record, item)}
+                      size="sm"
+                      title={item.disabledReason}
+                      variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
+                    >
+                      <span className="komsco-ai__rail-action-icon">
+                        <CoolTerminalIcon />
+                      </span>
+                      {item.label}
+                    </Button>
+                  );
+                })}
+              </div>
+              {action?.disabledReason && (
+                <div className="komsco-ai__answer-action-note">{action.disabledReason}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const messagePreview = (content: string, limit = 110): string => {
+  const collapsed = content.replace(/\s+/g, ' ').trim();
+  if (!collapsed) {
+    return '내용 없음';
+  }
+
+  return collapsed.length > limit ? `${collapsed.slice(0, limit - 1)}...` : collapsed;
+};
+
+const messageTime = (timestamp?: number): string => {
+  if (!timestamp) {
+    return '시간 대기';
+  }
+
+  return new Date(timestamp).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+};
+
+const conversationMessages = (messages: Message[]): Message[] =>
+  messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+
+const latestMessageByRole = (
+  messages: Message[],
+  role: 'user' | 'assistant',
+): Message | undefined =>
+  [...messages].reverse().find((message) => message.role === role && message.content.trim());
+
+const renderConversationSnapshot = (
+  messages: Message[],
+  conversationHistory: ConversationHistoryItem[],
+) => {
+  const visibleMessages = conversationMessages(messages);
+  const latestUser = latestMessageByRole(visibleMessages, 'user');
+  const latestAssistant = latestMessageByRole(visibleMessages, 'assistant');
+  const timeline = visibleMessages.slice(-4);
+
+  return (
+    <>
+      <div className="komsco-ai__rail-section">
+        <div className="komsco-ai__rail-section-head">
+          <strong>대화 요약</strong>
+          <span>{visibleMessages.length}건</span>
+        </div>
+        {latestUser || latestAssistant ? (
+          <>
+            <div className="komsco-ai__rail-command">
+              <code>최근 질문 · {messageTime(latestUser?.timestamp)}</code>
+              <p>{latestUser ? messagePreview(latestUser.content) : '아직 질문이 없습니다.'}</p>
+            </div>
+            <div className="komsco-ai__rail-command">
+              <code>최근 답변 · {messageTime(latestAssistant?.timestamp)}</code>
+              <p>
+                {latestAssistant
+                  ? messagePreview(latestAssistant.content)
+                  : '아직 답변이 없습니다.'}
+              </p>
+            </div>
+          </>
+        ) : (
+          <div className="komsco-ai__rail-empty">
+            질문을 보내면 요약과 답변 흐름이 여기에 남습니다.
+          </div>
+        )}
+      </div>
+
+      <div className="komsco-ai__rail-section">
+        <div className="komsco-ai__rail-section-head">
+          <strong>질문·답변 타임라인</strong>
+          <span>최신 {timeline.length}건</span>
+        </div>
+        {timeline.length > 0 ? (
+          timeline.map((message, index) => (
+            <div
+              className="komsco-ai__rail-command"
+              data-message-role={message.role}
+              key={`${message.timestamp ?? index}-${message.role}`}
+            >
+              <div className="komsco-ai__rail-command-head">
+                <div className="komsco-ai__rail-command-title">
+                  <span>{message.role === 'user' ? '사용자' : 'KOMSCO AI AGENT'}</span>
+                  <code>{messageTime(message.timestamp)}</code>
+                </div>
+                {renderStatusTag(message.role === 'user' ? '질문' : '답변', 'neutral')}
+              </div>
+              <p>{messagePreview(message.content)}</p>
+            </div>
+          ))
+        ) : (
+          <div className="komsco-ai__rail-empty">아직 질문·답변 타임라인이 없습니다.</div>
+        )}
+      </div>
+
+      <div className="komsco-ai__rail-section">
+        <div className="komsco-ai__rail-section-head">
+          <strong>저장된 리포트</strong>
+          <span>{conversationHistory.length}건</span>
+        </div>
+        {conversationHistory.length > 0 ? (
+          conversationHistory.slice(0, 3).map((item) => (
+            <div className="komsco-ai__rail-command" key={item.id}>
+              <code>{formatHistoryTime(item.updatedAt)}</code>
+              <p>{item.title}</p>
+            </div>
+          ))
+        ) : (
+          <div className="komsco-ai__rail-empty">
+            저장된 분석 대화가 있으면 이곳에서 다시 확인합니다.
+          </div>
+        )}
+      </div>
+    </>
+  );
 };
 
 const renderInsightRail = (
@@ -2858,6 +3070,8 @@ const renderInsightRail = (
   aiopsActionError: string,
   aiopsActionNotice: string,
   onAiopsAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
+  messages: Message[],
+  conversationHistory: ConversationHistoryItem[],
 ) => (
   <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
     <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
@@ -2897,6 +3111,8 @@ const renderInsightRail = (
             : 'Gateway와 cluster summary를 가져오는 중입니다.'}
       </div>
     </div>
+    {renderConversationSnapshot(messages, conversationHistory)}
+
     {renderRailSummaryBadges(summary, loading, error)}
     <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
       <div className="komsco-ai__health-head">
@@ -3284,8 +3500,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setInput(draftPrompt.prompt);
     setDraftPageContext(draftPrompt.pageContext);
     setAssistantTaskMode(draftPrompt.taskMode ?? 'troubleshooting');
-    if (draftPrompt.pageContext?.readOnlyOnly === true) {
-      setExecutionMode('read-only');
+    const requestedExecutionMode = draftExecutionMode(draftPrompt.pageContext);
+    if (requestedExecutionMode) {
+      setExecutionMode(requestedExecutionMode);
       setExecutionModeManuallySelected(true);
     }
     setQuickPromptMenuOpen(false);
@@ -3456,19 +3673,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     if (!aiopsStatus) {
       return;
     }
-    if (
-      actionExecutionAvailable &&
-      executionMode === 'read-only' &&
-      !executionModeManuallySelected
-    ) {
-      setExecutionMode('execute');
-      return;
-    }
-    if (!actionExecutionAvailable && executionMode === 'execute') {
-      setExecutionMode('read-only');
-    }
     if (!unrestrictedAvailable && executionMode === 'unrestricted') {
-      setExecutionMode('read-only');
+      setExecutionMode('execute');
     }
   }, [
     actionExecutionAvailable,
@@ -3541,18 +3747,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
   const handleExecutionModeChange = React.useCallback(
     (mode: AiopsExecutionMode) => {
-      if (mode === 'execute' && !actionExecutionAvailable) {
-        return;
-      }
-      if (mode === 'unrestricted' && !unrestrictedAvailable) {
-        return;
-      }
-
       setAiopsActionError('');
       setExecutionModeManuallySelected(true);
       setExecutionMode(mode);
     },
-    [actionExecutionAvailable, unrestrictedAvailable],
+    [],
   );
 
   const saveCurrentConversation = React.useCallback(
@@ -3834,7 +4033,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         return;
       }
       if (!executionModeAllowsActions(executionMode)) {
-        setAiopsActionError('실행 가능 또는 실험 무제한 모드를 선택해야 승인·실행할 수 있습니다.');
+        setAiopsActionError('읽기 전용 모드에서는 승인·실행을 만들지 않습니다. 실행하려면 실행 가능 또는 실행 무제한을 선택하세요.');
         return;
       }
 
@@ -3862,6 +4061,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
           await approveActionPlan(planId, planDigest);
           setAiopsActionNotice('Action plan을 승인했습니다.');
+        }
+
+        if (action.step === 'reject-plan') {
+          const planId = getRecordName(record);
+          const planDigest = getPlanDigest(record);
+          if (!planId || !planDigest) {
+            throw new Error('Action plan id 또는 digest가 없습니다.');
+          }
+          await rejectActionPlan(planId, planDigest);
+          setAiopsActionNotice('Action plan을 거절 기록했습니다.');
         }
 
         if (action.step === 'execute-approval') {
@@ -4216,8 +4425,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       const question = (prompt ?? input).trim();
       const attachments = [...pendingAttachments];
       const activeDraftPageContext = draftPageContext;
-      const requestExecutionMode =
-        activeDraftPageContext?.readOnlyOnly === true ? 'read-only' : executionMode;
+      const requestExecutionMode = executionMode;
 
       if ((!question && attachments.length === 0) || loading) {
         return;
@@ -4301,7 +4509,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           responseWaitStartedAt = now;
           responseWaitStepId = id;
           upsertProgressStep({
-            detail: 'OpenShift Lightspeed가 실제 응답 스트림을 시작하기를 기다리는 중입니다.',
+            detail: 'OpenShift Lightspeed(OLS)가 실제 응답 스트림을 시작하기를 기다리는 중입니다.',
             id,
             name: RESPONSE_WAIT_STEP_ID,
             startedAt: now,
@@ -4499,7 +4707,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             upsertProgressStep({
               detail:
                 event.status === 'success'
-                  ? '질문을 read-only Tool Plan으로 분해하고 필요한 증거 수집 순서를 고정했습니다.'
+                  ? '질문을 실행형 Tool Plan으로 분해하고 필요한 증거 수집 순서를 고정했습니다.'
                   : '질문별 Tool Plan 검증에 실패했습니다. 답변은 부족한 근거를 명시해야 합니다.',
               elapsedMs: 0,
               endedAt: now,
@@ -4589,6 +4797,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
 
           if (event.type === 'text') {
+            if (event.answerContract) {
+              setMessages((prev) => markLastAssistantAnswerContract(prev, event.answerContract));
+            }
             if (event.fallbackAnswer || event.source === 'gateway_fallback') {
               fallbackAnswerSeen = true;
               setMessages((prev) => markLastAssistantFallback(prev, event.gatewayContextDigest));
@@ -4659,6 +4870,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         finishResponseWaitStep('스트림 종료');
         await waitForAssistantTextQueue();
         finishAnswerStreamStep();
+        await refreshAiopsRuntimeStatus();
         if (runCompleted) {
           void onRunComplete?.();
         }
@@ -4707,6 +4919,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       conversationId,
       messages,
       pendingAttachments,
+      refreshAiopsRuntimeStatus,
       selectedTaskMode.label,
       updateLightspeedStatus,
       upsertProgressStep,
@@ -4890,7 +5103,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 </Button>
                 <div className="komsco-ai__brand">
                   <div className="komsco-ai__brand-mark">
-                    <img alt="" className="komsco-ai__brand-logo" src={komscoLogo} />
+                    <img alt="" className="komsco-ai__brand-logo" src={kIcon} />
+                  </div>
+                  <div className="komsco-ai__brand-copy">
+                    <span className="komsco-ai__title">KOMSCO AIOps</span>
+                    <span className="komsco-ai__kicker">OpenShift 에이전트</span>
                   </div>
                 </div>
                 <div
@@ -4902,6 +5119,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     clusterSummaryLoading,
                     clusterSummaryError,
                   )}
+                  <div className="komsco-ai__header-sep" aria-hidden="true" />
                   {renderExecutionModeToggle(
                     executionMode,
                     actionExecutionAvailable,
@@ -4979,9 +5197,28 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const hasProgress = (message.progressSteps?.length ?? 0) > 0;
                         const hasContent = message.content.trim().length > 0;
                         const activeMessage = loading && index === messages.length - 1;
+                        const isLatestAssistantMessage =
+                          message.role === 'assistant' && index === findLastAssistantIndex(messages);
+                        const answerActionRecords =
+                          isLatestAssistantMessage &&
+                          hasContent &&
+                          isActionAnswerContract(message.answerContract)
+                            ? latestAnswerActionRecords(aiopsStatus, executionMode)
+                            : [];
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
                         const messageTime = formatMessageTime(message.timestamp);
+                        const assistantSourceLabel =
+                          message.role === 'assistant' && hasContent
+                            ? message.fallbackAnswer
+                              ? 'Gateway fallback'
+                              : 'OpenShift Lightspeed (OLS)'
+                            : '';
+                        const assistantSourceTitle = message.fallbackAnswer
+                          ? message.gatewayContextDigest
+                            ? `Gateway context ${message.gatewayContextDigest}`
+                            : 'Gateway fallback answer'
+                          : 'OpenShift Lightspeed (OLS) answer';
 
                         return (
                           <div
@@ -4998,16 +5235,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 <div className="komsco-ai__message-label">
                                   {getMessageLabel(message.role)}
                                 </div>
-                                {message.role === 'assistant' && message.fallbackAnswer && (
+                                {assistantSourceLabel && (
                                   <span
-                                    className="komsco-ai__message-fallback"
-                                    title={
-                                      message.gatewayContextDigest
-                                        ? `Gateway context ${message.gatewayContextDigest}`
-                                        : 'Gateway fallback answer'
-                                    }
+                                    className={`komsco-ai__message-source ${
+                                      message.fallbackAnswer
+                                        ? 'komsco-ai__message-source--fallback'
+                                        : 'komsco-ai__message-source--lightspeed'
+                                    }`}
+                                    title={assistantSourceTitle}
                                   >
-                                    Gateway fallback
+                                    {assistantSourceLabel}
                                   </span>
                                 )}
                                 {message.role === 'assistant' && hasContent && (
@@ -5023,7 +5260,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                   </button>
                                 )}
                               </div>
-                              {waitingForContent && <TypingIndicator />}
                               {(hasContent || (!hasProgress && !waitingForContent)) && (
                                 <div className="komsco-ai__message-content">
                                   {renderFormattedContent(message, setPreviewAttachment)}
@@ -5032,6 +5268,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 renderEvidenceFooter(message.evidenceFooter)}
+                              {message.role === 'assistant' &&
+                                hasContent &&
+                                renderAssistantAnswerActions(
+                                  answerActionRecords,
+                                  aiopsStatus,
+                                  executionMode,
+                                  aiopsActionBusyId,
+                                  handleAiopsAction,
+                                )}
                               {hasProgress && message.progressSteps && (
                                 <ProgressTimeline
                                   active={activeMessage}
@@ -5045,12 +5290,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           </div>
                         );
                       })}
-
-                      {loading && messages[messages.length - 1]?.role !== 'assistant' && (
-                        <div className="komsco-ai__loading">
-                          <TypingIndicator />
-                        </div>
-                      )}
                       <div ref={bodyEndRef} />
                     </div>
                   </CardBody>
@@ -5285,6 +5524,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   aiopsActionError,
                   aiopsActionNotice,
                   handleAiopsAction,
+                  messages,
+                  conversationHistory,
                 )}
               </div>
             </Card>

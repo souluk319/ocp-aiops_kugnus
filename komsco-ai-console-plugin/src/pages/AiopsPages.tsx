@@ -25,6 +25,9 @@ import {
   type ClusterSummary,
   type RagSearchResultItem,
   type RagUploadedDocument,
+  approveActionPlan,
+  createActionCandidatePlan,
+  executeApprovedAction,
   fetchAiopsOverview,
   fetchAiopsStatus,
   fetchClusterSummary,
@@ -96,6 +99,13 @@ const textValue = (value: unknown, fallback = '-'): string => {
 
   return JSON.stringify(value);
 };
+
+const objectList = (value: unknown): Record<string, unknown>[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    : [];
+
+const compactToolName = (value: unknown): string => textValue(value).replace(/_/g, ' ');
 
 const compactDigest = (value?: string): string => {
   if (!value) {
@@ -212,6 +222,152 @@ const actionRecords = (status: AiopsRuntimeStatus | null): AiopsRecord[] => {
   ];
 };
 
+const chatTranscriptRecords = (status: AiopsRuntimeStatus | null): AiopsRecord[] =>
+  status?.spec.records.chatTranscripts ?? [];
+
+type ActionCandidateNextAction = 'approve-plan' | 'create-plan' | 'done' | 'execute-approval';
+
+type ActionCandidateLifecycleState = {
+  action: ActionCandidateNextAction;
+  approvalId?: string;
+  disabledReason?: string;
+  label: string;
+  phaseLabel: string;
+  planDigest?: string;
+  planId?: string;
+  proof: string;
+};
+
+const recordName = (record?: AiopsRecord): string => record?.metadata?.name ?? '';
+
+const candidateExecutableTool = (candidate: AiopsActionCandidate): string => {
+  const kind = candidate.target?.kind ?? '';
+  if (kind === 'Deployment') {
+    return 'rollout_restart_deployment';
+  }
+  if (kind === 'Pod') {
+    return 'evict_one_unhealthy_controller_owned_pod';
+  }
+  return '';
+};
+
+const planDigest = (record?: AiopsRecord): string => {
+  const sealedActionPlan = asObject(asObject(record?.spec).sealedActionPlan);
+  const digest = asObject(sealedActionPlan.digest);
+  return textValue(digest.planDigest, '');
+};
+
+const approvalDecision = (record?: AiopsRecord): Record<string, unknown> =>
+  asObject(asObject(record?.spec).approvalDecision);
+
+const approvalId = (record?: AiopsRecord): string =>
+  textValue(approvalDecision(record).approvalId, recordName(record));
+
+const approvalPlanDigest = (record?: AiopsRecord): string =>
+  textValue(approvalDecision(record).planDigest, '');
+
+const targetMatchesCandidate = (
+  target: Record<string, unknown>,
+  candidate: AiopsActionCandidate,
+): boolean => {
+  const candidateTarget = candidate.target ?? {};
+  return (
+    textValue(target.kind, '') === textValue(candidateTarget.kind, '') &&
+    textValue(target.namespace, '') === textValue(candidateTarget.namespace, '') &&
+    textValue(target.name, '') === textValue(candidateTarget.name, '')
+  );
+};
+
+const actionRecordMatchesCandidate = (
+  record: AiopsRecord,
+  candidate: AiopsActionCandidate,
+): boolean => {
+  const toolName = candidateExecutableTool(candidate);
+  if (!toolName) {
+    return false;
+  }
+
+  const spec = asObject(record.spec);
+  const proposal = asObject(spec.candidateActionRequest);
+  const sealedActionPlan = asObject(spec.sealedActionPlan);
+  const action = Object.keys(proposal).length > 0 ? asObject(proposal.action) : asObject(sealedActionPlan.action);
+  const target = Object.keys(proposal).length > 0 ? asObject(proposal.target) : asObject(sealedActionPlan.target);
+
+  return textValue(action.toolName, '') === toolName && targetMatchesCandidate(target, candidate);
+};
+
+const actionCandidateLifecycle = (
+  candidate: AiopsActionCandidate,
+  status: AiopsRuntimeStatus | null,
+): ActionCandidateLifecycleState => {
+  const toolName = candidateExecutableTool(candidate);
+  if (!toolName) {
+    return {
+      action: 'done',
+      disabledReason: '현재 실행 API는 Deployment 재시작과 Pod eviction 후보만 연결되어 있습니다.',
+      label: '실행 API 없음',
+      phaseLabel: '설계 필요',
+      proof: '이 후보는 아직 Gateway action registry에 묶이지 않았습니다.',
+    };
+  }
+
+  const records = status?.spec.records;
+  const plan = (records?.sealedActionPlans ?? []).find((item) =>
+    actionRecordMatchesCandidate(item, candidate),
+  );
+  const digest = planDigest(plan);
+  const approval = (records?.approvalDecisions ?? []).find(
+    (item) => approvalPlanDigest(item) === digest && approvalDecision(item).status === 'approved',
+  );
+  const execution = (records?.executionRecords ?? []).find((item) => {
+    const spec = asObject(item.spec);
+    return (
+      textValue(spec.planDigest, '') === digest ||
+      (approval ? textValue(spec.approvalId, '') === approvalId(approval) : false)
+    );
+  });
+
+  if (execution) {
+    return {
+      action: 'done',
+      disabledReason: '이미 실행 기록이 있습니다.',
+      label: '완료',
+      phaseLabel: 'ExecutionRecord',
+      proof: `${recordName(execution)} · ${recordPhase(execution)}`,
+    };
+  }
+
+  if (approval && plan) {
+    return {
+      action: 'execute-approval',
+      approvalId: approvalId(approval),
+      label: '실행',
+      phaseLabel: '승인 완료',
+      planDigest: digest,
+      planId: recordName(plan),
+      proof: `${approvalId(approval)} · ${compactDigest(digest)}`,
+    };
+  }
+
+  if (plan) {
+    return {
+      action: 'approve-plan',
+      label: '승인',
+      phaseLabel: '계획 생성됨',
+      planDigest: digest,
+      planId: recordName(plan),
+      proof: `${recordName(plan)} · ${compactDigest(digest)}`,
+    };
+  }
+
+  return {
+    action: 'create-plan',
+    label: '해결 계획 만들기',
+    phaseLabel: '계획 전',
+    proof: `${toolName} · live target 확인 후 계획 생성`,
+  };
+};
+
 const useAiopsPageData = (): AiopsPageData => {
   const [summary, setSummary] = React.useState<ClusterSummary | null>(null);
   const [overview, setOverview] = React.useState<AiopsOverview | null>(null);
@@ -322,6 +478,8 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
     .filter((item) => item.status === 'collected')
     .reduce((total, item) => total + item.count, 0);
   const mutationsEnabled = Boolean(status?.spec.capabilities.mutationsEnabled);
+  const actionExecutorReady = Boolean(status?.spec.capabilities.actionExecutorConfigured);
+  const executionReady = mutationsEnabled && actionExecutorReady;
   const rcaStatus = status?.spec.safetyContract?.rcaContextStatus?.status;
   const rcaStatusLabel =
     rcaStatus === 'ready'
@@ -356,7 +514,7 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       value: rcaStatusLabel,
     },
     {
-      detail: '제안만 함 / 실행 안 함',
+      detail: executionReady ? '실행 계획 생성 가능' : '승인 전 분석 단계',
       icon: <BoltIcon />,
       label: '조치 후보',
       tone: actionCandidateTone(
@@ -376,13 +534,13 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
     },
     {
       detail: statusLoaded
-        ? mutationsEnabled
-          ? 'mutation enabled'
-          : 'mutation disabled'
+        ? executionReady
+          ? 'Action Executor 연결'
+          : '실행 경로 확인 필요'
         : 'mutation 상태 확인 중',
       icon: <ShieldAltIcon />,
       label: '안전 정책',
-      tone: statusLoaded ? (mutationsEnabled ? 'danger' : 'success') : 'warning',
+      tone: statusLoaded ? (executionReady ? 'info' : 'warning') : 'warning',
       value: statusLoaded
         ? (status?.spec.safetyContract?.mode ?? '정책 확인 중')
         : '안전 정책 확인 중',
@@ -524,11 +682,11 @@ const buildFindingDemoPrompt = (
 ): string => {
   const target = anomalyResourceLabel(finding);
   const candidateLine = candidate
-    ? `연결된 조치 후보: ${candidate.title} / ${candidate.statusLabel || '제안만 함 / 실행 안 함'}`
+    ? `연결된 조치 후보: ${candidate.title} / ${candidate.statusLabel || '승인 전 확인 필요'}`
     : '연결된 조치 후보: 아직 특정 후보와 강하게 묶이지 않았으니 확인 필요로 표시';
 
   return [
-    '다음 OpenShift 이상 징후를 read-only로 RCA 분석해줘.',
+    '다음 OpenShift 이상 징후를 RCA 분석하고, 승인 필요한 조치 후보까지 정리해줘.',
     '',
     `시나리오: CrashLoopBackOff 원인 분석`,
     `findingId: ${finding.id}`,
@@ -543,10 +701,10 @@ const buildFindingDemoPrompt = (
     '1. 확인된 근거',
     '2. 가능한 원인 후보',
     '3. 추가 확인 필요 근거',
-    '4. 실행하지 않는 read-only 확인 순서',
-    '5. 금지된 mutation 동작과 승인 필요 여부',
+    '4. 먼저 확인할 증거와 순서',
+    '5. 실행 계획이 필요하면 승인 조건과 되돌림 기준',
     '',
-    '주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. apply/delete/patch/scale/exec 같은 실행성 조치는 제안만 하고 실행하지 마.',
+    '주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. 실제 변경은 계획, 승인, 검증 조건을 거쳐야 한다.',
   ].join('\n');
 };
 
@@ -562,13 +720,49 @@ const buildFindingDemoDraft = (
       candidateStatusLabel: candidate?.statusLabel,
       findingId: finding.id,
       findingTitle: finding.title,
-      readOnlyOnly: true,
       scenarioId: isCrashLoopFinding(finding) ? 'crashloop' : finding.type,
       selectedAt: new Date().toISOString(),
       source: 'aiops-dashboard-anomaly-board',
       target,
     },
     prompt: buildFindingDemoPrompt(finding, candidate),
+    taskMode: 'troubleshooting',
+  };
+};
+
+const buildActionCandidatePrompt = (candidate: AiopsActionCandidate): AssistantDraftPromptRequest => {
+  const target = candidate.target ?? {};
+  const kind = target.kind || 'Deployment';
+  const namespace = target.namespace || '';
+  const name = target.name || '';
+  const targetLabel = actionCandidateTargetLabel(candidate);
+  const command =
+    kind.toLowerCase() === 'pod'
+      ? `Pod \`${namespace}/${name}\` evict 실행 계획을 생성해줘.`
+      : `Deployment \`${namespace}/${name}\` rollout restart 실행 계획을 생성해줘.`;
+
+  return {
+    id: `${candidate.id}-${Date.now()}`,
+    pageContext: {
+      aiopsExecutionMode: 'execute',
+      candidateId: candidate.id,
+      candidateStatusLabel: candidate.statusLabel,
+      selectedAt: new Date().toISOString(),
+      source: 'aiops-dashboard-action-candidate-board',
+      target,
+    },
+    prompt: [
+      command,
+      '',
+      `조치 후보: ${candidate.title}`,
+      `대상: ${targetLabel}`,
+      `위험도: ${candidate.riskLabel || candidate.riskLevel || '확인 필요'}`,
+      `근거: ${candidate.evidence || '근거 확인 필요'}`,
+      `선행 확인: ${candidate.prerequisiteChecks?.[0] || '대상 리소스 상태 확인'}`,
+      `예상 영향: ${candidate.expectedImpact || '영향 범위 확인 필요'}`,
+      '',
+      '실행은 바로 하지 말고, 먼저 Action Plan을 만들고 승인 버튼을 기다려.',
+    ].join('\n'),
     taskMode: 'troubleshooting',
   };
 };
@@ -603,7 +797,7 @@ const AnomalySummaryBoard: React.FC<{
             <span>Cywell AI 이상 징후</span>
             <strong>overview 수집 중</strong>
           </div>
-          <code>read-only</code>
+          <code>증거 수집</code>
         </div>
         <p>회사 OCP의 Alert, Pod, Operator, Event, 재시작 지표를 읽는 중입니다.</p>
       </section>
@@ -624,7 +818,7 @@ const AnomalySummaryBoard: React.FC<{
         </div>
         <div className="komsco-ai-page__anomaly-badges">
           <code>{sourceText}</code>
-          <code>{overview.spec.anomalies?.spec?.safety?.mode ?? 'read-only'}</code>
+          <code>{overview.spec.anomalies?.spec?.safety?.mode ?? '분석'}</code>
         </div>
       </div>
 
@@ -707,13 +901,38 @@ const AnomalySummaryBoard: React.FC<{
   );
 };
 
-const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overview }) => {
+const ActionCandidateBoard: React.FC<{
+  activeCandidateId?: string;
+  actionBusyId?: string;
+  actionError?: string;
+  actionNotice?: string;
+  onCandidateAction?: (
+    candidate: AiopsActionCandidate,
+    lifecycle: ActionCandidateLifecycleState,
+  ) => void;
+  onPlanCandidate?: (candidate: AiopsActionCandidate) => void;
+  overview: AiopsOverview | null;
+  status: AiopsRuntimeStatus | null;
+}> = ({
+  activeCandidateId,
+  actionBusyId = '',
+  actionError = '',
+  actionNotice = '',
+  onCandidateAction,
+  onPlanCandidate,
+  overview,
+  status: runtimeStatus,
+}) => {
   const actionCandidates = overview?.spec.actionCandidates?.spec;
   const candidates = actionCandidates?.candidates ?? [];
   const visibleCandidates = candidates.slice(0, 3);
   const totals = actionCandidates?.totals ?? {};
-  const status = actionCandidates?.status ?? (overview ? 'unknown' : 'loading');
-  const tone = actionCandidateTone(visibleCandidates[0]?.riskLevel, status);
+  const candidateStatus = actionCandidates?.status ?? (overview ? 'unknown' : 'loading');
+  const tone = actionCandidateTone(visibleCandidates[0]?.riskLevel, candidateStatus);
+  const executionReady = Boolean(
+    runtimeStatus?.spec.capabilities.mutationsEnabled &&
+      runtimeStatus.spec.capabilities.actionExecutorConfigured,
+  );
   const forbiddenVerbs = actionCandidates?.safety?.forbiddenMutationVerbs ?? [
     'apply',
     'delete',
@@ -721,22 +940,22 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
     'scale',
     'exec',
   ];
-  const mode = actionCandidates?.safety?.mode ?? 'read-only';
+  const mode = actionCandidates?.safety?.mode ?? (executionReady ? 'execute' : '분석');
 
   if (!overview) {
     return (
       <section
         className="komsco-ai-page__action-candidate-board is-warning"
-        aria-label="Read-only action candidates"
+        aria-label="AIOps action candidates"
       >
         <div className="komsco-ai-page__action-candidate-head">
           <div>
-            <span>read-only 조치 후보</span>
+            <span>AIOps 복구 계획</span>
             <strong>overview 수집 중</strong>
           </div>
-          <code>제안만 함 / 실행 안 함</code>
+          <code>상태 확인 중</code>
         </div>
-        <p>이상 징후를 읽은 뒤 실행 없는 조치 후보를 정리합니다.</p>
+        <p>이상 징후를 읽은 뒤 복구 계획과 승인 가능한 조치 후보를 정리합니다.</p>
       </section>
     );
   }
@@ -744,19 +963,19 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
   return (
     <section
       className={`komsco-ai-page__action-candidate-board is-${tone}`}
-      aria-label="Read-only action candidates"
-      data-action-candidate-status={status}
+      aria-label="AIOps action candidates"
+      data-action-candidate-status={candidateStatus}
       data-action-candidate-total={totals.total ?? candidates.length}
-      data-action-candidate-execution="not-executed"
+      data-action-candidate-execution={executionReady ? 'approval-gated' : 'not-ready'}
       data-action-candidate-mode={mode}
     >
       <div className="komsco-ai-page__action-candidate-head">
         <div>
-          <span>Cywell AI 조치 후보</span>
+          <span>Cywell AI 복구 계획</span>
           <strong>{actionCandidates?.statusLabel ?? '조치 후보 상태 확인 중'}</strong>
         </div>
         <div className="komsco-ai-page__action-candidate-badges">
-          <code>제안만 함 / 실행 안 함</code>
+          <code>{executionReady ? '승인 계획 가능' : '분석 후보'}</code>
           <code>{mode}</code>
           <code>승인 필요 {totals.approvalRequired ?? candidates.length}</code>
         </div>
@@ -764,37 +983,83 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
 
       <div className="komsco-ai-page__action-candidate-policy">
         <ShieldAltIcon />
-        <span>mutation disabled. 금지 동작: {forbiddenVerbs.join(', ')}</span>
+        <span>
+          {executionReady
+            ? '계획/승인/검증 API 경로로 해결 계획 생성, 승인, 실행을 순서대로 호출하고 모든 기록을 남깁니다.'
+            : `실행 경로 확인 전입니다. 차단 동작: ${forbiddenVerbs.join(', ')}`}
+        </span>
       </div>
+      {actionError && <div className="komsco-ai-page__action-candidate-feedback is-error">{actionError}</div>}
+      {actionNotice && <div className="komsco-ai-page__action-candidate-feedback is-success">{actionNotice}</div>}
 
       {visibleCandidates.length > 0 ? (
         <div
           className="komsco-ai-page__action-candidate-list"
           data-visible-action-candidate-count={visibleCandidates.length}
         >
-          {visibleCandidates.map((candidate) => (
-            <article className="komsco-ai-page__action-candidate" key={candidate.id}>
-              <div className="komsco-ai-page__action-candidate-title">
-                <span>{candidate.riskLabel || candidate.riskLevel || '위험도 확인'}</span>
-                <strong>{candidate.title}</strong>
-                <code>P{candidate.priority ?? '-'}</code>
-              </div>
-              <dl>
-                <dt>대상</dt>
-                <dd>{actionCandidateTargetLabel(candidate)}</dd>
-                <dt>상태</dt>
-                <dd>{candidate.statusLabel || '제안만 함 / 실행 안 함'}</dd>
-                <dt>선행 확인</dt>
-                <dd>{candidate.prerequisiteChecks?.[0] || '관련 리소스 상태와 이벤트 확인'}</dd>
-                <dt>예상 영향</dt>
-                <dd>{candidate.expectedImpact || '승인 전 영향 범위 확인 필요'}</dd>
-                <dt>승인</dt>
-                <dd>{candidate.approvalRequired ? '승인 전 실행 불가' : '승인 정책 확인 필요'}</dd>
-                <dt>검증</dt>
-                <dd>{candidate.verificationChecks?.[0] || '조치 후 상태 재확인 필요'}</dd>
-              </dl>
-            </article>
-          ))}
+          {visibleCandidates.map((candidate) => {
+            const lifecycle = actionCandidateLifecycle(candidate, runtimeStatus);
+            const actionKey = `${lifecycle.action}:${candidate.id}`;
+            const busy = actionBusyId === actionKey;
+            const active = activeCandidateId === candidate.id;
+            return (
+              <article
+                className={`komsco-ai-page__action-candidate${active ? ' is-active-demo' : ''}`}
+                key={candidate.id}
+              >
+                <div className="komsco-ai-page__action-candidate-title">
+                  <span>{candidate.riskLabel || candidate.riskLevel || '위험도 확인'}</span>
+                  <strong>{candidate.title}</strong>
+                  <code>P{candidate.priority ?? '-'}</code>
+                </div>
+                <dl>
+                  <dt>대상</dt>
+                  <dd>{actionCandidateTargetLabel(candidate)}</dd>
+                  <dt>상태</dt>
+                  <dd>
+                    {lifecycle.phaseLabel}
+                  </dd>
+                  <dt>복구 계획</dt>
+                  <dd>{candidate.recommendationSteps?.[0] || '근거 확인 후 승인 계획 생성'}</dd>
+                  <dt>선행 확인</dt>
+                  <dd>{candidate.prerequisiteChecks?.[0] || '관련 리소스 상태와 이벤트 확인'}</dd>
+                  <dt>예상 영향</dt>
+                  <dd>{candidate.expectedImpact || '승인 전 영향 범위 확인 필요'}</dd>
+                  <dt>승인</dt>
+                  <dd>{candidate.approvalRequired ? '승인 전 실행 불가' : '승인 정책 확인 필요'}</dd>
+                  <dt>검증</dt>
+                  <dd>{candidate.verificationChecks?.[0] || '조치 후 상태 재확인 필요'}</dd>
+                  <dt>실행 흐름</dt>
+                  <dd>{lifecycle.proof}</dd>
+                </dl>
+                <div className="komsco-ai-page__anomaly-actions">
+                  {active && (
+                    <span className="komsco-ai-page__demo-badge is-active">질문에 연결됨</span>
+                  )}
+                  <Button
+                    isDisabled={busy || Boolean(lifecycle.disabledReason)}
+                    isLoading={busy}
+                    onClick={() => onCandidateAction?.(candidate, lifecycle)}
+                    title={
+                      lifecycle.disabledReason ||
+                      'Gateway 실행 흐름에서 다음 단계를 진행합니다.'
+                    }
+                    variant={lifecycle.action === 'execute-approval' ? 'danger' : 'primary'}
+                  >
+                    {lifecycle.label}
+                  </Button>
+                  <Button
+                    isInline
+                    onClick={() => onPlanCandidate?.(candidate)}
+                    title="이 후보를 챗봇 질문으로 보내 근거 설명을 다시 확인합니다."
+                    variant="link"
+                  >
+                    근거 다시 묻기
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       ) : (
         <div
@@ -804,7 +1069,7 @@ const ActionCandidateBoard: React.FC<{ overview: AiopsOverview | null }> = ({ ov
           <CheckCircleIcon />
           <div>
             <strong>
-              {status === 'normal'
+              {candidateStatus === 'normal'
                 ? '현재 제안할 조치 후보 없음'
                 : '조치 후보를 만들 만큼 근거가 충분하지 않음'}
             </strong>
@@ -843,7 +1108,7 @@ const DataSourceBoard: React.FC<{ overview: AiopsOverview | null }> = ({ overvie
           <span>Cywell AI 관제탑</span>
           <strong>{controlTower?.statusLabel ?? '상태 확인 중'}</strong>
         </div>
-        <code>{controlTower?.mode ?? 'read-only'}</code>
+        <code>{controlTower?.mode ?? 'evidence-check'}</code>
       </div>
       <div className="komsco-ai-page__source-grid">
         {dataSources.map((source) => {
@@ -1015,13 +1280,13 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
   const statusLoaded = Boolean(status);
   const items = [
     {
-      label: 'Mutation gate',
+      label: '실행 권한',
       value: statusLoaded
         ? capabilities?.mutationsEnabled
-          ? 'enabled'
-          : 'read-only'
+          ? '승인 경로 사용'
+          : '분석만 가능'
         : '상태 확인 중',
-      tone: statusLoaded ? statusTone(!capabilities?.mutationsEnabled) : 'warning',
+      tone: statusLoaded ? statusTone(Boolean(capabilities?.mutationsEnabled)) : 'warning',
     },
     {
       label: 'Action executor',
@@ -1060,10 +1325,10 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
       <div className="komsco-ai-page__contract-line">
         <LockIcon />
         <span>
-          {contract?.mode === 'read_only'
-            ? 'read-only contract active'
+          {contract?.mode === 'evidence_check'
+            ? '증거 우선 계약 활성'
             : contract?.mode
-              ? 'controlled execution contract active'
+              ? '승인 기반 실행 계약 활성'
               : '안전 계약 확인 중'}
         </span>
       </div>
@@ -1141,14 +1406,144 @@ const ToolPlanPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status
           source: toolPlanStatus.source,
           status: toolPlanStatus.status,
           latest_runtime_plan: toolPlanStatus.latestRuntimePlan ?? 'waiting_for_first_question',
+          task_type: 'waiting_for_operational_question',
+          target: { platform: 'openshift', namespace: 'current-console-context' },
           execution_policy: { mode: contract.mode },
+          tool_plan: [
+            {
+              adapter: 'OpenShift',
+              evidence_type: 'openshift_api',
+              reason: '첫 질문 전에는 현재 콘솔 컨텍스트와 접근 가능한 리소스를 확인할 준비 상태를 표시',
+              step: 1,
+              tool: 'openshift_context_inspection',
+              verb: 'get',
+            },
+            {
+              adapter: 'OpenShift Lightspeed',
+              evidence_type: 'openshift',
+              reason: '수집된 Gateway context를 포함해 최종 답변을 만들 준비 상태를 표시',
+              step: 2,
+              tool: 'lightspeed_streaming_query',
+              verb: 'get',
+            },
+          ],
           allowed_verbs: contract.allowedReadOnlyVerbs,
           forbidden_actions: contract.forbiddenActions,
         };
+  const planMap = asObject(plan);
+  const steps = objectList(planMap.tool_plan);
+  const missingEvidence = objectList(planMap.missing_evidence);
+  const adapterResolution = objectList(planMap.adapter_resolution).length
+    ? objectList(planMap.adapter_resolution)
+    : objectList(toolPlanStatus.adapterResolution);
+  const validation = asObject(planMap.validation);
+  const executionPolicy = asObject(planMap.execution_policy);
+  const target = asObject(planMap.target);
+  const taskType = textValue(planMap.task_type, '질문 실행 대기');
+  const targetLabel = [
+    textValue(target.platform, ''),
+    textValue(target.namespace, ''),
+    textValue(target.name, ''),
+  ]
+    .filter(Boolean)
+    .join(' / ');
+  const validationOk = validation.ok === true;
+  const adapterForStep = (step: Record<string, unknown>, index: number) => {
+    const stepKey = textValue(step.step, String(index + 1));
+    const tool = textValue(step.tool, '');
+    return adapterResolution.find(
+      (item) => textValue(item.step, '') === stepKey || (tool && textValue(item.tool, '') === tool),
+    );
+  };
 
   return (
-    <div className="komsco-ai-page__tool-plan">
-      <pre>{JSON.stringify(plan, null, 2)}</pre>
+    <div className="komsco-ai-page__tool-plan" data-tool-plan-step-count={steps.length}>
+      <div className="komsco-ai-page__tool-plan-summary">
+        <div>
+          <span>분류</span>
+          <strong>{taskType}</strong>
+        </div>
+        <div>
+          <span>대상</span>
+          <strong>{targetLabel || '현재 콘솔 컨텍스트'}</strong>
+        </div>
+        <div>
+          <span>실행 정책</span>
+          <strong>{textValue(executionPolicy.mode, textValue(contract.mode, 'evidence_check'))}</strong>
+        </div>
+        <div>
+          <span>검증</span>
+          <strong>{validationOk ? 'evidence-check 통과' : textValue(toolPlanStatus.status, '대기')}</strong>
+        </div>
+      </div>
+      {steps.length > 0 ? (
+        <ol className="komsco-ai-page__tool-plan-steps" aria-label="Tool Plan 증거 수집 단계">
+          {steps.map((step, index) => {
+            const adapter = adapterForStep(step, index);
+            const resolved = adapter?.resolved === true;
+            const statusLabel = resolved ? 'adapter 연결됨' : textValue(adapter?.status, '확인 대기');
+            const tool = textValue(step.official_tool, textValue(step.tool, 'tool'));
+
+            return (
+              <li
+                className={`komsco-ai-page__tool-plan-step ${
+                  resolved ? 'is-resolved' : 'is-pending'
+                }`}
+                data-tool-plan-step=""
+                key={`${textValue(step.step, String(index + 1))}-${textValue(step.tool, 'tool')}`}
+              >
+                <div className="komsco-ai-page__tool-plan-step-head">
+                  <span className="komsco-ai-page__tool-plan-step-index">
+                    {textValue(step.step, String(index + 1))}
+                  </span>
+                  <div>
+                    <strong>{compactToolName(tool)}</strong>
+                    <small>
+                      {textValue(step.adapter, textValue(adapter?.adapter, 'adapter'))}
+                      {' / '}
+                      {textValue(step.verb, textValue(adapter?.verb, 'get'))}
+                      {' / '}
+                      {textValue(step.evidence_type, textValue(adapter?.evidenceType, 'evidence'))}
+                    </small>
+                  </div>
+                  <code>{statusLabel}</code>
+                </div>
+                <p>{textValue(step.reason, '이 단계가 필요한 이유가 아직 기록되지 않았습니다.')}</p>
+                {adapter?.reason ? <em>{textValue(adapter.reason)}</em> : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <div className="komsco-ai-page__tool-plan-waiting">
+          질문 실행 대기: 챗봇에 운영 질문을 보내면 Tool Plan 단계가 먼저 생성됩니다.
+        </div>
+      )}
+      {missingEvidence.length > 0 && (
+        <div className="komsco-ai-page__tool-plan-missing">
+          <strong>아직 부족한 근거</strong>
+          <ul>
+            {missingEvidence.map((item, index) => (
+              <li key={`${textValue(item.type, 'missing')}-${index}`}>
+                <code>{textValue(item.type, 'evidence')}</code>
+                <span>{textValue(item.reason, '수집 경로 확인 필요')}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <details>
+        <summary>
+          <span>원본 Tool Plan JSON</span>
+          <code>
+            {toolPlanStatus.status ?? 'status unknown'}
+            {typeof (plan as { task_type?: unknown }).task_type === 'string'
+              ? ` · ${(plan as { task_type: string }).task_type}`
+              : ''}
+          </code>
+        </summary>
+        <pre>{JSON.stringify(plan, null, 2)}</pre>
+      </details>
     </div>
   );
 };
@@ -1171,7 +1566,13 @@ const RcaContextPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
 
   return (
     <div className="komsco-ai-page__tool-plan">
-      <pre>{JSON.stringify(context, null, 2)}</pre>
+      <details>
+        <summary>
+          <span>상세 JSON</span>
+          <code>{contextStatus.digest ?? contextStatus.status ?? 'waiting_for_first_question'}</code>
+        </summary>
+        <pre>{JSON.stringify(context, null, 2)}</pre>
+      </details>
     </div>
   );
 };
@@ -1293,12 +1694,52 @@ const RecordTable: React.FC<{
   );
 };
 
+const ChatTranscriptTable: React.FC<{ records: AiopsRecord[] }> = ({ records }) => {
+  if (records.length === 0) {
+    return <EmptyState label="아직 조회 가능한 챗봇 대화기록이 없습니다." />;
+  }
+
+  return (
+    <div className="komsco-ai-page__table-wrap">
+      <table className="komsco-ai-page__table komsco-ai-page__table--chat">
+        <thead>
+          <tr>
+            <th>시간</th>
+            <th>질문</th>
+            <th>답변</th>
+            <th>Run</th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record, index) => {
+            const spec = asObject(record.spec);
+
+            return (
+              <tr key={`${record.metadata?.name ?? 'chat'}-${index}`}>
+                <td>{formatTime(record.metadata?.createdAt)}</td>
+                <td>{safeEvidenceText(textValue(spec.userMessage), '질문 없음')}</td>
+                <td>{safeEvidenceText(textValue(spec.assistantAnswer), '답변 없음')}</td>
+                <td>
+                  <code>{textValue(spec.runId ?? spec.requestId)}</code>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 export const AiopsDashboardPage: React.FC = () => {
   const data = useAiopsPageData();
   const assistantStageRef = React.useRef<HTMLElement | null>(null);
   const [assistantDraftPrompt, setAssistantDraftPrompt] = React.useState<
     AssistantDraftPromptRequest | undefined
   >();
+  const [candidateActionBusyId, setCandidateActionBusyId] = React.useState('');
+  const [candidateActionError, setCandidateActionError] = React.useState('');
+  const [candidateActionNotice, setCandidateActionNotice] = React.useState('');
   const actionCount = actionRecords(data.status).length;
   const auditCount = data.status?.spec.records.auditRecords?.length ?? 0;
   const actionCountValue = data.status ? actionCount : '-';
@@ -1352,6 +1793,10 @@ export const AiopsDashboardPage: React.FC = () => {
     typeof assistantDraftPrompt?.pageContext.findingId === 'string'
       ? assistantDraftPrompt.pageContext.findingId
       : undefined;
+  const activeActionCandidateId =
+    typeof assistantDraftPrompt?.pageContext.candidateId === 'string'
+      ? assistantDraftPrompt.pageContext.candidateId
+      : undefined;
   const seedFindingPrompt = React.useCallback(
     (finding: AiopsAnomalyFinding) => {
       const candidates = data.overview?.spec.actionCandidates?.spec?.candidates ?? [];
@@ -1363,6 +1808,58 @@ export const AiopsDashboardPage: React.FC = () => {
       focusAssistant();
     },
     [data.overview, focusAssistant],
+  );
+  const seedActionCandidatePrompt = React.useCallback(
+    (candidate: AiopsActionCandidate) => {
+      setAssistantDraftPrompt(buildActionCandidatePrompt(candidate));
+      focusAssistant();
+    },
+    [focusAssistant],
+  );
+  const handleCandidateAction = React.useCallback(
+    async (candidate: AiopsActionCandidate, lifecycle: ActionCandidateLifecycleState) => {
+      if (lifecycle.disabledReason) {
+        return;
+      }
+
+      const busyId = `${lifecycle.action}:${candidate.id}`;
+      setCandidateActionBusyId(busyId);
+      setCandidateActionError('');
+      setCandidateActionNotice('');
+
+      try {
+        if (lifecycle.action === 'create-plan') {
+          const result = await createActionCandidatePlan(candidate);
+          setCandidateActionNotice(
+            `해결 계획 생성: ${result.spec?.planId ?? result.metadata?.name ?? candidate.id}`,
+          );
+        } else if (lifecycle.action === 'approve-plan') {
+          if (!lifecycle.planId || !lifecycle.planDigest) {
+            throw new Error('승인할 planId 또는 planDigest가 없습니다.');
+          }
+          await approveActionPlan(lifecycle.planId, lifecycle.planDigest);
+          setCandidateActionNotice(`승인 완료: ${lifecycle.planId}`);
+        } else if (lifecycle.action === 'execute-approval') {
+          if (!lifecycle.approvalId || !lifecycle.planId || !lifecycle.planDigest) {
+            throw new Error('실행할 approvalId, planId 또는 planDigest가 없습니다.');
+          }
+          await executeApprovedAction(
+            lifecycle.approvalId,
+            lifecycle.planId,
+            lifecycle.planDigest,
+          );
+          setCandidateActionNotice(`실행 요청 완료: ${lifecycle.approvalId}`);
+        }
+      } catch (error) {
+        setCandidateActionError(
+          error instanceof Error ? error.message : 'AIOps 해결 버튼 처리 실패',
+        );
+      } finally {
+        await data.refresh().catch(() => undefined);
+        setCandidateActionBusyId('');
+      }
+    },
+    [data],
   );
 
   return (
@@ -1384,7 +1881,7 @@ export const AiopsDashboardPage: React.FC = () => {
             <h2>Cywell AI 관제탑</h2>
             <p>
               {controlTower?.statusLabel ??
-                '로컬 콘솔에서 회사 OCP API와 Gateway를 읽기전용 우선 계약으로 연결합니다.'}
+                '로컬 콘솔에서 회사 OCP API와 Gateway를 증거 우선 계약으로 연결합니다.'}
             </p>
           </div>
         </div>
@@ -1441,7 +1938,16 @@ export const AiopsDashboardPage: React.FC = () => {
         overview={data.overview}
       />
 
-      <ActionCandidateBoard overview={data.overview} />
+      <ActionCandidateBoard
+        activeCandidateId={activeActionCandidateId}
+        actionBusyId={candidateActionBusyId}
+        actionError={candidateActionError}
+        actionNotice={candidateActionNotice}
+        onCandidateAction={handleCandidateAction}
+        onPlanCandidate={seedActionCandidatePrompt}
+        overview={data.overview}
+        status={data.status}
+      />
 
       <DataSourceBoard overview={data.overview} />
 
@@ -1479,7 +1985,7 @@ export const AiopsDashboardPage: React.FC = () => {
         <section className="komsco-ai-page__panel">
           <div className="komsco-ai-page__panel-heading">
             <ProjectDiagramIcon />
-            <h2>Tool Plan JSON</h2>
+            <h2>Tool Plan</h2>
           </div>
           <ToolPlanPanel status={data.status} />
         </section>
@@ -1881,6 +2387,13 @@ export const AiopsAuditPage: React.FC = () => {
 
   return (
     <PageShell data={data} eyebrow="Cywell AI" icon={<HistoryIcon />} title="감사 기록">
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <RobotIcon />
+          <h2>최근 챗봇 대화기록</h2>
+        </div>
+        <ChatTranscriptTable records={chatTranscriptRecords(data.status)} />
+      </section>
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <HistoryIcon />

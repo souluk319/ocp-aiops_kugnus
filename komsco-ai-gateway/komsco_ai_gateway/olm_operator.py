@@ -1,5 +1,8 @@
+import base64
+import hashlib
 import json
 import os
+import secrets
 import ssl
 import time
 import urllib.error
@@ -48,6 +51,23 @@ DEFAULT_CONSOLE_PLUGIN_NAME = os.getenv(
 DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
     "Cywell AI",
+)
+DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES = [
+    name.strip()
+    for name in os.getenv("KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES", "komsco-ai-console-plugin").split(",")
+    if name.strip()
+]
+DEFAULT_ACTION_EXECUTOR_AUTH_SECRET = os.getenv(
+    "KOMSCO_AI_DEFAULT_ACTION_EXECUTOR_AUTH_SECRET",
+    "komsco-ai-action-executor-auth",
+)
+DEFAULT_ACTION_EXECUTOR_AUTH_KEY = os.getenv(
+    "KOMSCO_AI_DEFAULT_ACTION_EXECUTOR_AUTH_KEY",
+    "shared-token",
+)
+DEFAULT_ACTION_EXECUTOR_SHARED_TOKEN = os.getenv(
+    "KOMSCO_AI_DEFAULT_ACTION_EXECUTOR_SHARED_TOKEN",
+    secrets.token_urlsafe(32),
 )
 ALLOW_PROTECTED_CONSOLE_PLUGIN = os.getenv("KOMSCO_AI_ALLOW_PROTECTED_CONSOLE_PLUGIN", "false").lower() == "true"
 BOOTSTRAP_INSTALLATION = os.getenv("KOMSCO_AI_OPERATOR_BOOTSTRAP_INSTALLATION", "false").lower() == "true"
@@ -170,6 +190,14 @@ def validate_console_plugin_apply(resource: Mapping[str, Any]) -> None:
         raise RuntimeError(f"refusing to overwrite existing unmanaged ConsolePlugin: {name}")
 
 
+def string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return []
+
+
 def apply_resource(resource: Mapping[str, Any]) -> None:
     api_version = str(resource["apiVersion"])
     kind = str(resource["kind"])
@@ -223,17 +251,25 @@ def resource_path(api_version: str, kind: str, name: str, resource_namespace: st
     return f"/apis/{group}/{version}/{plural}/{name}"
 
 
-def patch_console_plugin_enabled(plugin_name: str) -> None:
+def patch_console_plugin_enabled(plugin_name: str, disabled_plugins: list[str] | None = None) -> None:
     path = "/apis/operator.openshift.io/v1/consoles/cluster"
     console = request("GET", path)
     spec = console.get("spec") if isinstance(console.get("spec"), Mapping) else {}
     plugins = spec.get("plugins") if isinstance(spec.get("plugins"), list) else []
-    if plugin_name in plugins:
+    disabled = {name for name in (disabled_plugins or []) if name and name != plugin_name}
+    next_plugins: list[str] = []
+    for plugin in plugins:
+        if plugin in disabled or plugin in next_plugins:
+            continue
+        next_plugins.append(plugin)
+    if plugin_name not in next_plugins:
+        next_plugins.append(plugin_name)
+    if next_plugins == plugins:
         return
     request(
         "PATCH",
         path,
-        body={"spec": {"plugins": sorted([*plugins, plugin_name])}},
+        body={"spec": {"plugins": next_plugins}},
         content_type="application/merge-patch+json",
     )
 
@@ -260,12 +296,13 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
         "spec": {
             "targetNamespace": DEFAULT_TARGET_NAMESPACE,
             "createNamespace": True,
-            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "read-only"),
+            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "execute"),
             "pluginReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_PLUGIN_REPLICAS", "2")),
             "gatewayReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_GATEWAY_REPLICAS", "1")),
             "enableConsolePlugin": True,
             "consolePluginName": DEFAULT_CONSOLE_PLUGIN_NAME,
             "consolePluginDisplayName": DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME,
+            "disabledConsolePluginNames": DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES,
             "images": {
                 "plugin": DEFAULT_PLUGIN_IMAGE,
                 "gateway": DEFAULT_GATEWAY_IMAGE,
@@ -273,8 +310,8 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
             },
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_DIAGNOSTICS", "true").lower() == "true",
-                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "false").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "true").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
             },
             "rag": {
                 "backendUrlSecret": os.getenv("KOMSCO_AI_DEFAULT_RAG_BACKEND_URL_SECRET", ""),
@@ -591,14 +628,6 @@ def rbac_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]
 
 def action_executor_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
     mode = str(config["mode"])
-    if mode == "read-only" and not bool(config["mutationsEnabled"]):
-        return condition(
-            "ActionExecutorReady",
-            "True",
-            "DisabledByReadOnly",
-            "Action executor is intentionally disabled because mutations are false.",
-            generation,
-        )
     if not bool(config["mutationsEnabled"]):
         return condition(
             "ActionExecutorReady",
@@ -662,14 +691,6 @@ def safety_mode_condition(config: Mapping[str, Any], generation: int) -> dict[st
     mode = str(config["mode"])
     mutations_enabled = bool(config["mutationsEnabled"])
     unrestricted_enabled = bool(config["unrestrictedEnabled"])
-    if mode == "read-only" and (mutations_enabled or unrestricted_enabled):
-        return condition(
-            "SafetyModeReady",
-            "False",
-            "ReadOnlyCapabilityMismatch",
-            "mode=read-only requires mutations=false and unrestrictedCommands=false.",
-            generation,
-        )
     if mode == "execute" and not mutations_enabled:
         return condition(
             "SafetyModeReady",
@@ -684,14 +705,6 @@ def safety_mode_condition(config: Mapping[str, Any], generation: int) -> dict[st
             "False",
             "UnrestrictedCapabilityMismatch",
             "mode=unrestricted requires mutations=true and unrestrictedCommands=true.",
-            generation,
-        )
-    if mode == "read-only" and not mutations_enabled and not unrestricted_enabled:
-        return condition(
-            "SafetyModeReady",
-            "True",
-            "ReadOnlyLocked",
-            "Default read-only safety mode is active.",
             generation,
         )
     if unrestricted_enabled or mode == "unrestricted":
@@ -833,6 +846,16 @@ def spec_value(spec: Mapping[str, Any], key: str, default: Any) -> Any:
     return default if value is None else value
 
 
+def inferred_mode(spec: Mapping[str, Any], capabilities: Mapping[str, Any]) -> str:
+    if spec.get("mode") is not None:
+        return str(spec["mode"])
+    mutations_enabled = bool(capabilities.get("mutations", True))
+    unrestricted_enabled = bool(capabilities.get("unrestrictedCommands", False))
+    if unrestricted_enabled:
+        return "unrestricted"
+    return "execute"
+
+
 def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
     spec = custom_resource.get("spec") if isinstance(custom_resource.get("spec"), Mapping) else {}
     cr_metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
@@ -848,14 +871,17 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "runnerImage": str(images.get("hostDiagnosticsRunner") or images.get("gateway") or DEFAULT_GATEWAY_IMAGE),
         "pluginReplicas": int(spec_value(spec, "pluginReplicas", 2)),
         "gatewayReplicas": int(spec_value(spec, "gatewayReplicas", 1)),
-        "mode": str(spec_value(spec, "mode", "read-only")),
+        "mode": inferred_mode(spec, capabilities),
         "diagnosticsEnabled": bool(capabilities.get("diagnostics", True)),
-        "mutationsEnabled": bool(capabilities.get("mutations", False)),
+        "mutationsEnabled": bool(capabilities.get("mutations", True)),
         "unrestrictedEnabled": bool(capabilities.get("unrestrictedCommands", False)),
         "enableConsolePlugin": bool(spec_value(spec, "enableConsolePlugin", True)),
         "consolePluginName": str(spec_value(spec, "consolePluginName", DEFAULT_CONSOLE_PLUGIN_NAME)),
         "consolePluginDisplayName": str(
             spec_value(spec, "consolePluginDisplayName", DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME)
+        ),
+        "disabledConsolePluginNames": string_list(
+            spec_value(spec, "disabledConsolePluginNames", DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES)
         ),
         "ragBackendUrlSecret": str(rag.get("backendUrlSecret") or ""),
         "ragBackendUrlKey": str(rag.get("backendUrlKey") or "url"),
@@ -894,6 +920,64 @@ def service_account(name: str, target_namespace: str, labels: Mapping[str, str])
     }
 
 
+def secret(name: str, target_namespace: str, labels: Mapping[str, str], string_data: Mapping[str, str]) -> dict[str, Any]:
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {"name": name, "namespace": target_namespace, "labels": dict(labels)},
+        "type": "Opaque",
+        "stringData": dict(string_data),
+    }
+
+
+def secret_key_env(name: str, secret_name: str, key: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "valueFrom": {"secretKeyRef": {"name": secret_name, "key": key}},
+    }
+
+
+def token_digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def existing_secret_string_value(target_namespace: str, name: str, key: str) -> str:
+    try:
+        existing = get_resource("v1", "Secret", name, target_namespace)
+    except Exception:
+        return ""
+    if not isinstance(existing, Mapping):
+        return ""
+
+    string_data = existing.get("stringData")
+    if isinstance(string_data, Mapping):
+        value = string_data.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    data = existing.get("data")
+    if not isinstance(data, Mapping):
+        return ""
+    encoded = data.get(key)
+    if not isinstance(encoded, str) or not encoded:
+        return ""
+    try:
+        return base64.b64decode(encoded, validate=True).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def resolved_action_executor_shared_token(target_namespace: str) -> str:
+    return (
+        existing_secret_string_value(
+            target_namespace,
+            DEFAULT_ACTION_EXECUTOR_AUTH_SECRET,
+            DEFAULT_ACTION_EXECUTOR_AUTH_KEY,
+        )
+        or DEFAULT_ACTION_EXECUTOR_SHARED_TOKEN
+    )
+
+
 def service(
     name: str,
     target_namespace: str,
@@ -927,10 +1011,14 @@ def deployment(
     container: Mapping[str, Any],
     *,
     replicas: int = 1,
+    pod_annotations: Mapping[str, str] | None = None,
     volumes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     pod_labels = {**dict(labels), "app": name}
     container_spec = {"name": name, "image": image, "imagePullPolicy": "Always", **dict(container)}
+    pod_metadata = {"labels": pod_labels}
+    if pod_annotations:
+        pod_metadata["annotations"] = dict(pod_annotations)
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -939,7 +1027,7 @@ def deployment(
             "replicas": replicas,
             "selector": {"matchLabels": {"app": name}},
             "template": {
-                "metadata": {"labels": pod_labels},
+                "metadata": pod_metadata,
                 "spec": {
                     "serviceAccountName": service_account_name,
                     "containers": [container_spec],
@@ -1000,6 +1088,11 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     console_plugin_name = str(config["consolePluginName"])
     mutations_enabled = bool(config["mutationsEnabled"])
     diagnostics_enabled = bool(config["diagnosticsEnabled"])
+    action_executor_shared_token = (
+        resolved_action_executor_shared_token(target_namespace)
+        if mutations_enabled
+        else DEFAULT_ACTION_EXECUTOR_SHARED_TOKEN
+    )
     resources: list[dict[str, Any]] = []
 
     if config["createNamespace"]:
@@ -1051,6 +1144,12 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
         resources.extend(
             [
                 service_account("komsco-ai-action-executor", target_namespace, labels),
+                secret(
+                    DEFAULT_ACTION_EXECUTOR_AUTH_SECRET,
+                    target_namespace,
+                    labels,
+                    {DEFAULT_ACTION_EXECUTOR_AUTH_KEY: action_executor_shared_token},
+                ),
                 service("komsco-ai-action-executor", target_namespace, labels, 8080, "http"),
             ]
         )
@@ -1073,7 +1172,7 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
             diagnostics_enabled,
         )
     )
-    resources.extend(workload_resources(config, labels))
+    resources.extend(workload_resources(config, labels, action_executor_shared_token))
     resources.append(
         console_plugin_resource(
             target_namespace,
@@ -1172,7 +1271,11 @@ def rbac_resources(
     return resources
 
 
-def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> list[dict[str, Any]]:
+def workload_resources(
+    config: Mapping[str, Any],
+    labels: Mapping[str, str],
+    action_executor_shared_token: str | None = None,
+) -> list[dict[str, Any]]:
     target_namespace = str(config["namespace"])
     gateway_image = str(config["gatewayImage"])
     console_plugin_name = str(config["consolePluginName"])
@@ -1181,6 +1284,12 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
     mutations_enabled = str(mutations_enabled_bool).lower()
     diagnostics_enabled = str(diagnostics_enabled_bool).lower()
     unrestricted_enabled = str(bool(config["unrestrictedEnabled"])).lower()
+    action_executor_secret_ref = secret_key_env(
+        "KOMSCO_AI_ACTION_EXECUTOR_SHARED_TOKEN",
+        DEFAULT_ACTION_EXECUTOR_AUTH_SECRET,
+        DEFAULT_ACTION_EXECUTOR_AUTH_KEY,
+    )
+    action_executor_secret_digest = token_digest(action_executor_shared_token or DEFAULT_ACTION_EXECUTOR_SHARED_TOKEN)
     gateway_env = [
         {"name": "OLS_BASE_URL", "value": "https://lightspeed-app-server.openshift-lightspeed.svc:8443"},
         {"name": "OLS_CA_FILE", "value": "/var/run/configmaps/service-ca/service-ca.crt"},
@@ -1207,6 +1316,8 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
         {"name": "KOMSCO_AI_RAG_EMBEDDING_MODEL", "value": str(config["ragEmbeddingModel"])},
         {"name": "KOMSCO_AI_RAG_VECTOR_DIMENSIONS", "value": str(config["ragVectorDimensions"])},
     ]
+    if mutations_enabled_bool:
+        gateway_env.append(action_executor_secret_ref)
     if config["ragBackendUrlSecret"]:
         gateway_env.append(
             {
@@ -1262,31 +1373,39 @@ def workload_resources(config: Mapping[str, Any], labels: Mapping[str, str]) -> 
                 {"name": "tls", "secret": {"secretName": "komsco-ai-gateway-tls"}},
                 {"name": "service-ca", "configMap": {"name": "komsco-ai-service-ca"}},
             ],
+            pod_annotations={"aiops.komsco/action-executor-token-digest": action_executor_secret_digest}
+            if mutations_enabled_bool
+            else None,
         ),
     ]
 
     if mutations_enabled_bool:
         resources.append(
             deployment(
-            "komsco-ai-action-executor",
-            target_namespace,
-            labels,
-            gateway_image,
-            "komsco-ai-action-executor",
-            {
-                "command": ["uvicorn"],
-                "args": ["komsco_ai_gateway.action_executor:app", "--host", "0.0.0.0", "--port", "8080"],
-                "ports": [{"name": "http", "containerPort": 8080}],
-                "env": [
-                    {"name": "KOMSCO_AI_ACTION_EXECUTOR_ENABLED", "value": "true"},
-                    {"name": "KOMSCO_AI_ENABLE_MUTATIONS", "value": mutations_enabled},
-                    {"name": "KOMSCO_AI_ACTION_EXECUTOR_TOKEN_FILE", "value": "/var/run/secrets/kubernetes.io/serviceaccount/token"},
-                    {"name": "OPENSHIFT_API_CA_FILE", "value": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"},
-                ],
-                "readinessProbe": {"httpGet": {"path": "/healthz", "port": "http"}, "initialDelaySeconds": 5, "periodSeconds": 10},
-                "livenessProbe": {"httpGet": {"path": "/healthz", "port": "http"}, "initialDelaySeconds": 15, "periodSeconds": 20},
-                "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}, "runAsNonRoot": True},
-            },
+                "komsco-ai-action-executor",
+                target_namespace,
+                labels,
+                gateway_image,
+                "komsco-ai-action-executor",
+                {
+                    "command": ["uvicorn"],
+                    "args": ["komsco_ai_gateway.action_executor:app", "--host", "0.0.0.0", "--port", "8080"],
+                    "ports": [{"name": "http", "containerPort": 8080}],
+                    "env": [
+                        {"name": "KOMSCO_AI_ACTION_EXECUTOR_ENABLED", "value": "true"},
+                        {"name": "KOMSCO_AI_ENABLE_MUTATIONS", "value": mutations_enabled},
+                        action_executor_secret_ref,
+                        {
+                            "name": "KOMSCO_AI_ACTION_EXECUTOR_TOKEN_FILE",
+                            "value": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+                        },
+                        {"name": "OPENSHIFT_API_CA_FILE", "value": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"},
+                    ],
+                    "readinessProbe": {"httpGet": {"path": "/healthz", "port": "http"}, "initialDelaySeconds": 5, "periodSeconds": 10},
+                    "livenessProbe": {"httpGet": {"path": "/healthz", "port": "http"}, "initialDelaySeconds": 15, "periodSeconds": 20},
+                    "securityContext": {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}, "runAsNonRoot": True},
+                },
+                pod_annotations={"aiops.komsco/action-executor-token-digest": action_executor_secret_digest},
             )
         )
 
@@ -1383,6 +1502,38 @@ def network_policies(
             [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-console"}}}],
             8443,
         ),
+        {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {
+                "name": f"allow-{target_namespace}-gateway-to-lightspeed-app-server",
+                "namespace": "openshift-lightspeed",
+                "labels": dict(labels),
+            },
+            "spec": {
+                "podSelector": {
+                    "matchLabels": {
+                        "app.kubernetes.io/component": "application-server",
+                        "app.kubernetes.io/name": "lightspeed-service-api",
+                        "app.kubernetes.io/part-of": "openshift-lightspeed",
+                    }
+                },
+                "policyTypes": ["Ingress"],
+                "ingress": [
+                    {
+                        "from": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {"kubernetes.io/metadata.name": target_namespace}
+                                },
+                                "podSelector": {"matchLabels": {"app": "komsco-ai-gateway"}},
+                            }
+                        ],
+                        "ports": [{"port": 8443, "protocol": "TCP"}],
+                    }
+                ],
+            },
+        },
     ]
 
     if mutations_enabled:
@@ -1417,7 +1568,10 @@ def reconcile(custom_resource: Mapping[str, Any]) -> None:
         for resource in resources_for(config):
             apply_resource(resource)
         if config["enableConsolePlugin"]:
-            patch_console_plugin_enabled(str(config["consolePluginName"]))
+            patch_console_plugin_enabled(
+                str(config["consolePluginName"]),
+                list(config["disabledConsolePluginNames"]),
+            )
         update_status(custom_resource, "Ready", "KOMSCO AIOps runtime reconciled", config=config)
     except Exception as exc:
         print(f"reconcile failed for {name}: {exc}", flush=True)

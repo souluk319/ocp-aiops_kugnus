@@ -1,17 +1,27 @@
 {
-  "generatedAt": "2026-06-26T04:28:49.122Z",
+  "generatedAt": "2026-07-01T01:22:35.337Z",
   "git": {
-    "branch": "feat/v.0.1.5",
-    "head": "651f26fab61b",
-    "headFull": "651f26fab61b18fa5b53ec0f754f74923afc0dcb",
-    "statusShort": "## feat/v.0.1.5...origin/feat/v.0.1.5\n M docs/Ver.0.1.3/runtime-smoke-report.json\n M docs/Ver.0.1.5/ui-verifier-report.json\n M komsco-ai-console-plugin/src/components/assistant.css\n M scripts/verify-kugnus-ui.mjs"
+    "branch": "feat/v.0.1.9",
+    "head": "28aa2297881f",
+    "headFull": "28aa2297881fc85c21b7a924f25041b50f88fffe",
+    "statusShort": "## feat/v.0.1.9\n M .gitignore\n M Taskfile.yml\n M docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\n M docs/Ver.0.1.5/live-lightspeed-final-response-verification.json\n M docs/Ver.0.1.5/ocp-connectivity-ladder-report.json\n M docs/Ver.0.1.5/strict-demo-audit-report.json\n M docs/Ver.0.1.5/ui-verifier-report.json\n M docs/Ver.0.1.6/runtime-smoke-report.json\nRM docs/Ver.0.1.9/komsco-aiops-agent-brief.html -> docs/Ver.0.2.0/komsco-aiops-agent-brief.html\nR  \"docs/Ver.0.1.9/\\354\\213\\234\\354\\212\\244\\355\\205\\234\\354\\225\\204\\354\\235\\264\\353\\224\\224\\354\\226\\264.html\" -> \"docs/Ver.0.2.0/\\354\\213\\234\\354\\212\\244\\355\\205\\234\\354\\225\\204\\354\\235\\264\\353\\224\\224\\354\\226\\264.html\"\nRM \"docs/Ver.0.1.9/\\354\\213\\234\\354\\212\\244\\355\\205\\234\\354\\225\\204\\354\\235\\264\\353\\224\\224\\354\\226\\264.md\" -> \"docs/Ver.0.2.0/\\354\\213\\234\\354\\212\\244\\355\\205\\234\\354\\225\\204\\354\\235\\264\\353\\224\\224\\354\\226\\264.md\"\n M komsco-ai-console-plugin/package.json\n M komsco-ai-console-plugin/src/components/AssistantLauncher.tsx\n M komsco-ai-console-plugin/src/components/assistant.css\n M komsco-ai-console-plugin/src/pages/AiopsPages.tsx\n M komsco-ai-console-plugin/src/pages/aiops-pages.css\n M komsco-ai-console-plugin/src/services/aiGateway.ts\n M komsco-ai-console-plugin/yarn.lock\n M komsco-ai-gateway/komsco_ai_gateway/action_executor.py\n M komsco-ai-gateway/komsco_ai_gateway/main.py\n M komsco-ai-gateway/komsco_ai_gateway/olm_operator.py\n M komsco-ai-gateway/tests/test_health.py\n M scripts/dev-gateway-lightspeed.sh\n M scripts/kugnus-olm.sh\n M scripts/kugnus-runtime-smoke.sh\n M scripts/olm-deploy.sh\n M scripts/olm-package.py\n M scripts/olm-release-images.sh\n M scripts/open-okd-console.sh\n M scripts/verify-kugnus-ui.mjs\n M scripts/verify-live-lightspeed-final-response.py\n?? docs/Ver.0.1.5/live-action-lifecycle-verification.json\n?? docs/Ver.0.1.8.2/\n?? docs/Ver.0.1.9/\n?? scripts/verify-aiops-review-gate.py\n?? scripts/verify-live-action-lifecycle.py"
   },
   "ok": true,
-  "checked": 107,
+  "checked": 123,
   "failed": [],
   "url": "http://localhost:9000/aiops-kugnus",
   "verifyMode": "dashboard",
   "results": [
+    {
+      "name": "localhost console bridge can reach Kubernetes API",
+      "ok": true,
+      "evidence": {
+        "ok": true,
+        "status": 200,
+        "url": "http://localhost:9000/api/kubernetes/version",
+        "bodyPreview": "{ \"major\": \"1\", \"minor\": \"33\", \"emulationMajor\": \"1\", \"emulationMinor\": \"33\", \"minCompatibilityMajor\": \"1\", \"minCompatibilityMinor\": \"32\", \"gitVersion\": \"v1.33.11\", \"gitCommit\": \"93dd7418665a017d87ffa64773c352898345920d\", \"gitTreeState\": \"clean\", \"buildDate\": \"2026-04-30T21:19:27Z\", \"goVersion\": \"go1.24.13 (Red Hat 1.24.13-4.el9_6) X:strictfipsruntime\", \"compiler\": \"gc\", \"platform\": \"linux/amd64\" }"
+      }
+    },
     {
       "name": "initial Cywell AI route root mounted",
       "ok": true,
@@ -57,23 +67,23 @@
       "name": "dashboard overview side shows API, version, safety, and Lightspeed values",
       "ok": true,
       "evidence": {
-        "overviewSideText": "ViewCywell AI 관제탑 / OpenShift 기본 대시보드와 분리APIhttps://api.ocp.cywell.server:6443Version4.20.23Safetycontrolled_executionLightspeed streamstarted"
+        "overviewSideText": "ViewCywell AI 관제탑 / OpenShift 기본 대시보드와 분리APIhttps://api.ocp.cywell.server:6443Version4.20.23Safetycontrolled_executionLightspeed streamsucceeded"
       }
     },
     {
       "name": "dashboard overview appears before assistant stage",
       "ok": true,
       "evidence": {
-        "overviewTop": -2272,
-        "assistantTop": 269
+        "overviewTop": -2827,
+        "assistantTop": 261
       }
     },
     {
       "name": "dashboard exposes Stage 5 operator flow summary before metrics",
       "ok": true,
       "evidence": {
-        "metricsTop": -1775,
-        "operatorFlowBottom": -1791,
+        "metricsTop": -2330,
+        "operatorFlowBottom": -2346,
         "operatorFlowItemCount": 6,
         "operatorFlowLabels": [
           "클러스터 상태",
@@ -83,8 +93,8 @@
           "감사·대화",
           "안전 정책"
         ],
-        "operatorFlowText": "Operator flow운영 흐름클러스터 상태위험 이상 징후 2건1/1 ready이상 징후위험 이상 징후 2건총 61건RCA 근거RCA 근거 확인 중근거 4 collected조치 후보read-only 조치 후보 24건제안만 함 / 실행 안 함감사·대화감사 12건대화 기록 기본 접힘안전 정책controlled_executionmutation enabled",
-        "overviewBottom": -1985
+        "operatorFlowText": "Operator flow운영 흐름클러스터 상태위험 이상 징후 2건1/1 ready이상 징후위험 이상 징후 2건총 59건RCA 근거RCA 근거 확인 중근거 4 collected조치 후보승인 기반 조치 후보 24건실행 계획 생성 가능감사·대화감사 2건대화 기록 기본 접힘안전 정책controlled_executionAction Executor 연결",
+        "overviewBottom": -2540
       }
     },
     {
@@ -161,18 +171,41 @@
       "ok": true,
       "evidence": {
         "anomalyStatus": "risk",
-        "anomalyText": "Cywell AI 이상 징후 자동 정리위험 이상 징후 2건9/10 sourcesread-only위험 2확인 필요 14주의 45총 61위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=990, message=back-off 5m0s re다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성위험ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gnP8대상openshift-marketplace/Pod/appscan360-catalog-457gn원인 후보이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이"
+        "anomalyText": "Cywell AI 이상 징후 자동 정리위험 이상 징후 2건9/10 sourcesread-only위험 2확인 필요 16주의 41총 59위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=2362, message=back-off 5m0s r다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성위험ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gnP8대상openshift-marketplace/Pod/appscan360-catalog-457gn원인 후보이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이"
       }
     },
     {
-      "name": "dashboard anomaly and action candidates sit between metrics and source board before assistant",
+      "name": "dashboard anomaly, candidates, sources, and topology sit before assistant",
       "ok": true,
       "evidence": {
-        "actionCandidateTop": -943,
-        "anomalyTop": -1658,
-        "assistantTop": 269,
-        "metricsBottom": -1674,
-        "sourceTop": -188
+        "actionCandidateTop": -1498,
+        "anomalyTop": -2213,
+        "assistantTop": 261,
+        "customerTopologyTop": 26,
+        "metricsBottom": -2229,
+        "sourceTop": -431
+      }
+    },
+    {
+      "name": "dashboard exposes customer operations topology",
+      "ok": true,
+      "evidence": {
+        "customerTopologyNodeCount": 5,
+        "customerTopologyNodeLabels": [
+          "고객 OCP",
+          "관측 신호",
+          "LLM Wiki/RAG",
+          "LLM 경로",
+          "정책/감사"
+        ],
+        "customerTopologyText": "Customer topology고객 운영 토폴로지admin고객 OCP1/1 nodeshttps://api.ocp.cywell.server:6443관측 신호위험 이상 징후 2건9/10 data sourcesLLM Wiki/RAGconfiguredkomsco-aiops-runbooksLLM 경로succeededopenshift-lightspeed/lightspeed-app-server:8443정책/감사controlled_execution2 audit records"
+      }
+    },
+    {
+      "name": "dashboard customer topology text is not clipped",
+      "ok": true,
+      "evidence": {
+        "customerTopologyClippedItems": []
       }
     },
     {
@@ -187,7 +220,7 @@
       "name": "dashboard anomaly totals expose severity buckets",
       "ok": true,
       "evidence": {
-        "anomalyTotalsText": "위험 2확인 필요 14주의 45총 61"
+        "anomalyTotalsText": "위험 2확인 필요 16주의 41총 59"
       }
     },
     {
@@ -195,27 +228,28 @@
       "ok": true,
       "evidence": {
         "anomalyItemTexts": [
-          "위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=990, message=back-off 5m0s re다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성",
+          "위험CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다.근거container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=2362, message=back-off 5m0s r다음 확인oc logs [redacted-token] -n komsco-ai-dev -c crashloop --previous0.1.3 demo챗봇으로 RCA 질문 생성",
           "위험ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gnP8대상openshift-marketplace/Pod/appscan360-catalog-457gn원인 후보이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이 우선입니다.근거container=registry-server, waiting.reason=ImagePullBackOff, restartCount=0, message=Back-off pul다음 확인oc describe pod appscan360-catalog-457gn -n openshift-marketplace",
           "확인 필요Recent restart increase: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjzP10대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz원인 후보최근 1시간 restart 증가가 관측되었습니다. 현재 CrashLoop인지 복구된 이력인지는 Pod 상태와 lastState로 확정해야 합니다.근거increase([redacted-token][1h])=11.3793, container=crashloop다음 확인oc get pod [redacted-token] -n komsco-ai-dev -o jsonpath='{.status.containerStatuses}'0.1.3 demo챗봇으로 RCA 질문 생성"
         ]
       }
     },
     {
-      "name": "dashboard exposes Stage 4 read-only action candidate board",
+      "name": "dashboard exposes Stage 5 approval-gated action candidate board",
       "ok": true,
       "evidence": {
-        "actionCandidateExecution": "not-executed",
-        "actionCandidateMode": "read-only",
+        "actionCandidateExecution": "approval-gated",
+        "actionCandidateMode": "execute",
         "actionCandidateStatus": "candidates",
-        "actionCandidateText": "Cywell AI 조치 후보read-only 조치 후보 24건제안만 함 / 실행 안 함read-only승인 필요 24mutation disabled. 금지 동작: apply, attach, create, delete, evict, exec, patch, replace, restart, rollout, scale, update높음CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태제안만 함 / 실행 안 함선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.승인승인 전 실행 불가검증대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.높음ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gn 조치 후보P8대상openshift-marketplace/Pod/appscan360-catalog-"
+        "actionCandidateText": "Cywell AI 복구 계획승인 기반 조치 후보 24건승인 계획 가능execute승인 필요 24계획/승인/검증 API 경로로 해결 계획 생성, 승인, 실행을 순서대로 호출하고 모든 기록을 남깁니다.높음CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태계획 전복구 계획원인이 image, command, env, config, dependency 중 어디인지 분리합니다.선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.승인승인 전 실행 불가검증대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.실행 흐름evict_one_unhealthy_controller_owned_pod · live target 확인 후 계획 생성해결 계획 만들기근거 다시 묻기높음ImagePullBackOff: openshift-marketplace/appscan360-c"
       }
     },
     {
-      "name": "dashboard action candidate board states mutation-disabled forbidden actions",
+      "name": "dashboard action candidate board states approval gate or forbidden actions",
       "ok": true,
       "evidence": {
-        "actionCandidateText": "Cywell AI 조치 후보read-only 조치 후보 24건제안만 함 / 실행 안 함read-only승인 필요 24mutation disabled. 금지 동작: apply, attach, create, delete, evict, exec, patch, replace, restart, rollout, scale, update높음CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태제안만 함 / 실행 안 함선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.승인승인 전 실행 불가검증대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.높음ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gn 조치 후보P8대상openshift-marketplace/Pod/appscan360-catalog-"
+        "actionCandidateExecution": "approval-gated",
+        "actionCandidateText": "Cywell AI 복구 계획승인 기반 조치 후보 24건승인 계획 가능execute승인 필요 24계획/승인/검증 API 경로로 해결 계획 생성, 승인, 실행을 순서대로 호출하고 모든 기록을 남깁니다.높음CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태계획 전복구 계획원인이 image, command, env, config, dependency 중 어디인지 분리합니다.선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.승인승인 전 실행 불가검증대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.실행 흐름evict_one_unhealthy_controller_owned_pod · live target 확인 후 계획 생성해결 계획 만들기근거 다시 묻기높음ImagePullBackOff: openshift-marketplace/appscan360-c"
       }
     },
     {
@@ -231,17 +265,85 @@
       "ok": true,
       "evidence": {
         "actionCandidateItemTexts": [
-          "높음CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태제안만 함 / 실행 안 함선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.승인승인 전 실행 불가검증대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.",
-          "높음ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gn 조치 후보P8대상openshift-marketplace/Pod/appscan360-catalog-457gn상태제안만 함 / 실행 안 함선행 확인oc describe pod appscan360-catalog-457gn -n openshift-marketplace예상 영향openshift-marketplace/Pod/appscan360-catalog-457gn 기동 차단을 해소할 수 있으나 image/secret 변경은 배포 범위 전체에 영향이 날 수 있습니다.승인승인 전 실행 불가검증Pod Events에서 pull 실패 메시지가 사라졌는지 확인합니다.",
-          "중간Recent restart increase: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P10대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태제안만 함 / 실행 안 함선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz의 경고/재시작 신호를 줄일 수 있으나 원인 확정 전 실행은 재발 가능성이 높습니다.승인승인 전 실행 불가검증Alert firing 상태가 해소되었는지 확인합니다."
+          "높음CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P5대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태계획 전복구 계획원인이 image, command, env, config, dependency 중 어디인지 분리합니다.선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.승인승인 전 실행 불가검증대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.실행 흐름evict_one_unhealthy_controller_owned_pod · live target 확인 후 계획 생성해결 계획 만들기근거 다시 묻기",
+          "높음ImagePullBackOff: openshift-marketplace/appscan360-catalog-457gn 조치 후보P8대상openshift-marketplace/Pod/appscan360-catalog-457gn상태계획 전복구 계획이미지/tag 오타, registry 권한, pull secret 누락 중 하나로 원인을 좁힙니다.선행 확인oc describe pod appscan360-catalog-457gn -n openshift-marketplace예상 영향openshift-marketplace/Pod/appscan360-catalog-457gn 기동 차단을 해소할 수 있으나 image/secret 변경은 배포 범위 전체에 영향이 날 수 있습니다.승인승인 전 실행 불가검증Pod Events에서 pull 실패 메시지가 사라졌는지 확인합니다.실행 흐름evict_one_unhealthy_controller_owned_pod · live target 확인 후 계획 생성해결 계획 만들기근거 다시 묻기",
+          "중간Recent restart increase: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보P10대상komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz상태계획 전복구 계획경고와 지표의 공통 원인을 RCA 후보로 고정합니다.선행 확인oc describe pod aiops-scenario-1-crashloop-7448bf8897-57pjz -n komsco-ai-dev예상 영향komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz의 경고/재시작 신호를 줄일 수 있으나 원인 확정 전 실행은 재발 가능성이 높습니다.승인승인 전 실행 불가검증Alert firing 상태가 해소되었는지 확인합니다.실행 흐름evict_one_unhealthy_controller_owned_pod · live target 확인 후 계획 생성해결 계획 만들기근거 다시 묻기"
         ]
+      }
+    },
+    {
+      "name": "dashboard action candidate cards expose direct remediation lifecycle button",
+      "ok": true,
+      "evidence": {
+        "actionCandidateButtonTexts": [
+          "해결 계획 만들기",
+          "근거 다시 묻기",
+          "해결 계획 만들기",
+          "근거 다시 묻기",
+          "해결 계획 만들기",
+          "근거 다시 묻기"
+        ],
+        "actionCandidateButtonTitles": [
+          "Gateway 실행 흐름에서 다음 단계를 진행합니다.",
+          "이 후보를 챗봇 질문으로 보내 근거 설명을 다시 확인합니다.",
+          "Gateway 실행 흐름에서 다음 단계를 진행합니다.",
+          "이 후보를 챗봇 질문으로 보내 근거 설명을 다시 확인합니다.",
+          "Gateway 실행 흐름에서 다음 단계를 진행합니다.",
+          "이 후보를 챗봇 질문으로 보내 근거 설명을 다시 확인합니다."
+        ]
+      }
+    },
+    {
+      "name": "dashboard action candidate evidence button fills Action Plan draft prompt",
+      "ok": true,
+      "evidence": {
+        "clicked": true,
+        "text": "근거 다시 묻기"
+      }
+    },
+    {
+      "name": "dashboard action candidate draft carries concrete action-plan target",
+      "ok": true,
+      "evidence": {
+        "inputValue": "Pod `komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz` evict 실행 계획을 생성해줘.\n\n조치 후보: CrashLoopBackOff: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz 조치 후보\n대상: komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-57pjz\n위험도: 높음\n근거: container=crashloop, waiting.reason=CrashLoopBackOff, restartCount=2362, message=back-off 5m0s restarting fai"
+      }
+    },
+    {
+      "name": "dashboard action candidate draft enables send button",
+      "ok": true,
+      "evidence": {
+        "sendDisabled": false
+      }
+    },
+    {
+      "name": "dashboard action candidate chat creates proposal and sealed plan",
+      "ok": true,
+      "evidence": {
+        "latestAssistantText": "자연어 조치 요청을 typed AIOps action으로 변환해 실행 계획까지 생성했습니다.생성된 실행 계획흐름: ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord대상: komsco-ai-dev/aiops-scenario-1-crashloop-7448bf8897-57pjz (Pod)Action: evict_one_unhealthy_controller_owned_podParameters: {\"reason\": \"natural_language_unhealthy_pod_eviction\"}Proposal: proposal-dbad843a82d6f14dPlan: plan-d2396737-6751-4e78-8b38-e89b653d70faPlan digest: `sha256:4ba4b461bc1a06188a59b2598c1"
+      }
+    },
+    {
+      "name": "dashboard action candidate response IDs exist in persisted proposal and sealed plan records",
+      "ok": true,
+      "evidence": {
+        "proposalId": "proposal-dbad843a82d6f14d",
+        "planId": "plan-d2396737-6751-4e78-8b38-e89b653d70fa",
+        "after": {
+          "ok": true,
+          "actionProposalIds": [
+            "proposal-dbad843a82d6f14d"
+          ],
+          "sealedActionPlanIds": [
+            "plan-d2396737-6751-4e78-8b38-e89b653d70fa"
+          ]
+        }
       }
     },
     {
       "name": "action candidate screenshot saved",
       "ok": true,
       "evidence": {
-        "path": "\\\\wsl.localhost\\Ubuntu\\home\\kugnus\\cywell\\ocp-aiops_kugnus\\.tmp-aiops-kugnus-ui-verify-action-candidates.png"
+        "path": "/home/kugnus/cywell/ocp-aiops_kugnus/.tmp-aiops-kugnus-ui-verify-action-candidates.png"
       }
     },
     {
@@ -251,7 +353,7 @@
         "panelHeadings": [
           "Evidence posture",
           "Lightspeed link",
-          "Tool Plan JSON",
+          "Tool Plan",
           "RCA Context JSON",
           "OS-aware adapters",
           "Safety contract",
@@ -267,7 +369,7 @@
         "panelHeadings": [
           "Evidence posture",
           "Lightspeed link",
-          "Tool Plan JSON",
+          "Tool Plan",
           "RCA Context JSON",
           "OS-aware adapters",
           "Safety contract",
@@ -277,13 +379,13 @@
       }
     },
     {
-      "name": "dashboard panel present: Tool Plan JSON",
+      "name": "dashboard panel present: Tool Plan",
       "ok": true,
       "evidence": {
         "panelHeadings": [
           "Evidence posture",
           "Lightspeed link",
-          "Tool Plan JSON",
+          "Tool Plan",
           "RCA Context JSON",
           "OS-aware adapters",
           "Safety contract",
@@ -299,7 +401,7 @@
         "panelHeadings": [
           "Evidence posture",
           "Lightspeed link",
-          "Tool Plan JSON",
+          "Tool Plan",
           "RCA Context JSON",
           "OS-aware adapters",
           "Safety contract",
@@ -315,7 +417,7 @@
         "panelHeadings": [
           "Evidence posture",
           "Lightspeed link",
-          "Tool Plan JSON",
+          "Tool Plan",
           "RCA Context JSON",
           "OS-aware adapters",
           "Safety contract",
@@ -331,7 +433,7 @@
         "panelHeadings": [
           "Evidence posture",
           "Lightspeed link",
-          "Tool Plan JSON",
+          "Tool Plan",
           "RCA Context JSON",
           "OS-aware adapters",
           "Safety contract",
@@ -341,17 +443,92 @@
       }
     },
     {
+      "name": "dashboard ToolPlan and RCA Context JSON details are collapsed by default",
+      "ok": true,
+      "evidence": {
+        "panelDetailsStates": [
+          {
+            "heading": "Evidence posture",
+            "detailsOpen": null
+          },
+          {
+            "heading": "Lightspeed link",
+            "detailsOpen": null
+          },
+          {
+            "heading": "Tool Plan",
+            "detailsOpen": false
+          },
+          {
+            "heading": "RCA Context JSON",
+            "detailsOpen": false
+          },
+          {
+            "heading": "OS-aware adapters",
+            "detailsOpen": null
+          },
+          {
+            "heading": "Safety contract",
+            "detailsOpen": null
+          },
+          {
+            "heading": "Operator attention",
+            "detailsOpen": null
+          },
+          {
+            "heading": "최근 실행 기록",
+            "detailsOpen": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "dashboard ToolPlan exposes visible execution steps instead of JSON-only dump",
+      "ok": true,
+      "evidence": {
+        "toolPlanStepCount": 2,
+        "toolPlanTextPreview": "Tool Plan분류openshift_operational_question대상openshift / all-accessible-namespaces실행 정책read_only검증read-only 통과1openshift context inspectionOpenShift / get / openshift_apiadapter 연결됨현재 콘솔 컨텍스트와 접근 가능한 리소스 기준으로 안전하게 확인openshift_context_inspection resolves to OpenShift adapter capability.2lightspeed streaming queryOpenShift Lightspeed / get / openshiftadapter 연결됨"
+      }
+    },
+    {
       "name": "dashboard adapter panel explains OpenShift Linux and Windows states",
       "ok": true,
       "evidence": {
-        "adapterPanelText": "OS-aware adaptersOpenShiftavailableUserToken-scoped read-only cluster observationUserToken-scoped read-only OpenShift API observation is available.Resolve Tool Plan steps to OpenShift read-only API calls.requirementsvalid OpenShift user tokenread-only RBAC for requested resourceopenshift_context_inspectionlightspeed_streaming_queryopenshift_event_lookupAI Gatewayavailablelocal Gateway read-only audit and safety contractLocal Gateway safety and pending action plan inspection is available.Resolve Tool Plan steps to local Gateway read-only audit checks.requirementslocal Gateway processread-only safety gatesgateway_rag_runbook_searchgateway_pending_action_plan_lookupgateway_safety_policy_checkLinuxdisabledhost diagnostics adapter remains approval-gatedKOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled.Enable diagnostics and configure KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL before Linux collectors can run.requirementsdiagnostics gate enabledhost diagnostics controller URL configuredapproved collector profilejournalctl_readonly_tail · disabledsystemctl_status_readonly · disableddmesg_readonly_tail · disabledWindowsplannedWindows event adapter is design scope, not runtime-readyWindows adapter has no runtime collector or credential bridge yet.Define a Windows node agent or remote event bridge before exposing runtime results.requirementsWindows node agentread-only event log credentialnetwork path from Gatewayget_winevent_readonly · plannedget_service_readonly · plannedget_counter_readonly · planned"
+        "adapterPanelText": "OS-aware adaptersOpenShiftavailableUserToken-scoped read-only cluster observationUserToken-scoped read-only OpenShift API observation is available.Resolve Tool Plan steps to OpenShift read-only API calls.requirementsvalid OpenShift user tokenread-only RBAC for requested resourceopenshift_context_inspectionlightspeed_streaming_queryopenshift_event_lookupAI Gatewayavailablelocal Gateway read-only audit and safety contractLocal Gateway safety and pending action plan inspection is available.Resolve Tool Plan steps to local Gateway read-only audit checks.requirementslocal Gateway processread-only safety gatesgateway_rag_runbook_searchgateway_pending_action_plan_lookupgateway_safety_policy_checkLinuxdisabledhost diagnostics adapter remains approval-gatedKOMSCO_AI_DIAGNOSTICS_ENABLED is false; Linux host diagnostics stay disabled.Enable diagnostics and configure KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL before Linux collectors can run.requirementsdiagnostics gate enabledhost diagnostics controller URL configuredapproved collector profilegateway_rag_runbook_searchjournalctl_readonly_tail · disabledsystemctl_status_readonly · disabledWindowsplannedWindows event adapter is design scope, not runtime-readyWindows adapter has no runtime collector or credential bridge yet.Define a Windows node agent or remote event bridge before exposing runtime results.requirementsWindows node agentread-only event log credentialnetwork path from Gatewaygateway_rag_runbook_searchget_winevent_readonly · plannedget_service_readonly · planned"
       }
     },
     {
       "name": "dashboard Lightspeed panel exposes stream status without stale not-probed placeholder",
       "ok": true,
       "evidence": {
-        "lightspeedPanelText": "Lightspeed linkGateway status loadedstarted / startedGateway contextsha256:f499eac99725cbe97...Lightspeed serviceopenshift-lightspeed/lightspeed-app-server:8443Console pluginkomsco-ai-console-plugin-kugnus"
+        "lightspeedPanelText": "Lightspeed linkGateway status loadedsucceeded / succeededGateway contextsha256:6f59ae69f9bc48c63...Lightspeed serviceopenshift-lightspeed/lightspeed-app-server:8443Console pluginkomsco-ai-console-plugin-kugnus"
+      }
+    },
+    {
+      "name": "LLM Wiki route exposes customer RAG upload dashboard",
+      "ok": true,
+      "evidence": {
+        "title": "LLM Wiki",
+        "heroText": "Customer LLM Wiki고객 지식/RAG 저장소고객 문서를 업로드하고 pgvector RAG 적재, ACL, 검색 가능한 chunk preview를 확인합니다.문서 업로드목록 새로고침",
+        "metricLabels": [
+          "RAG backend",
+          "Documents",
+          "Chunks",
+          "ACL",
+          "Raw content",
+          "Size"
+        ],
+        "metricsText": "RAG backendcheckinggateway-onlyDocuments...visible to current OpenShift subjectChunks...retrievable RAG chunksACLONgateway-onlyRaw contentHIDDENredacted preview onlySize0 Bstored content size",
+        "hasUploadButton": true,
+        "hasViewer": true,
+        "horizontalOverflow": 0
+      }
+    },
+    {
+      "name": "LLM Wiki route has no horizontal overflow",
+      "ok": true,
+      "evidence": {
+        "horizontalOverflow": 0
       }
     },
     {
@@ -413,7 +590,7 @@
       "name": "header controls share a consistent vertical centerline",
       "ok": true,
       "evidence": {
-        "headerCenterY": 1400.7,
+        "headerCenterY": 3305.2,
         "headerCenterDeltas": {
           "actions": -0.5,
           "logo": -0.5,
@@ -554,6 +731,15 @@
       }
     },
     {
+      "name": "uploaded documents tab stays selected after async refresh",
+      "ok": true,
+      "evidence": {
+        "historyTitleText": "업로드 문서",
+        "uploadPanelPressed": "true",
+        "uploadedDocItemCount": 5
+      }
+    },
+    {
       "name": "fullscreen surface is portaled to body",
       "ok": true,
       "evidence": {
@@ -584,8 +770,8 @@
         "actionLifecycleRect": {
           "left": 1093,
           "right": 1379,
-          "top": 1227.09375,
-          "bottom": 1525.46875,
+          "top": 1535.890625,
+          "bottom": 1834.265625,
           "width": 286,
           "height": 298.375,
           "borderBottomWidth": "0px",
@@ -651,7 +837,7 @@
           "mutationFlagState": "enabled",
           "uiExecutionMode": "execute"
         },
-        "actionLifecycleTextPreview": "Proposal0candidate action requestSealed plan0sealed plan digestApproval0approval decisionExecution0execution recordCurrent gatePlan, approval, and execution requests may be submitted after server-side checks.실행Execute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure reason; create a new plan and approval."
+        "actionLifecycleTextPreview": "Proposal1candidate action requestSealed plan1sealed plan digestApproval0approval decisionExecution0execution recordCurrent gatePlan, approval, and execution requests may be submitted after server-side checks.실행Execute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure reason; create a new plan and approval."
       }
     },
     {
@@ -664,7 +850,7 @@
           "mutationFlagState": "enabled",
           "uiExecutionMode": "execute"
         },
-        "actionLifecycleTextPreview": "Proposal0candidate action requestSealed plan0sealed plan digestApproval0approval decisionExecution0execution recordCurrent gatePlan, approval, and execution requests may be submitted after server-side checks.실행Execute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure reason; create a new plan and approval."
+        "actionLifecycleTextPreview": "Proposal1candidate action requestSealed plan1sealed plan digestApproval0approval decisionExecution0execution recordCurrent gatePlan, approval, and execution requests may be submitted after server-side checks.실행Execute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure reason; create a new plan and approval."
       }
     },
     {
@@ -679,7 +865,7 @@
       "name": "fullscreen screenshot saved",
       "ok": true,
       "evidence": {
-        "path": "\\\\wsl.localhost\\Ubuntu\\home\\kugnus\\cywell\\ocp-aiops_kugnus\\.tmp-aiops-kugnus-ui-verify-fullscreen.png"
+        "path": "/home/kugnus/cywell/ocp-aiops_kugnus/.tmp-aiops-kugnus-ui-verify-fullscreen.png"
       }
     },
     {
@@ -745,7 +931,7 @@
       "name": "resize screenshot saved",
       "ok": true,
       "evidence": {
-        "path": "\\\\wsl.localhost\\Ubuntu\\home\\kugnus\\cywell\\ocp-aiops_kugnus\\.tmp-aiops-kugnus-ui-verify-resize.png"
+        "path": "/home/kugnus/cywell/ocp-aiops_kugnus/.tmp-aiops-kugnus-ui-verify-resize.png"
       }
     },
     {
@@ -915,13 +1101,14 @@
             "avatar": null,
             "cls": "komsco-ai__message komsco-ai__message--user",
             "content": {
-              "bottom": 857.375,
+              "bottom": 786.875,
               "height": 45.6875,
-              "left": 987.984375,
+              "left": 983.78125,
               "right": 1225.5,
-              "top": 811.6875,
-              "width": 237.515625
+              "top": 741.1875,
+              "width": 241.71875
             },
+            "contentText": "현재 연결 상태를 한 줄로만 확인해줘",
             "evidenceFooter": null,
             "fallbackBadgeText": "",
             "formattedCodeBlockCount": 0,
@@ -930,33 +1117,45 @@
             "formattedTableCount": 0,
             "labelText": "사용자",
             "message": {
-              "bottom": 857.375,
-              "height": 64.6875,
+              "bottom": 802.875,
+              "height": 80.6875,
               "left": 465.5,
               "right": 1225.5,
-              "top": 792.6875,
+              "top": 722.1875,
               "width": 760
             },
-            "text": "사용자현재 연결 상태를 한 줄로만 확인해줘"
+            "progressOpen": false,
+            "progressText": "",
+            "text": "사용자현재 연결 상태를 한 줄로만 확인해줘오전 10:22",
+            "time": {
+              "bottom": 802.875,
+              "height": 12,
+              "left": 1177.234375,
+              "right": 1225.5,
+              "top": 790.875,
+              "width": 48.265625
+            },
+            "timeText": "오전 10:22"
           },
           {
             "avatar": {
-              "bottom": 899.375,
+              "bottom": 844.875,
               "height": 24,
               "left": 465.5,
               "right": 489.5,
-              "top": 875.375,
+              "top": 820.875,
               "width": 24
             },
             "cls": "komsco-ai__message komsco-ai__message--assistant",
             "content": {
-              "bottom": 924.421875,
+              "bottom": 869.921875,
               "height": 21.046875,
               "left": 465.5,
               "right": 1225.5,
-              "top": 903.375,
+              "top": 848.875,
               "width": 760
             },
+            "contentText": "응답 생성을 중지했습니다.",
             "evidenceFooter": null,
             "fallbackBadgeText": "",
             "formattedCodeBlockCount": 0,
@@ -966,13 +1165,24 @@
             "labelText": "KOMSCO AI AGENT",
             "message": {
               "bottom": 953.21875,
-              "height": 77.84375,
+              "height": 132.34375,
               "left": 465.5,
               "right": 1225.5,
-              "top": 875.375,
+              "top": 820.875,
               "width": 760
             },
-            "text": "KOMSCO AI AGENT복사응답 생성을 중지했습니다.270ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인3msAI 응답 대기·사용자 주체 확인 시작49ms요청 준비·요청 준비 완료32ms사용자 주체 확인·주체 확인 완료62msAI 응답 대기·제품 접근 권한 확인 시작17ms제품 접근 권한 확인·오류 확인 필요82ms"
+            "progressOpen": false,
+            "progressText": "835ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인8msAI 응답 대기·사용자 주체 확인 시작69ms요청 준비·요청 준비 완료40ms사용자 주체 확인·주체 확인 완료96msAI 응답 대기·제품 접근 권한 확인 시작22ms제품 접근 권한 확인·제품 접근 확인 완료27msAI 응답 대기·정책 확인 시작14ms정책 확인·조회/증거 수집 허용27msAI 응답 대기·증거 수집 계획 시작20ms증거 수집 계획·read-only Tool Plan 검증 완료57ms증거 수집 계획·증거 수집 계획 생성1msAI 응답 대기·감사 기록 완료185msRCA 근거 문맥·RCA 문맥 연결: plan_ready1ms감사 기록·감사 레코드 기록1msAI 응답 대기·Rag Context Evidence 시작19msRag Context Evidence·오류 확인 필요91ms",
+            "text": "KOMSCO AI AGENTOpenShift Lightspeed복사응답 생성을 중지했습니다.AIOps 작업 흐름오류 확인 필요835ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인8msAI 응답 대기·사용자 주체 확인 시작69ms요청 준비·요청 준비 완료40ms사용자 주체 확인·주체 확인 완료96msAI 응답 대기·제품 접근 권한 확인 시작22ms제품 접근 권한 확인·제품 접근 확인 완료27msAI 응답 대기·정책 확인 시작14ms정책 확인·조회/증거 수집 허용27msAI 응답 대기·증거 수집 계획 시작20ms증거 수집 계획·read-only Tool Plan 검증 완료57ms증거 수집 계획·증거 수집 계획 생성1msAI 응답 대기·감사 기록 완료185msRCA 근거 문맥·RCA 문맥 연결: plan_ready1ms감사 기록·감사 레코드 기록1msAI 응답 대기·Rag Context Evidence 시작19msRag Context Evidence·오류 확인 필요91ms오전 10:22",
+            "time": {
+              "bottom": 953.21875,
+              "height": 12,
+              "left": 465.5,
+              "right": 513.765625,
+              "top": 941.21875,
+              "width": 48.265625
+            },
+            "timeText": "오전 10:22"
           }
         ]
       }
@@ -988,9 +1198,9 @@
       "name": "assistant K logo sits in the answer header without indenting content",
       "ok": true,
       "evidence": {
-        "avatarTop": 875,
+        "avatarTop": 821,
         "contentLeft": 466,
-        "contentTop": 903,
+        "contentTop": 849,
         "messageLeft": 466
       }
     },
@@ -1000,7 +1210,7 @@
       "evidence": {
         "railCollectedCount": 1,
         "railMissingCount": 3,
-        "railTextPreview": "현재 클러스터 컨텍스트회사 OCP 연결됨https://api.ocp.cywell.server:64431/1 Ready · CPU 2.0 cores · 메모리 36.9 GiBNode 1/1 · ReadyOperator 34/34 정상Cluster health score마지막 갱신 오후 01:2792 / 100노드 상태Node 1/1 · Ready52-54-00-a1-f8-7ccontrol-plane, master, worker · v1.33.11CPU 2.0 cores · 메모리 36.9 GiBREADY클러스터 상태4.20.23Available 34/34장애 0건Progressing 0건Channel unknownUpdate availab"
+        "railTextPreview": "현재 클러스터 컨텍스트회사 OCP 연결됨https://api.ocp.cywell.server:64431/1 Ready · CPU 2.3 cores · 메모리 37.8 GiB대화 요약4건최근 질문 · 오전 10:22aiops-two-pod-exec 파드 몇개 띄었어?최근 답변 · 오전 10:22`komsco-ai-dev/aiops-two-pod-exec` 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다. 직접 Kubernetes API로 조회했으며 실행/...질문·답변 타임라인최신 4건사용자오전 10:22질문현재 연결 상태를 한 줄로만 확인해줘KOMSCO AI AGENT오전 10:22답변응답 생성을 중지했습"
       }
     },
     {
@@ -1021,25 +1231,35 @@
           "다음 확인",
           "우선순위"
         ],
-        "structuredBlockCount": 1,
-        "tables": 1,
-        "textPreview": "KOMSCO AI AGENT복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.NamespaceTargetDesiredCurrent PodsRunningReadyTerminatingPod detailskomsco-ai-devDeployment/aiops-two-pod-exec3333/30aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c7f74-hkqnd(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c"
+        "structuredBlockCount": 0,
+        "tables": 0,
+        "textPreview": "KOMSCO AI AGENTOpenShift Lightspeed복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니근거수집 1추가 확인 1rca-4c9b4b7a09bb8085pod_statusPod 개수 직접 조회 완료ev-014817edba584c9dmetric: pod usage metrics are optional for inventory questionsOLS/LLM -> 브라우저 답변본문을 실시간으로 수신하고 있습니다.671ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인6msAI 응답 대기·사용자 주체 확인 시작44ms요청 "
+      }
+    },
+    {
+      "name": "assistant progress details stay collapsed and do not duplicate final answer",
+      "ok": true,
+      "evidence": {
+        "answerSnippet": "komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접",
+        "duplicatedAnswerInProgress": false,
+        "progressOpen": false,
+        "progressTextPreview": "671ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인6msAI 응답 대기·사용자 주체 확인 시작44ms요청 준비·요청 준비 완료20ms사용자 주체 확인·주체 확인 완료13msAI 응답 대기·제품 접근 권한 확인 시작13ms제품 접근 권한 확인·제품 접근 확인 완료13msAI 응답 대기·정책 확인 시작13ms정책 확인·조회/증거 수집 허용11msAI 응답 대기·증거 수집 계획 시작14ms증거 수집 계획·read-only Tool Plan 검증 완료22ms증거 수집 계획·증거 수집 계획 생성1msAI 응답 대기·감사 기록 완료38msRCA 근거 문맥·RCA 문맥 연결: plan_ready1ms감사 기록·감사 레코드 기록1msAI 응답 대기·조회 범위 결정 시작9ms조회 범위 결정·대상 `aiops-two"
       }
     },
     {
       "name": "assistant RCA answer keeps mutation commands out of read-only guidance",
       "ok": true,
       "evidence": {
-        "textPreview": "KOMSCO AI AGENT복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.NamespaceTargetDesiredCurrent PodsRunningReadyTerminatingPod detailskomsco-ai-devDeployment/aiops-two-pod-exec3333/30aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c7f74-hkqnd(Running, ready 1/1, restarts 83), aiops-two-pod-exec-9f57c7f74-qpjpp(Running, ready 1/1, restarts 83)근거수집 1추가 확인 1rca-b685e78e6e6333bcpod_statusPod 개수 직접 조회 완"
+        "textPreview": "KOMSCO AI AGENTOpenShift Lightspeed복사komsco-ai-dev/aiops-two-pod-exec 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니근거수집 1추가 확인 1rca-4c9b4b7a09bb8085pod_statusPod 개수 직접 조회 완료ev-014817edba584c9dmetric: pod usage metrics are optional for inventory questionsOLS/LLM -> 브라우저 답변본문을 실시간으로 수신하고 있습니다.671ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인6msAI 응답 대기·사용자 주체 확인 시작44ms요청 준비·요청 준비 완료20ms사용자 주체 확인·주체 확인 완료13msAI 응답 대기·제품 접근 권한 확인 시작13ms제품 접근 권한 확인·제품 접근 확인 완료13msAI 응답 대기·"
       }
     },
     {
       "name": "assistant answer exposes compact evidence footer with trace id",
       "ok": true,
       "evidence": {
-        "contextId": "rca-b685e78e6e6333bc",
-        "digestPreview": "sha256:b685e78e6e6333bca",
-        "footerText": "근거수집 1추가 확인 1rca-b685e78e6e6333bcpod_statusPod 개수 직접 조회 완료ev-2cd5cfe930bbedeemetric: pod usage metrics are optional for inventory questions"
+        "contextId": "rca-4c9b4b7a09bb8085",
+        "digestPreview": "sha256:4c9b4b7a09bb80853",
+        "footerText": "근거수집 1추가 확인 1rca-4c9b4b7a09bb8085pod_statusPod 개수 직접 조회 완료ev-014817edba584c9dmetric: pod usage metrics are optional for inventory questions"
       }
     },
     {
@@ -1066,21 +1286,21 @@
       "ok": true,
       "evidence": {
         "stoppedMessagesWithCollectedEvidence": 0,
-        "withEvidenceFooterText": "근거수집 1추가 확인 1rca-b685e78e6e6333bcpod_statusPod 개수 직접 조회 완료ev-2cd5cfe930bbedeemetric: pod usage metrics are optional for inventory questions"
+        "withEvidenceFooterText": "근거수집 1추가 확인 1rca-4c9b4b7a09bb8085pod_statusPod 개수 직접 조회 완료ev-014817edba584c9dmetric: pod usage metrics are optional for inventory questions"
       }
     },
     {
       "name": "assistant evidence footer redacts sensitive identity and token-like values",
       "ok": true,
       "evidence": {
-        "footerText": "근거수집 1추가 확인 1rca-b685e78e6e6333bcpod_statusPod 개수 직접 조회 완료ev-2cd5cfe930bbedeemetric: pod usage metrics are optional for inventory questions"
+        "footerText": "근거수집 1추가 확인 1rca-4c9b4b7a09bb8085pod_statusPod 개수 직접 조회 완료ev-014817edba584c9dmetric: pod usage metrics are optional for inventory questions"
       }
     },
     {
       "name": "assistant copy text includes evidence block without sensitive values",
       "ok": true,
       "evidence": {
-        "copiedPreview": "`komsco-ai-dev/aiops-two-pod-exec` 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.\n\n직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.\n\n| Namespace | Target | Desired | Current Pods | Running | Ready | Terminating | Pod details |\n| :--- | :--- | ---: | ---: | ---: | :---: | ---: | :--- |\n| komsco-ai-dev | Deployment/aiops-two-pod-exec | 3 | 3 | 3 | 3/3 | 0 | aiops-two-pod-exec-9f57c7f74-8llkx(Running, ready 1/1, restarts 8",
+        "copiedPreview": "`komsco-ai-dev/aiops-two-pod-exec` 기준 현재 Pod는 총 3개이며, Running 3개, Ready 3/3개입니다.\n\n직접 Kubernetes API로 조회했으며 실행/변경 조치는 수행하지 않았습니다.\n\n| Namespace |\n[Evidence]\n- context: rca-4c9b4b7a09bb8085\n- collected: 1\n- additional_check_required: 1\n- ref: ev-014817edba584c9d pod_status sha256:014817edba58\n- missing: metric pod usage metrics are optional for inventory questions",
         "patched": true
       }
     },
@@ -1088,7 +1308,7 @@
       "name": "evidence footer screenshot saved",
       "ok": true,
       "evidence": {
-        "path": "\\\\wsl.localhost\\Ubuntu\\home\\kugnus\\cywell\\ocp-aiops_kugnus\\.tmp-aiops-kugnus-ui-verify-evidence-footer.png"
+        "path": "/home/kugnus/cywell/ocp-aiops_kugnus/.tmp-aiops-kugnus-ui-verify-evidence-footer.png"
       }
     },
     {
@@ -1100,7 +1320,7 @@
       "name": "dashboard RCA Context JSON keeps real trace fields for collected, failed, and missing evidence",
       "ok": true,
       "evidence": {
-        "rcaContextTextPreview": "RCA Context JSON{\n  \"apiVersion\": \"aiops.komsco/v1alpha1\",\n  \"kind\": \"RcaContext\",\n  \"metadata\": {\n    \"generatedAt\": \"2026-06-26T04:27:30.009065Z\",\n    \"findingId\": null,\n    \"incidentId\": \"inc-3fcfb7f9-dbb2-403f-9df7-661ee0c07dcf\",\n    \"phase\": \"post_answer\",\n    \"planner\": \"deterministic_gateway_planner\",\n    \"runId\": \"run-mqufjp8n-3qw0md\",\n    \"scenarioId\": null,\n    \"version\": \"0.1.3\",\n    \"digest\": \"sha256:b685e78e6e6333bca5e364e389608439238c370cc2e0fca1791c4746e8a38a2e\",\n    \"contextId\": \"rca-b685e78e6e6333bc\"\n  },\n  \"question\": {\n    \"digest\": \"sha256:fd5269f36fe3d35564695504f676de01771d297793ab26fb3770548a282e4a90\",\n    \"pageContext\": {\n      \"route\": \"aiops-kugnus\",\n      \"pathname\": \"/aiops-kugnus\"\n "
+        "rcaContextTextPreview": "RCA Context JSON상세 JSONsha256:4c9b4b7a09bb8085370c11af86e76be528555fa51119c1b7c5e3a093185925c4{\n  \"apiVersion\": \"aiops.komsco/v1alpha1\",\n  \"kind\": \"RcaContext\",\n  \"metadata\": {\n    \"generatedAt\": \"2026-07-01T01:22:22.219888Z\",\n    \"findingId\": null,\n    \"incidentId\": \"inc-e3150c12-2e97-49ca-b889-2e4e32b12a32\",\n    \"phase\": \"post_answer\",\n    \"planner\": \"deterministic_gateway_planner\",\n    \"runId\": \"run-mr1e4vrm-0ldht4\",\n    \"scenarioId\": null,\n    \"version\": \"0.1.3\",\n    \"digest\": \"sha256:4c9b4b7a09bb8085370c11af86e76be528555fa51119c1b7c5e3a093185925c4\",\n    \"contextId\": \"rca-4c9b4b7a09bb8085\"\n  },\n  \"question\": {\n    \"digest\": \"sha256:fd5269f36fe3d35564695504f676de01771d297793ab26fb3770548a282e4a90\",\n    \"page"
       }
     },
     {
@@ -1111,12 +1331,18 @@
       }
     },
     {
-      "name": "Lightspeed stream/fallback check can be safely stopped when it does not finish quickly",
+      "name": "assistant chat shows small timestamps on latest user and assistant messages",
       "ok": true,
       "evidence": {
-        "fallbackBadgeText": "",
-        "headerStatusLabel": "클러스터 운영 상태 및 실행 모드",
-        "latestAssistantText": "KOMSCO AI AGENT979ms 동안 작업 완료보안 경계 확인·Gateway credential boundary 확인4msAI 응답 대기·사용자 주체 확인 시작52ms요청 준비·요청 준비 완료29ms사용자 주체 확인·주체 확인 완료62msAI 응답 대기·제품 접근 권한 확인 시작17ms제품 접근 권한 확인·제품 접근 확인 완료15msAI 응답 대기·정책 확인 시작13ms정책 확인·조회/증거 수집 허용21msAI 응답 대기·증거 수집 계획 시작17ms증거 수집 계획·read-only Tool Plan 검증 완료55ms증거 수집 계획·증거 수집 계획 생성1msAI 응답 대기·감사 기록 완료60msRCA 근거 문맥·RCA 문맥 연결: p"
+        "latestAssistantTime": "오전 10:22",
+        "latestUserTime": "오전 10:22"
+      }
+    },
+    {
+      "name": "Lightspeed final response is covered by the live verifier",
+      "ok": true,
+      "evidence": {
+        "task": "kugnus:lightspeed:live-verify"
       }
     },
     {
@@ -1125,7 +1351,7 @@
       "evidence": {
         "buttonVisible": true,
         "scrollTop": 0,
-        "distanceToBottom": 2361
+        "distanceToBottom": 2323
       }
     },
     {
@@ -1133,8 +1359,8 @@
       "ok": true,
       "evidence": {
         "buttonVisible": false,
-        "scrollTop": 2348,
-        "scrollHeight": 2785,
+        "scrollTop": 2310,
+        "scrollHeight": 2747,
         "clientHeight": 424,
         "distanceToBottom": 13
       }
@@ -1144,7 +1370,7 @@
       "ok": true,
       "evidence": {
         "buttonVisible": false,
-        "scrollTop": 2348,
+        "scrollTop": 2310,
         "distanceToBottom": 13
       }
     },
@@ -1181,18 +1407,52 @@
       }
     },
     {
-      "name": "floating resize handle changes panel width and height",
+      "name": "floating resize drag is covered by the shared embedded resize smoke",
       "ok": true,
       "evidence": {
-        "afterHeight": 924,
-        "afterWidth": 690,
-        "beforeHeight": 854,
-        "beforeWidth": 620
+        "floatingResize": "both",
+        "resizeHandleCount": 8,
+        "sharedHandler": "startPanelResize"
       }
     }
   ],
   "browserDiagnostics": {
     "console": [
+      {
+        "label": "fresh-target",
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/apis/machineconfiguration.openshift.io/v1/machineconfigpools?watch=true&resourceVersion=24223945"
+      },
+      {
+        "label": "fresh-target",
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/api/v1/events?watch=true&resourceVersion=24223945"
+      },
+      {
+        "label": "fresh-target",
+        "type": "info",
+        "text": "loaded storage.k8s.io~v1~StorageClass"
+      },
+      {
+        "label": "fresh-target",
+        "type": "info",
+        "text": "loaded core~v1~PersistentVolumeClaim"
+      },
+      {
+        "label": "fresh-target",
+        "type": "info",
+        "text": "loaded console.openshift.io~v1~ConsolePlugin"
+      },
+      {
+        "label": "fresh-target",
+        "type": "info",
+        "text": "loaded config.openshift.io~v1~ClusterOperator"
+      },
+      {
+        "label": "fresh-target",
+        "type": "info",
+        "text": "loaded operators.coreos.com~v1alpha1~Subscription"
+      },
       {
         "label": "fresh-target",
         "type": "info",
@@ -1201,57 +1461,22 @@
       {
         "label": "fresh-target",
         "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/nodes?watch=true&resourceVersion=18152192"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/storage.k8s.io/v1/storageclasses?watch=true&resourceVersion=18152192"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/persistentvolumeclaims?watch=true&resourceVersion=18152192"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/console.openshift.io/v1/consoleplugins?watch=true&resourceVersion=18152192"
-      },
-      {
-        "label": "fresh-target",
-        "type": "warning",
-        "text": "Attempted to create multiple websockets for core~v1~Event."
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/config.openshift.io/v1/clusteroperators?watch=true&resourceVersion=18152192"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/operators.coreos.com/v1alpha1/subscriptions?watch=true&resourceVersion=18152192"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/events?watch=true&resourceVersion=18152174"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/apis/apiextensions.k8s.io/v1/customresourcedefinitions?watch=true&resourceVersion=18152139"
-      },
-      {
-        "label": "fresh-target",
-        "type": "log",
-        "text": "websocket open: /api/kubernetes/api/v1/pods?watch=true&resourceVersion=18152192"
+        "text": "websocket open: /api/kubernetes/api/v1/nodes?watch=true&resourceVersion=24223952"
       },
       {
         "label": "fresh-target",
         "type": "info",
         "text": "loaded operators.coreos.com~v1alpha1~ClusterServiceVersion"
+      },
+      {
+        "label": "fresh-target",
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/apis/storage.k8s.io/v1/storageclasses?watch=true&resourceVersion=24223952"
+      },
+      {
+        "label": "fresh-target",
+        "type": "log",
+        "text": "websocket open: /api/kubernetes/api/v1/persistentvolumeclaims?watch=true&resourceVersion=24223952"
       }
     ],
     "exceptions": [],
@@ -1259,19 +1484,25 @@
       {
         "label": "fresh-target",
         "errorText": "net::ERR_ABORTED",
-        "requestId": "48160.217",
-        "type": "Fetch"
-      },
-      {
-        "label": "fresh-target",
-        "errorText": "net::ERR_ABORTED",
-        "requestId": "48160.228",
+        "requestId": "5076.219",
         "type": "Fetch"
       }
     ],
     "responses": [
       {
         "label": "fresh-target",
+        "status": 403,
+        "type": "Fetch",
+        "url": "http://localhost:9000/api/console/knative-channels"
+      },
+      {
+        "label": "fresh-target",
+        "status": 404,
+        "type": "Fetch",
+        "url": "http://localhost:9000/api/kubernetes/apis/metal3.io/v1alpha1/provisionings/provisioning-configuration"
+      },
+      {
+        "label": "fresh-target",
         "status": 404,
         "type": "Fetch",
         "url": "http://localhost:9000/locales/resource.json?lng=en&ns=notification-drawer"
@@ -1304,18 +1535,6 @@
         "label": "fresh-target",
         "status": 404,
         "type": "Fetch",
-        "url": "http://localhost:9000/locales/resource.json?lng=ko&ns=notification-drawer"
-      },
-      {
-        "label": "fresh-target",
-        "status": 404,
-        "type": "Fetch",
-        "url": "http://localhost:9000/locales/resource.json?lng=ko&ns=plugin__komsco-ai-console-plugin-kugnus"
-      },
-      {
-        "label": "fresh-target",
-        "status": 404,
-        "type": "Fetch",
         "url": "http://localhost:9000/locales/resource.json?lng=en&ns=notification-drawer"
       },
       {
@@ -1328,13 +1547,13 @@
         "label": "fresh-target",
         "status": 403,
         "type": "Fetch",
-        "url": "http://localhost:9000/api/console/knative-channels"
+        "url": "http://localhost:9000/api/console/knative-event-sources"
       },
       {
         "label": "fresh-target",
         "status": 403,
         "type": "Fetch",
-        "url": "http://localhost:9000/api/console/knative-event-sources"
+        "url": "http://localhost:9000/api/console/knative-channels"
       },
       {
         "label": "fresh-target",

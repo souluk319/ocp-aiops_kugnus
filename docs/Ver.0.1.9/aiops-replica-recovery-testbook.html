@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIOps Replica 복구 버튼 테스트북</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #172033;
+      --muted: #64748b;
+      --line: #d9e2ef;
+      --blue: #2563eb;
+      --blue-soft: #eaf2ff;
+      --green: #15803d;
+      --green-soft: #ebf8ef;
+      --yellow: #a16207;
+      --yellow-soft: #fff7db;
+      --red: #b42318;
+      --red-soft: #fff0ef;
+      --code: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+      background: var(--bg);
+    }
+
+    .page {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    nav {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 20px;
+      overflow: auto;
+      background: #eef3fb;
+      border-right: 1px solid var(--line);
+    }
+
+    nav strong {
+      display: block;
+      margin-bottom: 14px;
+      font-size: 15px;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 0;
+      color: #334155;
+      font-size: 13px;
+      text-decoration: none;
+      border-bottom: 1px solid rgb(148 163 184 / 25%);
+    }
+
+    main {
+      max-width: 1120px;
+      padding: 36px 36px 80px;
+    }
+
+    header {
+      margin-bottom: 26px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: .02em;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 34px;
+      line-height: 1.18;
+    }
+
+    h2 {
+      margin: 36px 0 14px;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      color: var(--code);
+      background: #eef2f7;
+      border: 1px solid #dbe4ef;
+      border-radius: 5px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: .92em;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      padding: 14px;
+      overflow: auto;
+      color: #dbeafe;
+      background: #101827;
+      border-radius: 8px;
+    }
+
+    pre code {
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+    }
+
+    table {
+      width: 100%;
+      margin: 12px 0;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+    }
+
+    th {
+      text-align: left;
+      background: #f8fafc;
+    }
+
+    ul,
+    ol {
+      margin-top: 8px;
+      padding-left: 24px;
+    }
+
+    .hero-note {
+      max-width: 840px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .band {
+      margin: 18px 0;
+      padding: 16px 18px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 8px;
+    }
+
+    .band.warn {
+      background: var(--yellow-soft);
+      border-left-color: var(--yellow);
+    }
+
+    .band.danger {
+      background: var(--red-soft);
+      border-left-color: var(--red);
+    }
+
+    .band.ok {
+      background: var(--green-soft);
+      border-left-color: var(--green);
+    }
+
+    .goal-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 16px 0;
+    }
+
+    .goal {
+      padding: 12px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .goal strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    .goal span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .step {
+      position: relative;
+      margin: 18px 0;
+      padding: 18px 18px 18px 58px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .step-num {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      display: inline-grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      color: #fff;
+      font-weight: 800;
+      background: var(--blue);
+      border-radius: 999px;
+    }
+
+    .step h3 {
+      margin-top: 0;
+    }
+
+    .checkline {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      margin: 8px 0;
+    }
+
+    .checkline input {
+      width: 18px;
+      height: 18px;
+      margin-top: 4px;
+    }
+
+    .cmd-label,
+    .screen-label {
+      display: inline-flex;
+      align-items: center;
+      margin-top: 12px;
+      padding: 3px 8px;
+      color: #1e3a8a;
+      font-size: 12px;
+      font-weight: 800;
+      background: var(--blue-soft);
+      border-radius: 999px;
+    }
+
+    .screen-label {
+      color: #065f46;
+      background: var(--green-soft);
+    }
+
+    .stop {
+      margin-top: 12px;
+      padding: 12px;
+      color: #7f1d1d;
+      background: var(--red-soft);
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+    }
+
+    .okbox {
+      margin-top: 12px;
+      padding: 12px;
+      color: #14532d;
+      background: var(--green-soft);
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+    }
+
+    .plain-flow {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+      gap: 10px;
+      padding: 10px 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .flow-row strong {
+      color: var(--blue);
+    }
+
+    .question {
+      margin: 12px 0;
+      padding: 14px;
+      font-size: 16px;
+      background: #fff;
+      border: 2px solid #bfdbfe;
+      border-radius: 8px;
+    }
+
+    .question-title {
+      margin-bottom: 8px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .evidence-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .evidence {
+      padding: 12px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .passfail th:first-child,
+    .passfail td:first-child {
+      width: 160px;
+    }
+
+    footer {
+      margin-top: 46px;
+      padding-top: 18px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 900px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+
+      nav {
+        position: static;
+        height: auto;
+      }
+
+      main {
+        padding: 24px 18px 60px;
+      }
+
+      .goal-grid,
+      .evidence-list {
+        grid-template-columns: 1fr;
+      }
+
+      .flow-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav>
+      <strong>AIOps 복구 테스트북</strong>
+      <a href="#purpose">오늘 확인할 것</a>
+      <a href="#contract">성공 기준</a>
+      <a href="#safety">절대 먼저 확인할 것</a>
+      <a href="#workspace">작업대 준비</a>
+      <a href="#break">이상 상태 만들기</a>
+      <a href="#before">해결 전 눈으로 확인</a>
+      <a href="#ask-check">질문 1: 상태 확인</a>
+      <a href="#ask-fix">질문 2: 해결 계획</a>
+      <a href="#buttons">버튼 클릭</a>
+      <a href="#after">해결 후 확인</a>
+      <a href="#evidence">남길 증거</a>
+      <a href="#failure">막히면 여기</a>
+      <a href="#reset">긴급 원복</a>
+    </nav>
+
+    <main>
+      <header id="purpose">
+        <p class="eyebrow">Ver.0.1.9 직접 검증용</p>
+        <h1>AIOps Replica 부족 자동 복구 테스트북</h1>
+        <p class="hero-note">
+          이 문서는 배경지식 없이도 한 줄씩 따라가며 AIOps 챗봇의 핵심 흐름을 확인하기 위한
+          테스트북입니다. 목표는 <strong>이상 상태를 직접 만들고, 눈으로 보고, 챗봇에게 묻고,
+          답변 안의 승인/실행 버튼으로 복구하고, 다시 눈으로 복구 근거를 확인</strong>하는 것입니다.
+        </p>
+      </header>
+
+      <section id="contract">
+        <h2>오늘의 성공 기준</h2>
+        <div class="goal-grid">
+          <div class="goal">
+            <strong>대상</strong>
+            <span><code>komsco-ai-dev/aiops-two-pod-exec</code></span>
+          </div>
+          <div class="goal">
+            <strong>정상 상태</strong>
+            <span>Pod 3개 Running / Ready</span>
+          </div>
+          <div class="goal">
+            <strong>일부러 만들 이상</strong>
+            <span>replicas 1로 낮춰 Pod 1개만 보이게 함</span>
+          </div>
+          <div class="goal">
+            <strong>AIOps 조치</strong>
+            <span>답변 안 버튼으로 replicas 3 복구</span>
+          </div>
+        </div>
+
+        <div class="plain-flow">
+          <div class="flow-row"><strong>1. 내가 만듦</strong><span>터미널에서 Deployment replicas를 1로 낮춘다.</span></div>
+          <div class="flow-row"><strong>2. 내가 봄</strong><span>콘솔과 터미널에서 Pod가 1개인지 확인한다.</span></div>
+          <div class="flow-row"><strong>3. 내가 물음</strong><span>챗봇에게 현재 Pod 수와 문제를 질문한다.</span></div>
+          <div class="flow-row"><strong>4. AI가 제안</strong><span>답변 안에 해결 방법과 승인/거절 버튼이 나온다.</span></div>
+          <div class="flow-row"><strong>5. 내가 승인</strong><span>승인 후 실행 버튼을 눌러 복구한다.</span></div>
+          <div class="flow-row"><strong>6. 내가 다시 봄</strong><span>Pod가 3개로 돌아왔는지 콘솔/터미널/챗봇으로 확인한다.</span></div>
+        </div>
+
+        <table class="passfail">
+          <thead>
+            <tr><th>판정</th><th>기준</th><th>증거</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Pass</td><td>해결 전 Pod 1개, 해결 후 Pod 3개가 보인다.</td><td><code>oc get deployment</code>, <code>oc get pods</code>, 챗봇 마지막 답변</td></tr>
+            <tr><td>Fail</td><td>승인/실행 버튼이 없거나, 실행 후 Pod가 3개가 아니다.</td><td>버튼 화면, Gateway 상태, 터미널 오류</td></tr>
+            <tr><td>Stop</td><td>대상 Deployment가 없거나, 권한이 없거나, 실행 가능 모드가 꺼져 있다.</td><td>아래 멈춤 조건에 해당</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="safety">
+        <h2>절대 먼저 확인할 것</h2>
+        <div class="band danger">
+          <p>
+            이 테스트는 실제 OpenShift Deployment의 replica 수를 바꿉니다.
+            <strong>운영 서비스에 하지 말고, 반드시 테스트 대상 <code>aiops-two-pod-exec</code>에만</strong>
+            진행하세요.
+          </p>
+        </div>
+
+        <div class="step">
+          <span class="step-num">0</span>
+          <h3>WSL 터미널에서 프로젝트 폴더로 이동</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus</code></pre>
+          <div class="okbox">정상: 명령이 조용히 끝나고 프롬프트가 다시 뜹니다.</div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>내가 어느 서버를 보고 있는지 확인</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc whoami
+oc whoami --show-server</code></pre>
+          <p>이 명령은 변경을 만들지 않습니다. 지금 로그인한 사용자와 서버 주소만 보여줍니다.</p>
+          <div class="stop">
+            멈춤: <code>oc: command not found</code>, <code>You must be logged in</code>, 원하지 않는 서버 주소가 나오면 여기서 멈추세요.
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>대상 Deployment가 진짜 있는지 확인</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc -n komsco-ai-dev get deployment aiops-two-pod-exec
+oc -n komsco-ai-dev get pods -l app=aiops-two-pod-exec</code></pre>
+          <div class="okbox">
+            정상: 첫 줄에 <code>aiops-two-pod-exec</code>가 보이고, Pod 목록이 1개 이상 보입니다.
+          </div>
+          <div class="stop">
+            멈춤: <code>NotFound</code>가 나오면 이 테스트 대상이 아직 없습니다. 이 경우 scale 명령을 치지 마세요.
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">3</span>
+          <h3>내 계정이 scale 조치를 할 수 있는지 확인</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc auth can-i get deployments -n komsco-ai-dev
+oc auth can-i update deployments/scale -n komsco-ai-dev</code></pre>
+          <div class="okbox">정상: 두 줄 모두 <code>yes</code>가 나오면 진행할 수 있습니다.</div>
+          <div class="stop">멈춤: 하나라도 <code>no</code>면 버튼을 눌러도 실행이 실패합니다. 권한부터 해결해야 합니다.</div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">4</span>
+          <h3>HPA가 이 Deployment를 자동 조정하지 않는지 확인</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc -n komsco-ai-dev get hpa -o wide</code></pre>
+          <p>
+            HPA는 자동으로 replica 수를 바꾸는 장치입니다. 이 테스트에서는 사람이 만든 1개 상태가
+            잠깐 유지되어야 하므로, HPA가 같은 Deployment를 잡고 있으면 결과가 흔들립니다.
+          </p>
+          <div class="okbox">정상: <code>No resources found</code>이거나, HPA 대상에 <code>aiops-two-pod-exec</code>가 없습니다.</div>
+          <div class="stop">멈춤: HPA 대상이 <code>aiops-two-pod-exec</code>면 이 테스트를 그대로 진행하지 마세요.</div>
+        </div>
+      </section>
+
+      <section id="workspace">
+        <h2>작업대 준비</h2>
+        <p>
+          이미 로컬 콘솔과 Gateway가 떠 있으면 이 섹션은 확인만 하면 됩니다.
+          안 떠 있으면 아래 순서대로 켭니다.
+        </p>
+
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>상태만 먼저 진단</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>task kugnus:dev:doctor</code></pre>
+          <p>이 명령은 상태 확인용입니다. 포트와 Gateway, 콘솔 연결 상태를 봅니다.</p>
+          <div class="okbox">정상: <code>Gateway healthz</code>, <code>console bridge</code>가 통과합니다.</div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>작업대가 꺼져 있으면 복구</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>task kugnus:demo:resume</code></pre>
+          <p>이 명령의 내부 흐름은 아래와 같습니다.</p>
+          <pre><code>task kugnus:demo:resume
+  -> Taskfile.yml
+    -> scripts/kugnus-demo-resume.sh
+      -> Gateway 18080 확인 또는 시작
+      -> Lightspeed 18443 port-forward 확인
+      -> Action Executor 18083 port-forward 확인
+      -> local console 9000 확인</code></pre>
+          <div class="okbox">정상: 마지막에 demo stack 또는 strict gate 관련 PASS가 보입니다.</div>
+          <div class="stop">멈춤: VPN, oc login, stale port 오류가 나오면 메시지를 그대로 보고 먼저 고쳐야 합니다.</div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">3</span>
+          <h3>브라우저에서 콘솔 열기</h3>
+          <div class="screen-label">브라우저 주소창</div>
+          <pre><code>http://localhost:9000/aiops-kugnus</code></pre>
+          <div class="okbox">
+            정상: KOMSCO AI AGENT 또는 Cywell AI 화면이 보이고, 우측/상단에 실행 모드가 보입니다.
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">4</span>
+          <h3>실행 가능 모드인지 확인</h3>
+          <p>챗봇 상단 또는 실행 상태 영역에서 아래를 확인합니다.</p>
+          <ul>
+            <li><code>실행 가능</code> 모드를 선택합니다.</li>
+            <li><code>Mutations on</code> 또는 실행 가능 상태가 보여야 합니다.</li>
+            <li><code>Action Executor URL not configured</code> 같은 blocker가 보이면 멈춥니다.</li>
+          </ul>
+          <div class="stop">
+            멈춤: 버튼이 비활성화되어 있고 tooltip에 <code>실행 가능 또는 실험 무제한 모드 선택 필요</code>,
+            <code>Gateway 실행 기능 미구성</code>이 나오면 이 테스트는 아직 실행할 수 없습니다.
+          </div>
+        </div>
+      </section>
+
+      <section id="break">
+        <h2>이상 상태 만들기</h2>
+        <div class="band warn">
+          <p>
+            여기서부터는 서버에 실제 변경이 생깁니다.
+            Deployment <code>aiops-two-pod-exec</code>의 replica 수를 1로 낮춰서 일부러 이상 상태를 만듭니다.
+          </p>
+        </div>
+
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>정상 기준을 먼저 기록</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc -n komsco-ai-dev get deployment aiops-two-pod-exec
+oc -n komsco-ai-dev get pods -l app=aiops-two-pod-exec</code></pre>
+          <p>이 화면을 스크린샷으로 남기면 좋습니다. 나중에 복구 전후 비교에 씁니다.</p>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>replicas를 1로 낮추기</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc -n komsco-ai-dev scale deployment/aiops-two-pod-exec --replicas=1
+oc -n komsco-ai-dev rollout status deployment/aiops-two-pod-exec --timeout=120s</code></pre>
+          <div class="okbox">정상: <code>deployment.apps/aiops-two-pod-exec scaled</code>와 rollout 완료 메시지가 보입니다.</div>
+          <div class="stop">멈춤: 권한 오류, NotFound, timeout이 나오면 다음 단계로 가지 말고 오류를 기록하세요.</div>
+        </div>
+      </section>
+
+      <section id="before">
+        <h2>해결 전 이상 상태를 눈으로 확인</h2>
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>터미널에서 1개인지 확인</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc -n komsco-ai-dev get deployment aiops-two-pod-exec
+oc -n komsco-ai-dev get pods -l app=aiops-two-pod-exec</code></pre>
+          <div class="okbox">
+            정상 예시: Deployment의 <code>READY</code>가 <code>1/1</code> 또는 <code>AVAILABLE 1</code>이고,
+            Pod 목록이 1개만 보입니다.
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>콘솔에서 1개인지 확인</h3>
+          <div class="screen-label">브라우저에서 확인</div>
+          <ol>
+            <li><code>http://localhost:9000/aiops-kugnus</code> 또는 OpenShift 콘솔을 봅니다.</li>
+            <li>Workloads 또는 Deployments 화면으로 이동합니다.</li>
+            <li>namespace를 <code>komsco-ai-dev</code>로 맞춥니다.</li>
+            <li><code>aiops-two-pod-exec</code>를 엽니다.</li>
+            <li>Pod가 1개만 보이는지 확인합니다.</li>
+          </ol>
+          <div class="checkline"><input type="checkbox" /> <span>해결 전 Pod 1개 화면을 눈으로 확인했다.</span></div>
+        </div>
+      </section>
+
+      <section id="ask-check">
+        <h2>질문 1: 챗봇에게 현재 상태를 묻기</h2>
+        <p>첫 질문은 조치가 아니라 확인입니다. AI가 실제 상태를 읽는지 확인합니다.</p>
+
+        <div class="question">
+          <div class="question-title">챗봇 입력창에 그대로 붙여넣기</div>
+          komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드 몇 개 떠 있어?
+        </div>
+
+        <h3>답변에서 봐야 할 것</h3>
+        <ul>
+          <li><code>komsco-ai-dev/aiops-two-pod-exec</code> 대상이 나와야 합니다.</li>
+          <li>현재 Pod 수가 <strong>1개</strong>라고 나와야 합니다.</li>
+          <li>근거 또는 evidence footer가 붙어야 합니다.</li>
+          <li><code>lightspeed_stream</code> 오류나 fallback만 보이면 Gateway/OLS 상태를 확인합니다.</li>
+        </ul>
+
+        <div class="okbox">정상: 답변이 “현재 1개”를 말하고, 근거가 붙습니다.</div>
+        <div class="stop">멈춤: 답변이 3개라고 하면 실제 Pod 상태와 챗봇이 읽는 namespace/selector가 어긋난 것입니다.</div>
+      </section>
+
+      <section id="ask-fix">
+        <h2>질문 2: 해결 계획 만들기</h2>
+        <p>
+          이제 “부족하면 3개로 올려 달라”고 말합니다.
+          이때 중요한 점은 <strong>바로 실행하지 말고 승인 버튼을 기다리게 하는 것</strong>입니다.
+        </p>
+
+        <div class="question">
+          <div class="question-title">챗봇 입력창에 그대로 붙여넣기</div>
+          komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드가 3개여야 하는데 현재 부족하면 3개로 올리는 해결 계획을 만들어줘. 실행은 바로 하지 말고 승인 버튼을 기다려.
+        </div>
+
+        <h3>답변에서 봐야 할 것</h3>
+        <ul>
+          <li>문제: 현재 replica 또는 Pod 수가 정상 기준보다 부족하다고 설명합니다.</li>
+          <li>해결: replicas를 3으로 맞추는 계획을 제시합니다.</li>
+          <li>흐름: <code>ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord</code>가 보입니다.</li>
+          <li>답변 안에 <code>승인</code>과 <code>거절</code> 버튼이 보입니다.</li>
+        </ul>
+
+        <div class="stop">
+          멈춤: 답변은 있는데 버튼이 없으면, 화면이 read-only 모드이거나 Action Executor가 꺼져 있을 수 있습니다.
+          상단 실행 모드를 <code>실행 가능</code>으로 바꾸고 다시 질문하세요.
+        </div>
+      </section>
+
+      <section id="buttons">
+        <h2>버튼 클릭</h2>
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>승인 버튼 클릭</h3>
+          <p>챗봇 답변 안에 있는 <code>승인</code> 버튼을 누릅니다.</p>
+          <div class="okbox">정상: 잠시 뒤 승인 완료 메시지 또는 Approval 기록이 보이고, 다음 단계로 <code>실행</code> 버튼이 나타납니다.</div>
+          <div class="stop">멈춤: 버튼이 비활성화면 hover/title에 나오는 이유를 읽고 기록하세요.</div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>실행 버튼 클릭</h3>
+          <p>승인이 끝난 뒤 새로 나타나는 <code>실행</code> 버튼을 누릅니다.</p>
+          <div class="okbox">
+            정상: 실행 완료 메시지, ExecutionRecord, 또는 <code>verified</code> 계열 결과가 보입니다.
+            내부적으로는 <code>set_replicas_within_bounds</code> 조치가 실행됩니다.
+          </div>
+          <div class="stop">멈춤: 실행 실패 메시지가 나오면 내용을 그대로 복사합니다. 특히 권한, planDigest, stale evidence, Action Executor 연결 오류를 확인합니다.</div>
+        </div>
+      </section>
+
+      <section id="after">
+        <h2>해결 후 복구 근거 확인</h2>
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>터미널에서 3개인지 확인</h3>
+          <div class="cmd-label">WSL 터미널에서 입력</div>
+          <pre><code>oc -n komsco-ai-dev rollout status deployment/aiops-two-pod-exec --timeout=120s
+oc -n komsco-ai-dev get deployment aiops-two-pod-exec
+oc -n komsco-ai-dev get pods -l app=aiops-two-pod-exec</code></pre>
+          <div class="okbox">
+            정상 예시: Deployment의 <code>READY</code>가 <code>3/3</code> 또는 <code>AVAILABLE 3</code>이고,
+            Pod 목록이 3개 Running/Ready입니다.
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>콘솔에서 3개인지 확인</h3>
+          <div class="screen-label">브라우저에서 확인</div>
+          <ol>
+            <li>Deployment <code>aiops-two-pod-exec</code> 화면을 새로고침합니다.</li>
+            <li>Pod 탭 또는 Pod 목록을 봅니다.</li>
+            <li>Pod가 3개인지 확인합니다.</li>
+            <li>세 Pod가 Running/Ready인지 확인합니다.</li>
+          </ol>
+          <div class="checkline"><input type="checkbox" /> <span>해결 후 Pod 3개 화면을 눈으로 확인했다.</span></div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">3</span>
+          <h3>챗봇에게 다시 확인시키기</h3>
+          <div class="question">
+            <div class="question-title">챗봇 입력창에 그대로 붙여넣기</div>
+            komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드가 이제 3개로 복구됐는지 다시 확인해줘.
+          </div>
+          <div class="okbox">
+            정상: 챗봇이 현재 3개라고 말하고, 근거 footer 또는 RCA Context에 수집 근거가 붙습니다.
+          </div>
+        </div>
+      </section>
+
+      <section id="evidence">
+        <h2>남길 증거</h2>
+        <div class="evidence-list">
+          <div class="evidence">
+            <h3>해결 전 터미널</h3>
+            <p><code>oc get deployment</code> 결과가 1개 상태를 보여야 합니다.</p>
+          </div>
+          <div class="evidence">
+            <h3>해결 전 콘솔</h3>
+            <p>Deployment 또는 Pod 화면에서 Pod 1개가 보여야 합니다.</p>
+          </div>
+          <div class="evidence">
+            <h3>챗봇 답변</h3>
+            <p>문제 설명, 해결 계획, <code>승인/거절</code> 버튼, <code>실행</code> 버튼이 보여야 합니다.</p>
+          </div>
+          <div class="evidence">
+            <h3>해결 후 터미널/콘솔</h3>
+            <p>Deployment 3개, Pod 3개 Running/Ready가 보여야 합니다.</p>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr><th>체크</th><th>내가 확인한 것</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><input type="checkbox" /></td><td>대상 Deployment가 존재했다.</td></tr>
+            <tr><td><input type="checkbox" /></td><td>해결 전 Pod 1개를 봤다.</td></tr>
+            <tr><td><input type="checkbox" /></td><td>챗봇이 현재 1개라고 답했다.</td></tr>
+            <tr><td><input type="checkbox" /></td><td>챗봇 답변 안에 승인/거절 버튼이 떴다.</td></tr>
+            <tr><td><input type="checkbox" /></td><td>승인 후 실행 버튼이 떴다.</td></tr>
+            <tr><td><input type="checkbox" /></td><td>실행 후 Pod 3개를 봤다.</td></tr>
+            <tr><td><input type="checkbox" /></td><td>마지막 질문에서 챗봇이 3개 복구를 근거와 함께 확인했다.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="failure">
+        <h2>막히면 여기부터 본다</h2>
+        <table>
+          <thead>
+            <tr><th>증상</th><th>원인 계층</th><th>확인할 것</th><th>다음 행동</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>대상 Deployment가 없다</td>
+              <td>테스트 데이터 없음</td>
+              <td><code>oc -n komsco-ai-dev get deployment aiops-two-pod-exec</code></td>
+              <td>테스트 리소스 생성 절차가 필요합니다. scale 명령은 실행하지 않습니다.</td>
+            </tr>
+            <tr>
+              <td>챗봇이 현재 수를 틀리게 말한다</td>
+              <td>route/context mismatch</td>
+              <td>namespace, selector, 질문 문구</td>
+              <td>질문에 namespace와 deployment 이름을 다시 넣습니다.</td>
+            </tr>
+            <tr>
+              <td>승인/실행 버튼이 안 뜬다</td>
+              <td>UI/action lifecycle</td>
+              <td>실행 모드, Action Executor configured, Mutations on</td>
+              <td>상단을 <code>실행 가능</code>으로 바꾸고 다시 질문합니다.</td>
+            </tr>
+            <tr>
+              <td>승인은 되는데 실행 실패</td>
+              <td>executor/permission/stale plan</td>
+              <td>오류 메시지, planDigest, 권한, Action Executor 연결</td>
+              <td>오류를 복사하고 <code>task kugnus:actions:live-verify</code>로 executor 경로를 점검합니다.</td>
+            </tr>
+            <tr>
+              <td>실행 후에도 1개다</td>
+              <td>mutation/postcondition</td>
+              <td><code>oc get deployment</code>, HPA, rollout status</td>
+              <td>HPA 여부와 scale 권한을 확인하고 긴급 원복 명령을 실행합니다.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="cmd-label">문제 진단용 명령</div>
+        <pre><code>task kugnus:dev:doctor
+task kugnus:actions:live-verify
+task kugnus:aiops:verify</code></pre>
+      </section>
+
+      <section id="reset">
+        <h2>긴급 원복</h2>
+        <div class="band danger">
+          <p>
+            테스트 중 헷갈리거나 시간이 없으면 아래 명령으로 정상 기준인 3개로 되돌립니다.
+            이 명령도 서버에 실제 변경을 만듭니다.
+          </p>
+        </div>
+        <div class="cmd-label">WSL 터미널에서 입력</div>
+        <pre><code>oc -n komsco-ai-dev scale deployment/aiops-two-pod-exec --replicas=3
+oc -n komsco-ai-dev rollout status deployment/aiops-two-pod-exec --timeout=120s
+oc -n komsco-ai-dev get deployment aiops-two-pod-exec
+oc -n komsco-ai-dev get pods -l app=aiops-two-pod-exec</code></pre>
+        <div class="okbox">정상: Pod 3개가 다시 보이면 테스트 환경은 복구된 것입니다.</div>
+      </section>
+
+      <footer>
+        <p>
+          작성 기준: 현재 repo 코드와 Taskfile, Gateway action lifecycle 계약.
+          보호 문서인 <code>docs/aiops-beginner-guide.html</code>는 읽기 기준으로만 사용했고 수정하지 않았습니다.
+        </p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

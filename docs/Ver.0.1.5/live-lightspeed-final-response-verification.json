@@ -1,16 +1,52 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "LiveLightspeedFinalResponseVerification",
-  "generatedAt": "2026-06-30T04:29:37.337232Z",
-  "branch": "feat/v.0.1.8",
-  "headSha": "06e09c7bd3ad6e592c4bd26f20d0212f8b790be0",
+  "generatedAt": "2026-07-01T01:24:24.832633Z",
+  "branch": "feat/v.0.1.9",
+  "headSha": "28aa2297881fc85c21b7a924f25041b50f88fffe",
   "gateway": "http://127.0.0.1:18080",
   "preflight": {
     "ocIdentityAvailable": true,
     "ocIdentity": "admin",
     "ocServer": "https://api.ocp.cywell.server:6443",
     "ocTokenAvailable": true,
-    "ocTimeoutSeconds": 12
+    "ocTimeoutSeconds": 30,
+    "olsReadiness": {
+      "ok": true,
+      "url": "https://127.0.0.1:18443/readiness",
+      "attempts": 3,
+      "stableCount": 3,
+      "durationMs": 1093,
+      "last": {
+        "ok": true,
+        "statusCode": 200,
+        "ready": true,
+        "error": ""
+      },
+      "checks": [
+        {
+          "attempt": 1,
+          "ok": true,
+          "statusCode": 200,
+          "ready": true,
+          "error": ""
+        },
+        {
+          "attempt": 2,
+          "ok": true,
+          "statusCode": 200,
+          "ready": true,
+          "error": ""
+        },
+        {
+          "attempt": 3,
+          "ok": true,
+          "statusCode": 200,
+          "ready": true,
+          "error": ""
+        }
+      ]
+    }
   },
   "allSucceeded": true,
   "cases": [
@@ -22,10 +58,15 @@
         "lightspeedStageSeen": true,
         "completedStageSeen": true,
         "olsTextReceived": true,
+        "toolPlanSeen": true,
+        "evidenceRefSeen": true,
+        "rcaContextPreAnswerSeen": true,
+        "rcaContextPostAnswerSeen": true,
         "noGatewayFallbackText": true,
         "noGatewayErrorEvent": true,
         "noLightspeedErrorToolResult": true,
         "requiredTextPresent": true,
+        "aiopsActionContractPresent": true,
         "statusEndpointReachable": true,
         "runtimeStreamProbeSucceeded": true,
         "runtimeLastStatusSucceeded": true,
@@ -42,9 +83,9 @@
         "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
         "streamProbe": "succeeded",
         "lastStatus": "succeeded",
-        "lastContextDigest": "sha256:d8cf7052e211f5f6cd9d426c8c77da46a9ced217076399e5127798700b74aea6",
-        "lastStartedAt": "2026-06-30T04:27:42.155803+00:00",
-        "lastCompletedAt": "2026-06-30T04:28:16.141862+00:00",
+        "lastContextDigest": "sha256:49a72d27e3d476d94a6e549613dd372bf40c0b5ad2130c64f09b5fbeaca1a822",
+        "lastStartedAt": "2026-07-01T01:22:43.492312+00:00",
+        "lastCompletedAt": "2026-07-01T01:23:32.559574+00:00",
         "lastError": "",
         "fallbackActive": false
       },
@@ -54,29 +95,65 @@
         "errorPreview": ""
       },
       "stream": {
-        "answerDigest": "cda30fa993912719397c4e32332e2f5d5a56aedfc725a8393ef300364a34f2f0",
-        "answerLength": 2763,
+        "answerDigest": "d828155498a4dce3e7466adf2e17dfd854b2d0b0769fcc0ee2bb36fda7f49525",
+        "answerLength": 2376,
+        "answerContractEvents": [
+          {
+            "answerContract": "aiops-action-v0.1.9",
+            "hasAiopsActionFeature": true,
+            "hasActionExecutionPath": true,
+            "hasRejectionPath": true,
+            "preview": "## AIOps 조치 기능\n- Tool Plan: `openshift_operational_question` 기준으로 증거 수집 단계를 만들었습니다.\n- RCA Context: 수집 근거 4건, 추가 확인 필요 0건을 분리했습니다.\n- 조치 경로: 현재 답변은 근거 수집과 RCA를 먼저 수행합니다. 변경 작업이 필요하면 ActionProposal -> SealedActionPlan -> ApprovalDecision -> Ex"
+          }
+        ],
         "answerPreviews": [
           "# RCA (Root Cause Analysis) 보고서",
-          "현재 클러스터의 상태를 분석한 결과, 시스템 전반에 걸쳐 몇 가지 경고(Warning) 및 정보(Info)성 알람이 발생하고 있습니다. 주요 이슈는 **etcd 데이터베이스 파편화**, **컨트롤 플레인 메모리 사용량 증가**, 그리고 **특정 Pod의 미준비 상태**로 요약됩니다.",
-          "### 1. 우선 판단",
-          "클러스터는 현재 `Ready` 상태의 노드를 보유하고 있어 운영은 가능하나, **etcd의 높은 파편화 비율(High Fragmentation Ratio)**과 **컨트롤 플레인 메모리 경고**가 관찰되어 데이터 안정성 및 성능 저하에 대한 선제적 조치가 필요합니다. 또한, `openshift-marketplace` 네임스페이스의 특정 Pod가 정상 작동하지 않고 있습니다.",
-          "### 2. 수집 근거"
+          "## 1. 우선 판단",
+          "현재 클러스터는 **etcd 데이터베이스의 파편화(Fragmentation)** 및 **컨트롤 플레인의 메모리 압박(Memory Pressure)**으로 인해 안정성이 저하된 상태입니다. 특히 단일 노드(`52-54-00-a1-f8-7c`)가 Control Plane과 Worker 역할을 동시에 수행하고 있어, 자원 경합이 발생하고 있으며 이로 인해 일부 Pod의 재시작 및 서비스 불능 상태가 관찰됩니다.",
+          "## 2. 수집 근거",
+          "* **Node 상태:**"
         ],
         "doneReceived": true,
-        "durationMs": 34815,
+        "durationMs": 49647,
+        "evidenceRefEvents": [
+          {
+            "status": "success",
+            "summary": "ev-dd9558bd935e290a 기록",
+            "evidenceId": "ev-dd9558bd935e290a"
+          },
+          {
+            "status": "success",
+            "summary": "ev-581b3cef753a9c03 기록",
+            "evidenceId": "ev-581b3cef753a9c03"
+          },
+          {
+            "status": "success",
+            "summary": "ev-da74e8fb20583a44 기록",
+            "evidenceId": "ev-da74e8fb20583a44"
+          },
+          {
+            "status": "success",
+            "summary": "ev-cd43bec46bef8897 기록",
+            "evidenceId": "ev-cd43bec46bef8897"
+          }
+        ],
         "eventCounts": {
-          "run_status": 6,
+          "run_status": 10,
           "tool_call": 14,
           "tool_result": 15,
           "tool_plan": 1,
           "rca_context": 3,
-          "text": 48
+          "text": 42
         },
         "fallbackEvents": [],
         "gatewayErrors": [],
         "lightspeedErrors": [],
-        "olsTextEvents": 47,
+        "olsTextEvents": 40,
+        "rcaContextPhases": [
+          "plan_ready",
+          "pre_answer",
+          "post_answer"
+        ],
         "requiredTextPresent": {
           "RCA": true,
           "근거": true
@@ -84,6 +161,10 @@
         "runStatusStages": [
           "started",
           "lightspeed",
+          "waiting",
+          "waiting",
+          "waiting",
+          "waiting",
           "waiting",
           "waiting",
           "waiting",
@@ -98,7 +179,27 @@
           {
             "stage": "lightspeed",
             "message": "실제 OpenShift Lightspeed로 요청 전달",
-            "gatewayContextDigest": "sha256:d8cf7052e211f5f6cd9d426c8c77da46a9ced217076399e5127798700b74aea6"
+            "gatewayContextDigest": "sha256:49a72d27e3d476d94a6e549613dd372bf40c0b5ad2130c64f09b5fbeaca1a822"
+          },
+          {
+            "stage": "waiting",
+            "message": "OpenShift Lightspeed 응답 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "OpenShift Lightspeed 응답 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "OpenShift Lightspeed 응답 대기 중",
+            "gatewayContextDigest": null
+          },
+          {
+            "stage": "waiting",
+            "message": "OpenShift Lightspeed 응답 대기 중",
+            "gatewayContextDigest": null
           },
           {
             "stage": "waiting",
@@ -120,6 +221,13 @@
             "message": "Gateway 실행 루프 완료",
             "gatewayContextDigest": null
           }
+        ],
+        "toolPlanEvents": [
+          {
+            "runId": "live-lightspeed-final-cluster-summary-1782868962",
+            "taskType": "openshift_operational_question",
+            "toolCount": 2
+          }
         ]
       }
     },
@@ -131,10 +239,15 @@
         "lightspeedStageSeen": true,
         "completedStageSeen": true,
         "olsTextReceived": true,
+        "toolPlanSeen": true,
+        "evidenceRefSeen": true,
+        "rcaContextPreAnswerSeen": true,
+        "rcaContextPostAnswerSeen": true,
         "noGatewayFallbackText": true,
         "noGatewayErrorEvent": true,
         "noLightspeedErrorToolResult": true,
         "requiredTextPresent": true,
+        "aiopsActionContractPresent": true,
         "statusEndpointReachable": true,
         "runtimeStreamProbeSucceeded": true,
         "runtimeLastStatusSucceeded": true,
@@ -151,9 +264,9 @@
         "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
         "streamProbe": "succeeded",
         "lastStatus": "succeeded",
-        "lastContextDigest": "sha256:dd396dae68e81463b5fac47257c4022b26cd03f260c6d362dc1b3898ffe540db",
-        "lastStartedAt": "2026-06-30T04:28:46.418573+00:00",
-        "lastCompletedAt": "2026-06-30T04:29:35.898928+00:00",
+        "lastContextDigest": "sha256:9e193c2f8b5312c88316592779a8dd22796a50a2737dc3c172e06552f4ca96e0",
+        "lastStartedAt": "2026-07-01T01:23:36.466546+00:00",
+        "lastCompletedAt": "2026-07-01T01:24:24.774180+00:00",
         "lastError": "",
         "fallbackActive": false
       },
@@ -163,29 +276,90 @@
         "errorPreview": ""
       },
       "stream": {
-        "answerDigest": "287088fe3f751be115a27fffd7876743802bd73712e8e7f7f9e2242096df49c6",
-        "answerLength": 1409,
+        "answerDigest": "4d647d8e9162f5554aa2fcfb0846458c5e8158a15a9f4c547da96108b6f66a41",
+        "answerLength": 1683,
+        "answerContractEvents": [
+          {
+            "answerContract": "aiops-action-v0.1.9",
+            "hasAiopsActionFeature": true,
+            "hasActionExecutionPath": true,
+            "hasRejectionPath": true,
+            "preview": "## AIOps 조치 기능\n- Tool Plan: `pod_restart_rca` 기준으로 증거 수집 단계를 만들었습니다.\n- RCA Context: 수집 근거 8건, 추가 확인 필요 2건을 분리했습니다.\n- 조치 경로: 현재 답변은 근거 수집과 RCA를 먼저 수행합니다. 변경 작업이 필요하면 ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord 순"
+          }
+        ],
         "answerPreviews": [
+          "제공된 RCA Context 및 Runbook evidence를 분석한 결과, 요청하신 **`default` 네임스페이스**와 관련된 Pod 재시작 정보는 현재 데이터에 포함되어 있지 않습니다. 수집된 데이터는 `komsco-ai-dev`, `openshift-operators`, `nginx-gateway` 네임스페이스에 집중되어 있습니다.",
+          "따라서 요청하신 사항에 대해 다음과 같이 답변드립니다.",
           "**우선 판단**",
-          "제공된 RCA Context 및 수집된 증거(Evidence)를 검토한 결과, **`default` 네임스페이스에 속한 Pod의 재시작과 관련된 정보는 확인되지 않습니다.** 현재 수집된 데이터는 `komsco-ai-dev`, `openshift-operators`, `nginx-gateway` 네임스페이스의 Pod 재시작 현황을 중심으로 구성되어 있습니다.",
-          "**수집 근거**",
-          "- **Gateway 수집 Pod 상태 데이터:** `komsco-ai-dev` 네임스페이스의 `aiops-scenario-1-crashloop-7448bf8897-57pjz` Pod가 2,117회 재시작되었으며, 현재 `CrashLoopBackOff` 상태임을 확인했습니다.",
-          "- **네임스페이스 확인:** 상위 재시작 Pod 목록(Top container restart counts) 내에 `default` 네임스페이스는 포함되어 있지 않습니다."
+          "- **확인 불가**: 제공된 Gateway 수집 데이터 내에 `default` 네임스페이스에 속한 Pod의 재시작 기록이나 상태 정보가 존재하지 않습니다.",
+          "**수집 근거**"
         ],
         "doneReceived": true,
-        "durationMs": 79297,
+        "durationMs": 52179,
+        "evidenceRefEvents": [
+          {
+            "status": "success",
+            "summary": "ev-b9fb2b344c3dc39d 기록",
+            "evidenceId": "ev-b9fb2b344c3dc39d"
+          },
+          {
+            "status": "success",
+            "summary": "ev-1ec48591d101b77a 기록",
+            "evidenceId": "ev-1ec48591d101b77a"
+          },
+          {
+            "status": "success",
+            "summary": "ev-8ce9c9032bdf261e 기록",
+            "evidenceId": "ev-8ce9c9032bdf261e"
+          },
+          {
+            "status": "success",
+            "summary": "ev-7a9739817072269a 기록",
+            "evidenceId": "ev-7a9739817072269a"
+          },
+          {
+            "status": "success",
+            "summary": "ev-006c32c8e5fb785e 기록",
+            "evidenceId": "ev-006c32c8e5fb785e"
+          },
+          {
+            "status": "success",
+            "summary": "ev-01297061786c11f8 기록",
+            "evidenceId": "ev-01297061786c11f8"
+          },
+          {
+            "status": "success",
+            "summary": "ev-581b3cef753a9c03 기록",
+            "evidenceId": "ev-581b3cef753a9c03"
+          },
+          {
+            "status": "success",
+            "summary": "ev-da74e8fb20583a44 기록",
+            "evidenceId": "ev-da74e8fb20583a44"
+          },
+          {
+            "status": "success",
+            "summary": "ev-3b191c75bb59d321 기록",
+            "evidenceId": "ev-3b191c75bb59d321"
+          }
+        ],
         "eventCounts": {
-          "run_status": 16,
+          "run_status": 10,
           "tool_call": 21,
           "tool_result": 25,
           "tool_plan": 1,
           "rca_context": 3,
-          "text": 28
+          "text": 39
         },
         "fallbackEvents": [],
         "gatewayErrors": [],
         "lightspeedErrors": [],
-        "olsTextEvents": 27,
+        "olsTextEvents": 37,
+        "rcaContextPhases": [
+          "plan_ready",
+          "pre_answer",
+          "post_answer"
+        ],
         "requiredTextPresent": {
           "RCA": true,
           "확인": true
@@ -193,12 +367,6 @@
         "runStatusStages": [
           "started",
           "lightspeed",
-          "waiting",
-          "waiting",
-          "waiting",
-          "waiting",
-          "waiting",
-          "waiting",
           "waiting",
           "waiting",
           "waiting",
@@ -217,37 +385,7 @@
           {
             "stage": "lightspeed",
             "message": "실제 OpenShift Lightspeed로 요청 전달",
-            "gatewayContextDigest": "sha256:dd396dae68e81463b5fac47257c4022b26cd03f260c6d362dc1b3898ffe540db"
-          },
-          {
-            "stage": "waiting",
-            "message": "OpenShift Lightspeed 응답 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "OpenShift Lightspeed 응답 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "OpenShift Lightspeed 응답 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "OpenShift Lightspeed 응답 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "OpenShift Lightspeed 응답 대기 중",
-            "gatewayContextDigest": null
-          },
-          {
-            "stage": "waiting",
-            "message": "OpenShift Lightspeed 응답 대기 중",
-            "gatewayContextDigest": null
+            "gatewayContextDigest": "sha256:9e193c2f8b5312c88316592779a8dd22796a50a2737dc3c172e06552f4ca96e0"
           },
           {
             "stage": "waiting",
@@ -288,6 +426,13 @@
             "stage": "completed",
             "message": "Gateway 실행 루프 완료",
             "gatewayContextDigest": null
+          }
+        ],
+        "toolPlanEvents": [
+          {
+            "runId": "live-lightspeed-final-official-evidence-rca-1782869012",
+            "taskType": "pod_restart_rca",
+            "toolCount": 9
           }
         ]
       }

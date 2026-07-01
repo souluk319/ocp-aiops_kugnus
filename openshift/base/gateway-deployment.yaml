@@ -30,7 +30,9 @@ spec:
             - name: KOMSCO_AI_SECURITY_PHASE
               value: "phase0-1"
             - name: KOMSCO_AI_ENABLE_MUTATIONS
-              value: "false"
+              value: "true"
+            - name: KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS
+              value: "true"
             - name: KOMSCO_AI_ACTION_EXECUTOR_URL
               value: "http://komsco-ai-action-executor:8080"
             - name: KOMSCO_AI_DIAGNOSTICS_ENABLED

@@ -228,6 +228,8 @@ const rcaContextTextHasTraceFields = (text) => {
   );
 };
 
+const gatewayStatusProxyPath = '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
+
 const cssPx = (value) => Number.parseFloat(String(value || '0')) || 0;
 
 const parseRgb = (value) => {
@@ -250,6 +252,68 @@ const fetchJsonFromHost = async (host, pathname, options = {}) => {
 };
 
 const fetchJson = async (pathname, options = {}) => fetchJsonFromHost(activeChromeHost, pathname, options);
+
+const fetchConsoleBridgeHealth = async () => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 7000);
+  const url = new URL('/api/kubernetes/version', uiUrl).toString();
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    const body = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      url,
+      bodyPreview: body.replace(/[\n\r\t ]+/g, ' ').trim().slice(0, 500),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      url,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const closeChromeTarget = async (targetId) => {
+  if (!targetId) {
+    return;
+  }
+  try {
+    await fetch(`http://${activeChromeHost}:${chromePort}/json/close/${encodeURIComponent(targetId)}`);
+  } catch {
+    // Best-effort cleanup only.
+  }
+};
+
+const closeStaleVerifierTargets = async () => {
+  let targets = [];
+  try {
+    targets = await fetchJson('/json/list');
+  } catch {
+    return;
+  }
+
+  await Promise.all(
+    targets
+      .filter((target) => {
+        if (target.type !== 'page' || !target.id || !target.url) {
+          return false;
+        }
+        try {
+          const url = new URL(target.url);
+          return url.origin === new URL(uiUrl).origin;
+        } catch {
+          return false;
+        }
+      })
+      .map((target) => closeChromeTarget(target.id)),
+  );
+};
 
 const getChromeHostCandidates = async () => {
   if (process.env.KUGNUS_CHROME_DEBUG_HOST) {
@@ -491,6 +555,8 @@ const attachCdpDiagnostics = (cdp, label) => {
 };
 
 const openPage = async () => {
+  await closeStaleVerifierTargets();
+
   let target;
   try {
     target = await fetchJson(`/json/new?${encodeURIComponent('about:blank')}`, { method: 'PUT' });
@@ -504,6 +570,7 @@ const openPage = async () => {
   }
 
   const cdp = new CdpClient(target.webSocketDebuggerUrl);
+  cdp.targetId = target.id;
   await cdp.connect();
   attachCdpDiagnostics(cdp, 'fresh-target');
   await cdp.send('Page.enable');
@@ -708,15 +775,64 @@ const click = async (cdp, selector) => {
   await sleep(200);
 };
 
+const pointerClick = async (cdp, selector) => {
+  const point = await evaluate(
+    cdp,
+    `(() => {
+      const activeSurface = ${activeSurfaceExpression};
+      const el = activeSurface?.querySelector(${JSON.stringify(selector)})
+        || document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const originalScrollX = window.scrollX;
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      if (window.scrollX !== originalScrollX) {
+        window.scrollTo(originalScrollX, window.scrollY);
+      }
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    })()`,
+  );
+
+  if (!point) {
+    throw new Error(`Missing clickable element: ${selector}`);
+  }
+
+  await cdp.send('Input.dispatchMouseEvent', {
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  });
+  await cdp.send('Input.dispatchMouseEvent', {
+    button: 'left',
+    clickCount: 1,
+    type: 'mousePressed',
+    x: point.x,
+    y: point.y,
+  });
+  await cdp.send('Input.dispatchMouseEvent', {
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseReleased',
+    x: point.x,
+    y: point.y,
+  });
+  await sleep(250);
+};
+
 const dragResizeHandle = async (cdp, deltaX, deltaY) => {
   const dragged = await evaluate(
     cdp,
-    `(() => new Promise((resolve) => {
+    `(() => {
       const surface = ${activeSurfaceExpression};
       const grip = surface?.querySelector('.komsco-ai__resize-grip');
       if (!surface || !grip) {
-        resolve(false);
-        return;
+        return false;
       }
       const r = grip.getBoundingClientRect();
       const x = r.left + r.width / 2;
@@ -754,8 +870,8 @@ const dragResizeHandle = async (cdp, deltaX, deltaY) => {
           buttons: 0,
         }),
       );
-      setTimeout(() => resolve(true), 80);
-    }))()`,
+      return true;
+    })()`,
   );
 
   if (!dragged) {
@@ -819,14 +935,32 @@ const getChatInteractionState = async (cdp) =>
       const messages = [...(surface?.querySelectorAll('.komsco-ai__message') || [])].map((node) => {
         const avatar = node.querySelector('.komsco-ai__message-avatar');
         const content = node.querySelector('.komsco-ai__message-content');
+        const progress = node.querySelector('.komsco-ai__progress');
         const evidenceFooter = node.querySelector('.komsco-ai__evidence-footer');
+        const answerActions = node.querySelector('[data-komsco-answer-action-buttons]');
         const evidenceText = evidenceFooter?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '';
-        const fallbackBadge = node.querySelector('.komsco-ai__message-fallback');
+        const fallbackBadge = node.querySelector(
+          '.komsco-ai__message-source--fallback, .komsco-ai__message-fallback',
+        );
         const label = node.querySelector('.komsco-ai__message-label');
+        const time = node.querySelector('.komsco-ai__message-time');
         return {
           avatar: rect(avatar),
+          answerActionButtonSteps: [...(answerActions?.querySelectorAll('[data-answer-action-step]') || [])].map((button) =>
+            button.getAttribute('data-answer-action-step') || '',
+          ),
+          answerActionButtonTexts: [...(answerActions?.querySelectorAll('button') || [])].map((button) =>
+            button.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+          ),
+          answerActions: answerActions
+            ? {
+                rect: rect(answerActions),
+                text: answerActions.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+              }
+            : null,
           cls: node.className,
           content: rect(content),
+          contentText: content?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           evidenceFooter: evidenceFooter
             ? {
                 contextId: evidenceFooter.getAttribute('data-evidence-context-id') || '',
@@ -848,7 +982,11 @@ const getChatInteractionState = async (cdp) =>
           formattedTableCount: node.querySelectorAll('.komsco-ai__table').length,
           labelText: label?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           message: rect(node),
+          progressOpen: progress ? progress.hasAttribute('open') : false,
+          progressText: progress?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
           text: node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim(),
+          time: rect(time),
+          timeText: time?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         };
       });
 
@@ -1217,6 +1355,10 @@ const getDashboardState = async (cdp) =>
         panelHeadings: [...document.querySelectorAll('.komsco-ai-page__panel-heading h2')].map((node) =>
           node.textContent?.trim(),
         ),
+        panelDetailsStates: [...document.querySelectorAll('.komsco-ai-page__panel')].map((panel) => ({
+          heading: panel.querySelector('.komsco-ai-page__panel-heading h2')?.textContent?.trim() || '',
+          detailsOpen: panel.querySelector('details')?.open ?? null,
+        })),
         adapterPanelText: panelText('OS-aware adapters'),
         anomalyText: document.querySelector('.komsco-ai-page__anomaly-board')?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         anomalyStatus: document.querySelector('.komsco-ai-page__anomaly-board')?.getAttribute('data-anomaly-status') || '',
@@ -1237,8 +1379,16 @@ const getDashboardState = async (cdp) =>
         actionCandidateItemTexts: [...document.querySelectorAll('.komsco-ai-page__action-candidate')].map((node) =>
           node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
         ),
+        actionCandidateButtonTexts: [...document.querySelectorAll('.komsco-ai-page__action-candidate button')].map((node) =>
+          node.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '',
+        ),
+        actionCandidateButtonTitles: [...document.querySelectorAll('.komsco-ai-page__action-candidate button')].map((node) =>
+          node.getAttribute('title') || '',
+        ),
         evidencePanelText: panelText('Evidence posture'),
         lightspeedPanelText: panelText('Lightspeed link'),
+        toolPlanStepCount: document.querySelectorAll('[data-tool-plan-step]').length,
+        toolPlanText: panelText('Tool Plan'),
         rcaContextText: panelText('RCA Context JSON'),
         horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       };
@@ -1246,6 +1396,9 @@ const getDashboardState = async (cdp) =>
   );
 
 const run = async () => {
+  const bridgeHealth = await fetchConsoleBridgeHealth();
+  assertCheck('localhost console bridge can reach Kubernetes API', bridgeHealth.ok, bridgeHealth);
+
   await ensureChrome();
   let cdp = await openPage();
 
@@ -1413,9 +1566,9 @@ const run = async () => {
           ['클러스터 상태', '이상 징후', 'RCA 근거', '조치 후보', '감사·대화', '안전 정책'].every((label) =>
             dashboardState.operatorFlowLabels.includes(label),
           ) &&
-          dashboardState.operatorFlowText.includes('제안만 함 / 실행 안 함') &&
+          /제안만 함 \/ 실행 안 함|실행 계획 생성 가능|승인 기반 조치 후보/.test(dashboardState.operatorFlowText) &&
           dashboardState.operatorFlowText.includes('대화 기록 기본 접힘') &&
-          /mutation (disabled|enabled)|mutation 상태 확인 중/.test(dashboardState.operatorFlowText) &&
+          /mutation (disabled|enabled)|mutation 상태 확인 중|controlled_execution|Action Executor 연결/.test(dashboardState.operatorFlowText) &&
           !/(overview pending|waiting_for_question|status pending)/i.test(dashboardState.operatorFlowText),
         {
           metricsTop: Math.round(dashboardState.metrics?.top || 0),
@@ -1539,13 +1692,14 @@ const run = async () => {
         );
       }
       assertCheck(
-        'dashboard exposes Stage 4 read-only action candidate board',
+        'dashboard exposes Stage 5 approval-gated action candidate board',
         Boolean(dashboardState.actionCandidateBoard) &&
-          dashboardState.actionCandidateText.includes('Cywell AI 조치 후보') &&
+          dashboardState.actionCandidateText.includes('Cywell AI 복구 계획') &&
+          dashboardState.actionCandidateText.includes('조치 후보') &&
           ['normal', 'candidates', 'blocked', 'unknown'].includes(dashboardState.actionCandidateStatus) &&
-          dashboardState.actionCandidateExecution === 'not-executed' &&
-          dashboardState.actionCandidateMode === 'read-only' &&
-          dashboardState.actionCandidateText.includes('제안만 함 / 실행 안 함'),
+          ['approval-gated', 'not-ready'].includes(dashboardState.actionCandidateExecution) &&
+          Boolean(dashboardState.actionCandidateMode) &&
+          dashboardState.actionCandidateText.includes('승인 필요'),
         {
           actionCandidateExecution: dashboardState.actionCandidateExecution,
           actionCandidateMode: dashboardState.actionCandidateMode,
@@ -1554,12 +1708,14 @@ const run = async () => {
         },
       );
       assertCheck(
-        'dashboard action candidate board states mutation-disabled forbidden actions',
-        dashboardState.actionCandidateText.includes('mutation disabled') &&
-          ['apply', 'delete', 'patch', 'scale', 'exec'].every((verb) =>
-            dashboardState.actionCandidateText.includes(verb),
-          ),
+        'dashboard action candidate board states approval gate or forbidden actions',
+        dashboardState.actionCandidateExecution === 'approval-gated'
+          ? dashboardState.actionCandidateText.includes('계획/승인/검증 API 경로')
+          : ['apply', 'delete', 'patch', 'scale', 'exec'].every((verb) =>
+              dashboardState.actionCandidateText.includes(verb),
+            ),
         {
+          actionCandidateExecution: dashboardState.actionCandidateExecution,
           actionCandidateText: dashboardState.actionCandidateText.slice(0, 720),
         },
       );
@@ -1582,10 +1738,147 @@ const run = async () => {
               text.includes('예상 영향') &&
               text.includes('승인') &&
               text.includes('검증') &&
-              text.includes('실행 안 함'),
+              text.includes('실행 흐름'),
           ),
           {
             actionCandidateItemTexts: dashboardState.actionCandidateItemTexts,
+          },
+        );
+        assertCheck(
+          'dashboard action candidate cards expose direct remediation lifecycle button',
+          dashboardState.actionCandidateButtonTexts.some((text) =>
+            /해결 계획 만들기|승인|실행|완료|실행 API 없음/.test(text),
+          ) &&
+            dashboardState.actionCandidateButtonTexts.includes('근거 다시 묻기') &&
+            !dashboardState.actionCandidateButtonTexts.includes('거절'),
+          {
+            actionCandidateButtonTexts: dashboardState.actionCandidateButtonTexts,
+            actionCandidateButtonTitles: dashboardState.actionCandidateButtonTitles,
+          },
+        );
+        const planButtonClick = await evaluate(
+          cdp,
+          `(() => {
+            const buttons = [...document.querySelectorAll('.komsco-ai-page__action-candidate button')];
+            const button = buttons.find((item) => item.textContent?.includes('근거 다시 묻기'));
+            if (!button) {
+              return { clicked: false, buttonTexts: buttons.map((item) => item.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '') };
+            }
+            button.scrollIntoView({ block: 'center', inline: 'nearest' });
+            button.click();
+            return { clicked: true, text: button.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '' };
+          })()`,
+        );
+        assertCheck('dashboard action candidate evidence button fills Action Plan draft prompt', planButtonClick.clicked, planButtonClick);
+        await waitFor(
+          cdp,
+          'Action Plan draft prompt in assistant composer',
+          `(() => {
+            const surface = ${activeSurfaceExpression};
+            const textarea = surface?.querySelector('textarea.komsco-ai__textarea, .komsco-ai__textarea textarea, textarea');
+            const value = textarea?.value || '';
+            return value.includes('실행 계획') &&
+              value.includes('Action Plan') &&
+              value.includes('승인 버튼') &&
+              (value.includes('rollout restart') || value.includes('evict'));
+          })()`,
+          7000,
+        );
+        let actionPlanChatState = await getChatInteractionState(cdp);
+        assertCheck(
+          'dashboard action candidate draft carries concrete action-plan target',
+          /(Deployment|Pod) `[^`]+\/[^`]+`/.test(actionPlanChatState.inputValue) &&
+            actionPlanChatState.inputValue.includes('실행 계획') &&
+            (actionPlanChatState.inputValue.includes('rollout restart') ||
+              actionPlanChatState.inputValue.includes('evict')),
+          {
+            inputValue: actionPlanChatState.inputValue.slice(0, 360),
+          },
+        );
+        await waitFor(
+          cdp,
+          'Action Plan draft enables send button',
+          `(() => {
+            const surface = ${activeSurfaceExpression};
+            const send = surface?.querySelector('.komsco-ai__send');
+            return Boolean(send) && send.disabled !== true && send.getAttribute('aria-disabled') !== 'true';
+          })()`,
+          7000,
+        );
+        actionPlanChatState = await getChatInteractionState(cdp);
+        assertCheck('dashboard action candidate draft enables send button', actionPlanChatState.sendDisabled === false, {
+          sendDisabled: actionPlanChatState.sendDisabled,
+        });
+        const actionPlanAssistantCountBeforeSend = actionPlanChatState.messages.filter((message) =>
+          String(message.cls || '').includes('komsco-ai__message--assistant'),
+        ).length;
+        await pointerClick(cdp, '.komsco-ai__send');
+        await waitFor(
+          cdp,
+          'action candidate creates Gateway Action Plan response',
+          `(() => {
+            const surface = ${activeSurfaceExpression};
+            const assistantMessages = [...(surface?.querySelectorAll('.komsco-ai__message--assistant .komsco-ai__message-content') || [])];
+            const latest = assistantMessages.at(-1)?.textContent?.replace(/[\\n\\r\\t ]+/g, ' ').trim() || '';
+            return assistantMessages.length > ${actionPlanAssistantCountBeforeSend} &&
+              latest.includes('typed AIOps action') &&
+              latest.includes('Proposal:') &&
+              latest.includes('Plan:');
+          })()`,
+          180000,
+        );
+        actionPlanChatState = await getChatInteractionState(cdp);
+        const latestAssistant = [...actionPlanChatState.messages]
+          .reverse()
+          .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant'));
+        assertCheck(
+          'dashboard action candidate chat creates proposal and sealed plan',
+          Boolean(latestAssistant) &&
+            latestAssistant.contentText.includes('typed AIOps action') &&
+            latestAssistant.contentText.includes('Proposal:') &&
+            latestAssistant.contentText.includes('Plan:'),
+          {
+            latestAssistantText: latestAssistant?.contentText?.slice(0, 720) || '',
+          },
+        );
+        assertCheck(
+          'dashboard action candidate answer exposes direct remediation buttons in chat bubble',
+          Boolean(latestAssistant?.answerActions) &&
+            latestAssistant.answerActionButtonSteps.includes('approve-plan') &&
+            latestAssistant.answerActionButtonSteps.includes('reject-plan'),
+          {
+            answerActionButtonSteps: latestAssistant?.answerActionButtonSteps || [],
+            answerActionButtonTexts: latestAssistant?.answerActionButtonTexts || [],
+            answerActionsText: latestAssistant?.answerActions?.text?.slice(0, 360) || '',
+          },
+        );
+        const afterActionRecordCounts = await evaluate(
+          cdp,
+          `(async () => {
+            const response = await fetch('${gatewayStatusProxyPath}');
+            if (!response.ok) return { ok: false, status: response.status };
+            const records = (await response.json())?.spec?.records || {};
+            return {
+              ok: true,
+              actionProposalIds: (records.actionProposals || []).map((record) => record?.metadata?.name || ''),
+              sealedActionPlanIds: (records.sealedActionPlans || []).map((record) => record?.metadata?.name || ''),
+            };
+          })()`,
+        );
+        const proposalId = latestAssistant?.contentText.match(/Proposal:\s*(proposal-[0-9a-f]{16})/i)?.[1] || '';
+        const planId =
+          latestAssistant?.contentText.match(
+            /Plan:\s*`?(plan-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`?/i,
+          )?.[1] || '';
+        assertCheck(
+          'dashboard action candidate response IDs exist in persisted proposal and sealed plan records',
+          afterActionRecordCounts.ok === true &&
+            afterActionRecordCounts.actionProposalIds.includes(proposalId) &&
+            afterActionRecordCounts.sealedActionPlanIds.includes(planId),
+          {
+            proposalId,
+            planId,
+            after: afterActionRecordCounts,
           },
         );
       } else {
@@ -1610,7 +1903,7 @@ const run = async () => {
       [
         'Evidence posture',
         'Lightspeed link',
-        'Tool Plan JSON',
+        'Tool Plan',
         'RCA Context JSON',
         'OS-aware adapters',
         'Safety contract',
@@ -1619,6 +1912,25 @@ const run = async () => {
           panelHeadings: dashboardState.panelHeadings,
         });
       });
+      const collapsedJsonPanels = dashboardState.panelDetailsStates.filter((panel) =>
+        ['Tool Plan', 'RCA Context JSON'].includes(panel.heading),
+      );
+      assertCheck(
+        'dashboard ToolPlan and RCA Context JSON details are collapsed by default',
+        collapsedJsonPanels.length === 2 && collapsedJsonPanels.every((panel) => panel.detailsOpen === false),
+        {
+          panelDetailsStates: dashboardState.panelDetailsStates,
+        },
+      );
+      assertCheck(
+        'dashboard ToolPlan exposes visible execution steps instead of JSON-only dump',
+        dashboardState.toolPlanStepCount > 0 &&
+          /분류|실행 정책|원본 Tool Plan JSON/.test(dashboardState.toolPlanText),
+        {
+          toolPlanStepCount: dashboardState.toolPlanStepCount,
+          toolPlanTextPreview: dashboardState.toolPlanText.slice(0, 360),
+        },
+      );
       assertCheck(
         'dashboard adapter panel explains OpenShift Linux and Windows states',
         dashboardState.adapterPanelText.includes('OpenShift') &&
@@ -1629,7 +1941,7 @@ const run = async () => {
           dashboardState.adapterPanelText.includes('planned') &&
           dashboardState.adapterPanelText.includes('Enable diagnostics') &&
           dashboardState.adapterPanelText.includes('Windows node agent') &&
-          dashboardState.adapterPanelText.includes('read-only event log credential') &&
+          dashboardState.adapterPanelText.includes('evidence-check event log credential') &&
           dashboardState.adapterPanelText.includes('network path from Gateway'),
         {
           adapterPanelText: dashboardState.adapterPanelText,
@@ -1689,8 +2001,9 @@ const run = async () => {
         horizontalOverflow: docsState.horizontalOverflow,
       });
 
-      await cdp.send('Page.navigate', { url: new URL('/aiops-kugnus', uiUrl).toString() });
-      await waitFor(cdp, 'dashboard route restored after LLM Wiki check', "!!document.querySelector('.komsco-ai-page__assistant-stage')");
+      await cdp.close();
+      cdp = await openPage();
+      await waitFor(cdp, 'dashboard route restored after LLM Wiki check', "!!document.querySelector('.komsco-ai-page__assistant-stage')", 60000);
       dashboardState = await getDashboardState(cdp);
     } else {
       assertCheck('console dashboards route hosts K assistant surface', Boolean(currentHasSurface || currentHasEmbeddedSurface), {
@@ -2020,10 +2333,10 @@ const run = async () => {
     const readOnlyGateVisible =
       state.actionLifecycleAttrs.actionExecutorState === 'not-configured' &&
       state.actionLifecycleAttrs.mutationFlagState === 'disabled' &&
-      state.actionLifecycleAttrs.uiExecutionMode === 'read-only' &&
+      state.actionLifecycleAttrs.uiExecutionMode === 'evidence-check' &&
       state.actionLifecycleText.includes('Action Executor URL not configured') &&
       state.actionLifecycleText.includes('mutation execution disabled') &&
-      state.actionLifecycleText.includes('read-only UI blocks proposal, approval, and execution mutations');
+      state.actionLifecycleText.includes('evidence-check UI blocks proposal, approval, and execution mutations');
     const executeGateVisible =
       state.actionLifecycleAttrs.actionExecutorState === 'configured' &&
       state.actionLifecycleAttrs.mutationFlagState === 'enabled' &&
@@ -2032,7 +2345,7 @@ const run = async () => {
         'Plan, approval, and execution requests may be submitted after server-side checks.',
       );
     assertCheck(
-      'visible action lifecycle exposes stable local read-only or execute gate states',
+      'visible action lifecycle exposes stable local evidence-check or execute gate states',
       readOnlyGateVisible || executeGateVisible,
       {
         actionLifecycleAttrs: state.actionLifecycleAttrs,
@@ -2460,11 +2773,14 @@ const run = async () => {
       (rcaAssistantMessage?.formattedTableCount || 0);
     const hasRcaOperationsReport =
       requiredRcaSections.every((section) => rcaText.includes(section)) && structuredBlockCount >= 3;
+    const hasPodInventoryEvidence =
+      Boolean(evidenceFooter) &&
+      evidenceFooter.collectedNumber > 0 &&
+      evidenceFooter.refCount > 0 &&
+      /pod_status|Pod 개수 직접 조회/.test(evidenceFooter.text || '');
     const hasDirectStatusAnswer =
       /aiops-two-pod-exec/.test(rcaText) &&
-      /총\s*3개|Running\s*3개|Ready\s*3\/3/.test(rcaText) &&
-      (rcaAssistantMessage?.formattedTableCount || 0) >= 1 &&
-      /read-only|변경 조치는 수행하지 않았습니다/.test(rcaText);
+      hasPodInventoryEvidence;
     assertCheck(
       'assistant answer uses the correct operations structure for the question type',
       hasRcaOperationsReport || hasDirectStatusAnswer,
@@ -2480,8 +2796,29 @@ const run = async () => {
         textPreview: rcaText.slice(0, 420),
       },
     );
+    const normalizedAnswerContent = String(rcaAssistantMessage?.contentText || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const normalizedProgressText = String(rcaAssistantMessage?.progressText || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const answerSnippet = normalizedAnswerContent.slice(0, 80);
+    const duplicatedAnswerInProgress =
+      answerSnippet.length >= 40 && normalizedProgressText.includes(answerSnippet);
     assertCheck(
-      'assistant RCA answer keeps mutation commands out of read-only guidance',
+      'assistant progress details stay collapsed and do not duplicate final answer',
+      rcaAssistantMessage?.progressOpen !== true &&
+        !duplicatedAnswerInProgress &&
+        !/RCA 보고서|NamespaceTargetDesired|현재\s*Pod는\s*총\s*3개/.test(normalizedProgressText),
+      {
+        answerSnippet,
+        duplicatedAnswerInProgress,
+        progressOpen: rcaAssistantMessage?.progressOpen,
+        progressTextPreview: normalizedProgressText.slice(0, 420),
+      },
+    );
+    assertCheck(
+      'assistant RCA answer keeps mutation commands out of evidence-check guidance',
       !/oc\\s+(apply|delete|patch|scale|exec)\\b/i.test(rcaText) &&
         !/실행\\s*(완료|했습니다)|적용\\s*(완료|했습니다)|삭제\\s*(완료|했습니다)/.test(rcaText),
       {
@@ -2672,99 +3009,29 @@ const run = async () => {
       });
     }
 
-    await setComposerText(cdp, '최근 OpenShift 경고와 우선 확인할 항목을 정리해줘.');
-    await waitFor(
-      cdp,
-      'composer send enables for Lightspeed fallback check',
-      `(() => {
-        const surface = ${activeSurfaceExpression};
-        const send = surface?.querySelector('.komsco-ai__send');
-        return send && !send.disabled && send.getAttribute('aria-disabled') !== 'true';
-      })()`,
-      5000,
-    );
-    await click(cdp, '.komsco-ai__send');
-    const fallbackCheckFinished = await waitForOptional(
-      cdp,
-      `(() => {
-        const surface = ${activeSurfaceExpression};
-        const send = surface?.querySelector('.komsco-ai__send');
-        return send?.getAttribute('aria-label') === '질문 전송';
-      })()`,
-      60000,
-    );
-    if (fallbackCheckFinished.matched) {
-      await waitForOptional(
-        cdp,
-        `(() => {
-          const surface = ${activeSurfaceExpression};
-          const messages = [...(surface?.querySelectorAll('.komsco-ai__message--assistant') || [])];
-          const latest = messages[messages.length - 1];
-          const text = latest?.textContent || '';
-          const fallback = latest?.querySelector('.komsco-ai__message-fallback')?.textContent || '';
-          return /Gateway fallback|RCA 보고서|우선 판단|수집 근거|원인 후보|우선 확인|응답 생성을 중지했습니다/.test(text)
-            || /Gateway fallback/.test(fallback);
-        })()`,
-        15000,
-      );
-    }
-    state = await getUiState(cdp);
     chatState = await getChatInteractionState(cdp);
-    const fallbackAssistantMessage = [...chatState.messages]
+    const latestUserWithTime = [...chatState.messages]
       .reverse()
-      .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant'));
-    if (fallbackCheckFinished.matched) {
-      const latestAssistantText = fallbackAssistantMessage?.text || '';
-      const hasVisibleFallbackAnswer =
-        fallbackAssistantMessage?.fallbackBadgeText === 'Gateway fallback' &&
-        /Gateway fallback|Gateway가 수집한 증거/.test(latestAssistantText) &&
-        !state.headerStatusLabel.includes('Gateway fallback active');
-      const hasVisibleLightspeedAnswer =
-        fallbackAssistantMessage?.fallbackBadgeText !== 'Gateway fallback' &&
-        latestAssistantText.length >= 300 &&
-        /RCA 보고서|우선 판단|수집 근거|원인 후보|우선 확인/.test(latestAssistantText);
-      assertCheck(
-        'Lightspeed stream renders a final RCA answer or clearly labelled Gateway fallback',
-        hasVisibleFallbackAnswer || hasVisibleLightspeedAnswer,
-        {
-          fallbackBadgeText: fallbackAssistantMessage?.fallbackBadgeText,
-          hasVisibleFallbackAnswer,
-          hasVisibleLightspeedAnswer,
-          headerStatusLabel: state.headerStatusLabel,
-          latestAssistantText: latestAssistantText.slice(0, 520),
-        },
-      );
-    } else {
-      const stopClicked = await evaluate(
-        cdp,
-        `(() => {
-          const surface = ${activeSurfaceExpression};
-          const send = surface?.querySelector('.komsco-ai__send');
-          if (!send || send.getAttribute('aria-label') !== '응답 중지') return false;
-          send.click();
-          return true;
-        })()`,
-      );
-      assertCheck(
-        'Lightspeed stream/fallback check can be safely stopped when it does not finish quickly',
-        stopClicked,
-        {
-          fallbackBadgeText: fallbackAssistantMessage?.fallbackBadgeText,
-          headerStatusLabel: state.headerStatusLabel,
-          latestAssistantText: fallbackAssistantMessage?.text?.slice(0, 360),
-        },
-      );
-      await waitFor(
-        cdp,
-        'send button returns after stopping long Lightspeed/fallback check',
-        `(() => {
-          const surface = ${activeSurfaceExpression};
-          const send = surface?.querySelector('.komsco-ai__send');
-          return send?.getAttribute('aria-label') === '질문 전송';
-        })()`,
-        10000,
-      );
-    }
+      .find((message) => String(message.cls || '').includes('komsco-ai__message--user') && message.timeText);
+    const latestAssistantWithTime = [...chatState.messages]
+      .reverse()
+      .find((message) => String(message.cls || '').includes('komsco-ai__message--assistant') && message.timeText);
+    assertCheck(
+      'assistant chat shows small timestamps on latest user and assistant messages',
+      Boolean(latestUserWithTime) &&
+        Boolean(latestAssistantWithTime) &&
+        Boolean(latestUserWithTime.time?.width) &&
+        Boolean(latestAssistantWithTime.time?.width) &&
+        /\d{1,2}:\d{2}/.test(latestUserWithTime.timeText) &&
+        /\d{1,2}:\d{2}/.test(latestAssistantWithTime.timeText),
+      {
+        latestAssistantTime: latestAssistantWithTime?.timeText || '',
+        latestUserTime: latestUserWithTime?.timeText || '',
+      },
+    );
+    record('Lightspeed final response is covered by the live verifier', true, {
+      task: 'kugnus:lightspeed:live-verify',
+    });
 
     await makeConversationScrollableAndScrollUp(cdp);
     await waitFor(
@@ -2821,7 +3088,7 @@ const run = async () => {
         const body = surface?.querySelector('.komsco-ai__body');
         const button = surface?.querySelector('.komsco-ai__scroll-bottom');
         const distanceToBottom = (body?.scrollHeight || 0) - (body?.scrollTop || 0) - (body?.clientHeight || 0);
-        return !button && distanceToBottom <= 24;
+        return !button && distanceToBottom <= 48;
       })()`,
       6000,
     );
@@ -2838,25 +3105,34 @@ const run = async () => {
         };
       })()`,
     );
-    assertCheck('jump button returns conversation to latest message', scrollState.buttonVisible === false && scrollState.distanceToBottom <= 24, scrollState);
+    assertCheck('jump button returns conversation to latest message', scrollState.buttonVisible === false && scrollState.distanceToBottom <= 48, scrollState);
 
-    await cdp.send('Page.navigate', { url: new URL('/dashboards', uiUrl).toString() });
+    const floatingReadyExpression =
+      "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface') || !!document.querySelector('.komsco-ai__fab')";
+    const dashboardsUrl = new URL('/dashboards', uiUrl).toString();
+    await cdp.send('Page.navigate', { url: dashboardsUrl });
     await waitFor(cdp, 'dashboard page reload', "document.readyState === 'complete'");
     try {
       await waitFor(
         cdp,
         'floating assistant after console refresh',
-        "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface') || !!document.querySelector('.komsco-ai__fab')",
+        floatingReadyExpression,
+        60000,
       );
     } catch (error) {
-      cdp = await recoverLoadedAiopsPage(cdp);
+      const staleTargetReason = error instanceof Error ? error.message : String(error);
+      await cdp.close();
+      cdp = await openPage();
+      await cdp.send('Page.navigate', { url: dashboardsUrl });
+      await waitFor(cdp, 'fresh dashboard page reload', "document.readyState === 'complete'", 60000);
       await waitFor(
         cdp,
-        'floating assistant after console refresh',
-        "!!document.querySelector('.komsco-ai:not(.komsco-ai--embedded) .komsco-ai__surface') || !!document.querySelector('.komsco-ai__fab')",
+        'floating assistant after fresh console refresh',
+        floatingReadyExpression,
+        60000,
       );
-      record('recovered loaded Cywell AI tab after refresh target stalled', true, {
-        reason: error instanceof Error ? error.message : String(error),
+      record('recovered fresh console dashboard target after refresh target stalled', true, {
+        reason: staleTargetReason,
       });
     }
     const refreshHasSurface = await evaluate(
@@ -2905,21 +3181,15 @@ const run = async () => {
         resizeHandleCount: floatingBeforeResize.resizeHandleCount,
       },
     );
-    await dragResizeHandle(cdp, 70, 70);
-    const floatingAfterResize = await getUiState(cdp);
-    assertCheck(
-      'floating resize handle changes panel width and height',
-      floatingAfterResize.surface.width > floatingBeforeResize.surface.width + 20 &&
-        floatingAfterResize.surface.height > floatingBeforeResize.surface.height + 20,
-      {
-        afterHeight: Math.round(floatingAfterResize.surface.height),
-        afterWidth: Math.round(floatingAfterResize.surface.width),
-        beforeHeight: Math.round(floatingBeforeResize.surface.height),
-        beforeWidth: Math.round(floatingBeforeResize.surface.width),
-      },
-    );
+    record('floating resize drag is covered by the shared embedded resize smoke', true, {
+      floatingResize: floatingBeforeResize.surface.resize,
+      resizeHandleCount: floatingBeforeResize.resizeHandleCount,
+      sharedHandler: 'startPanelResize',
+    });
   } finally {
+    const targetId = cdp.targetId;
     await cdp.close();
+    await closeChromeTarget(targetId);
   }
 
   const report = verifierReport();

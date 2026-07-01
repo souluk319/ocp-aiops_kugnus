@@ -325,7 +325,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
                 category="node-host-os-diagnostics",
                 question=(
                     f"Node `{resource_name(node)}` 의 호스트 OS 단까지 점검하려면 "
-                    "어떤 read-only 진단 절차와 승인 경계가 필요한지 정리해줘."
+                    "어떤 evidence-check 진단 절차와 승인 경계가 필요한지 정리해줘."
                 ),
                 source="oc:get nodes",
                 forbid_answer_regex=(
@@ -678,7 +678,7 @@ def build_question_cases(data: dict[str, list[Mapping[str, Any]]]) -> list[Quest
             QuestionCase(
                 category="generic-readonly",
                 question=(
-                    f"읽기 전용으로 현재 클러스터 운영 상태를 확인할 때 우선순위 "
+                    f"승인 실행으로 현재 클러스터 운영 상태를 확인할 때 우선순위 "
                     f"{len(cases) + 1}번 관점에서 봐야 할 항목을 정리해줘."
                 ),
                 source="generic-fill",

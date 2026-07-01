@@ -77,7 +77,7 @@ The gateway exposes the current implementation foundation as JSON APIs:
   digest, and grant reference. When `KOMSCO_AI_DIAGNOSTICS_ENABLED=true` and
   `KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL` is configured, the gateway submits
   the request to the Host Diagnostics Controller. The controller creates a fixed,
-  read-only collector Job for the selected allow-listed node OS/runtime profile.
+  evidence-check collector Job for the selected allow-listed node OS/runtime profile.
 - `GET /v1/diagnostics/collectors` returns the host diagnostics collector
   registry used to validate node OS/runtime triage requests.
 - `GET /v1/actions/registry` returns the typed action allow-list.

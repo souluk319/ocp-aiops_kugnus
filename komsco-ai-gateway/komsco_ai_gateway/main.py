@@ -190,6 +190,12 @@ OLS_CA_FILE = parse_ols_verify(
     if os.getenv("OLS_CA_FILE") is not None
     else os.getenv("OPENSHIFT_LIGHTSPEED_TLS_VERIFY")
 )
+OLS_CONNECT_TIMEOUT_SECONDS = parse_float_env(
+    "KOMSCO_AI_OLS_CONNECT_TIMEOUT_SECONDS",
+    "OPENSHIFT_LIGHTSPEED_CONNECT_TIMEOUT_SECONDS",
+    "OPENSHIFT_LIGHTSPEED_TIMEOUT_SECONDS",
+    default=min(30.0, LLM_TIMEOUT_SECONDS),
+)
 OLS_EMPTY_ANSWER_RETRIES = parse_int(os.getenv("KOMSCO_AI_OLS_EMPTY_ANSWER_RETRIES"), default=1, minimum=0, maximum=3)
 OLS_QUERY_PROFILE = os.getenv("KOMSCO_AI_OLS_QUERY_PROFILE", "minimal").strip().lower()
 OLS_FORWARD_CONVERSATION_ID = parse_bool(
@@ -247,6 +253,13 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("KOMSCO_AI_RATE_LIMIT_PER_MINUTE", "60"))
 AUDIT_MAX_RECORDS = int(os.getenv("KOMSCO_AI_AUDIT_MAX_RECORDS", "1000"))
 EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
 WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
+CHAT_TRANSCRIPT_MAX_RECORDS = int(os.getenv("KOMSCO_AI_CHAT_TRANSCRIPT_MAX_RECORDS", "200"))
+CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS = int(os.getenv("KOMSCO_AI_CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS", "8000"))
+CHAT_TRANSCRIPT_MAX_ANSWER_CHARS = int(os.getenv("KOMSCO_AI_CHAT_TRANSCRIPT_MAX_ANSWER_CHARS", "24000"))
+CHAT_TRANSCRIPT_JSONL_PATH = os.getenv(
+    "KOMSCO_AI_CHAT_TRANSCRIPT_JSONL_PATH",
+    "var/aiops/chat-transcripts.jsonl",
+).strip()
 DIAGNOSTICS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_DIAGNOSTICS_ENABLED"), default=False)
 DIAGNOSTIC_MAX_RECORDS = int(os.getenv("KOMSCO_AI_DIAGNOSTIC_MAX_RECORDS", "1000"))
 DEMO_NAMESPACE_ALLOWLIST = {
@@ -333,7 +346,7 @@ RAG_BROAD_SYSTEM_GROUPS = {
 }
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
-MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
+MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=True)
 ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
 ACTION_EXECUTOR_TOKEN_FILE = os.getenv(
     "KOMSCO_AI_ACTION_EXECUTOR_TOKEN_FILE",
@@ -355,7 +368,7 @@ BREAK_GLASS_MAX_RECORDS = int(os.getenv("KOMSCO_AI_BREAK_GLASS_MAX_RECORDS", "10
 BREAK_GLASS_IMAGE_DIGEST = os.getenv("KOMSCO_AI_BREAK_GLASS_IMAGE_DIGEST", "")
 UNRESTRICTED_COMMANDS_ENABLED = parse_bool(
     os.getenv("KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS"),
-    default=False,
+    default=True,
 )
 UNRESTRICTED_COMMAND_CWD = os.getenv("KOMSCO_AI_UNRESTRICTED_COMMAND_CWD", os.getcwd())
 UNRESTRICTED_COMMAND_TIMEOUT_SECONDS = int(
@@ -550,7 +563,6 @@ AIOPS_DEMO_CYCLE_ALLOWED_KEYS = {
     "candidateStatusLabel",
     "findingId",
     "findingTitle",
-    "readOnlyOnly",
     "scenarioId",
     "selectedAt",
     "source",
@@ -584,10 +596,13 @@ METRICS: dict[str, int] = {
     "aiops_record_store_loads_total": 0,
     "aiops_record_store_writes_total": 0,
     "aiops_record_store_failures_total": 0,
+    "aiops_chat_transcripts_total": 0,
+    "aiops_chat_transcript_jsonl_write_failures_total": 0,
 }
 AUDIT_RECORDS: dict[str, dict[str, Any]] = {}
 EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
 WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
+CHAT_TRANSCRIPTS: dict[str, dict[str, Any]] = {}
 DIAGNOSTIC_REQUESTS: dict[str, dict[str, Any]] = {}
 ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
 SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
@@ -839,12 +854,12 @@ PREAPPROVED_PATCH_FIELD_BUNDLE = {
 PREAPPROVED_PATCH_FIELD_DIGEST = canonical_digest(PREAPPROVED_PATCH_FIELD_BUNDLE)
 BREAK_GLASS_PROFILE_VERSION = "v1"
 BREAK_GLASS_PROFILES: dict[str, dict[str, Any]] = {
-    "node_readonly_triage_v1": {
-        "profileId": "node_readonly_triage_v1",
+    "node_triage_v1": {
+        "profileId": "node_triage_v1",
         "profileVersion": BREAK_GLASS_PROFILE_VERSION,
         "enabled": BREAK_GLASS_ENABLED and bool(BREAK_GLASS_IMAGE_DIGEST),
         "imageDigest": BREAK_GLASS_IMAGE_DIGEST or "not-configured",
-        "fixedEntrypoint": ["/aiops/breakglass-runner", "--profile", "node-readonly-triage"],
+        "fixedEntrypoint": ["/aiops/breakglass-runner", "--profile", "node-triage"],
         "arbitraryCommandInputAllowed": False,
         "privilegedJob": {
             "enabled": BREAK_GLASS_ENABLED and bool(BREAK_GLASS_IMAGE_DIGEST),
@@ -945,6 +960,7 @@ def record_store_auth_header() -> str:
 
 
 RECORD_STORES: dict[str, tuple[dict[str, dict[str, Any]], int, str]] = {
+    "chatTranscripts": (CHAT_TRANSCRIPTS, CHAT_TRANSCRIPT_MAX_RECORDS, "chatTranscripts.json"),
     "diagnosticRequests": (DIAGNOSTIC_REQUESTS, DIAGNOSTIC_MAX_RECORDS, "diagnosticRequests.json"),
     "actionProposals": (ACTION_PROPOSALS, ACTION_MAX_RECORDS, "actionProposals.json"),
     "sealedActionPlans": (SEALED_ACTION_PLANS, ACTION_MAX_RECORDS, "sealedActionPlans.json"),
@@ -1110,6 +1126,131 @@ def record_workflow(
         "target": redact_sensitive(dict(target or existing.get("target") or {})),
     }
     bounded_put(WORKFLOW_RECORDS, run_id, record, WORKFLOW_MAX_RECORDS)
+
+
+def truncate_chat_text(value: Any, limit: int) -> str:
+    text = redact_sensitive(str(value or ""))
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit].rstrip()}\n[TRUNCATED {len(text) - limit} chars]"
+
+
+def chat_action_record_refs(incident_id: str, run_id: str) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for store_name, store in (
+        ("actionProposals", ACTION_PROPOSALS),
+        ("sealedActionPlans", SEALED_ACTION_PLANS),
+        ("approvalDecisions", APPROVAL_DECISIONS),
+        ("executionRecords", EXECUTION_RECORDS),
+    ):
+        for record in store.values():
+            spec = record.get("spec") if isinstance(record.get("spec"), Mapping) else {}
+            if not isinstance(spec, Mapping):
+                continue
+            if str(spec.get("runId") or "") != run_id and str(spec.get("incidentId") or "") != incident_id:
+                continue
+            refs.append(
+                {
+                    "kind": record.get("kind"),
+                    "name": record.get("metadata", {}).get("name") if isinstance(record.get("metadata"), Mapping) else "",
+                    "store": store_name,
+                    "createdAt": record.get("metadata", {}).get("createdAt") if isinstance(record.get("metadata"), Mapping) else "",
+                    "phase": spec.get("status", {}).get("phase") if isinstance(spec.get("status"), Mapping) else "",
+                }
+            )
+    refs.sort(key=lambda item: str(item.get("createdAt") or ""))
+    return refs
+
+
+def build_chat_transcript_record(
+    *,
+    req: "ChatRequest",
+    answer_text: str,
+    answer_contracts: list[str],
+    incident_id: str,
+    policy: Mapping[str, Any],
+    request_id: str,
+    rca_context: Mapping[str, Any] | None,
+    run_id: str,
+    runtime_tool_plan: Mapping[str, Any] | None,
+    status: str,
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    created_at = now_rfc3339()
+    context = rca_context if isinstance(rca_context, Mapping) else {}
+    context_metadata = context.get("metadata") if isinstance(context.get("metadata"), Mapping) else {}
+    evidence = context.get("evidence") if isinstance(context.get("evidence"), Mapping) else {}
+    rca_result = context.get("rcaResult") if isinstance(context.get("rcaResult"), Mapping) else {}
+    transcript_projection = {
+        "answer": answer_text,
+        "conversationId": req.conversationId,
+        "requestId": request_id,
+        "runId": run_id,
+        "userMessage": req.message,
+    }
+    transcript_id = f"chat-transcript-{canonical_digest(redact_sensitive(transcript_projection)).removeprefix('sha256:')[:16]}"
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ChatTranscriptRecord",
+        "metadata": {
+            "createdAt": created_at,
+            "name": transcript_id,
+        },
+        "spec": {
+            "answerContract": list(dict.fromkeys(answer_contracts)),
+            "assistantAnswer": truncate_chat_text(answer_text, CHAT_TRANSCRIPT_MAX_ANSWER_CHARS),
+            "attachments": len(req.attachments),
+            "conversationId": req.conversationId or incident_id,
+            "evidenceRefs": {
+                "collected": redact_sensitive(evidence.get("collectedRefs", [])),
+                "failed": redact_sensitive(evidence.get("failedRefs", [])),
+                "missing": redact_sensitive(evidence.get("missing", [])),
+            },
+            "observedState": {
+                "evidenceSummary": redact_sensitive(evidence.get("summary", {})),
+                "rcaContextDigest": context_metadata.get("digest", ""),
+                "rcaResult": redact_sensitive(rca_result),
+                "taskType": runtime_tool_plan.get("task_type") if isinstance(runtime_tool_plan, Mapping) else "",
+            },
+            "policy": redact_sensitive(dict(policy)),
+            "requestId": request_id,
+            "runId": run_id,
+            "status": status,
+            "userMessage": truncate_chat_text(req.message, CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS),
+            "workflow": {
+                "actionRecords": chat_action_record_refs(incident_id, run_id),
+                "incidentId": incident_id,
+            },
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+
+
+async def persist_chat_transcript_record(record: dict[str, Any]) -> None:
+    transcript_id = str(record.get("metadata", {}).get("name") or f"chat-transcript-{uuid.uuid4().hex[:16]}")
+    await bounded_put_record("chatTranscripts", transcript_id, record)
+    await append_chat_transcript_jsonl(record)
+    increment_metric("aiops_chat_transcripts_total")
+
+
+def write_chat_transcript_jsonl(record: Mapping[str, Any]) -> None:
+    if not CHAT_TRANSCRIPT_JSONL_PATH:
+        return
+
+    path = Path(CHAT_TRANSCRIPT_JSONL_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(redact_sensitive(dict(record)), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        )
+        handle.write("\n")
+
+
+async def append_chat_transcript_jsonl(record: Mapping[str, Any]) -> None:
+    try:
+        await asyncio.to_thread(write_chat_transcript_jsonl, record)
+    except Exception:
+        increment_metric("aiops_chat_transcript_jsonl_write_failures_total")
 
 
 def can_subject_read_record(record: Mapping[str, Any], subject: Mapping[str, Any]) -> bool:
@@ -1749,6 +1890,45 @@ def build_approval_decision_record(
     }
 
 
+def build_action_rejection_record(
+    plan_record: Mapping[str, Any],
+    request: "ActionRejectionCreate",
+    rejecter: Mapping[str, Any],
+) -> dict[str, Any]:
+    plan = plan_record["spec"]["sealedActionPlan"]
+    plan_digest = plan["digest"]["planDigest"]
+    if request.expectedPlanDigest != plan_digest:
+        raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
+
+    rejected_at = now_rfc3339()
+    rejection_id = f"rejection-{uuid.uuid4()}"
+    return {
+        "schemaVersion": "v1",
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ApprovalDecisionRecord",
+        "metadata": {"name": rejection_id, "createdAt": rejected_at},
+        "spec": {
+            "approvalDecision": {
+                "approvalId": rejection_id,
+                "planDigest": plan_digest,
+                "status": "rejected",
+                "approver": redact_sensitive(dict(rejecter)),
+                "approvedAt": None,
+                "rejectedAt": rejected_at,
+                "reason": request.reason,
+                "approvalScope": "single-target",
+                "target": plan["target"],
+                "action": {
+                    "toolName": plan["action"].get("toolName"),
+                    "toolVersion": plan["action"].get("toolVersion"),
+                    "actionRegistry": plan["action"].get("actionRegistry"),
+                },
+            }
+        },
+        "subject": redact_sensitive(dict(rejecter)),
+    }
+
+
 def parse_rfc3339(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -1799,6 +1979,17 @@ def approval_already_executed(approval_id: str) -> bool:
         for record in EXECUTION_RECORDS.values()
         if isinstance(record.get("spec"), Mapping)
     )
+
+
+def plan_has_approval_status(plan_digest: str, statuses: set[str]) -> bool:
+    for record in APPROVAL_DECISIONS.values():
+        spec = record.get("spec")
+        decision = spec.get("approvalDecision") if isinstance(spec, Mapping) else None
+        if not isinstance(decision, Mapping):
+            continue
+        if decision.get("planDigest") == plan_digest and decision.get("status") in statuses:
+            return True
+    return False
 
 
 def build_execution_grant_reference(
@@ -2180,7 +2371,7 @@ class DiagnosticRequestCreate(StrictBaseModel):
     targetNode: DiagnosticTargetNode
     collector: str = Field(min_length=1, max_length=120)
     collectorVersion: str = Field(default="v1", min_length=1, max_length=64)
-    collectorProfile: str = Field(default="passive-readonly", min_length=1, max_length=80)
+    collectorProfile: str = Field(default="passive-triage", min_length=1, max_length=80)
     timeRange: DiagnosticTimeRange
     limits: DiagnosticLimits = Field(default_factory=DiagnosticLimits)
     evidencePolicy: DiagnosticEvidencePolicy = Field(default_factory=DiagnosticEvidencePolicy)
@@ -2207,6 +2398,26 @@ class ActionProposalCreate(StrictBaseModel):
     policy: dict[str, Any] = Field(default_factory=dict)
 
 
+class ActionCandidateTargetCreate(StrictBaseModel):
+    apiVersion: str | None = Field(default=None, max_length=80)
+    kind: str = Field(min_length=1, max_length=80)
+    namespace: str | None = Field(default=None, max_length=253)
+    name: str = Field(min_length=1, max_length=253)
+
+
+class ActionCandidatePlanCreate(StrictBaseModel):
+    candidateId: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=240)
+    sourceFindingId: str | None = Field(default=None, max_length=160)
+    sourceType: str | None = Field(default=None, max_length=120)
+    incidentId: str | None = Field(default=None, max_length=120)
+    runId: str | None = Field(default=None, max_length=120)
+    target: ActionCandidateTargetCreate
+    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    policy: dict[str, Any] = Field(default_factory=dict)
+
+
 class SealedActionPlanCreate(StrictBaseModel):
     proposalId: str = Field(min_length=1, max_length=120)
 
@@ -2215,6 +2426,12 @@ class ApprovalDecisionCreate(StrictBaseModel):
     planId: str = Field(min_length=1, max_length=120)
     expectedPlanDigest: str = Field(min_length=1, max_length=128)
     approvalScope: str = Field(default="single-target", min_length=1, max_length=80)
+
+
+class ActionRejectionCreate(StrictBaseModel):
+    planId: str = Field(min_length=1, max_length=120)
+    expectedPlanDigest: str = Field(min_length=1, max_length=128)
+    reason: str = Field(default="operator rejected the proposed action", min_length=1, max_length=500)
 
 
 class ActionExecutionCreate(StrictBaseModel):
@@ -2314,15 +2531,14 @@ def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deploymen
 
 def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
-    demo_cycle = context.get("aiopsDemoCycle")
-    if isinstance(demo_cycle, Mapping) and demo_cycle.get("readOnlyOnly") is True:
-        return "read-only"
-    mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
+    mode = str(context.get("aiopsExecutionMode") or "execute").strip().lower()
+    if mode in {"read-only", "read_only", "readonly", "evidence-check", "evidence_check", "점검", "조회"}:
+        return "evidence-check"
     if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
         return "unrestricted"
     if mode in {"execute", "execution", "execution-enabled", "enabled"}:
         return "execute"
-    return "read-only"
+    return "execute"
 
 
 def execution_mode_allows_actions(req: ChatRequest) -> bool:
@@ -2625,8 +2841,14 @@ async def create_natural_action_plan(
     run_id: str,
 ) -> dict[str, Any] | None:
     intent = parse_natural_action_intent(req)
-    if not intent or not OPENSHIFT_API_URL:
+    if not intent:
         return None
+    if not OPENSHIFT_API_URL:
+        return {
+            "intent": intent,
+            "status": "unavailable",
+            "summary": "OpenShift API URL이 없어 Action Plan 대상을 확인하지 못했습니다.",
+        }
 
     namespace = str(intent["namespace"])
     target_name = str(intent["targetName"])
@@ -2710,7 +2932,159 @@ async def create_natural_action_plan(
     }
 
 
+def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, Any]:
+    target = req.target
+    kind = target.kind
+    namespace = target.namespace or ""
+    parameters = dict(req.parameters)
+
+    if kind == "Deployment":
+        return {
+            "apiVersion": target.apiVersion or "apps/v1",
+            "kind": "Deployment",
+            "namespace": namespace,
+            "targetName": target.name,
+            "toolName": "rollout_restart_deployment",
+            "parameters": parameters or {"restartedAt": now_rfc3339()},
+            "summary": f"Deployment `{namespace}/{target.name}` rollout restart",
+        }
+
+    if kind == "Pod":
+        return {
+            "apiVersion": target.apiVersion or "v1",
+            "kind": "Pod",
+            "namespace": namespace,
+            "targetName": target.name,
+            "toolName": "evict_one_unhealthy_controller_owned_pod",
+            "parameters": parameters or {"reason": "action_candidate_unhealthy_pod_eviction"},
+            "summary": f"Unhealthy controller-owned Pod `{namespace}/{target.name}` eviction",
+        }
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Action candidate target kind {kind} is not connected to an executable action yet",
+    )
+
+
+async def create_plan_from_action_candidate(
+    req: ActionCandidatePlanCreate,
+    authorization: str,
+    subject: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not OPENSHIFT_API_URL:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenShift API URL이 없어 조치 대상 리소스를 확인하지 못했습니다.",
+        )
+
+    intent = action_candidate_plan_intent(req)
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        resolved_target = await resolve_natural_action_target(client, intent, authorization)
+
+    status = str(resolved_target.get("status") or "unknown")
+    if status == "ambiguous":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "candidates": resolved_target.get("candidates", []),
+                "message": f"{intent['kind']} `{intent['targetName']}` 후보가 여러 namespace에서 발견되었습니다.",
+                "status": status,
+            },
+        )
+    if status == "missing_namespace":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{intent['kind']} `{intent['targetName']}` 조치에는 namespace가 필요합니다.",
+        )
+    if status != "found":
+        raise HTTPException(
+            status_code=404,
+            detail=f"{intent['kind']} `{intent['namespace']}/{intent['targetName']}`를 찾지 못했습니다.",
+        )
+
+    live_target = (
+        resolved_target.get("target")
+        if isinstance(resolved_target.get("target"), Mapping)
+        else None
+    )
+    if not live_target:
+        raise HTTPException(status_code=404, detail="조치 대상 리소스를 찾지 못했습니다.")
+
+    metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
+    namespace = str(metadata.get("namespace") or intent["namespace"])
+    target_name = str(metadata.get("name") or intent["targetName"])
+    uid = str(metadata.get("uid") or "")
+    if not uid:
+        raise HTTPException(status_code=409, detail="조치 대상 UID를 확인하지 못했습니다.")
+
+    target = ActionTarget(
+        apiVersion=str(intent.get("apiVersion") or req.target.apiVersion or "apps/v1"),
+        kind=str(intent["kind"]),
+        namespace=namespace,
+        name=target_name,
+        uid=uid,
+    )
+    proposal_request = ActionProposalCreate(
+        incidentId=req.incidentId,
+        runId=req.runId,
+        toolName=str(intent["toolName"]),
+        target=target,
+        parameters=dict(intent["parameters"]),
+        evidenceRefs=req.evidenceRefs,
+        policy={
+            "candidateId": req.candidateId,
+            "source": "aiops-action-candidate-board",
+            "sourceFindingId": req.sourceFindingId,
+            "sourceType": req.sourceType,
+            **dict(req.policy),
+        },
+    )
+    proposal_record = build_action_proposal_record(proposal_request, subject)
+    proposal_id = str(proposal_record["metadata"]["name"])
+    await bounded_put_record("actionProposals", proposal_id, proposal_record)
+    increment_metric("aiops_action_proposals_total")
+
+    plan_record = build_sealed_action_plan_record(proposal_record)
+    plan_id = str(plan_record["metadata"]["name"])
+    await bounded_put_record("sealedActionPlans", plan_id, plan_record)
+    increment_metric("aiops_action_plans_total")
+
+    plan = plan_record["spec"]["sealedActionPlan"]
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ActionCandidatePlan",
+        "metadata": {"name": plan_id, "createdAt": plan_record["metadata"]["createdAt"]},
+        "spec": {
+            "candidateId": req.candidateId,
+            "intent": intent,
+            "plan": plan_record,
+            "planDigest": plan["digest"]["planDigest"],
+            "planId": plan_id,
+            "proposal": proposal_record,
+            "proposalId": proposal_id,
+            "status": "planned",
+            "target": target.model_dump(),
+            "title": req.title,
+        },
+    }
+
+
 def natural_action_plan_response(result: Mapping[str, Any]) -> str:
+    if result.get("status") == "unavailable":
+        return "\n".join(
+            [
+                "자연어 조치 요청을 해석했지만 Gateway가 OpenShift API에 연결되어 있지 않아 실행 계획을 만들지 못했습니다.",
+                "",
+                "실제 조치를 수행하지 않았습니다.",
+                "",
+                f"- 요청 해석: {result.get('summary')}",
+                "- 확인할 항목: `OPENSHIFT_API_URL` 또는 Gateway의 OpenShift API 연결 설정",
+            ]
+        )
+
     if result.get("status") == "ambiguous":
         intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
         candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
@@ -2768,11 +3142,13 @@ def natural_action_plan_response(result: Mapping[str, Any]) -> str:
             "자연어 조치 요청을 typed AIOps action으로 변환해 실행 계획까지 생성했습니다.",
             "",
             "### 생성된 실행 계획",
+            "- 흐름: `ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord`",
             f"- 대상: `{target.get('namespace')}/{target.get('name')}` ({target.get('kind')})",
             f"- Action: `{intent.get('toolName')}`",
             f"- Parameters: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
             f"- Proposal: `{result.get('proposalId')}`",
             f"- Plan: `{result.get('planId')}`",
+            *([f"- Plan digest: `{result.get('planDigest')}`"] if result.get("planDigest") else []),
             f"- Risk: `{risk}`",
             "",
             "### 다음 단계",
@@ -3012,6 +3388,15 @@ def natural_action_execution_response(result: Mapping[str, Any]) -> str:
     target = plan_result.get("target") if isinstance(plan_result.get("target"), Mapping) else {}
     intent = plan_result.get("intent") if isinstance(plan_result.get("intent"), Mapping) else {}
     parameters = plan_result.get("parameters") if isinstance(plan_result.get("parameters"), Mapping) else {}
+    if not parameters and isinstance(intent.get("parameters"), Mapping):
+        parameters = intent["parameters"]
+    if not parameters:
+        plan_id = str(plan_result.get("planId") or "")
+        plan_record = SEALED_ACTION_PLANS.get(plan_id) if plan_id else None
+        sealed_plan = plan_record.get("spec", {}).get("sealedActionPlan", {}) if isinstance(plan_record, Mapping) else {}
+        action = sealed_plan.get("action") if isinstance(sealed_plan.get("action"), Mapping) else {}
+        normalized = action.get("normalizedParameters") if isinstance(action.get("normalizedParameters"), Mapping) else {}
+        parameters = normalized
     mutation = result.get("mutationOutcome") if isinstance(result.get("mutationOutcome"), Mapping) else {}
     remediation = result.get("remediationOutcome") if isinstance(result.get("remediationOutcome"), Mapping) else {}
     status = str(result.get("status") or "unknown")
@@ -3049,7 +3434,7 @@ def natural_action_execution_response(result: Mapping[str, Any]) -> str:
     )
 
 
-def natural_action_read_only_response(intent: Mapping[str, Any]) -> str:
+def natural_action_evidence_check_response(intent: Mapping[str, Any]) -> str:
     return "\n".join(
         [
             "현재 AIOps 모드가 `읽기 전용`이라 실행 계획, 승인, 실행은 만들지 않고 조치 후보만 정리합니다.",
@@ -3507,7 +3892,7 @@ def data_source_status(
         metadata = payload.get("metadata")
         if isinstance(metadata, Mapping) and metadata.get("continue"):
             item["status"] = "partial"
-            item["reason"] = "Kubernetes list response is paginated; additional pages were not fetched in this read-only summary."
+            item["reason"] = "Kubernetes list response is paginated; additional pages were not fetched in this evidence summary."
             item["continueTokenPresent"] = True
     return item
 
@@ -4309,7 +4694,7 @@ def build_aiops_anomaly_summary(
             "statusLabel": label,
             "safety": {
                 "methodsUsed": ["GET"],
-                "mode": "read-only",
+                "mode": "execute",
                 "mutationsEnabled": MUTATIONS_ENABLED,
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
             },
@@ -4346,7 +4731,7 @@ def action_candidate_target_label(resource: Mapping[str, Any]) -> str:
     return f"{namespace}/{kind}/{name}" if namespace else f"cluster/{kind}/{name}"
 
 
-def read_only_check_command(resource: Mapping[str, Any], fallback: str = "관련 리소스 상태를 조회합니다.") -> str:
+def evidence_check_check_command(resource: Mapping[str, Any], fallback: str = "관련 리소스 상태를 조회합니다.") -> str:
     kind = str(resource.get("kind") or "")
     name = str(resource.get("name") or "")
     namespace = str(resource.get("namespace") or "")
@@ -4367,12 +4752,12 @@ def action_candidate_template(
     finding_type = str(finding.get("type") or "")
     resource = finding.get("resource") if isinstance(finding.get("resource"), Mapping) else {}
     target_label = action_candidate_target_label(resource)
-    read_only_check = read_only_check_command(resource)
+    evidence_check_check = evidence_check_check_command(resource)
 
     if finding_type == "pod_crashloop":
         return (
             [
-                read_only_check,
+                evidence_check_check,
                 "이전 컨테이너 로그와 Warning Event를 확인해 현재 진행 중인 CrashLoop인지 확정합니다.",
                 "소유 리소스와 최근 배포 변경 이력을 확인합니다.",
             ],
@@ -4391,7 +4776,7 @@ def action_candidate_template(
     if finding_type == "pod_image_pull":
         return (
             [
-                read_only_check,
+                evidence_check_check,
                 "이미지 이름, tag, registry 접근성, imagePullSecret 참조를 확인합니다.",
                 "동일 namespace의 Secret과 ServiceAccount 연결 상태를 확인합니다.",
             ],
@@ -4410,7 +4795,7 @@ def action_candidate_template(
     if finding_type in {"pod_pending", "warning_event"}:
         return (
             [
-                read_only_check,
+                evidence_check_check,
                 "동일 namespace의 최근 Event를 시간순으로 확인합니다.",
                 "PVC, quota, node resource, scheduling constraint 중 차단 지점을 분리합니다.",
             ],
@@ -4429,7 +4814,7 @@ def action_candidate_template(
     if finding_type == "clusteroperator_condition":
         return (
             [
-                read_only_check,
+                evidence_check_check,
                 "Operator condition의 reason/message와 관련 operand namespace를 확인합니다.",
                 "ClusterVersion과 다른 ClusterOperator의 연쇄 영향을 확인합니다.",
             ],
@@ -4448,7 +4833,7 @@ def action_candidate_template(
     if finding_type == "upgrade_blocked":
         return (
             [
-                read_only_check,
+                evidence_check_check,
                 "Upgradeable=False reason과 AdminAck 또는 차단 조건을 확인합니다.",
                 "관련 ClusterOperator 조건과 업데이트 채널 상태를 함께 확인합니다.",
             ],
@@ -4467,7 +4852,7 @@ def action_candidate_template(
     if finding_type in {"active_alert", "pod_restart_spike", "pod_restart_history"}:
         return (
             [
-                read_only_check,
+                evidence_check_check,
                 "Alert label, Pod 상태, 최근 restart 지표가 같은 대상을 가리키는지 확인합니다.",
                 "현재 장애인지 복구된 이력인지 lastState와 시간 범위로 분리합니다.",
             ],
@@ -4485,7 +4870,7 @@ def action_candidate_template(
         )
     return (
         [
-            read_only_check,
+            evidence_check_check,
             "관련 리소스의 현재 상태, Event, owner 관계를 먼저 확인합니다.",
             "데이터 소스 실패가 있으면 후보 신뢰도를 낮춰 판단합니다.",
         ],
@@ -4516,8 +4901,12 @@ def build_aiops_action_candidates(
     required_gaps = [
         item
         for item in data_sources
-        if item.get("required") and item.get("status") != "available"
+        if item.get("required") and item.get("status") not in {"available", "partial"}
     ]
+    action_execution_enabled = MUTATIONS_ENABLED and bool(ACTION_EXECUTOR_URL) and not required_gaps
+    action_candidate_mode = "execute"
+    proposal_only = not action_execution_enabled
+    blocked_actions = [] if action_execution_enabled else list(ACTION_CANDIDATE_FORBIDDEN_VERBS)
     candidates: list[dict[str, Any]] = []
     for finding in findings:
         if not isinstance(finding, Mapping):
@@ -4529,13 +4918,19 @@ def build_aiops_action_candidates(
             finding.get("id")
             or hashlib.sha256(json.dumps(finding, sort_keys=True, default=str).encode()).hexdigest()[:16]
         )
-        blocked_reasons = ["read-only-mode", "mutation-disabled", "approval-required"]
+        blocked_reasons = ["approval-required"]
+        if not action_execution_enabled:
+            blocked_reasons.append("execution-gate-disabled")
+        if not MUTATIONS_ENABLED:
+            blocked_reasons.append("mutation-disabled")
+        if not ACTION_EXECUTOR_URL:
+            blocked_reasons.append("action-executor-not-configured")
         if required_gaps:
             blocked_reasons.append("required-data-source-gap")
         candidates.append(
             {
                 "approvalRequired": True,
-                "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+                "blockedActions": blocked_actions,
                 "blockedReasons": blocked_reasons,
                 "confidence": "limited" if required_gaps else "medium",
                 "evidence": str(finding.get("evidence") or finding.get("message") or "근거 수집 중"),
@@ -4547,12 +4942,12 @@ def build_aiops_action_candidates(
                         "status": "collected",
                     }
                 ],
-                "executable": False,
+                "executable": action_execution_enabled,
                 "executionPolicy": {
-                    "executionEnabled": False,
-                    "mode": "read-only",
-                    "mutationVerbsDisabled": True,
-                    "proposalOnly": True,
+                    "executionEnabled": action_execution_enabled,
+                    "mode": action_candidate_mode,
+                    "mutationVerbsDisabled": not action_execution_enabled,
+                    "proposalOnly": proposal_only,
                 },
                 "expectedImpact": expected_impact,
                 "id": f"action-candidate-{source_id}",
@@ -4565,7 +4960,7 @@ def build_aiops_action_candidates(
                 "severity": str(finding.get("severity") or "확인 필요"),
                 "sourceFindingId": source_id,
                 "sourceType": str(finding.get("type") or "unknown"),
-                "statusLabel": "제안만 함 / 실행 안 함",
+                "statusLabel": "승인 후 실행 계획 생성 가능" if action_execution_enabled else "제안만 함 / 실행 안 함",
                 "target": dict(finding.get("resource") if isinstance(finding.get("resource"), Mapping) else {}),
                 "title": f"{finding.get('title') or '이상 징후'} 조치 후보",
                 "verificationChecks": verification_checks,
@@ -4578,7 +4973,11 @@ def build_aiops_action_candidates(
         status_label = "필수 데이터 소스 실패로 조치 후보 신뢰 제한"
     elif candidates:
         status = "candidates"
-        status_label = f"read-only 조치 후보 {len(candidates)}건"
+        status_label = (
+            f"승인 기반 조치 후보 {len(candidates)}건"
+            if action_execution_enabled
+            else f"승인 기반 조치 후보 {len(candidates)}건"
+        )
     elif anomaly_spec.get("status") == "normal":
         status = "normal"
         status_label = "현재 수집 범위에서 제안할 조치 후보 없음"
@@ -4589,16 +4988,16 @@ def build_aiops_action_candidates(
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "AIOpsActionCandidateSummary",
-        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-read-only-action-candidates"},
+        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-action-candidates"},
         "spec": {
             "candidates": candidates[:8],
             "dataSources": list(data_sources),
             "safety": {
                 "forbiddenMutationVerbs": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
-                "methodsUsed": ["GET"],
-                "mode": "read-only",
+                "methodsUsed": ["GET", "POST"] if action_execution_enabled else ["GET"],
+                "mode": action_candidate_mode,
                 "mutationsEnabled": MUTATIONS_ENABLED,
-                "proposalOnly": True,
+                "proposalOnly": proposal_only,
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
             },
             "source": {
@@ -4653,7 +5052,7 @@ def build_aiops_overview(
         tower_label = "필수 데이터 소스 확인 실패"
     elif health_score >= 90 and attention_count == 0:
         tower_status = "healthy"
-        tower_label = "회사 OCP 읽기 전용 관제 정상"
+        tower_label = "회사 OCP 승인 실행 관제 정상"
     elif health_score >= 65:
         tower_status = "attention"
         tower_label = "운영 확인 필요"
@@ -4690,7 +5089,7 @@ def build_aiops_overview(
             "clusterSummary": cluster_summary_payload,
             "controlTower": {
                 "name": "Cywell AI 관제탑",
-                "mode": "read-only",
+                "mode": "execute",
                 "status": tower_status,
                 "statusLabel": tower_label,
                 "attentionCount": attention_count + anomaly_total,
@@ -4710,7 +5109,7 @@ def build_aiops_overview(
             },
             "safety": {
                 "mutationsEnabled": MUTATIONS_ENABLED,
-                "readOnlyDefault": not MUTATIONS_ENABLED,
+                "executionDefault": not MUTATIONS_ENABLED,
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
             },
         },
@@ -5167,7 +5566,7 @@ def build_ols_context_handoff(
             execution_mode = (
                 str(policy.get("mode"))
                 if isinstance(policy, Mapping) and policy.get("mode")
-                else "read_only"
+                else "evidence_check"
             )
             lines.append(f"- Tool plan: {task_type}; execution policy: {execution_mode}")
 
@@ -6534,12 +6933,12 @@ def build_ols_query(
 {redact_sensitive(req.message).strip()}
 
 Answer in Korean unless the user asks otherwise.
-Use read-only OpenShift checks only when live cluster facts are needed.
+Use live OpenShift evidence collection when cluster facts are needed.
 Do not invent alert, pod, node, namespace, resource names, causes, or actions.
 Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
 Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
 If no screenshot/image is attached, do not claim you inspected a screenshot.
-Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_read_only_evidence")) if isinstance(effective_policy, Mapping) else "allow_read_only_evidence"}.
+Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_evidence_collection")) if isinstance(effective_policy, Mapping) else "allow_evidence_collection"}.
 Console context:
 {json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
 Attachment context:
@@ -7055,7 +7454,7 @@ async def call_ols_stream(
     try:
         async with httpx.AsyncClient(
             verify=OLS_CA_FILE,
-            timeout=httpx.Timeout(300.0, connect=10.0),
+            timeout=httpx.Timeout(LLM_TIMEOUT_SECONDS, connect=OLS_CONNECT_TIMEOUT_SECONDS),
         ) as client:
             async with client.stream(
                 "POST",
@@ -7339,7 +7738,7 @@ def crashloop_demo_prompt_answer_contract(req: ChatRequest) -> str:
             "1. `### 확인된 근거`",
             "2. `### 가능한 원인 후보`",
             "3. `### 추가 확인 필요`",
-            "4. `### Read-only 확인 순서`",
+            "4. `### Evidence-check 확인 순서`",
             "5. `### 금지 작업`",
             "로그 원문이나 Event message 원문을 출력하지 말고, 수집 여부/상태/digest 중심으로 말하세요.",
             "원인을 확정하지 말고 collected/partial/missing evidence에 맞춰 확인됨과 추정을 분리하세요.",
@@ -7368,7 +7767,7 @@ def past_pod_restart_demo_prompt_contract(req: "ChatRequest") -> str:
         "1. `### 확인된 근거`",
         "2. `### 가능한 원인 후보`",
         "3. `### 추가 확인 필요`",
-        "4. `### Read-only 확인 순서`",
+        "4. `### Evidence-check 확인 순서`",
         "5. `### 금지 작업`",
         "수집된 증적(event/snapshot/pod_log/runbook)과 missing 증적(metric/clusteroperator)을 명확히 구분하세요.",
         "원인을 확정하지 말고 missing evidence가 있는 상태에서 조치 후보만 제시하세요.",
@@ -8730,7 +9129,7 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
             "- 현재 답변은 수집된 evidence와 누락 evidence를 분리한 원인 후보 분석이며, 단일 원인 확정이 아닙니다.",
             "",
             "### 즉시 조치",
-            "- 즉시 실행이 아니라 read-only 확인 순서와 승인 필요 여부를 먼저 제시합니다.",
+            "- 즉시 실행 전에 증거 확인 순서와 승인 필요 여부를 먼저 제시합니다.",
             "- 영향도가 큰 변경은 action candidate로만 남기고 실행하지 않습니다.",
             "",
             "### 재발 방지책",
@@ -8745,7 +9144,7 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
             "- ClusterOperator 및 runbook/RAG 근거는 현재 사이클에서 미수집 상태로 남을 수 있습니다.",
             "- 원인을 확정하려면 승인된 운영 절차 안에서 이벤트 상세, Pod spec, 이전 로그를 추가 확인해야 합니다.",
             "",
-            "### Read-only 확인 순서",
+            "### Evidence-check 확인 순서",
             "```bash",
             f"oc describe pod {pod_name} -n {namespace}",
             f"oc get events -n {namespace} --field-selector involvedObject.name={pod_name} --sort-by=.lastTimestamp",
@@ -8753,8 +9152,40 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
             "```",
             "",
             "### 금지 작업",
-            f"- 이 사이클은 read-only 전용입니다. `{forbidden}` 계열 작업은 실행하지 않습니다.",
+            f"- 이 사이클은 증거 확인 전용입니다. `{forbidden}` 계열 작업은 실행하지 않습니다.",
             "- action candidate는 제안만 하며, 승인 전 `apply/delete/patch/scale/exec/rollout/restart`를 수행하지 않습니다.",
+        ]
+    )
+
+
+def build_aiops_answer_contract_text(
+    *,
+    policy: Mapping[str, Any],
+    rca_context: Mapping[str, Any],
+    runtime_tool_plan: Mapping[str, Any],
+) -> str:
+    steps = runtime_tool_plan.get("tool_plan")
+    if not isinstance(steps, list) or not steps:
+        return ""
+
+    evidence = rca_context.get("evidence")
+    evidence_summary = evidence.get("summary") if isinstance(evidence, Mapping) else {}
+    collected = evidence_summary.get("collectedCount", 0) if isinstance(evidence_summary, Mapping) else 0
+    missing = evidence_summary.get("missingCount", 0) if isinstance(evidence_summary, Mapping) else 0
+    task_type = str(runtime_tool_plan.get("task_type") or "unknown")
+    decision = str(policy.get("decision") or "unknown")
+    if decision != "action_proposal_only":
+        return ""
+
+    return "\n".join(
+        [
+            "",
+            "## 승인 대기 조치",
+            f"- Tool Plan: `{task_type}` 기준으로 증거 수집 단계를 만들었습니다.",
+            f"- RCA Context: 수집 근거 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
+            "- 조치 경로: `ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord` 순서로 승인 후 실행합니다.",
+            "- 승인 전에는 변경 작업을 실행하지 않습니다.",
+            "- 거절 경로: 운영자가 거절하면 `/v1/actions/rejections`가 `rejected` 기록을 남기고 실행을 차단합니다.",
         ]
     )
 
@@ -9154,7 +9585,7 @@ def summarize_policy_detail(policy: Mapping[str, Any]) -> str:
     if decision == "action_proposal_only":
         decision_label = "조치 요청은 Action Plan 경로로 처리"
         decision_explanation = "변경 가능성이 있는 요청이므로 직접 변경하지 않고 조치 계획/승인/실행 경로로 넘깁니다."
-    elif decision == "allow_read_only_evidence":
+    elif decision == "allow_evidence_collection":
         decision_label = "조회/증거 수집 허용"
         decision_explanation = "클러스터 상태 조회와 근거 수집은 허용하며 리소스 변경은 수행하지 않습니다."
     else:
@@ -9181,7 +9612,7 @@ def summarize_policy_detail(policy: Mapping[str, Any]) -> str:
 def policy_check_summary(policy: Mapping[str, Any]) -> str:
     if policy.get("decision") == "action_proposal_only":
         return "조치 요청은 Action Plan 경로로 처리"
-    if policy.get("decision") == "allow_read_only_evidence":
+    if policy.get("decision") == "allow_evidence_collection":
         return "조회/증거 수집 허용"
     return "정책 결정 확인 필요"
 
@@ -11066,9 +11497,9 @@ def classify_rag_upload_safety(content: str, labels: Mapping[str, str]) -> str:
         return "dangerous"
 
     requested = str(labels.get("safetyClass") or labels.get("safety_class") or "").strip()
-    if requested in {"read-only", "approved-exec", "dangerous"}:
+    if requested in {"approved-exec", "dangerous"}:
         return requested
-    return "read-only"
+    return "approved-exec"
 
 
 def classify_rag_upload_freshness(labels: Mapping[str, str]) -> str:
@@ -11937,6 +12368,7 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
                 "recordStoreEnabled": RECORD_STORE_ENABLED,
                 "recordStoreConfigMap": RECORD_STORE_CONFIGMAP if RECORD_STORE_ENABLED else "",
+                "chatTranscriptJsonlPath": CHAT_TRANSCRIPT_JSONL_PATH,
                 "rag": build_rag_backend_status(),
             },
             "safetyContract": build_runtime_safety_contract(
@@ -11954,6 +12386,11 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
             "subject": redact_sensitive(dict(subject)),
             "records": {
                 "auditRecords": latest_readable_audit_records(
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
+                "chatTranscripts": latest_readable_records(
+                    CHAT_TRANSCRIPTS,
                     subject,
                     product_access_allowed=product_access_allowed,
                 ),
@@ -12022,6 +12459,16 @@ async def create_action_proposal(
         "metadata": record["metadata"],
         "spec": record["spec"],
     }
+
+
+@app.post("/v1/actions/candidate-plans")
+async def create_action_candidate_plan(
+    req: ActionCandidatePlanCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    return await create_plan_from_action_candidate(req, user_auth_header, subject)
 
 
 @app.get("/v1/actions/proposals/{proposal_id}")
@@ -12102,6 +12549,9 @@ async def create_approval_decision(
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
     if not can_subject_read_record(plan, subject) and product_access_review.get("allowed") is not True:
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
+    plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
+    if plan_has_approval_status(plan_digest, {"rejected"}):
+        raise HTTPException(status_code=409, detail="Action plan has been rejected")
     action_access_review = await fetch_action_access_review(
         user_auth_header,
         plan["spec"]["sealedActionPlan"],
@@ -12110,6 +12560,35 @@ async def create_approval_decision(
     record = build_approval_decision_record(plan, req, subject, action_access_review)
     approval_id = str(record["metadata"]["name"])
     await bounded_put_record("approvalDecisions", approval_id, record)
+    increment_metric("aiops_approval_decisions_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ApprovalDecision",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
+
+
+@app.post("/v1/actions/rejections")
+async def reject_action_plan(
+    req: ActionRejectionCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    product_access_review = await fetch_product_access_review(user_auth_header)
+    product_access_allowed = bool(product_access_review.get("allowed"))
+    plan = SEALED_ACTION_PLANS.get(req.planId)
+    if not plan or (
+        not can_subject_read_record(plan, subject) and not product_access_allowed
+    ):
+        raise HTTPException(status_code=404, detail="Sealed action plan not found")
+    plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
+    if plan_has_approval_status(plan_digest, {"approved", "executed"}):
+        raise HTTPException(status_code=409, detail="Action plan already has an active approval")
+    record = build_action_rejection_record(plan, req, subject)
+    rejection_id = str(record["metadata"]["name"])
+    await bounded_put_record("approvalDecisions", rejection_id, record)
     increment_metric("aiops_approval_decisions_total")
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -12585,6 +13064,8 @@ async def metrics() -> str:
     lines.append(f"aiops_evidence_records {len(EVIDENCE_RECORDS)}")
     lines.append("# TYPE aiops_workflow_records gauge")
     lines.append(f"aiops_workflow_records {len(WORKFLOW_RECORDS)}")
+    lines.append("# TYPE aiops_chat_transcript_records gauge")
+    lines.append(f"aiops_chat_transcript_records {len(CHAT_TRANSCRIPTS)}")
     lines.append("# TYPE aiops_diagnostic_request_records gauge")
     lines.append(f"aiops_diagnostic_request_records {len(DIAGNOSTIC_REQUESTS)}")
     lines.append("# TYPE aiops_action_proposal_records gauge")
@@ -12629,6 +13110,8 @@ async def chat_stream(
             normalize_restart_language=should_collect_pod_status_evidence(req.message),
         )
         runtime_tool_plan: dict[str, Any] | None = None
+        transcript_answer_chunks: list[str] = []
+        transcript_answer_contracts: list[str] = []
         increment_metric("aiops_chat_requests_total")
         record_workflow(
             run_id=run_id,
@@ -12814,7 +13297,7 @@ async def chat_stream(
                         if runtime_tool_plan.get("validation", {}).get("ok")
                         else "failed"
                     ),
-                    "summary": "read-only Tool Plan 검증 완료",
+                    "summary": "실행형 Tool Plan 검증 완료",
                 }
             )
             rca_context_event = current_rca_context_event("plan_ready")
@@ -12894,7 +13377,11 @@ async def chat_stream(
                 return
 
             pod_count_query = parse_pod_count_query(req)
-            if pod_count_query and not crashloop_demo_target_from_request(req):
+            if (
+                pod_count_query
+                and policy.get("decision") != "action_proposal_only"
+                and not crashloop_demo_target_from_request(req)
+            ):
                 target_name = str(pod_count_query.get("targetName") or "")
                 namespace = str(pod_count_query.get("namespace") or "")
                 scope_summary = (
@@ -13384,7 +13871,7 @@ async def chat_stream(
                             "detail": json.dumps(
                                 redact_sensitive(
                                     {
-                                        "executionMode": "read-only",
+                                        "executionMode": page_context_aiops_execution_mode(req),
                                         "intent": natural_action_intent,
                                         "status": "skipped",
                                     }
@@ -13392,10 +13879,10 @@ async def chat_stream(
                                 ensure_ascii=False,
                                 indent=2,
                             ),
-                            "id": f"{request_id}-natural-action-read-only",
+                            "id": f"{request_id}-natural-action-execute-gate",
                             "name": "natural_action_plan",
                             "result": {
-                                "executionMode": "read-only",
+                                "executionMode": page_context_aiops_execution_mode(req),
                                 "intent": natural_action_intent,
                                 "status": "skipped",
                             },
@@ -13403,7 +13890,7 @@ async def chat_stream(
                             "summary": "읽기 전용 모드로 조치 계획 생성 생략",
                         }
                     )
-                    yield sse({"type": "text", "content": natural_action_read_only_response(natural_action_intent)})
+                    yield sse({"type": "text", "content": natural_action_evidence_check_response(natural_action_intent)})
                     rca_context_event = current_rca_context_event("post_answer")
                     LAST_RCA_CONTEXT = rca_context_event["context"]
                     yield sse(rca_context_event)
@@ -13501,7 +13988,13 @@ async def chat_stream(
                         yield sse("[DONE]")
                         return
 
-                    yield sse({"type": "text", "content": natural_action_plan_response(natural_action_result)})
+                    natural_action_text_event = {
+                        "type": "text",
+                        "content": natural_action_plan_response(natural_action_result),
+                    }
+                    if natural_action_result.get("status") == "planned":
+                        natural_action_text_event["answerContract"] = "natural-action-plan-v0.2.1"
+                    yield sse(natural_action_text_event)
                     yield sse(
                         {
                             "type": "run_status",
@@ -13851,7 +14344,7 @@ async def chat_stream(
                         yield sse(evidence_event)
 
             if (
-                str(policy.get("decision") or "") == "allow_read_only_evidence"
+                str(policy.get("decision") or "") == "allow_evidence_collection"
                 and should_collect_rca_signal_evidence(req.message)
             ):
                 rca_preflight_collectors = [
@@ -14059,7 +14552,7 @@ async def chat_stream(
                         f"{redact_sensitive(req.message).strip()}\n\n"
                         "Previous OpenShift Lightspeed response ended before final answer text. "
                         "Do not call tools again in this retry. "
-                        "Return a concise Korean final answer using the read-only OpenShift facts already observed in this conversation. "
+                        "Return a concise Korean final answer using the OpenShift evidence already observed in this conversation. "
                         "If the available facts do not confirm the cause, say exactly what is unconfirmed. "
                         "Do not print secrets or raw credentials."
                     )
@@ -14085,6 +14578,7 @@ async def chat_stream(
                                     emitted_answer_text = True
                                     attempt_emitted_answer_text = True
                                     _accumulated_answer_chunks.append(filtered_content)
+                                    transcript_answer_chunks.append(filtered_content)
                                 text_event: dict[str, Any] = {"type": "text", "content": filtered_content}
                                 for key in (
                                     "fallbackAnswer",
@@ -14104,6 +14598,7 @@ async def chat_stream(
                                     emitted_answer_text = True
                                     attempt_emitted_answer_text = True
                                     _accumulated_answer_chunks.append(final_text)
+                                    transcript_answer_chunks.append(final_text)
                                 yield sse({"type": "text", "content": final_text})
                             if not attempt_emitted_answer_text and ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
                                 continue
@@ -14179,15 +14674,17 @@ async def chat_stream(
                     fallback_active=True,
                     reason=fallback_reason,
                 )
+                fallback_answer = build_empty_answer_fallback(
+                    req,
+                    policy,
+                    ols_tool_results,
+                    gateway_evidence,
+                )
+                transcript_answer_chunks.append(fallback_answer)
                 yield sse(
                     {
                         "type": "text",
-                        "content": build_empty_answer_fallback(
-                            req,
-                            policy,
-                            ols_tool_results,
-                            gateway_evidence,
-                        ),
+                        "content": fallback_answer,
                         "source": "gateway_fallback",
                         "fallbackAnswer": True,
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
@@ -14196,6 +14693,7 @@ async def chat_stream(
                 )
 
             if rag_answer_citation_text:
+                transcript_answer_chunks.append(rag_answer_citation_text)
                 yield sse(
                     {
                         "type": "text",
@@ -14207,6 +14705,8 @@ async def chat_stream(
 
             crashloop_answer_contract = build_crashloop_demo_answer_contract_text(req, run_id)
             if crashloop_answer_contract:
+                transcript_answer_chunks.append(crashloop_answer_contract)
+                transcript_answer_contracts.append("crashloop-v0.1.3")
                 yield sse(
                     {
                         "type": "text",
@@ -14216,6 +14716,24 @@ async def chat_stream(
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                     }
                 )
+            else:
+                aiops_answer_contract = build_aiops_answer_contract_text(
+                    policy=policy,
+                    rca_context=rca_context_event["context"],
+                    runtime_tool_plan=runtime_tool_plan,
+                )
+                if aiops_answer_contract:
+                    transcript_answer_chunks.append(aiops_answer_contract)
+                    transcript_answer_contracts.append("aiops-action-v0.1.9")
+                    yield sse(
+                        {
+                            "type": "text",
+                            "content": aiops_answer_contract,
+                            "source": "gateway_answer_contract",
+                            "answerContract": "aiops-action-v0.1.9",
+                            "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                        }
+                    )
 
             rca_context_event = current_rca_context_event("post_answer")
             rca_result = parse_rca_result(
@@ -14231,6 +14749,21 @@ async def chat_stream(
             }
             LAST_RCA_CONTEXT = rca_context_event["context"]
             yield sse(rca_context_event)
+            await persist_chat_transcript_record(
+                build_chat_transcript_record(
+                    req=req,
+                    answer_text="".join(transcript_answer_chunks),
+                    answer_contracts=transcript_answer_contracts,
+                    incident_id=incident_id,
+                    policy=policy,
+                    request_id=request_id,
+                    rca_context=rca_context_event["context"],
+                    run_id=run_id,
+                    runtime_tool_plan=runtime_tool_plan,
+                    status="completed",
+                    subject=subject,
+                )
+            )
 
             yield sse(
                 {

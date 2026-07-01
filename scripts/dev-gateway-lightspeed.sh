@@ -19,7 +19,7 @@ OLS_LOCAL_PORT="${OLS_LOCAL_PORT:-18443}"
 PF_LOG="${PF_LOG:-${ROOT_DIR}/.dev-lightspeed-port-forward.log}"
 PF_CHECK_INTERVAL="${PF_CHECK_INTERVAL:-5}"
 PF_RESTART_DELAY="${PF_RESTART_DELAY:-2}"
-PF_HEALTH_FAILURE_THRESHOLD="${PF_HEALTH_FAILURE_THRESHOLD:-3}"
+PF_HEALTH_FAILURE_THRESHOLD="${PF_HEALTH_FAILURE_THRESHOLD:-12}"
 MANAGE_OLS_PORT_FORWARD="${KUGNUS_MANAGE_OLS_PORT_FORWARD:-true}"
 ACTION_EXECUTOR="${ACTION_EXECUTOR:-}"
 ACTION_EXECUTOR_PORT_FORWARD="${ACTION_EXECUTOR_PORT_FORWARD:-}"
@@ -33,8 +33,8 @@ ACTION_EXECUTOR_PF_LOG="${ACTION_EXECUTOR_PF_LOG:-${ROOT_DIR}/.dev-action-execut
 
 PF_SUPERVISOR_PID=""
 ACTION_EXECUTOR_PF_PID=""
-ACTION_EXECUTOR_ENABLED="false"
-UNRESTRICTED_COMMANDS_ENABLED="false"
+ACTION_EXECUTOR_ENABLED="true"
+UNRESTRICTED_COMMANDS_ENABLED="true"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -180,17 +180,14 @@ normalize_bool_option() {
 select_gateway_mode() {
   if [ -n "$AIOPS_GATEWAY_MODE" ]; then
     case "$(printf '%s' "$AIOPS_GATEWAY_MODE" | tr '[:upper:]' '[:lower:]')" in
-      1|read|readonly|read-only|읽기|읽기전용)
-        printf 'read-only'
-        ;;
-      2|exec|execute|execution|실행|실행가능)
+      1|exec|execute|execution|실행|실행가능)
         printf 'execute'
         ;;
-      3|unrestricted|dev-unrestricted|experimental|실험|무제한)
+      2|unrestricted|dev-unrestricted|experimental|실험|무제한)
         printf 'unrestricted'
         ;;
       *)
-        echo "Invalid AIOPS_GATEWAY_MODE: ${AIOPS_GATEWAY_MODE}. Use read-only, execute, or unrestricted." >&2
+        echo "Invalid AIOPS_GATEWAY_MODE: ${AIOPS_GATEWAY_MODE}. Use execute or unrestricted." >&2
         exit 1
         ;;
     esac
@@ -201,7 +198,7 @@ select_gateway_mode() {
     if [ "$(normalize_bool_option "$AIOPS_UNRESTRICTED")" = "true" ]; then
       printf 'unrestricted'
     else
-      printf 'read-only'
+      printf 'execute'
     fi
     return
   fi
@@ -210,7 +207,7 @@ select_gateway_mode() {
     if [ "$(normalize_bool_option "$ACTION_EXECUTOR_PORT_FORWARD")" = "true" ]; then
       printf 'execute'
     else
-      printf 'read-only'
+      printf 'execute'
     fi
     return
   fi
@@ -219,35 +216,31 @@ select_gateway_mode() {
     if [ "$(normalize_bool_option "$ACTION_EXECUTOR")" = "true" ]; then
       printf 'execute'
     else
-      printf 'read-only'
+      printf 'execute'
     fi
     return
   fi
 
   if [ ! -t 0 ]; then
-    printf 'read-only'
+    printf 'execute'
     return
   fi
 
   echo "AIOps Gateway mode 선택:" >&2
-  echo "  1) 읽기 전용  - 분석/조회/계획 안내만 수행" >&2
-  echo "  2) 실행 가능  - 승인된 Action Executor 실행 허용" >&2
-  echo "  3) 실험용 무제한 - /exec 명령을 Gateway 로컬 권한으로 직접 실행" >&2
-  printf "선택 [1/2/3, 기본 1]: " >&2
+  echo "  1) 실행 가능  - 승인된 Action Executor 실행 허용" >&2
+  echo "  2) 실험용 무제한 - /exec 명령을 Gateway 로컬 권한으로 직접 실행" >&2
+  printf "선택 [1/2, 기본 1]: " >&2
   read -r mode_choice
 
   case "${mode_choice:-1}" in
-    1|read|readonly|read-only|읽기|읽기전용)
-      printf 'read-only'
-      ;;
-    2|exec|execute|execution|실행|실행가능)
+    1|exec|execute|execution|실행|실행가능)
       printf 'execute'
       ;;
-    3|unrestricted|dev-unrestricted|experimental|실험|무제한)
+    2|unrestricted|dev-unrestricted|experimental|실험|무제한)
       printf 'unrestricted'
       ;;
     *)
-      echo "Invalid mode: ${mode_choice}. Use 1/read-only, 2/execute, or 3/unrestricted." >&2
+      echo "Invalid mode: ${mode_choice}. Use 1/execute or 2/unrestricted." >&2
       exit 1
       ;;
   esac
@@ -370,13 +363,9 @@ require_cmd python3
 
 AIOPS_GATEWAY_MODE_SELECTED="$(select_gateway_mode)"
 case "$AIOPS_GATEWAY_MODE_SELECTED" in
-  read-only)
-    ACTION_EXECUTOR_ENABLED="false"
-    UNRESTRICTED_COMMANDS_ENABLED="false"
-    ;;
   execute)
     ACTION_EXECUTOR_ENABLED="true"
-    UNRESTRICTED_COMMANDS_ENABLED="false"
+    UNRESTRICTED_COMMANDS_ENABLED="true"
     ;;
   unrestricted)
     ACTION_EXECUTOR_ENABLED="true"

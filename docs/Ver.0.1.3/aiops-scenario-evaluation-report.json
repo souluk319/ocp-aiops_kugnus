@@ -1,8 +1,8 @@
 {
-  "startedAt": "2026-06-30T05:35:20.116317+00:00",
+  "startedAt": "2026-07-01T06:02:08.055794+00:00",
   "metadata": {
-    "branch": "feat/v.0.1.8",
-    "headSha": "06e09c7bd3ad6e592c4bd26f20d0212f8b790be0",
+    "branch": "v0.2.1-aiops-answer-contract",
+    "headSha": "28aa2297881fc85c21b7a924f25041b50f88fffe",
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae"
   },
   "scenarioDir": "evals/aiops-scenarios",
@@ -45,7 +45,7 @@
       "tool_plan_schema_valid": true,
       "tool_plan_task_type": true,
       "required_tools_present": true,
-      "tool_plan_read_only": true,
+      "tool_plan_evidence_check": true,
       "adapter_resolution": true,
       "evidence_type_match": true,
       "missing_evidence_present": true,
@@ -70,7 +70,7 @@
     "missingEvidenceTypes": [
       "runbook"
     ],
-    "rcaContextDigest": "sha256:1574a263d7c462571593cdce34c02ceb3b94539b182d0bb976c51d2fe93e250a",
+    "rcaContextDigest": "sha256:cc58def98e64683b022ac87b04f251c05ecd43fdc335c8da19587f8c55563f65",
     "evidenceCounts": {
       "collected": 2,
       "partial": 0,
@@ -84,8 +84,8 @@
       "action_candidates": [],
       "confidence": 1.0,
       "evidence_types": [
-        "openshift_api",
-        "openshift"
+        "openshift",
+        "openshift_api"
       ]
     }
   },
@@ -104,7 +104,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -129,7 +129,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:43f8573621eb14c355ec96ec01d629a7e5431c7c5b050888461817b550e69d01",
+      "rcaContextDigest": "sha256:c4a48e35178ece926a7189b34d4a74fc53656dd17d721bd2d1c6e1144b78b178",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -143,8 +143,8 @@
         "action_candidates": [],
         "confidence": 1.0,
         "evidence_types": [
-          "openshift_api",
-          "openshift"
+          "openshift",
+          "openshift_api"
         ]
       }
     },
@@ -158,7 +158,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -183,7 +183,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:9af83b27dd97e76a2d969e1a25342c02f15e1c5832ff151e48989d3a14286e31",
+      "rcaContextDigest": "sha256:0db126f8ad339c5e89deee3da2f93944faa74211d2d3efe819a85a0c0aa815e7",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -197,8 +197,8 @@
         "action_candidates": [],
         "confidence": 1.0,
         "evidence_types": [
-          "clusterversion",
-          "clusteroperator"
+          "clusteroperator",
+          "clusterversion"
         ]
       }
     },
@@ -212,7 +212,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -237,7 +237,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:a633d0c2f8127fcf5e15a6d4451d682a7fea345ff76af1fcc3bbccca295cc3af",
+      "rcaContextDigest": "sha256:84a152344703e5b1f718284593bb9590a0bc3f59ef40b3cc65dc91ea846254f4",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -266,7 +266,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -291,7 +291,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:b67628821e31320b95c84281eec886ab68f93b4a140c5e72f0d7c9664066bb7a",
+      "rcaContextDigest": "sha256:ce1bc0ee181826c4420ceb142986d76aac9457b2c3cb55a35b14116aeff93d9c",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -320,7 +320,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -345,7 +345,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:94726a781c2a9da1ec6b366b046d017a969f44ddec4e602affd473cb5e4481d4",
+      "rcaContextDigest": "sha256:32e472cbbbd8b87c1238aee79f6bfbf2a48016825c648fb68fb2322a4552de25",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -374,7 +374,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -409,7 +409,7 @@
       "missingEvidenceTypes": [
         "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:2cfc476411f2d28aacec130dbcc08dbe118adc5cf62c22006a334b0f7378259a",
+      "rcaContextDigest": "sha256:46f7af482e09091b6a1700891ac2cf35bf45c23f8c975aa3d14ded2f2f8934f0",
       "evidenceCounts": {
         "collected": 5,
         "partial": 0,
@@ -424,11 +424,11 @@
         "action_candidates": [],
         "confidence": 1.0,
         "evidence_types": [
-          "runbook_tool",
           "pod_status",
+          "runbook_tool",
+          "grep_tool",
           "event_tool",
-          "snapshot_tool",
-          "grep_tool"
+          "snapshot_tool"
         ]
       }
     },
@@ -442,7 +442,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -473,7 +473,7 @@
       "missingEvidenceTypes": [
         "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:0ceb619cdc03e2dcaff558071c6281dab385f14b3617f699719267aa0e9a531d",
+      "rcaContextDigest": "sha256:928b0698fee258e58f68e800db8794ef41f4a88b23d8c4cafb117eddf7a29932",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
@@ -501,7 +501,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -526,7 +526,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:63ecfdad8c82209988f9fe8d515869e9d7cad08bef6feb1596ddc277c1eb0b11",
+      "rcaContextDigest": "sha256:302a8e4a79bc271b438a658d2b3a51d2cc8eb3ffc5a61ef0d9aee5a512f1fc2a",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -555,7 +555,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -581,7 +581,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:427169cb08fae779c90bc4589708817d0006a6d00b16b151fdbb331b6b0585c7",
+      "rcaContextDigest": "sha256:75e2349f00c1cb367a7462a2fa0d5b706753ad1383441fb175991a26968276d9",
       "evidenceCounts": {
         "collected": 3,
         "partial": 0,
@@ -596,8 +596,8 @@
         "confidence": 1.0,
         "evidence_types": [
           "pod_status",
-          "deployment",
-          "event"
+          "event",
+          "deployment"
         ]
       }
     },
@@ -611,7 +611,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -635,7 +635,7 @@
       "missingEvidenceTypes": [
         "execution_record"
       ],
-      "rcaContextDigest": "sha256:4d8023f1d1d48c20d57a8c4472bb861277ea2dc963008d26d2061db4a0721336",
+      "rcaContextDigest": "sha256:913edb65627f6099d39daccf887ac6b2bdadf5473f97652f56925170dbd85006",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
@@ -663,7 +663,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -699,7 +699,7 @@
         "clusteroperator",
         "metric"
       ],
-      "rcaContextDigest": "sha256:dbdcf2190e9c5934aea9801deaf4bb657b9d8abdd0c22dbcff6b2d66c1065aff",
+      "rcaContextDigest": "sha256:ae075921ff2d8335bc509098c10ad2792d44a24f7a27274db0a871a98b9c00e9",
       "evidenceCounts": {
         "collected": 5,
         "partial": 0,
@@ -715,11 +715,11 @@
         "action_candidates": [],
         "confidence": 0.83,
         "evidence_types": [
-          "runbook_tool",
           "pod_status",
+          "runbook_tool",
+          "grep_tool",
           "event_tool",
-          "snapshot_tool",
-          "grep_tool"
+          "snapshot_tool"
         ]
       }
     },
@@ -733,7 +733,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -758,7 +758,7 @@
       "missingEvidenceTypes": [
         "linux_command_output"
       ],
-      "rcaContextDigest": "sha256:c41b1a9e5ff137f33ab42f42097dbbe84058d45958c2da9895c0f6eadf577262",
+      "rcaContextDigest": "sha256:98b352c3159d4420af7eb08cb5c84c3c28bfc855ed5f513ecb15ea6945abc4ea",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -772,8 +772,8 @@
         "action_candidates": [],
         "confidence": 0.67,
         "evidence_types": [
-          "runbook_tool",
-          "openshift"
+          "openshift",
+          "runbook_tool"
         ]
       }
     },
@@ -787,7 +787,7 @@
         "tool_plan_schema_valid": true,
         "tool_plan_task_type": true,
         "required_tools_present": true,
-        "tool_plan_read_only": true,
+        "tool_plan_evidence_check": true,
         "adapter_resolution": true,
         "evidence_type_match": true,
         "missing_evidence_present": true,
@@ -823,7 +823,7 @@
         "metric",
         "pod_log"
       ],
-      "rcaContextDigest": "sha256:7329668e8ae7473863ec10d6b7e663860e38fdc9eedbb16edcf8a25b79b6f919",
+      "rcaContextDigest": "sha256:434cda7d052a8240b2eaf98924b2577cf6943d6a6277210e6b89276495071854",
       "evidenceCounts": {
         "collected": 4,
         "partial": 0,
@@ -837,10 +837,10 @@
         "action_candidates": [],
         "confidence": 0.67,
         "evidence_types": [
+          "pod_status",
           "event_tool",
-          "snapshot_tool",
           "runbook_tool",
-          "pod_status"
+          "snapshot_tool"
         ]
       }
     }

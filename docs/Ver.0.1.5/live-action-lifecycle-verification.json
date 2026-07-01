@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "v1",
+  "generatedAt": "2026-07-01T01:22:41.469610Z",
+  "durationSeconds": 0.762,
+  "gatewayUrl": "http://127.0.0.1:18080",
+  "oc": {
+    "identity": "admin",
+    "server": "https://api.ocp.cywell.server:6443"
+  },
+  "git": {
+    "branch": "feat/v.0.1.9",
+    "commit": "28aa229"
+  },
+  "mutationExecuted": false,
+  "executeEndpointCalled": true,
+  "executeEndpointOnlyRejectedRequests": true,
+  "allPassed": true,
+  "checks": [
+    {
+      "name": "Gateway status accepts current OpenShift bearer token",
+      "passed": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "reject-first: action proposal created",
+      "passed": true,
+      "detail": "HTTP 200 proposalId=proposal-0ebb4baef0f3ba7e"
+    },
+    {
+      "name": "reject-first: sealed action plan created",
+      "passed": true,
+      "detail": "HTTP 200 planId=plan-32e62a61-abaf-4ec7-b757-eea00787cf1c digest=sha256:f43396241051364cbbd987fdc47ccc30d144b0aaaa5ddf6fb6e1f4ac61ea4608"
+    },
+    {
+      "name": "rejection record created before approval",
+      "passed": true,
+      "detail": "HTTP 200 rejectionId=rejection-67b4c110-844e-4ff4-ae46-102ae3eb2a72 status=rejected"
+    },
+    {
+      "name": "approval is blocked after rejection",
+      "passed": true,
+      "detail": "HTTP 409 detail=Action plan has been rejected"
+    },
+    {
+      "name": "approve-first: action proposal created",
+      "passed": true,
+      "detail": "HTTP 200 proposalId=proposal-974d93120ca6eba6"
+    },
+    {
+      "name": "approve-first: sealed action plan created",
+      "passed": true,
+      "detail": "HTTP 200 planId=plan-174a1507-ceea-4c28-9333-ac8bf60450e1 digest=sha256:4e479583a4c91c425af9f521979eb901a5b9c61ec1c75ffc3606063f8103f1f0"
+    },
+    {
+      "name": "approval record created without executing mutation",
+      "passed": true,
+      "detail": "HTTP 200 approvalId=approval-c64a01b9-f4ae-4790-aad4-3ae1f0b471d0 status=approved"
+    },
+    {
+      "name": "execute is blocked for stale plan digest before mutation dispatch",
+      "passed": true,
+      "detail": "HTTP 409 detail=Execution request is stale for this sealed plan"
+    },
+    {
+      "name": "execute is blocked for rejected decision before mutation dispatch",
+      "passed": true,
+      "detail": "HTTP 409 detail=Approval decision is not approved"
+    },
+    {
+      "name": "rejection is blocked after active approval",
+      "passed": true,
+      "detail": "HTTP 409 detail=Action plan already has an active approval"
+    }
+  ],
+  "summary": {
+    "passed": 11,
+    "failed": 0
+  }
+}

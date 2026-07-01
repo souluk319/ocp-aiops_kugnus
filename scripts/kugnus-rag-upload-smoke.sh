@@ -30,7 +30,7 @@ When a user uploads an operations runbook, the Gateway must persist redacted chu
 
 Safety: uploaded content is never returned as raw storage from the upload endpoint and must remain gateway-only.
 """.strip(),
-    "labels": {"scenario": "upload_rag_smoke", "safetyClass": "read-only"},
+    "labels": {"scenario": "upload_rag_smoke", "safetyClass": "evidence-check"},
     "namespace": "komsco-ai-kugnus",
     "version": "v0.1.4",
     "runId": "ver-0.1.4-upload-rag-smoke",

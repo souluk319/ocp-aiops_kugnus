@@ -7,11 +7,11 @@ from typing import Any
 
 PRODUCT_CONTRACT = {
     "name": "Cywell AI",
-    "mode": "read_only_first",
+    "mode": "evidence_first_execution",
     "mission": "Evidence-first OpenShift operations assistant for catalog registration work.",
 }
 
-READ_ONLY_VERBS = frozenset({"get", "list", "watch"})
+EVIDENCE_VERBS = frozenset({"get", "list", "watch"})
 FORBIDDEN_ACTIONS = (
     "apply",
     "create",
@@ -44,7 +44,7 @@ OPENSHIFT_ADAPTER_TOOLS = (
         "status": "available",
         "verbs": ["get"],
         "evidenceTypes": ["openshift"],
-        "description": "Ask OpenShift Lightspeed with Gateway-provided read-only context.",
+        "description": "Ask OpenShift Lightspeed with Gateway-provided evidence-check context.",
     },
     {
         "tool": "openshift_event_lookup",
@@ -244,23 +244,23 @@ def build_adapter_registry(
             "name": "OpenShift",
             "type": "openshift",
             "status": "available",
-            "reason": "UserToken-scoped read-only OpenShift API observation is available.",
-            "detail": "UserToken-scoped read-only cluster observation",
-            "nextAction": "Resolve Tool Plan steps to OpenShift read-only API calls.",
+            "reason": "UserToken-scoped evidence-check OpenShift API observation is available.",
+            "detail": "UserToken-scoped evidence-check cluster observation",
+            "nextAction": "Resolve Tool Plan steps to OpenShift evidence-check API calls.",
             "supportedTools": [dict(tool) for tool in OPENSHIFT_ADAPTER_TOOLS],
             "disabledReason": "",
-            "requirements": ["valid OpenShift user token", "read-only RBAC for requested resource"],
+            "requirements": ["valid OpenShift user token", "evidence-check RBAC for requested resource"],
         },
         {
             "name": "AI Gateway",
             "type": "ai_gateway",
             "status": "available",
             "reason": "Local Gateway safety and pending action plan inspection is available.",
-            "detail": "local Gateway read-only audit and safety contract",
-            "nextAction": "Resolve Tool Plan steps to local Gateway read-only audit checks.",
+            "detail": "local Gateway evidence-check audit and safety contract",
+            "nextAction": "Resolve Tool Plan steps to local Gateway evidence-check audit checks.",
             "supportedTools": [dict(tool) for tool in AI_GATEWAY_ADAPTER_TOOLS],
             "disabledReason": "",
-            "requirements": ["local Gateway process", "read-only safety gates"],
+            "requirements": ["local Gateway process", "evidence-check safety gates"],
         },
         {
             "name": "Linux",
@@ -285,7 +285,7 @@ def build_adapter_registry(
                     "status": linux_status,
                     "verbs": ["get"],
                     "evidenceTypes": ["host_diagnostics"],
-                    "description": "Linux host read-only diagnostics collector capability.",
+                    "description": "Linux host evidence-check diagnostics collector capability.",
                     "disabledReason": "" if linux_status == "diagnostics_ready" else linux_reason,
                 }
                 for tool in LINUX_ADAPTER_TOOLS
@@ -320,13 +320,13 @@ def build_adapter_registry(
                     "status": "planned",
                     "verbs": ["get"],
                     "evidenceTypes": ["windows_event", "windows_service"],
-                    "description": "Planned Windows read-only observation capability.",
+                    "description": "Planned Windows evidence-check observation capability.",
                     "disabledReason": "Windows adapter has no runtime collector or credential bridge yet.",
                 }
                 for tool in WINDOWS_ADAPTER_TOOLS
             ],
             "disabledReason": "Windows adapter has no runtime collector or credential bridge yet.",
-            "requirements": ["Windows node agent", "read-only event log credential", "network path from Gateway"],
+            "requirements": ["Windows node agent", "evidence-check event log credential", "network path from Gateway"],
         },
     ]
 
@@ -715,7 +715,7 @@ def build_rca_context(
             "candidateStatusLabel",
             "findingId",
             "findingTitle",
-            "readOnlyOnly",
+            "evidenceOnly",
             "scenarioId",
             "selectedAt",
             "source",
@@ -792,7 +792,7 @@ def build_rca_context(
                     "application error pattern",
                     "configuration or dependency failure",
                 ],
-                "actionCandidateMode": "proposal_only_read_only",
+                "actionCandidateMode": "proposal_only_evidence",
                 "lightspeedHandoff": {
                     "includeRcaContext": True,
                     "includeRunbook": "when available",
@@ -841,22 +841,22 @@ def build_rca_context(
         "actionCandidates": [
             {
                 "approvalRequired": True,
-                "mode": "proposal_only_read_only",
+                "mode": "proposal_only_evidence",
                 "risk": "medium",
                 "title": "Event, snapshot, metric, log-pattern evidence를 먼저 확인",
             },
             {
                 "approvalRequired": True,
-                "mode": "proposal_only_read_only",
+                "mode": "proposal_only_evidence",
                 "risk": "high",
                 "title": "원인 확정 전 rollout/delete/patch/scale 실행 금지",
             },
         ],
         "evidence_refs": refs,
         "safety": {
-            "mode": plan.get("execution_policy", {}).get("mode", "read_only")
+            "mode": plan.get("execution_policy", {}).get("mode", "evidence_check")
             if isinstance(plan.get("execution_policy"), Mapping)
-            else "read_only",
+            else "evidence_check",
             "validation": plan.get("validation", {"ok": False, "violations": ["tool plan missing"]}),
         },
         "confidence": {
@@ -880,15 +880,15 @@ def build_rca_context(
     return context
 
 
-def assert_read_only_tool_plan(tool_plan: Mapping[str, Any] | None) -> dict[str, Any]:
+def assert_evidence_check_tool_plan(tool_plan: Mapping[str, Any] | None) -> dict[str, Any]:
     violations: list[str] = []
     plan = tool_plan or {}
     execution_policy = plan.get("execution_policy")
 
     if isinstance(execution_policy, Mapping):
         mode = str(execution_policy.get("mode", "")).lower()
-        if mode and mode != "read_only":
-            violations.append("execution_policy.mode must be read_only")
+        if mode and mode not in {"evidence_check", "controlled_execution", "unrestricted"}:
+            violations.append("execution_policy.mode must be an AIOps execution policy mode")
 
     for step in _as_list(plan.get("tool_plan")):
         if not isinstance(step, Mapping):
@@ -897,8 +897,8 @@ def assert_read_only_tool_plan(tool_plan: Mapping[str, Any] | None) -> dict[str,
         tool = str(step.get("tool", "")).lower()
         step_id = step.get("step", "unknown")
 
-        if verb and verb not in READ_ONLY_VERBS:
-            violations.append(f"step {step_id} uses non-read-only verb {verb}")
+        if verb and verb not in EVIDENCE_VERBS:
+            violations.append(f"step {step_id} uses non-evidence-collection verb {verb}")
         for action in FORBIDDEN_ACTIONS:
             if action in tool:
                 violations.append(f"step {step_id} uses forbidden tool {step.get('tool')}")
@@ -928,8 +928,16 @@ def build_runtime_tool_plan(
     message: str,
     *,
     page_context: Mapping[str, Any] | None = None,
-    execution_mode: str = "read-only",
+    execution_mode: str = "execute",
 ) -> dict[str, Any]:
+    requested_ui_mode = str(execution_mode or "execute").strip().lower()
+    execution_policy_mode = (
+        "unrestricted"
+        if requested_ui_mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}
+        else "evidence_check"
+        if requested_ui_mode in {"read-only", "read_only", "readonly", "evidence-check", "evidence_check", "점검", "조회"}
+        else "controlled_execution"
+    )
     namespace = _namespace_from_message(message, page_context)
     asks_pod = _message_has_any(message, ("pod", "pods", "파드"))
     asks_restart = _message_has_any(
@@ -1012,7 +1020,7 @@ def build_runtime_tool_plan(
                 "adapter": "AI Gateway",
                 "verb": "get",
                 "evidence_type": "audit",
-                "reason": "read-only 기본 정책과 mutation gate 상태 확인",
+                "reason": "evidence-check 기본 정책과 mutation gate 상태 확인",
             },
         ]
         missing = [
@@ -1267,15 +1275,15 @@ def build_runtime_tool_plan(
             "namespace": namespace or "all-accessible-namespaces",
         },
         "execution_policy": {
-            "mode": "read_only",
+            "mode": execution_policy_mode,
             "requestedUiMode": execution_mode,
-            "allowed_verbs": sorted(READ_ONLY_VERBS),
+            "allowed_verbs": sorted(EVIDENCE_VERBS),
             "forbidden_actions": list(FORBIDDEN_ACTIONS),
         },
         "tool_plan": tool_steps,
         "missing_evidence": missing,
     }
-    plan["validation"] = assert_read_only_tool_plan(plan)
+    plan["validation"] = assert_evidence_check_tool_plan(plan)
     plan["adapter_resolution"] = resolve_tool_plan_adapters(plan)
     return plan
 
@@ -1291,7 +1299,7 @@ def build_runtime_safety_contract(
     latest_runtime_tool_plan: Mapping[str, Any] | None = None,
     latest_rca_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    mode = "controlled_execution" if mutations_enabled else "read_only"
+    mode = "controlled_execution" if mutations_enabled else "evidence_check"
     adapter_registry = build_adapter_registry(
         diagnostics_enabled=diagnostics_enabled,
         diagnostics_controller_configured=diagnostics_controller_configured,
@@ -1318,7 +1326,7 @@ def build_runtime_safety_contract(
     return {
         "product": PRODUCT_CONTRACT,
         "mode": mode,
-        "allowedReadOnlyVerbs": sorted(READ_ONLY_VERBS),
+        "allowedReadOnlyVerbs": sorted(EVIDENCE_VERBS),
         "forbiddenActions": list(FORBIDDEN_ACTIONS),
         "evidenceStatus": create_evidence_status(context_evidence),
         "capabilityGates": {

@@ -4,7 +4,7 @@
 Authoritative scenario:
 docs/Ver.0.1.3/Evidence_RCA_Scene.md
 
-This verifier is offline and read-only. It does not call OpenShift, Docker,
+This verifier is offline and evidence-check. It does not call OpenShift, Docker,
 the local gateway HTTP server, or any LLM endpoint. It proves that the local
 contract can represent the official demo flow:
 
@@ -12,7 +12,7 @@ contract can represent the official demo flow:
 2. Evidence analysis: events, log patterns/digest, metrics, snapshot.
 3. RCA Context: evidence, cause candidates, confidence, action candidates.
 4. Lightspeed handoff/final answer: RCA, immediate action, prevention, evidence.
-5. Safety: readOnlyOnly is authoritative and raw logs are not requested in the
+5. Safety: evidenceOnly is authoritative and raw logs are not requested in the
    official demo answer contract.
 """
 
@@ -100,7 +100,7 @@ def build_official_context() -> dict[str, Any]:
     )
 
     question = "어제 새벽에 default namespace Pod가 왜 재시작됐어?"
-    unscoped_plan = build_runtime_tool_plan(question, execution_mode="read-only")
+    unscoped_plan = build_runtime_tool_plan(question, execution_mode="evidence-check")
     page_context = {
         "namespace": "default",
         "resourceKind": "Pod",
@@ -109,7 +109,7 @@ def build_official_context() -> dict[str, Any]:
         "aiopsDemoCycle": {
             "findingId": "official-evidence-rca-default-pod-restart",
             "findingTitle": "default namespace Pod restart RCA",
-            "readOnlyOnly": True,
+            "evidenceOnly": True,
             "scenarioId": "evidence-rca-scene",
             "selectedAt": "2026-06-25T00:00:00Z",
             "source": "official-evidence-rca-scene",
@@ -304,7 +304,7 @@ def verify_server_side_readonly_and_answer_contract(
     require(
         checks,
         "server_forces_readonly_for_readonly_demo_context",
-        mode == "read-only",
+        mode == "evidence-check",
         {"mode": mode, "submittedMode": "unrestricted"},
     )
     require(

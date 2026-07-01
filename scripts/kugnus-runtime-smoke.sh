@@ -9,8 +9,8 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 TOKEN="$(oc whoami -t 2>/dev/null || true)"
-if [ -z "${TOKEN}" ]; then
-  printf 'Runtime smoke: FAIL\n[FAIL] oc token is empty. Run oc login first.\n' >&2
+if [ -z "${TOKEN}" ] || ! oc whoami >/dev/null 2>&1; then
+  printf 'Runtime smoke: FAIL\n[FAIL] oc login is not valid. Run oc login again, then rerun this smoke.\n' >&2
   exit 1
 fi
 

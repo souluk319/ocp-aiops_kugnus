@@ -265,8 +265,8 @@ ensure_plugin() {
   : >"$PLUGIN_LOG"
   (
     cd "$PLUGIN_DIR"
-    exec bash -ic 'yarn start'
-  ) >"$PLUGIN_LOG" 2>&1 &
+    setsid nohup bash -ic 'yarn start' >"$PLUGIN_LOG" 2>&1 </dev/null &
+  )
 
   wait_for_url "$manifest_url" 120 || {
     echo "Plugin dev server did not become healthy. Log: ${PLUGIN_LOG}" >&2
@@ -279,11 +279,11 @@ stop_console_bridge() {
   local ids=()
   local id
 
-  mapfile -t ids < <(docker ps --filter "name=^/${CONSOLE_CONTAINER_NAME}$" --format '{{.ID}}')
+  mapfile -t ids < <(docker ps -a --filter "name=^/${CONSOLE_CONTAINER_NAME}$" --format '{{.ID}}')
   mapfile -t ids < <(
     {
       printf '%s\n' "${ids[@]}"
-      docker ps --filter "ancestor=${CONSOLE_IMAGE}" --format '{{.ID}}'
+      docker ps -a --filter "ancestor=${CONSOLE_IMAGE}" --format '{{.ID}}'
     } | awk 'NF && !seen[$0]++'
   )
 

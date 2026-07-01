@@ -14,9 +14,9 @@ export KOMSCO_AIOPS_OPERATOR_NAMESPACE="${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsc
 export KOMSCO_AIOPS_NAMESPACE="${KOMSCO_AIOPS_NAMESPACE:-komsco-ai-kugnus}"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME:-Cywell AIOps}"
-export KOMSCO_AIOPS_MODE="${KOMSCO_AIOPS_MODE:-read-only}"
-export KOMSCO_AIOPS_ENABLE_MUTATIONS="${KOMSCO_AIOPS_ENABLE_MUTATIONS:-false}"
-export KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS:-false}"
+export KOMSCO_AIOPS_MODE="${KOMSCO_AIOPS_MODE:-execute}"
+export KOMSCO_AIOPS_ENABLE_MUTATIONS="${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}"
+export KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS:-true}"
 export KOMSCO_AIOPS_ICON_FILE="${KOMSCO_AIOPS_ICON_FILE:-docs/Ver.0.1.0/design-assets/K_icon.png}"
 export KOMSCO_AIOPS_ICON_MEDIA_TYPE="${KOMSCO_AIOPS_ICON_MEDIA_TYPE:-image/png}"
 export KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY="${KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY:-openshift}"
@@ -27,6 +27,7 @@ export KOMSCO_AIOPS_APPROVE_IMAGES="${KOMSCO_AIOPS_APPROVE_IMAGES:-}"
 export KOMSCO_AIOPS_APPROVE_PUBLISH="${KOMSCO_AIOPS_APPROVE_PUBLISH:-}"
 export KOMSCO_AIOPS_APPROVE_INSTALL="${KOMSCO_AIOPS_APPROVE_INSTALL:-}"
 export KOMSCO_AIOPS_APPROVE_UNINSTALL="${KOMSCO_AIOPS_APPROVE_UNINSTALL:-}"
+export KOMSCO_AIOPS_COMPANY_SERVER="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
 
 usage() {
   cat <<EOF
@@ -78,7 +79,7 @@ load_release_image_env() {
 }
 
 set_default_image_env() {
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
   local pull_registry=${KOMSCO_AIOPS_PULL_REGISTRY:-image-registry.openshift-image-registry.svc:5000}
 
   export KOMSCO_AIOPS_OPERATOR_IMAGE="${KOMSCO_AIOPS_OPERATOR_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-gateway:${version}}"
@@ -136,7 +137,7 @@ import os
 from pathlib import Path
 
 root = Path(os.environ["ROOT_DIR"])
-csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.8')}"
+csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.9')}"
 csv_path = root / "olm" / "generated" / "bundle" / "manifests" / f"{csv_name}.clusterserviceversion.yaml"
 crd_path = root / "olm" / "generated" / "bundle" / "manifests" / "aiopsinstallations.aiops.komsco.io.crd.yaml"
 catalog_path = root / "olm" / "generated" / "catalog" / "01-catalogsource.yaml"
@@ -156,7 +157,7 @@ expected_conditions = {
     "HostDiagnosticsReady",
     "SafetyModeReady",
 }
-version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.8")
+version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.9")
 expected_version_scope = os.environ.get("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{version}")
 
 csv_payload = json.loads(csv_path.read_text(encoding="utf-8"))
@@ -214,12 +215,15 @@ checks = {
     "consolePluginName": example_payload["spec"]["consolePluginName"] == os.environ["KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME"],
     "installConsolePluginName": install_payload["spec"]["consolePluginName"] == os.environ["KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME"],
     "consolePluginDisplayName": example_payload["spec"]["consolePluginDisplayName"] == os.environ["KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME"],
-    "mode": example_payload["spec"]["mode"] == "read-only",
-    "installMode": install_payload["spec"]["mode"] == "read-only",
-    "mutations": example_payload["spec"]["capabilities"]["mutations"] is False,
-    "installMutations": install_payload["spec"]["capabilities"]["mutations"] is False,
-    "unrestricted": example_payload["spec"]["capabilities"]["unrestrictedCommands"] is False,
-    "installUnrestricted": install_payload["spec"]["capabilities"]["unrestrictedCommands"] is False,
+    "disabledConsolePluginNames": example_payload["spec"]["disabledConsolePluginNames"] == ["komsco-ai-console-plugin"],
+    "installDisabledConsolePluginNames": install_payload["spec"]["disabledConsolePluginNames"] == ["komsco-ai-console-plugin"],
+    "disabledConsolePluginEnv": container_env["KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES"] == "komsco-ai-console-plugin",
+    "mode": example_payload["spec"]["mode"] == "execute",
+    "installMode": install_payload["spec"]["mode"] == "execute",
+    "mutations": example_payload["spec"]["capabilities"]["mutations"] is True,
+    "installMutations": install_payload["spec"]["capabilities"]["mutations"] is True,
+    "unrestricted": example_payload["spec"]["capabilities"]["unrestrictedCommands"] is True,
+    "installUnrestricted": install_payload["spec"]["capabilities"]["unrestrictedCommands"] is True,
     "installDiagnosticsDefault": install_payload["spec"]["capabilities"]["diagnostics"] is True,
     "statusConditionsSchema": "conditions" in status_schema,
     "statusComponentsSchema": "components" in status_schema,
@@ -263,6 +267,16 @@ require_oc() {
   fi
 }
 
+require_company_server() {
+  require_oc
+  local server
+  server=$(oc whoami --show-server 2>/dev/null || true)
+  if [[ "${server}" != "${KOMSCO_AIOPS_COMPANY_SERVER}" ]]; then
+    echo "Refusing cluster write: oc server is ${server:-unavailable}, expected ${KOMSCO_AIOPS_COMPANY_SERVER}." >&2
+    exit 1
+  fi
+}
+
 grant_image_pull_access() {
   require_oc
   oc policy add-role-to-group system:image-puller "system:serviceaccounts:${KOMSCO_AIOPS_NAMESPACE}" -n "${KOMSCO_AIOPS_NAMESPACE}"
@@ -271,14 +285,14 @@ grant_image_pull_access() {
 patch_binary_build_output() {
   local name=$1
   oc patch buildconfig "${name}" -n "${KOMSCO_AIOPS_NAMESPACE}" --type=merge \
-    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}\"}}}}"
+    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}\"}}}}"
 }
 
 ensure_binary_build() {
   local name=$1
   local context_dir=$2
   local stage_dir
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
 
   require_oc
   oc get namespace "${KOMSCO_AIOPS_NAMESPACE}" >/dev/null 2>&1 || oc create namespace "${KOMSCO_AIOPS_NAMESPACE}"
@@ -356,6 +370,7 @@ prepare_build_context() {
 }
 
 openshift_images() {
+  require_company_server
   echo "Building Kugnus images with OpenShift binary builds in namespace ${KOMSCO_AIOPS_NAMESPACE}."
   ensure_binary_build "komsco-ai-gateway" "${ROOT_DIR}/komsco-ai-gateway"
   ensure_binary_build "komsco-ai-console-plugin" "${ROOT_DIR}/komsco-ai-console-plugin"
@@ -402,6 +417,7 @@ publish() {
     echo "Refusing publish. Re-run with KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus after explicit approval." >&2
     exit 1
   fi
+  require_company_server
   export KOMSCO_AIOPS_APPROVE_IMAGES="komsco-ai-kugnus"
   export KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE="komsco-ai-kugnus"
   images
@@ -414,6 +430,7 @@ install() {
     echo "Refusing install. Re-run with KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus after explicit approval." >&2
     exit 1
   fi
+  require_company_server
   export KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE="komsco-ai-kugnus"
   set_default_image_env
   "${ROOT_DIR}/scripts/olm-deploy.sh" install
@@ -424,13 +441,13 @@ uninstall() {
     echo "Refusing uninstall. Re-run with KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus after explicit approval." >&2
     exit 1
   fi
-  require_oc
+  require_company_server
   set_default_image_env
   "${ROOT_DIR}/scripts/olm-deploy.sh" package
   oc delete aiopsinstallation "${KOMSCO_AIOPS_INSTALLATION_NAME}" -n "${KOMSCO_AIOPS_NAMESPACE}" --ignore-not-found=true
   oc delete consoleplugin "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" --ignore-not-found=true
   oc delete subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
-  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.8}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
+  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
   oc delete -f "${ROOT_DIR}/olm/generated/install/03-aiopsinstallation.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/02-subscription.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/01-operatorgroup.yaml" --ignore-not-found=true || true

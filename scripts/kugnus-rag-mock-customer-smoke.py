@@ -45,7 +45,7 @@ SEARCH_CASES = [
     },
     {
         "name": "change-policy",
-        "query": "MOCKPAY_CHANGE_POLICY read-only approval window MP-CHG",
+        "query": "MOCKPAY_CHANGE_POLICY evidence-check approval window MP-CHG",
         "marker": "MOCKPAY_CHANGE_POLICY",
         "labels": {"docKind": "change-policy", "source": RUN_ID},
     },
@@ -126,7 +126,7 @@ def summarize_upload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def upload_pdf(gateway_url: str, token: str, pdf: Path) -> tuple[dict[str, Any], int]:
-    labels = {"source": RUN_ID, "safetyClass": "read-only", **DOC_LABELS[pdf.name]}
+    labels = {"source": RUN_ID, "safetyClass": "evidence-check", **DOC_LABELS[pdf.name]}
     payload, status, _stderr = curl_json(
         [
             "curl",

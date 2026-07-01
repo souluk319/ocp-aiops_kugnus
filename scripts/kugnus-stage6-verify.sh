@@ -82,7 +82,7 @@ curl -sS http://127.0.0.1:18080/healthz
 printf '\n'
 curl -sS -i http://127.0.0.1:18080/v1/aiops/overview | sed -n '1,12p'
 
-echo "== OCP read-only snapshot =="
+echo "== OCP evidence-check snapshot =="
 oc whoami
 oc whoami --show-server
 oc get consoleplugin komsco-ai-console-plugin lightspeed-console-plugin --no-headers

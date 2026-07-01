@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify Ver.0.1.3 CrashLoopBackOff demo cycle against the local gateway.
 
-This verifier uses read-only gateway endpoints and the current `oc` token. It
+This verifier uses evidence-check gateway endpoints and the current `oc` token. It
 does not call install/deploy/mutation APIs and does not print or persist the
 token. The report intentionally avoids raw log/evidence text.
 """
@@ -47,7 +47,7 @@ CRASHLOOP_REQUIRED_HEADINGS = [
     "### 확인된 근거",
     "### 가능한 원인 후보",
     "### 추가 확인 필요",
-    "### Read-only 확인 순서",
+    "### Evidence-check 확인 순서",
     "### 금지 작업",
 ]
 MUTATION_COMMAND_IN_CODE_BLOCK_RE = re.compile(
@@ -312,7 +312,7 @@ def build_demo_prompt(finding: dict[str, Any], candidate: dict[str, Any] | None)
     target = finding_target(finding)
     return "\n".join(
         [
-            "다음 OpenShift 이상 징후를 read-only로 RCA 분석해줘.",
+            "다음 OpenShift 이상 징후를 evidence-check로 RCA 분석해줘.",
             "",
             "시나리오: CrashLoopBackOff 원인 분석",
             f"findingId: {finding.get('id')}",
@@ -327,7 +327,7 @@ def build_demo_prompt(finding: dict[str, Any], candidate: dict[str, Any] | None)
             "1. 확인된 근거",
             "2. 가능한 원인 후보",
             "3. 추가 확인 필요 근거",
-            "4. 실행하지 않는 read-only 확인 순서",
+            "4. 실행하지 않는 evidence-check 확인 순서",
             "5. 금지된 mutation 동작과 승인 필요 여부",
             "",
             "주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. apply/create/update/replace/delete/patch/scale/rollout/restart/exec/attach/evict 같은 실행성 조치는 제안만 하고 실행하지 마.",
@@ -453,13 +453,13 @@ def main() -> int:
                 "candidateStatusLabel": candidate.get("statusLabel") if candidate else "",
                 "findingId": finding.get("id"),
                 "findingTitle": finding.get("title"),
-                "readOnlyOnly": True,
+                "evidenceOnly": True,
                 "scenarioId": "crashloop",
                 "selectedAt": now_rfc3339(),
                 "source": "live-demo-verifier",
                 "target": target,
             },
-            "aiopsExecutionMode": "read-only",
+            "aiopsExecutionMode": "evidence-check",
             "pathname": "/dashboards",
         }
         stream_result = stream_chat(
@@ -525,11 +525,11 @@ def main() -> int:
             checks,
         )
         require(
-            candidate_policy.get("mode") == "read-only"
+            candidate_policy.get("mode") == "evidence-check"
             and candidate_policy.get("executionEnabled") is False
             and candidate_policy.get("mutationVerbsDisabled") is True,
-            "candidate_read_only_policy",
-            "Action candidate executionPolicy is read-only/mutation-disabled",
+            "candidate_evidence_check_policy",
+            "Action candidate executionPolicy is evidence-check/mutation-disabled",
             checks,
         )
         require(
