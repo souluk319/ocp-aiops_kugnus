@@ -16,6 +16,8 @@ ASSISTANT = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "Assistan
 ASSISTANT_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.css"
 PAGES = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "AiopsPages.tsx"
 PAGES_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "aiops-pages.css"
+GATEWAY_SERVICE = ROOT / "komsco-ai-console-plugin" / "src" / "services" / "aiGateway.ts"
+EVIDENCE_DISPLAY = ROOT / "komsco-ai-console-plugin" / "src" / "utils" / "evidenceDisplay.ts"
 GITIGNORE = ROOT / ".gitignore"
 
 
@@ -41,6 +43,29 @@ def reject(path: Path, needle: str, label: str) -> None:
     print(f"PASS {label}")
 
 
+def require_in_text(text: str, needle: str, label: str) -> None:
+    if needle not in text:
+        raise SystemExit(f"FAIL {label}: missing {needle!r}")
+    print(f"PASS {label}")
+
+
+def reject_in_text(text: str, needle: str, label: str) -> None:
+    if needle in text:
+        raise SystemExit(f"FAIL {label}: forbidden {needle!r}")
+    print(f"PASS {label}")
+
+
+def text_between(path: Path, start: str, end: str) -> str:
+    text = read(path)
+    start_index = text.find(start)
+    if start_index < 0:
+        raise SystemExit(f"FAIL source slice: missing start marker {start!r} in {rel(path)}")
+    end_index = text.find(end, start_index)
+    if end_index < 0:
+        raise SystemExit(f"FAIL source slice: missing end marker {end!r} in {rel(path)}")
+    return text[start_index:end_index]
+
+
 def require_ignored(path: str, label: str) -> None:
     result = subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT)
     if result.returncode != 0:
@@ -64,6 +89,9 @@ def main() -> None:
     require(CONTRACT, "첨부 이미지 원본 데이터", "contract forbids storing raw attachment data in UI history")
     require(CONTRACT, "evidence-grounded-pod-rca-v0.2.2", "contract locks grounded Pod RCA renderer")
     require(CONTRACT, "본문을 꽉 채우는 embedded/lockOpen 챗봇", "contract forbids embedded dashboard chatbot")
+    require(CONTRACT, "관제탑 기본 화면은 내부 디버그 패널을 렌더링하지 않는다", "contract forbids dashboard debug panels")
+    require(CONTRACT, "중복 후보를 접은 상위 후보만", "contract requires compact action candidates")
+    require(CONTRACT, "가로 스크롤 표 대신 카드 목록", "contract requires mobile-readable records")
 
     require(AIOPS_CONTRACTS, '"answerExperience"', "RcaContext carries answer experience")
     require(AIOPS_CONTRACTS, '"queryPlan"', "RcaContext carries human query plan")
@@ -108,6 +136,36 @@ def main() -> None:
     reject(PAGES, "defaultOpen\n          draftPrompt={assistantDraftPrompt}\n          embedded\n          lockOpen", "dashboard does not force embedded locked chatbot")
     reject(PAGES_CSS, "komsco-ai-page__assistant-stage", "dashboard CSS does not keep embedded assistant stage")
     reject(PAGES_CSS, "komsco-ai-page__assistant-quick-toggle", "dashboard CSS does not keep duplicate quick chatbot button")
+    dashboard = text_between(PAGES, "export const AiopsDashboardPage", "export const AiopsDocsPage")
+    require_in_text(dashboard, "관제탑", "dashboard remains the control tower route")
+    require_in_text(dashboard, "AssistantLauncher", "dashboard keeps FAB assistant")
+    reject_in_text(dashboard, "<ToolPlanPanel", "dashboard does not render ToolPlanPanel")
+    reject_in_text(dashboard, "<RcaContextPanel", "dashboard does not render RcaContextPanel")
+    reject_in_text(dashboard, "<AdapterBoard", "dashboard does not render AdapterBoard")
+    reject_in_text(dashboard, "<CapabilityBoard", "dashboard does not render CapabilityBoard")
+    reject_in_text(dashboard, "<RecordTable", "dashboard does not render raw record table")
+    reject_in_text(dashboard, "Lightspeed stream", "dashboard does not show stream jargon")
+    reject_in_text(dashboard, "controlled_execution", "dashboard does not show raw safety mode")
+
+    require(PAGES, "ACTION_CANDIDATE_DISPLAY_LIMIT", "dashboard bounds visible action candidates")
+    require(PAGES, "rankActionCandidatesForDisplay", "dashboard deduplicates action candidates")
+    require(PAGES, "중복 후보", "dashboard tells operator repeated candidates are collapsed")
+    require(PAGES, "isImagePullBackOffCandidate", "dashboard blocks unsafe ImagePullBackOff eviction")
+    require(PAGES, "mode === 'execute'", "dashboard maps execute mode before display")
+    require(PAGES, "return '실행 가능';", "dashboard displays execute mode in Korean")
+    reject(PAGES, "Cywell AI 복구 계획", "dashboard does not label candidates as recovery plan")
+    require(PAGES, "normalizeFindingDisplayText", "dashboard repairs redacted resource placeholders")
+    require(PAGES, "최근 1시간 재시작 증가", "dashboard displays restart metric evidence in Korean")
+    require(EVIDENCE_DISPLAY, "(?=.*[.~+/=])", "redaction avoids Kubernetes and metric identifier names")
+    reject(EVIDENCE_DISPLAY, "(?=.*[._~+/=-])", "redaction does not treat long hyphenated resource names as tokens")
+    require(PAGES, 'title="고객 문서"', "docs page uses Korean operator title")
+    reject(PAGES, 'title="LLM Wiki"', "docs page does not expose wiki jargon as title")
+    require(PAGES, "ChatTranscriptList", "audit uses mobile-readable chat cards")
+    require(PAGES, "RecordList", "audit/execution uses mobile-readable record cards")
+    require(PAGES_CSS, "komsco-ai-page__record-list", "record cards are styled")
+    require(PAGES_CSS, "komsco-ai-page__chat-log-list", "chat cards are styled")
+    require(GATEWAY_SERVICE, "gatewayResponseDetail", "action errors parse Gateway detail")
+    require(GATEWAY_SERVICE, "separation of duties requires requester and approver to differ", "action errors translate approval conflicts")
 
     require(ASSISTANT, "type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';", "console keeps three modes")
     require(ASSISTANT, "읽기 전용", "console keeps read-only label")
@@ -118,6 +176,8 @@ def main() -> None:
     require(ASSISTANT, "setHistorySidebarOpen(false);", "console closes history sidebar with assistant")
     require(ASSISTANT, "setHistoryDrawerBounds({});", "console clears detached history drawer bounds")
     require(ASSISTANT, "assistantVisible && historySidebar", "console does not render sidebar portal after close")
+    require(ASSISTANT, "AssistantSurfacePortal", "console portals floating assistant out of OKD stacking context")
+    require(ASSISTANT, "komsco-ai--portal", "console marks portaled assistant surface")
     reject(ASSISTANT, "OLS 스트림 중계", "console does not show stream relay jargon")
     reject(ASSISTANT, "OLS 질의 전달", "console does not show OLS query jargon")
     reject(ASSISTANT, "본문 스트리밍", "console does not show streaming jargon")
@@ -129,6 +189,10 @@ def main() -> None:
     require(ASSISTANT, "writeStoredConversationHistory(conversationHistory)", "console persists conversation history")
     require(ASSISTANT, "writeStoredActiveConversation({", "console persists active conversation")
     require(ASSISTANT, "const { attachments: _attachments, ...storedMessage }", "console strips raw attachments from stored messages")
+    require(ASSISTANT_CSS, "z-index: 2147483646;", "assistant overlay sits above OKD chrome")
+    require(ASSISTANT_CSS, ".komsco-ai--portal", "assistant floating surface has portal wrapper")
+    require(ASSISTANT_CSS, ".komsco-ai__surface .komsco-ai__icon-button svg *", "assistant header icons do not steal clicks")
+    require(ASSISTANT_CSS, "pointer-events: none;", "assistant overlay click contract blocks only decorative layers")
     require(AIOPS_CONTRACTS, '"evidence_check"', "gateway keeps evidence-check mode")
     require(AIOPS_CONTRACTS, '"controlled_execution"', "gateway keeps controlled execution mode")
     require(AIOPS_CONTRACTS, '"unrestricted"', "gateway keeps unrestricted mode")

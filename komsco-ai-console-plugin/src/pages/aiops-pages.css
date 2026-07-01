@@ -533,6 +533,15 @@
   color: var(--pf-t--global--text--color--status--success--default);
 }
 
+.komsco-ai-page__action-candidate-note {
+  padding: 8px 10px;
+  color: var(--pf-t--global--text--color--subtle);
+  font-size: var(--pf-t--global--font--size--body--sm);
+  background: #f8fafc;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 6px;
+}
+
 .komsco-ai-page__action-candidate-feedback {
   padding: 8px 10px;
   font-size: var(--pf-t--global--font--size--body--sm);
@@ -1298,6 +1307,77 @@
 .komsco-ai-page__table--chat td:nth-child(2),
 .komsco-ai-page__table--chat td:nth-child(3) {
   max-width: 420px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.komsco-ai-page__record-list,
+.komsco-ai-page__chat-log-list {
+  display: grid;
+  gap: 10px;
+}
+
+.komsco-ai-page__record-card,
+.komsco-ai-page__chat-log-card {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px;
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 8px;
+}
+
+.komsco-ai-page__record-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.komsco-ai-page__record-card-head span,
+.komsco-ai-page__record-card dl,
+.komsco-ai-page__chat-log-card dl {
+  font-size: var(--pf-t--global--font--size--body--sm);
+}
+
+.komsco-ai-page__record-card-head span {
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai-page__record-card-head strong {
+  color: var(--pf-t--global--text--color--regular);
+}
+
+.komsco-ai-page__record-card code,
+.komsco-ai-page__chat-log-card code {
+  min-width: 0;
+  padding: 3px 7px;
+  overflow-wrap: anywhere;
+  background: var(--pf-t--global--background--color--primary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: 6px;
+}
+
+.komsco-ai-page__record-card dl,
+.komsco-ai-page__chat-log-card dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.komsco-ai-page__record-card dt,
+.komsco-ai-page__chat-log-card dt {
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+.komsco-ai-page__record-card dd,
+.komsco-ai-page__chat-log-card dd {
+  min-width: 0;
+  margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

@@ -636,8 +636,43 @@ async function gatewayErrorMessage(
     return `${prefix}: ${response.status}`;
   }
 
-  const detail = await response.text();
-  return `${prefix}: ${response.status} ${detail.slice(0, 240)}`;
+  const detail = await gatewayResponseDetail(response);
+  return `${prefix}: ${detail || `${response.status} ${response.statusText}`}`;
+}
+
+async function gatewayResponseDetail(response: Response): Promise<string> {
+  const body = (await response.text()).trim();
+  if (!body) {
+    return '';
+  }
+
+  try {
+    const payload = JSON.parse(body) as Record<string, unknown>;
+    const detail = payload.detail ?? payload.message ?? payload.error;
+    if (typeof detail === 'string') {
+      if (detail === 'separation of duties requires requester and approver to differ') {
+        return '승인 실패: 요청자와 승인자는 달라야 합니다. 다른 운영자 계정으로 승인하거나 새 승인 절차를 시작하세요.';
+      }
+      if (detail === 'Action plan already has an active approval') {
+        return '승인 실패: 이미 활성 승인 기록이 있습니다. 실행 기록에서 현재 승인 상태를 확인하세요.';
+      }
+      if (detail === 'Action plan has been rejected') {
+        return '승인 실패: 이미 거절된 계획입니다. 새 조치 계획을 다시 생성하세요.';
+      }
+      if (detail === 'expectedPlanDigest does not match the sealed plan') {
+        return '승인 실패: 화면의 계획 digest가 현재 sealed plan과 다릅니다. 새로고침 후 다시 확인하세요.';
+      }
+      return detail.slice(0, 240);
+    }
+  } catch {
+    // Fall through to the plain body. Gateway errors are often JSON, proxies are not.
+  }
+
+  if (body.includes('separation of duties requires requester and approver to differ')) {
+    return '승인 실패: 요청자와 승인자는 달라야 합니다. 다른 운영자 계정으로 승인하거나 새 승인 절차를 시작하세요.';
+  }
+
+  return body.slice(0, 240);
 }
 
 async function postGatewayJson<TResponse>(

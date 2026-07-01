@@ -32,6 +32,8 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 | 콘솔 대화 목록 | 같은 브라우저 새로고침 후 복원되는 현재 대화와 최근 대화 | 첨부 이미지 원본 데이터 |
 | 현재 화면 Pod RCA | Gateway가 수집한 Pod evidence 기반 답변, 조치 레코드 생성 여부 | 일반론 템플릿, 확인되지 않은 로그/설정/DB 원인 단정 |
 | Cywell AI 관제탑 | 운영 대시보드와 닫힌 FAB 챗봇 런처 | 본문을 꽉 채우는 embedded/lockOpen 챗봇 |
+| Cywell AI 관제탑 기본 화면 | 운영 요약, 핵심 이상 징후, 상위 조치 후보, 닫힌 챗봇 런처 | raw Tool Plan 패널, raw RCA Context JSON, adapter 디버그, raw safety contract, 내부 실행 모드 문자열 |
+| 감사/개발자 화면 | 챗봇 대화, 감사 레코드, 실행 레코드, 원본 Tool Plan JSON, 원본 RcaContext JSON | 관제탑 기본 화면을 대체하는 복구 계획 판 |
 
 ## 실행 모드
 
@@ -56,6 +58,11 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 | AX-09 | 같은 브라우저에서 새로고침해도 현재 대화와 최근 대화 목록이 복원된다. | Console component가 active conversation/history를 browser storage에 저장·복원하는지 검사 | static verifier + typecheck |
 | AX-10 | `pod_screen_rca` 답변은 OLS 일반 문장 생성에 맡기지 않고 Gateway evidence renderer가 대상/상태/재시작/exit/owner/조치 레코드 상태를 명시한다. | Gateway helper와 stream branch가 `evidence-grounded-pod-rca-v0.2.2` 답변을 생성하는지 검사 | pytest + static verifier |
 | AX-11 | `/aiops-kugnus` 관제탑 화면은 챗봇을 본문 embedded/lockOpen 형태로 렌더링하지 않는다. | Dashboard page에서 `AssistantLauncher`가 닫힌 FAB 런처로만 배치되는지 검사 | static verifier + typecheck |
+| AX-12 | 관제탑 기본 화면은 내부 디버그 패널을 렌더링하지 않는다. | Dashboard function body에 `ToolPlanPanel`, `RcaContextPanel`, `AdapterBoard`, `CapabilityBoard`, `RecordTable`이 없는지 검사 | static verifier |
+| AX-13 | 조치 후보판은 `복구 계획`처럼 확정 실행 화면으로 보이지 않고, 중복 후보를 접은 상위 후보만 보여준다. | Console page에서 `ACTION_CANDIDATE_DISPLAY_LIMIT`, `rankActionCandidatesForDisplay`, `중복 후보` 문구 확인 | static verifier + browser |
+| AX-14 | 실행 불가 조치 후보는 버튼이 꺼지고 사람이 읽는 이유가 표시된다. | ImagePullBackOff 후보가 Pod eviction 버튼을 받지 않도록 `isImagePullBackOffCandidate` 검사 | static verifier |
+| AX-15 | 감사/실행 기록은 좁은 화면에서 가로 스크롤 표 대신 카드 목록으로 읽힌다. | `ChatTranscriptList`, `RecordList`, CSS card classes 확인 | static verifier + browser |
+| AX-16 | 관제탑과 정책/문서 화면의 기본 라벨은 운영자용 한국어를 우선한다. | `Lightspeed stream`, `execute`, `Raw content`, `Unrestricted`, `Diagnostics` 같은 원문 라벨을 기본 화면에서 제거 | static verifier |
 
 ## 하지 않을 것
 

@@ -25,7 +25,7 @@ export const redactSensitiveText = (value: unknown, fallback = ''): string => {
       '[redacted-token]',
     )
     .replace(
-      /\b(?=[A-Za-z0-9._~+/=-]{40,}\b)(?=.*[._~+/=-])[A-Za-z0-9._~+/=-]+\b/g,
+      /\b(?=[A-Za-z0-9._~+/=-]{40,}\b)(?=.*[.~+/=])[A-Za-z0-9._~+/=-]+\b/g,
       '[redacted-token]',
     )
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')

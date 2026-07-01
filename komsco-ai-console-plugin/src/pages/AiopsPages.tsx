@@ -115,6 +115,8 @@ const compactDigest = (value?: string): string => {
   return value.length > 28 ? `${value.slice(0, 24)}...` : value;
 };
 
+const ACTION_CANDIDATE_DISPLAY_LIMIT = 3;
+
 const DOCS_UPLOAD_ACCEPT = [
   '.pdf',
   '.docx',
@@ -311,6 +313,17 @@ const actionCandidateLifecycle = (
     };
   }
 
+  if (isImagePullBackOffCandidate(candidate) && toolName === 'evict_one_unhealthy_controller_owned_pod') {
+    return {
+      action: 'done',
+      disabledReason:
+        'ImagePullBackOff는 Pod eviction으로 해결하지 않습니다. 이미지 이름, registry 접근, pull secret을 먼저 확인해야 합니다.',
+      label: '실행 보류',
+      phaseLabel: '근거 확인 필요',
+      proof: '이미지 pull 실패는 eviction 실행 후보에서 제외했습니다.',
+    };
+  }
+
   const records = status?.spec.records;
   const plan = (records?.sealedActionPlans ?? []).find((item) =>
     actionRecordMatchesCandidate(item, candidate),
@@ -352,8 +365,8 @@ const actionCandidateLifecycle = (
   if (plan) {
     return {
       action: 'approve-plan',
-      label: '승인',
-      phaseLabel: '계획 생성됨',
+      label: '승인 요청',
+      phaseLabel: '승인 대기',
       planDigest: digest,
       planId: recordName(plan),
       proof: `${recordName(plan)} · ${compactDigest(digest)}`,
@@ -507,7 +520,7 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       value: overviewLoaded ? (anomalies?.statusLabel ?? '이상 징후 확인 중') : '이상 징후 수집 중',
     },
     {
-      detail: statusLoaded ? `근거 ${collectedEvidence} collected` : '근거 상태 확인 중',
+      detail: statusLoaded ? `수집 근거 ${collectedEvidence}건` : '근거 상태 확인 중',
       icon: <ClipboardCheckIcon />,
       label: 'RCA 근거',
       tone: collectedEvidence > 0 ? 'info' : 'warning',
@@ -524,7 +537,7 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       value: actionCandidates?.statusLabel ?? '조치 후보 확인 중',
     },
     {
-      detail: '대화 기록 기본 접힘',
+      detail: '대화와 감사 기록 보존',
       icon: <HistoryIcon />,
       label: '감사·대화',
       tone: statusLoaded ? 'info' : 'warning',
@@ -535,14 +548,14 @@ const OperatorFlowBoard: React.FC<{ data: AiopsPageData }> = ({ data }) => {
     {
       detail: statusLoaded
         ? executionReady
-          ? 'Action Executor 연결'
+          ? '승인 실행기 연결'
           : '실행 경로 확인 필요'
         : 'mutation 상태 확인 중',
       icon: <ShieldAltIcon />,
       label: '안전 정책',
       tone: statusLoaded ? (executionReady ? 'info' : 'warning') : 'warning',
       value: statusLoaded
-        ? (status?.spec.safetyContract?.mode ?? '정책 확인 중')
+        ? runtimeModeLabel(status?.spec.safetyContract?.mode)
         : '안전 정책 확인 중',
     },
   ] as const;
@@ -624,6 +637,93 @@ const actionCandidateTargetLabel = (candidate: AiopsActionCandidate): string => 
   return `${namespace}/${kind}/${name}`;
 };
 
+const actionCandidateDisplayTitle = (candidate: AiopsActionCandidate): string =>
+  candidate.title.replace(/\s*조치 후보\s*$/u, '');
+
+const actionCandidateRank = (candidate: AiopsActionCandidate): number =>
+  typeof candidate.priority === 'number' ? candidate.priority : 999;
+
+const actionCandidateGroupKey = (candidate: AiopsActionCandidate): string => {
+  const target = candidate.target ?? {};
+  return [
+    textValue(target.namespace, 'cluster-scoped'),
+    textValue(target.kind, 'Resource'),
+    textValue(target.name, candidate.title),
+  ].join('/');
+};
+
+const rankActionCandidatesForDisplay = (
+  candidates: AiopsActionCandidate[],
+): AiopsActionCandidate[] => {
+  const ranked = [...candidates].sort((left, right) => actionCandidateRank(left) - actionCandidateRank(right));
+  const byTarget = new Map<string, AiopsActionCandidate>();
+
+  ranked.forEach((candidate) => {
+    const key = actionCandidateGroupKey(candidate);
+    if (!byTarget.has(key)) {
+      byTarget.set(key, candidate);
+    }
+  });
+
+  return [...byTarget.values()];
+};
+
+const isImagePullBackOffCandidate = (candidate: AiopsActionCandidate): boolean => {
+  const haystack = [
+    candidate.title,
+    candidate.evidence,
+    candidate.statusLabel,
+    candidate.recommendationSteps?.join(' '),
+    candidate.prerequisiteChecks?.join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes('imagepullbackoff') || haystack.includes('image pull');
+};
+
+const runtimeModeLabel = (mode?: string): string => {
+  if (mode === 'read-only' || mode === 'read_only') {
+    return '읽기 전용';
+  }
+  if (mode === 'execute') {
+    return '실행 가능';
+  }
+  if (mode === 'controlled_execution') {
+    return '승인 실행';
+  }
+  if (mode === 'evidence_check') {
+    return '증거 확인';
+  }
+  if (mode === 'unrestricted') {
+    return '무제한 실행';
+  }
+  return mode || '상태 확인 중';
+};
+
+const probeStatusLabel = (status?: string): string => {
+  if (status === 'succeeded' || status === 'available') {
+    return '정상';
+  }
+  if (status === 'failed' || status === 'error') {
+    return '확인 필요';
+  }
+  if (status === 'partial') {
+    return '일부 제한';
+  }
+  if (status === 'probe pending' || status === 'checking') {
+    return '확인 중';
+  }
+  return status || '확인 중';
+};
+
+const onOffLabel = (value?: boolean): string => {
+  if (value === undefined) {
+    return '확인 중';
+  }
+  return value ? '켜짐' : '꺼짐';
+};
+
 const findingTargetParts = (
   finding: AiopsAnomalyFinding,
 ): { kind: string; name: string; namespace: string } => {
@@ -633,6 +733,13 @@ const findingTargetParts = (
     name: resource.name || finding.title,
     namespace: finding.namespace || resource.namespace || 'cluster-scoped',
   };
+};
+
+const normalizeFindingDisplayText = (text: string, finding: AiopsAnomalyFinding): string => {
+  const target = findingTargetParts(finding);
+  return text
+    .replace(/increase\(\[redacted-token\]\[1h\]\)=([^,\s]+)/g, '최근 1시간 재시작 증가=$1')
+    .replace(/\[redacted-token\]/g, target.name || '대상 리소스');
 };
 
 const isCrashLoopFinding = (finding: AiopsAnomalyFinding): boolean => {
@@ -669,12 +776,12 @@ const actionCandidateMatchesFinding = (
 };
 
 const findingEvidenceText = (finding: AiopsAnomalyFinding, fallback = '근거 수집 중'): string =>
-  safeEvidenceText(finding.evidence || finding.message, fallback);
+  normalizeFindingDisplayText(safeEvidenceText(finding.evidence || finding.message, fallback), finding);
 
 const findingNextCheckText = (
   finding: AiopsAnomalyFinding,
   fallback = '관련 Pod 상태, 이벤트, 로그 가능 여부 확인',
-): string => safeEvidenceText(finding.nextCheck, fallback);
+): string => normalizeFindingDisplayText(safeEvidenceText(finding.nextCheck, fallback), finding);
 
 const buildFindingDemoPrompt = (
   finding: AiopsAnomalyFinding,
@@ -783,8 +890,8 @@ const AnomalySummaryBoard: React.FC<{
   const normalSignals = anomalies?.normalSignals ?? [];
   const sourceText =
     dataSources.length > 0
-      ? `${dataSources.filter((source) => source.status === 'available').length}/${dataSources.length} sources`
-      : 'source pending';
+      ? `소스 ${dataSources.filter((source) => source.status === 'available').length}/${dataSources.length}`
+      : '소스 확인 중';
 
   if (!overview) {
     return (
@@ -818,7 +925,7 @@ const AnomalySummaryBoard: React.FC<{
         </div>
         <div className="komsco-ai-page__anomaly-badges">
           <code>{sourceText}</code>
-          <code>{overview.spec.anomalies?.spec?.safety?.mode ?? '분석'}</code>
+          <code>{runtimeModeLabel(overview.spec.anomalies?.spec?.safety?.mode ?? '분석')}</code>
         </div>
       </div>
 
@@ -925,7 +1032,10 @@ const ActionCandidateBoard: React.FC<{
 }) => {
   const actionCandidates = overview?.spec.actionCandidates?.spec;
   const candidates = actionCandidates?.candidates ?? [];
-  const visibleCandidates = candidates.slice(0, 3);
+  const rankedCandidates = rankActionCandidatesForDisplay(candidates);
+  const visibleCandidates = rankedCandidates.slice(0, ACTION_CANDIDATE_DISPLAY_LIMIT);
+  const collapsedDuplicateCount = Math.max(0, candidates.length - rankedCandidates.length);
+  const hiddenCandidateCount = Math.max(0, rankedCandidates.length - visibleCandidates.length);
   const totals = actionCandidates?.totals ?? {};
   const candidateStatus = actionCandidates?.status ?? (overview ? 'unknown' : 'loading');
   const tone = actionCandidateTone(visibleCandidates[0]?.riskLevel, candidateStatus);
@@ -940,7 +1050,8 @@ const ActionCandidateBoard: React.FC<{
     'scale',
     'exec',
   ];
-  const mode = actionCandidates?.safety?.mode ?? (executionReady ? 'execute' : '분석');
+  const mode = actionCandidates?.safety?.mode ?? (executionReady ? 'controlled_execution' : '분석');
+  const modeLabel = runtimeModeLabel(mode);
 
   if (!overview) {
     return (
@@ -950,12 +1061,12 @@ const ActionCandidateBoard: React.FC<{
       >
         <div className="komsco-ai-page__action-candidate-head">
           <div>
-            <span>AIOps 복구 계획</span>
+            <span>AIOps 조치 후보</span>
             <strong>overview 수집 중</strong>
           </div>
           <code>상태 확인 중</code>
         </div>
-        <p>이상 징후를 읽은 뒤 복구 계획과 승인 가능한 조치 후보를 정리합니다.</p>
+        <p>이상 징후를 읽은 뒤 운영자가 검토할 상위 조치 후보를 정리합니다.</p>
       </section>
     );
   }
@@ -971,13 +1082,17 @@ const ActionCandidateBoard: React.FC<{
     >
       <div className="komsco-ai-page__action-candidate-head">
         <div>
-          <span>Cywell AI 복구 계획</span>
-          <strong>{actionCandidates?.statusLabel ?? '조치 후보 상태 확인 중'}</strong>
+          <span>Cywell AI 조치 후보</span>
+          <strong>
+            {visibleCandidates.length > 0
+              ? `상위 조치 후보 ${visibleCandidates.length}건`
+              : (actionCandidates?.statusLabel ?? '조치 후보 상태 확인 중')}
+          </strong>
         </div>
         <div className="komsco-ai-page__action-candidate-badges">
-          <code>{executionReady ? '승인 계획 가능' : '분석 후보'}</code>
-          <code>{mode}</code>
-          <code>승인 필요 {totals.approvalRequired ?? candidates.length}</code>
+          <code>{executionReady ? '승인 실행 연결' : '분석 후보'}</code>
+          <code>{modeLabel}</code>
+          <code>전체 후보 {totals.total ?? candidates.length}건</code>
         </div>
       </div>
 
@@ -985,10 +1100,17 @@ const ActionCandidateBoard: React.FC<{
         <ShieldAltIcon />
         <span>
           {executionReady
-            ? '계획/승인/검증 API 경로로 해결 계획 생성, 승인, 실행을 순서대로 호출하고 모든 기록을 남깁니다.'
+            ? '상위 후보만 먼저 보여주고, 계획 생성/승인/실행은 단계별 기록으로 남깁니다.'
             : `실행 경로 확인 전입니다. 차단 동작: ${forbiddenVerbs.join(', ')}`}
         </span>
       </div>
+      {(collapsedDuplicateCount > 0 || hiddenCandidateCount > 0) && (
+        <div className="komsco-ai-page__action-candidate-note">
+          중복 후보 {collapsedDuplicateCount}건
+          {hiddenCandidateCount > 0 ? `, 낮은 우선순위 후보 ${hiddenCandidateCount}건` : ''}은
+          기본 화면에서 접었습니다.
+        </div>
+      )}
       {actionError && <div className="komsco-ai-page__action-candidate-feedback is-error">{actionError}</div>}
       {actionNotice && <div className="komsco-ai-page__action-candidate-feedback is-success">{actionNotice}</div>}
 
@@ -1009,7 +1131,7 @@ const ActionCandidateBoard: React.FC<{
               >
                 <div className="komsco-ai-page__action-candidate-title">
                   <span>{candidate.riskLabel || candidate.riskLevel || '위험도 확인'}</span>
-                  <strong>{candidate.title}</strong>
+                  <strong>{actionCandidateDisplayTitle(candidate)}</strong>
                   <code>P{candidate.priority ?? '-'}</code>
                 </div>
                 <dl>
@@ -1019,17 +1141,17 @@ const ActionCandidateBoard: React.FC<{
                   <dd>
                     {lifecycle.phaseLabel}
                   </dd>
-                  <dt>복구 계획</dt>
+                  <dt>조치 방향</dt>
                   <dd>{candidate.recommendationSteps?.[0] || '근거 확인 후 승인 계획 생성'}</dd>
                   <dt>선행 확인</dt>
                   <dd>{candidate.prerequisiteChecks?.[0] || '관련 리소스 상태와 이벤트 확인'}</dd>
                   <dt>예상 영향</dt>
                   <dd>{candidate.expectedImpact || '승인 전 영향 범위 확인 필요'}</dd>
-                  <dt>승인</dt>
+                  <dt>실행 조건</dt>
                   <dd>{candidate.approvalRequired ? '승인 전 실행 불가' : '승인 정책 확인 필요'}</dd>
                   <dt>검증</dt>
                   <dd>{candidate.verificationChecks?.[0] || '조치 후 상태 재확인 필요'}</dd>
-                  <dt>실행 흐름</dt>
+                  <dt>현재 단계</dt>
                   <dd>{lifecycle.proof}</dd>
                 </dl>
                 <div className="komsco-ai-page__anomaly-actions">
@@ -1159,7 +1281,7 @@ const CustomerTopologyPanel: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       value: summary ? `${summary.nodes.ready}/${summary.nodes.total} nodes` : '수집 중',
     },
     {
-      detail: overview ? `${availableSources}/${dataSources.length} data sources` : 'overview 수집 중',
+      detail: overview ? `데이터 소스 ${availableSources}/${dataSources.length}` : 'overview 수집 중',
       icon: <ChartLineIcon />,
       label: '관측 신호',
       tone: overview && availableSources === dataSources.length ? 'success' : 'warning',
@@ -1168,23 +1290,23 @@ const CustomerTopologyPanel: React.FC<{ data: AiopsPageData }> = ({ data }) => {
     {
       detail: rag?.collection || rag?.backendType || rag?.reason || 'RAG backend 확인 중',
       icon: <ClipboardCheckIcon />,
-      label: 'LLM Wiki/RAG',
+      label: '지식 저장소',
       tone: ragBackendTone(rag?.status),
-      value: rag?.status ?? '확인 중',
+      value: probeStatusLabel(rag?.status),
     },
     {
       detail: lightspeed?.baseService ?? 'openshift-lightspeed',
       icon: <RobotIcon />,
-      label: 'LLM 경로',
+      label: '답변 경로',
       tone: lightspeed?.fallbackActive ? 'warning' : status ? 'info' : 'warning',
-      value: lightspeed?.streamProbe ?? 'probe 확인 중',
+      value: probeStatusLabel(lightspeed?.streamProbe),
     },
     {
-      detail: `${auditCount} audit records`,
+      detail: `감사 기록 ${auditCount}건`,
       icon: <ShieldAltIcon />,
       label: '정책/감사',
       tone: status ? (mutationEnabled ? 'danger' : 'success') : 'warning',
-      value: status?.spec.safetyContract?.mode ?? '확인 중',
+      value: runtimeModeLabel(status?.spec.safetyContract?.mode),
     },
   ] as const;
 
@@ -1192,7 +1314,7 @@ const CustomerTopologyPanel: React.FC<{ data: AiopsPageData }> = ({ data }) => {
     <section className="komsco-ai-page__customer-topology" aria-label="Customer operations topology">
       <div className="komsco-ai-page__customer-topology-head">
         <div>
-          <span className="komsco-ai-page__section-kicker">Customer topology</span>
+          <span className="komsco-ai-page__section-kicker">운영 토폴로지</span>
           <h2>고객 운영 토폴로지</h2>
         </div>
         <code>{status?.spec.subject?.username ?? 'subject 확인 중'}</code>
@@ -1225,7 +1347,7 @@ const HealthDial: React.FC<{ score?: number }> = ({ score }) => {
       >
         <div>
           <strong>-</strong>
-          <span>pending</span>
+          <span>대기</span>
         </div>
       </div>
     );
@@ -1242,7 +1364,7 @@ const HealthDial: React.FC<{ score?: number }> = ({ score }) => {
     >
       <div>
         <strong>{safeScore}</strong>
-        <span>health</span>
+        <span>점수</span>
       </div>
     </div>
   );
@@ -1264,7 +1386,7 @@ const EvidenceRail: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status 
             <div>
               <strong>{item.type}</strong>
               <span>
-                {collected ? `${item.count} collected` : item.reason || 'not collected yet'}
+                {collected ? `${item.count}건 수집` : item.reason || '아직 수집되지 않음'}
               </span>
             </div>
           </div>
@@ -1289,27 +1411,27 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
       tone: statusLoaded ? statusTone(Boolean(capabilities?.mutationsEnabled)) : 'warning',
     },
     {
-      label: 'Action executor',
+      label: '승인 실행기',
       value: statusLoaded
         ? capabilities?.actionExecutorConfigured
-          ? 'connected'
-          : 'not configured'
+          ? '연결됨'
+          : '미설정'
         : '상태 확인 중',
       tone: statusLoaded ? statusTone(Boolean(capabilities?.actionExecutorConfigured)) : 'warning',
     },
     {
-      label: 'Diagnostics',
-      value: statusLoaded ? (capabilities?.diagnosticsEnabled ? 'enabled' : 'off') : '상태 확인 중',
+      label: '진단 수집',
+      value: statusLoaded ? onOffLabel(capabilities?.diagnosticsEnabled) : '상태 확인 중',
       tone: statusLoaded && capabilities?.diagnosticsEnabled ? 'info' : 'warning',
     },
     {
-      label: 'Record ledger',
-      value: statusLoaded ? (capabilities?.recordStoreEnabled ? 'on' : 'memory') : '상태 확인 중',
+      label: '기록 저장',
+      value: statusLoaded ? (capabilities?.recordStoreEnabled ? '영구 저장' : '메모리') : '상태 확인 중',
       tone: statusLoaded && capabilities?.recordStoreEnabled ? 'success' : 'warning',
     },
     {
-      label: 'Runbook RAG',
-      value: statusLoaded ? (capabilities?.rag?.status ?? 'not reported') : '상태 확인 중',
+      label: '런북 검색',
+      value: statusLoaded ? probeStatusLabel(capabilities?.rag?.status) : '상태 확인 중',
       tone: statusLoaded && capabilities?.rag?.status !== 'not_configured' ? 'info' : 'warning',
     },
   ] as const;
@@ -1326,9 +1448,9 @@ const CapabilityBoard: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ stat
         <LockIcon />
         <span>
           {contract?.mode === 'evidence_check'
-            ? '증거 우선 계약 활성'
+            ? '증거 확인 우선'
             : contract?.mode
-              ? '승인 기반 실행 계약 활성'
+              ? '승인 기반 실행'
               : '안전 계약 확인 중'}
         </span>
       </div>
@@ -1356,35 +1478,35 @@ const LightspeedLink: React.FC<{ data: AiopsPageData }> = ({ data }) => {
         <div>
           <strong>
             {fallbackActive
-              ? 'Gateway fallback active'
+              ? 'Gateway 우회 응답 사용 중'
               : gatewayStatusLoaded
-                ? 'Gateway status loaded'
+                ? 'Gateway 상태 확인됨'
                 : 'Gateway 상태 확인 중'}
           </strong>
           <span>
-            {streamProbe}
-            {lightspeedStatus?.lastStatus ? ` / ${lightspeedStatus.lastStatus}` : ''}
+            {probeStatusLabel(streamProbe)}
+            {lightspeedStatus?.lastStatus ? ` / ${probeStatusLabel(lightspeedStatus.lastStatus)}` : ''}
           </span>
         </div>
       </div>
       {contextDigest && (
         <div className="komsco-ai-page__endpoint-line">
-          <span>Gateway context</span>
+          <span>Gateway 문맥</span>
           <code>{contextDigest}</code>
         </div>
       )}
       {lightspeedStatus?.lastError && (
         <div className="komsco-ai-page__endpoint-line">
-          <span>Last fallback reason</span>
+          <span>최근 우회 사유</span>
           <code>{lightspeedStatus.lastError}</code>
         </div>
       )}
       <div className="komsco-ai-page__endpoint-line">
-        <span>Lightspeed service</span>
+        <span>답변 서비스</span>
         <code>{baseService}</code>
       </div>
       <div className="komsco-ai-page__endpoint-line">
-        <span>Console plugin</span>
+        <span>콘솔 플러그인</span>
         <code>komsco-ai-console-plugin-kugnus</code>
       </div>
     </div>
@@ -1649,7 +1771,7 @@ const OperatorIssues: React.FC<{ summary: ClusterSummary | null }> = ({ summary 
   );
 };
 
-const RecordTable: React.FC<{
+const RecordList: React.FC<{
   emptyLabel: string;
   records: AiopsRecord[];
   variant?: 'audit' | 'action';
@@ -1659,74 +1781,59 @@ const RecordTable: React.FC<{
   }
 
   return (
-    <div className="komsco-ai-page__table-wrap">
-      <table className="komsco-ai-page__table">
-        <thead>
-          <tr>
-            <th>시간</th>
-            <th>이름</th>
-            <th>{variant === 'audit' ? 'Action' : '상태'}</th>
-            <th>{variant === 'audit' ? 'Run' : '대상'}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {records.map((record, index) => {
-            const spec = asObject(record.spec);
+    <div className="komsco-ai-page__record-list">
+      {records.map((record, index) => {
+        const spec = asObject(record.spec);
+        const name = record.metadata?.name ?? record.kind ?? 'record';
+        const phase = variant === 'audit' ? textValue(spec.action) : recordPhase(record);
+        const target =
+          variant === 'audit' ? textValue(spec.runId ?? spec.requestId) : recordTarget(record);
 
-            return (
-              <tr key={`${record.kind ?? 'record'}-${record.metadata?.name ?? index}`}>
-                <td>{formatTime(record.metadata?.createdAt)}</td>
-                <td>
-                  <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
-                </td>
-                <td>{variant === 'audit' ? textValue(spec.action) : recordPhase(record)}</td>
-                <td>
-                  {variant === 'audit'
-                    ? textValue(spec.runId ?? spec.requestId)
-                    : recordTarget(record)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+        return (
+          <article className="komsco-ai-page__record-card" key={`${record.kind ?? 'record'}-${name}-${index}`}>
+            <div className="komsco-ai-page__record-card-head">
+              <span>{formatTime(record.metadata?.createdAt)}</span>
+              <strong>{phase}</strong>
+            </div>
+            <code>{name}</code>
+            <dl>
+              <dt>{variant === 'audit' ? 'Run' : '대상'}</dt>
+              <dd>{target}</dd>
+            </dl>
+          </article>
+        );
+      })}
     </div>
   );
 };
 
-const ChatTranscriptTable: React.FC<{ records: AiopsRecord[] }> = ({ records }) => {
+const ChatTranscriptList: React.FC<{ records: AiopsRecord[] }> = ({ records }) => {
   if (records.length === 0) {
     return <EmptyState label="아직 조회 가능한 챗봇 대화기록이 없습니다." />;
   }
 
   return (
-    <div className="komsco-ai-page__table-wrap">
-      <table className="komsco-ai-page__table komsco-ai-page__table--chat">
-        <thead>
-          <tr>
-            <th>시간</th>
-            <th>질문</th>
-            <th>답변</th>
-            <th>Run</th>
-          </tr>
-        </thead>
-        <tbody>
-          {records.map((record, index) => {
-            const spec = asObject(record.spec);
+    <div className="komsco-ai-page__chat-log-list">
+      {records.map((record, index) => {
+        const spec = asObject(record.spec);
+        const userMessage = safeEvidenceText(textValue(spec.userMessage), '질문 없음');
+        const assistantAnswer = safeEvidenceText(textValue(spec.assistantAnswer), '답변 없음');
 
-            return (
-              <tr key={`${record.metadata?.name ?? 'chat'}-${index}`}>
-                <td>{formatTime(record.metadata?.createdAt)}</td>
-                <td>{safeEvidenceText(textValue(spec.userMessage), '질문 없음')}</td>
-                <td>{safeEvidenceText(textValue(spec.assistantAnswer), '답변 없음')}</td>
-                <td>
-                  <code>{textValue(spec.runId ?? spec.requestId)}</code>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+        return (
+          <article className="komsco-ai-page__chat-log-card" key={`${record.metadata?.name ?? 'chat'}-${index}`}>
+            <div className="komsco-ai-page__record-card-head">
+              <span>{formatTime(record.metadata?.createdAt)}</span>
+              <code>{textValue(spec.runId ?? spec.requestId)}</code>
+            </div>
+            <dl>
+              <dt>질문</dt>
+              <dd>{userMessage}</dd>
+              <dt>답변</dt>
+              <dd>{assistantAnswer}</dd>
+            </dl>
+          </article>
+        );
+      })}
     </div>
   );
 };
@@ -1746,7 +1853,7 @@ export const AiopsDashboardPage: React.FC = () => {
   const operatorIssueCount = data.summary?.operators.issues.length ?? 0;
   const operatorIssueValue = data.summary ? operatorIssueCount : '-';
   const readyNodes = data.summary ? `${data.summary.nodes.ready}/${data.summary.nodes.total}` : '-';
-  const safetyMode = data.status?.spec.safetyContract?.mode ?? '상태 확인 중';
+  const safetyMode = runtimeModeLabel(data.status?.spec.safetyContract?.mode);
   const lightspeedProbe =
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
   const controlTower = data.overview?.spec.controlTower;
@@ -1827,25 +1934,25 @@ export const AiopsDashboardPage: React.FC = () => {
         <div className="komsco-ai-page__overview-main">
           <HealthDial score={data.summary?.healthScore} />
           <div>
-            <span className="komsco-ai-page__section-kicker">Cluster signal</span>
+            <span className="komsco-ai-page__section-kicker">클러스터 신호</span>
             <h2>Cywell AI 관제탑</h2>
             <p>
               {controlTower?.statusLabel ??
-                '로컬 콘솔에서 회사 OCP API와 Gateway를 증거 우선 계약으로 연결합니다.'}
+                '회사 OCP API와 Gateway에서 수집한 운영 신호를 요약합니다.'}
             </p>
           </div>
         </div>
         <div className="komsco-ai-page__overview-side">
-          <span>View</span>
-          <strong>Cywell AI 관제탑 / OpenShift 기본 대시보드와 분리</strong>
+          <span>화면</span>
+          <strong>운영 요약과 우선 조치 후보</strong>
           <span>API</span>
           <strong>{data.summary?.apiUrl ?? '상태 확인 중'}</strong>
-          <span>Version</span>
+          <span>버전</span>
           <strong>{data.summary?.version.version ?? '상태 확인 중'}</strong>
-          <span>Safety</span>
+          <span>실행 정책</span>
           <strong>{safetyMode}</strong>
-          <span>Lightspeed stream</span>
-          <strong>{lightspeedProbe}</strong>
+          <span>답변 경로</span>
+          <strong>{probeStatusLabel(lightspeedProbe)}</strong>
         </div>
       </section>
 
@@ -1855,28 +1962,28 @@ export const AiopsDashboardPage: React.FC = () => {
         <MetricTile
           detail="readiness ratio"
           icon={<ServerIcon />}
-          label="Ready nodes"
+          label="정상 노드"
           tone={!data.summary || data.summary.nodes.notReady ? 'warning' : 'success'}
           value={readyNodes}
         />
         <MetricTile
-          detail="degraded or progressing"
+          detail="degraded/progressing"
           icon={<TachometerAltIcon />}
-          label="Operator issues"
+          label="Operator 이상"
           tone={!data.summary || operatorIssueCount > 0 ? 'warning' : 'success'}
           value={operatorIssueValue}
         />
         <MetricTile
-          detail="Gateway audit ledger"
+          detail="Gateway 감사 기록"
           icon={<HistoryIcon />}
-          label="Audit records"
+          label="감사 기록"
           tone={data.status && auditCount > 0 ? 'info' : 'warning'}
           value={auditCountValue}
         />
         <MetricTile
-          detail="approved lifecycle"
+          detail="승인/실행 단계"
           icon={<BoltIcon />}
-          label="Execution records"
+          label="실행 기록"
           tone={data.status && actionCount > 0 ? 'info' : 'warning'}
           value={actionCountValue}
         />
@@ -1899,73 +2006,7 @@ export const AiopsDashboardPage: React.FC = () => {
         status={data.status}
       />
 
-      <DataSourceBoard overview={data.overview} />
-
-      <CustomerTopologyPanel data={data} />
-
       <AssistantLauncher draftPrompt={assistantDraftPrompt} onRunComplete={data.refresh} />
-
-      <div className="komsco-ai-page__dashboard-grid">
-        <section className="komsco-ai-page__panel komsco-ai-page__panel--wide">
-          <div className="komsco-ai-page__panel-heading">
-            <ChartLineIcon />
-            <h2>Evidence posture</h2>
-          </div>
-          <EvidenceRail status={data.status} />
-        </section>
-        <section className="komsco-ai-page__panel">
-          <div className="komsco-ai-page__panel-heading">
-            <RobotIcon />
-            <h2>Lightspeed link</h2>
-          </div>
-          <LightspeedLink data={data} />
-        </section>
-        <section className="komsco-ai-page__panel">
-          <div className="komsco-ai-page__panel-heading">
-            <ProjectDiagramIcon />
-            <h2>Tool Plan</h2>
-          </div>
-          <ToolPlanPanel status={data.status} />
-        </section>
-        <section className="komsco-ai-page__panel">
-          <div className="komsco-ai-page__panel-heading">
-            <ClipboardCheckIcon />
-            <h2>RCA Context JSON</h2>
-          </div>
-          <RcaContextPanel status={data.status} />
-        </section>
-        <section className="komsco-ai-page__panel">
-          <div className="komsco-ai-page__panel-heading">
-            <ServerIcon />
-            <h2>OS-aware adapters</h2>
-          </div>
-          <AdapterBoard status={data.status} />
-        </section>
-        <section className="komsco-ai-page__panel">
-          <div className="komsco-ai-page__panel-heading">
-            <ShieldAltIcon />
-            <h2>Safety contract</h2>
-          </div>
-          <CapabilityBoard status={data.status} />
-        </section>
-        <section className="komsco-ai-page__panel">
-          <div className="komsco-ai-page__panel-heading">
-            <CubesIcon />
-            <h2>Operator attention</h2>
-          </div>
-          <OperatorIssues summary={data.summary} />
-        </section>
-        <section className="komsco-ai-page__panel komsco-ai-page__panel--wide">
-          <div className="komsco-ai-page__panel-heading">
-            <ProjectDiagramIcon />
-            <h2>최근 실행 기록</h2>
-          </div>
-          <RecordTable
-            emptyLabel="최근 승인 또는 실행 기록이 없습니다."
-            records={actionRecords(data.status).slice(0, 5)}
-          />
-        </section>
-      </div>
     </PageShell>
   );
 };
@@ -2114,15 +2155,18 @@ export const AiopsDocsPage: React.FC = () => {
   const totalBytes = documents.reduce((total, document) => total + (document.contentBytes ?? 0), 0);
   const activeRagBackend = ragBackend ?? data.status?.spec.capabilities.rag ?? null;
   const ragStatus = activeRagBackend?.status ?? (documentsLoading ? 'checking' : 'unknown');
+  const documentsReasonLabel = documentsReason.includes('Uploaded RAG documents retrieved')
+    ? 'RAG 저장소에서 문서 목록을 불러왔습니다.'
+    : documentsReason;
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="LLM Wiki">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="고객 문서">
       <section className="komsco-ai-page__docs-hero">
         <div>
-          <span className="komsco-ai-page__section-kicker">Customer LLM Wiki</span>
-          <h2>고객 지식/RAG 저장소</h2>
+          <span className="komsco-ai-page__section-kicker">고객 문서</span>
+          <h2>고객 문서 저장소</h2>
           <p>
-            고객 문서를 업로드하고 pgvector RAG 적재, ACL, 검색 가능한 chunk preview를 확인합니다.
+            고객 문서를 등록하고 검색 가능한 근거 조각과 권한 범위를 확인합니다.
           </p>
         </div>
         <div className="komsco-ai-page__docs-actions">
@@ -2153,50 +2197,50 @@ export const AiopsDocsPage: React.FC = () => {
 
       {uploadMessage && <div className="komsco-ai-page__docs-notice">{uploadMessage}</div>}
       {documentsError && <div className="komsco-ai-page__error">{documentsError}</div>}
-      {!documentsError && documentsReason && (
-        <div className="komsco-ai-page__docs-status-line">{documentsReason}</div>
+      {!documentsError && documentsReasonLabel && (
+        <div className="komsco-ai-page__docs-status-line">{documentsReasonLabel}</div>
       )}
 
       <div className="komsco-ai-page__metrics">
         <MetricTile
           detail={activeRagBackend?.collection || activeRagBackend?.backendType || 'gateway-only'}
           icon={<ServerIcon />}
-          label="RAG backend"
+          label="검색 저장소"
           tone={ragBackendTone(activeRagBackend?.status)}
-          value={ragStatus}
+          value={probeStatusLabel(ragStatus)}
         />
         <MetricTile
-          detail="visible to current OpenShift subject"
+          detail="현재 사용자 권한 기준"
           icon={<ClipboardCheckIcon />}
-          label="Documents"
+          label="등록 문서"
           tone={documents.length > 0 ? 'success' : 'warning'}
           value={documentsLoading ? '...' : documents.length}
         />
         <MetricTile
-          detail="retrievable RAG chunks"
+          detail="검색 가능한 근거 조각"
           icon={<ProjectDiagramIcon />}
-          label="Chunks"
+          label="검색 조각"
           tone={totalChunks > 0 ? 'success' : 'warning'}
           value={documentsLoading ? '...' : totalChunks}
         />
         <MetricTile
-          detail={activeRagBackend?.accessPath || 'gateway-only'}
+          detail={activeRagBackend?.accessPath || 'Gateway 권한 확인'}
           icon={<LockIcon />}
-          label="ACL"
+          label="권한 제한"
           tone={activeRagBackend?.aclRequired === false ? 'warning' : 'success'}
-          value={activeRagBackend?.aclRequired === false ? 'OFF' : 'ON'}
+          value={activeRagBackend?.aclRequired === false ? '꺼짐' : '켜짐'}
         />
         <MetricTile
-          detail="redacted preview only"
+          detail="요약 미리보기만 표시"
           icon={<ShieldAltIcon />}
-          label="Raw content"
+          label="원문 보호"
           tone="success"
-          value="HIDDEN"
+          value="숨김"
         />
         <MetricTile
-          detail="stored content size"
+          detail="저장된 문서 크기"
           icon={<ServerIcon />}
-          label="Size"
+          label="저장 용량"
           tone={totalBytes > 0 ? 'info' : 'warning'}
           value={formatBytes(totalBytes)}
         />
@@ -2252,7 +2296,7 @@ export const AiopsDocsPage: React.FC = () => {
                   <strong>{selectedDocument.title}</strong>
                 </div>
                 <div>
-                  <span>Document ID</span>
+                  <span>문서 ID</span>
                   <strong>{selectedDocument.documentId}</strong>
                 </div>
                 <div>
@@ -2260,25 +2304,24 @@ export const AiopsDocsPage: React.FC = () => {
                   <strong>{selectedDocument.mimeType || selectedDocument.sourceType || '-'}</strong>
                 </div>
                 <div>
-                  <span>Checksum</span>
+                  <span>무결성</span>
                   <strong>{compactDigest(selectedDocument.checksum)}</strong>
                 </div>
                 <div>
                   <span>권한</span>
                   <strong>
                     {(selectedDocument.aclGroups ?? []).slice(0, 3).join(', ') ||
-                      'current user scope'}
+                      '현재 사용자 범위'}
                   </strong>
                 </div>
                 <div>
                   <span>상태</span>
-                  <strong>{previewLoading ? 'checking' : previewStatus}</strong>
+                  <strong>{previewLoading ? '확인 중' : probeStatusLabel(previewStatus)}</strong>
                 </div>
               </div>
 
               <div className="komsco-ai-page__docs-safety">
-                원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 redacted RAG chunk preview만
-                표시합니다.
+                원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 근거 미리보기만 표시합니다.
               </div>
 
               {previewLoading ? (
@@ -2299,7 +2342,7 @@ export const AiopsDocsPage: React.FC = () => {
                       <div className="komsco-ai-page__docs-preview-head">
                         <strong>{result.title || selectedDocument.title}</strong>
                         <span>
-                          score {typeof result.score === 'number' ? result.score.toFixed(3) : '-'}
+                          유사도 {typeof result.score === 'number' ? result.score.toFixed(3) : '-'}
                         </span>
                       </div>
                       <p>
@@ -2330,18 +2373,69 @@ export const AiopsAuditPage: React.FC = () => {
           <RobotIcon />
           <h2>최근 챗봇 대화기록</h2>
         </div>
-        <ChatTranscriptTable records={chatTranscriptRecords(data.status)} />
+        <ChatTranscriptList records={chatTranscriptRecords(data.status)} />
       </section>
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <HistoryIcon />
           <h2>최근 Gateway 감사 레코드</h2>
         </div>
-        <RecordTable
+        <RecordList
           emptyLabel="아직 조회 가능한 감사 기록이 없습니다."
           records={data.status?.spec.records.auditRecords ?? []}
           variant="audit"
         />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ChartLineIcon />
+          <h2>근거 수집 상태</h2>
+        </div>
+        <EvidenceRail status={data.status} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <RobotIcon />
+          <h2>답변 경로</h2>
+        </div>
+        <LightspeedLink data={data} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ProjectDiagramIcon />
+          <h2>원본 Tool Plan JSON</h2>
+        </div>
+        <ToolPlanPanel status={data.status} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ClipboardCheckIcon />
+          <h2>RCA Context JSON</h2>
+        </div>
+        <RcaContextPanel status={data.status} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ServerIcon />
+          <h2>어댑터 상태</h2>
+        </div>
+        <AdapterBoard status={data.status} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ShieldAltIcon />
+          <h2>안전 계약</h2>
+        </div>
+        <CapabilityBoard status={data.status} />
+      </section>
+      <DataSourceBoard overview={data.overview} />
+      <CustomerTopologyPanel data={data} />
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <CubesIcon />
+          <h2>Operator 상태</h2>
+        </div>
+        <OperatorIssues summary={data.summary} />
       </section>
     </PageShell>
   );
@@ -2357,7 +2451,7 @@ export const AiopsExecutionRecordsPage: React.FC = () => {
           <ClipboardCheckIcon />
           <h2>승인·실행 라이프사이클</h2>
         </div>
-        <RecordTable
+        <RecordList
           emptyLabel="최근 승인 또는 실행 기록이 없습니다."
           records={actionRecords(data.status)}
         />
@@ -2375,23 +2469,23 @@ export const AiopsPolicyPage: React.FC = () => {
     <PageShell data={data} eyebrow="Cywell AI" icon={<ShieldAltIcon />} title="정책">
       <div className="komsco-ai-page__metrics">
         <MetricTile
-          detail="host diagnostics collector"
+          detail="호스트 진단 수집기"
           icon={<ServerIcon />}
-          label="Diagnostics"
+          label="진단 수집"
           tone={!data.status ? 'warning' : capabilities?.diagnosticsEnabled ? 'info' : 'warning'}
-          value={!data.status ? 'PENDING' : capabilities?.diagnosticsEnabled ? 'ON' : 'OFF'}
+          value={!data.status ? '확인 중' : onOffLabel(capabilities?.diagnosticsEnabled)}
         />
         <MetricTile
-          detail="cluster mutation gate"
+          detail="클러스터 변경 허용 상태"
           icon={<ShieldAltIcon />}
-          label="Mutations"
+          label="변경 게이트"
           tone={!data.status ? 'warning' : capabilities?.mutationsEnabled ? 'danger' : 'success'}
-          value={!data.status ? 'PENDING' : capabilities?.mutationsEnabled ? 'ON' : 'OFF'}
+          value={!data.status ? '확인 중' : capabilities?.mutationsEnabled ? '열림' : '닫힘'}
         />
         <MetricTile
-          detail="approval execution path"
+          detail="승인 후 실행 경로"
           icon={<BoltIcon />}
-          label="Action Executor"
+          label="승인 실행"
           tone={
             !data.status
               ? 'warning'
@@ -2401,16 +2495,16 @@ export const AiopsPolicyPage: React.FC = () => {
           }
           value={
             !data.status
-              ? 'PENDING'
+              ? '확인 중'
               : capabilities?.actionExecutorConfigured
-                ? 'CONNECTED'
-                : 'NOT CONFIGURED'
+                ? '연결됨'
+                : '미설정'
           }
         />
         <MetricTile
-          detail="raw command execution"
+          detail="서버 허용 여부"
           icon={<LockIcon />}
-          label="Unrestricted"
+          label="무제한 실행"
           tone={
             !data.status
               ? 'warning'
@@ -2419,7 +2513,7 @@ export const AiopsPolicyPage: React.FC = () => {
                 : 'success'
           }
           value={
-            !data.status ? 'PENDING' : capabilities?.unrestrictedCommandsEnabled ? 'ON' : 'OFF'
+            !data.status ? '확인 중' : onOffLabel(capabilities?.unrestrictedCommandsEnabled)
           }
         />
       </div>

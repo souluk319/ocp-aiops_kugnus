@@ -3619,12 +3619,17 @@ type AssistantLauncherProps = {
   closeOverlay?: () => void;
 };
 
-const FullscreenPortal: React.FC<{ active: boolean; children: React.ReactNode }> = ({
+const AssistantSurfacePortal: React.FC<{
+  active: boolean;
+  children: React.ReactNode;
+  wrapperClassName: string;
+}> = ({
   active,
   children,
+  wrapperClassName,
 }) => {
   if (active && typeof document !== 'undefined') {
-    return ReactDOM.createPortal(children, document.body);
+    return ReactDOM.createPortal(<div className={wrapperClassName}>{children}</div>, document.body);
   }
 
   return <>{children}</>;
@@ -5286,11 +5291,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       ? ReactDOM.createPortal(historySidebar, document.body)
       : null;
 
+  const assistantRootClassName = `komsco-ai${embedded ? ' komsco-ai--embedded' : ''}${
+    fullScreen ? ' komsco-ai--fullscreen-active' : ''
+  }`;
+  const assistantSurfacePortalActive = assistantVisible && !embedded;
+
   return (
     <div
-      className={`komsco-ai${embedded ? ' komsco-ai--embedded' : ''}${
-        fullScreen ? ' komsco-ai--fullscreen-active' : ''
-      }`}
+      className={assistantRootClassName}
     >
       {!open && !embedded && (
         <Button
@@ -5308,7 +5316,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       )}
 
       {assistantVisible && (
-        <FullscreenPortal active={fullScreen}>
+        <AssistantSurfacePortal
+          active={assistantSurfacePortalActive}
+          wrapperClassName={`${assistantRootClassName} komsco-ai--portal`}
+        >
           <div
             aria-label="Cywell AI assistant"
             ref={surfaceRef}
@@ -5777,7 +5788,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               </div>
             )}
           </div>
-        </FullscreenPortal>
+        </AssistantSurfacePortal>
       )}
       {historySidebarPortal}
       {previewAttachment && (

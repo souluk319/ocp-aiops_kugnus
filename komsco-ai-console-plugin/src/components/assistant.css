@@ -5004,3 +5004,71 @@
   color: #94a3b8;
   line-height: 1.2;
 }
+
+/* Overlay stacking contract: the assistant must sit above the OKD chrome when opened. */
+.komsco-ai {
+  z-index: 2147483646;
+  pointer-events: auto;
+}
+
+.komsco-ai--portal {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483646;
+  pointer-events: auto;
+}
+
+.komsco-ai__surface {
+  position: relative;
+  z-index: 2147483646;
+  max-height: calc(100vh - 16px);
+  pointer-events: auto;
+}
+
+.komsco-ai__surface .komsco-ai__panel {
+  max-height: calc(100vh - 16px);
+}
+
+.komsco-ai__fab {
+  pointer-events: auto;
+}
+
+.komsco-ai__surface .komsco-ai__header,
+.komsco-ai__surface .komsco-ai__sidebar-toggle,
+.komsco-ai__surface .komsco-ai__header-status,
+.komsco-ai__surface .komsco-ai__header-actions {
+  position: relative;
+  z-index: 2147483646;
+}
+
+.komsco-ai__surface .komsco-ai__header::after,
+.komsco-ai__surface .komsco-ai__brand-mark::after,
+.komsco-ai__surface .komsco-ai__icon-button svg,
+.komsco-ai__surface .komsco-ai__icon-button svg *,
+.komsco-ai__surface .komsco-ai__mode-toggle-button svg,
+.komsco-ai__surface .komsco-ai__mode-toggle-button svg * {
+  pointer-events: none;
+}
+
+.komsco-ai__history-sidebar,
+.komsco-ai__surface .komsco-ai__history-sidebar,
+.komsco-ai--embedded .komsco-ai__history-sidebar {
+  z-index: 2147483646;
+}
+
+@media (width <= 760px) {
+  .komsco-ai {
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .komsco-ai__surface:not(.komsco-ai__surface--fullscreen) {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+  }
+
+  .komsco-ai__surface:not(.komsco-ai__surface--fullscreen) .komsco-ai__panel {
+    height: min(720px, calc(100vh - 16px));
+  }
+}
