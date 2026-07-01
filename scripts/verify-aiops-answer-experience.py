@@ -58,6 +58,7 @@ def main() -> None:
     require(CONTRACT, "실행 가능", "contract keeps execute mode")
     require(CONTRACT, "실행 무제한", "contract keeps unrestricted mode")
     require(CONTRACT, "UI 선택은 항상 가능", "contract forbids blocking unrestricted selection")
+    require(CONTRACT, "pod_screen_rca", "contract locks current screen Pod RCA promotion")
 
     require(AIOPS_CONTRACTS, '"answerExperience"', "RcaContext carries answer experience")
     require(AIOPS_CONTRACTS, '"queryPlan"', "RcaContext carries human query plan")
@@ -68,9 +69,12 @@ def main() -> None:
     )
     require(AIOPS_CONTRACTS, '"supportedExecutionModes"', "RcaContext lists supported modes")
     require(AIOPS_CONTRACTS, '"toolPlanDigest"', "RcaContext stamps tool plan digest")
+    require(AIOPS_CONTRACTS, 'task_type = "pod_screen_rca"', "ToolPlan promotes current Pod screen")
 
     require(GATEWAY_MAIN, "Tool Plan JSON은 Gateway 내부 작전서", "Gateway prompt treats ToolPlan as internal")
     require(GATEWAY_MAIN, "raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요", "Gateway prompt hides raw JSON")
+    require(GATEWAY_MAIN, "should_collect_pod_status_evidence_for_request(req)", "Gateway collects Pod evidence from page context")
+    require(GATEWAY_MAIN, "단순 절차 안내로 끝내지 마세요", "Gateway prompt forbids procedure-only screen answers")
     require(GATEWAY_MAIN, '"answerMode": answer_mode', "transcript stores answerMode")
     require(GATEWAY_MAIN, '"assistantAnswer"', "transcript stores assistantAnswer")
     require(GATEWAY_MAIN, '"toolPlanDigest": tool_plan_digest', "transcript stores toolPlanDigest")
@@ -84,6 +88,7 @@ def main() -> None:
     require(ASSISTANT, "queryPlan", "console builds queryPlan for Evidence footer")
     require(ASSISTANT, "상세 보기", "console has Evidence detail toggle")
     require(ASSISTANT, "조회 계획", "console labels human query plan")
+    require(ASSISTANT, "현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행", "quick prompt asks AIOps to run safe checks")
     require(ASSISTANT_CSS, "komsco-ai__evidence-query-plan", "console styles query plan detail")
     require(PAGES, "원본 Tool Plan JSON", "audit page keeps raw Tool Plan JSON")
     require(PAGES, "RCA Context JSON", "audit page keeps raw RCA Context JSON")
@@ -100,6 +105,7 @@ def main() -> None:
 
     require(GATEWAY_TESTS, "read_only_action_request_skips_plan", "tests cover read-only action skip")
     require(GATEWAY_TESTS, "execute_action_request_emits_plan", "tests cover execute action planning")
+    require(GATEWAY_TESTS, "test_runtime_tool_plan_promotes_current_pod_screen_to_rca", "tests cover current Pod screen promotion")
     require_ignored("komsco-ai-gateway/var/aiops/chat-transcripts.jsonl", "runtime transcript JSONL ignored")
 
 

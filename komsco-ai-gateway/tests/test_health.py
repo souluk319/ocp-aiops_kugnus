@@ -492,6 +492,34 @@ def test_runtime_tool_plan_generates_controlled_execution_pod_restart_rca() -> N
     assert {"node", "alert", "metric"}.isdisjoint(missing_types)
 
 
+def test_runtime_tool_plan_promotes_current_pod_screen_to_rca() -> None:
+    plan = build_runtime_tool_plan(
+        "현재 화면 기준으로 안전한 확인 절차를 단계별로 제안해줘.",
+        page_context={
+            "namespace": "openshift-marketplace",
+            "resourceKind": "Pod",
+            "resourceName": "appscan360-catalog-457gn",
+            "pathname": "/k8s/ns/openshift-marketplace/pods/appscan360-catalog-457gn",
+        },
+        execution_mode="execute",
+    )
+
+    assert plan["task_type"] == "pod_screen_rca"
+    assert plan["target"]["namespace"] == "openshift-marketplace"
+    assert plan["target"]["resourceKind"] == "Pod"
+    assert plan["target"]["resourceName"] == "appscan360-catalog-457gn"
+    assert plan["execution_policy"]["mode"] == "controlled_execution"
+    assert plan["validation"]["ok"] is True
+    assert {step["tool"] for step in plan["tool_plan"]} >= {
+        "openshift_pod_status_lookup",
+        "openshift_pod_snapshot_lookup",
+        "openshift_event_lookup",
+        "openshift_deployment_lookup",
+        "gateway_rag_runbook_search",
+    }
+    assert {step["verb"] for step in plan["tool_plan"]} <= {"get", "list", "watch"}
+
+
 def test_runtime_safety_contract_exposes_latest_tool_plan() -> None:
     plan = build_runtime_tool_plan("clusteroperator 상태 확인해줘")
     contract = build_runtime_safety_contract(

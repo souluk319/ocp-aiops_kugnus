@@ -73,8 +73,9 @@ const QUICK_PROMPTS = [
   },
   {
     icon: <CoolTerminalIcon />,
-    label: '조치 절차',
-    prompt: '현재 화면 기준으로 안전한 확인 절차를 단계별로 제안해줘.',
+    label: '화면 진단',
+    prompt:
+      '현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 증적과 원인 후보, 승인 가능한 조치 후보를 정리해줘.',
   },
   {
     icon: <CoolShieldCheckIcon />,

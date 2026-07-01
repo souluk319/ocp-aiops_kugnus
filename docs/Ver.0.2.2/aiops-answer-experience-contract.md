@@ -49,6 +49,7 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 | AX-05 | Audit/개발자 화면에서는 원본 Tool Plan JSON과 RcaContext JSON을 유지한다. | Console page 문자열과 JSON 렌더링 확인 | static verifier |
 | AX-06 | Chat transcript에 `assistantAnswer`, `toolPlanDigest`, `rcaContextDigest`, `evidenceRefs`, `answerMode`가 남는다. | Gateway transcript builder 검사 | static verifier |
 | AX-07 | 읽기 전용/실행 가능/실행 무제한 모드가 모두 유지된다. | Console mode toggle 및 Gateway mode mapping 검사 | typecheck + static verifier |
+| AX-08 | Pod/워크로드 화면에서 "현재 화면 기준", "안전한 확인 절차"를 물으면 수동 절차 안내가 아니라 화면 대상 RCA ToolPlan으로 승격한다. | pageContext `resourceKind=Pod` 요청이 `pod_screen_rca`와 Pod evidence 수집으로 라우팅되는지 검사 | pytest + static verifier |
 
 ## 하지 않을 것
 

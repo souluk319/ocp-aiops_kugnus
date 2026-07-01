@@ -950,6 +950,7 @@ def build_runtime_tool_plan(
     page_context: Mapping[str, Any] | None = None,
     execution_mode: str = "execute",
 ) -> dict[str, Any]:
+    page_context = page_context if isinstance(page_context, Mapping) else {}
     requested_ui_mode = str(execution_mode or "execute").strip().lower()
     execution_policy_mode = (
         "unrestricted"
@@ -958,8 +959,30 @@ def build_runtime_tool_plan(
         if requested_ui_mode in {"read-only", "read_only", "readonly", "evidence-check", "evidence_check", "점검", "조회"}
         else "controlled_execution"
     )
+    context_resource_kind = str(page_context.get("resourceKind") or "").strip()
+    context_resource_name = str(page_context.get("resourceName") or "").strip()
+    context_is_pod_workload = context_resource_kind.lower() in {
+        "pod",
+        "deployment",
+        "replicaset",
+        "statefulset",
+        "daemonset",
+        "deploymentconfig",
+    }
+    asks_screen_context = _message_has_any(
+        message,
+        (
+            "현재 화면",
+            "화면 기준",
+            "화면의 대상",
+            "대상 리소스",
+            "안전한 확인 절차",
+            "단계별 확인",
+            "안전 조회",
+        ),
+    )
     namespace = _namespace_from_message(message, page_context)
-    asks_pod = _message_has_any(message, ("pod", "pods", "파드"))
+    asks_pod = context_is_pod_workload or _message_has_any(message, ("pod", "pods", "파드"))
     asks_restart = _message_has_any(
         message,
         ("restart", "재시작", "crashloop", "crashloopbackoff", "imagepull", "backoff", "oom"),
@@ -1023,7 +1046,60 @@ def build_runtime_tool_plan(
         ),
     )
 
-    if (asks_action_followup or asks_action) and not (asks_pod and asks_restart):
+    if context_is_pod_workload and asks_screen_context and not asks_action_followup:
+        task_type = "pod_screen_rca"
+        tool_steps = [
+            {
+                "step": 1,
+                "tool": "openshift_pod_status_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "pod_status",
+                "reason": "현재 화면의 Pod/워크로드 상태, container waiting reason, restartCount 확인",
+            },
+            {
+                "step": 2,
+                "tool": "openshift_pod_snapshot_lookup",
+                "official_tool": "snapshot_tool",
+                "adapter": "OpenShift",
+                "verb": "get",
+                "evidence_type": "snapshot",
+                "reason": "화면 대상 리소스의 현재 phase, owner, image, lastState를 RCA snapshot으로 구조화",
+            },
+            {
+                "step": 3,
+                "tool": "openshift_event_lookup",
+                "official_tool": "event_tool",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "event",
+                "reason": "ImagePullBackOff, FailedScheduling, BackOff 같은 최근 Event reason 확인",
+            },
+            {
+                "step": 4,
+                "tool": "openshift_deployment_lookup",
+                "adapter": "OpenShift",
+                "verb": "get",
+                "evidence_type": "deployment",
+                "reason": "Pod owner chain과 상위 관리 객체를 확인해 조치 대상을 Pod가 아닌 controller로 고정",
+            },
+            {
+                "step": 5,
+                "tool": "gateway_rag_runbook_search",
+                "official_tool": "runbook_tool",
+                "adapter": "AI Gateway",
+                "verb": "get",
+                "evidence_type": "runbook",
+                "reason": "ImagePullBackOff 및 marketplace/catalog Pod 운영 runbook과 권장 조치 후보 연결",
+            },
+        ]
+        missing = [
+            {
+                "type": "action_approval",
+                "reason": "변경 조치는 원인 후보와 조치 대상이 확인된 뒤 ActionProposal/SealedActionPlan으로 분리",
+            }
+        ]
+    elif (asks_action_followup or asks_action) and not (asks_pod and asks_restart):
         task_type = "action_lifecycle_review"
         tool_steps = [
             {
@@ -1293,6 +1369,8 @@ def build_runtime_tool_plan(
         "target": {
             "platform": "openshift",
             "namespace": namespace or "all-accessible-namespaces",
+            "resourceKind": context_resource_kind,
+            "resourceName": context_resource_name,
         },
         "execution_policy": {
             "mode": execution_policy_mode,

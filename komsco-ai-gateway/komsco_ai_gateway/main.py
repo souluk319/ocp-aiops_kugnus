@@ -2548,6 +2548,22 @@ def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deploymen
     return ""
 
 
+def page_context_resource_kind(req: ChatRequest) -> str:
+    context = normalize_console_page_context(req.pageContext)
+    return str(context.get("resourceKind") or "").strip()
+
+
+def page_context_is_pod_workload(req: ChatRequest) -> bool:
+    return page_context_resource_kind(req).lower() in {
+        "pod",
+        "deployment",
+        "replicaset",
+        "statefulset",
+        "daemonset",
+        "deploymentconfig",
+    }
+
+
 def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
     mode = str(context.get("aiopsExecutionMode") or "execute").strip().lower()
@@ -5544,6 +5560,10 @@ def should_collect_pod_status_evidence(message: str) -> bool:
     )
 
 
+def should_collect_pod_status_evidence_for_request(req: ChatRequest) -> bool:
+    return should_collect_pod_status_evidence(req.message) or page_context_is_pod_workload(req)
+
+
 def should_collect_cronjob_activity_evidence(
     message: str,
     image_analysis: str | None = None,
@@ -5557,6 +5577,14 @@ def should_collect_rca_signal_evidence(message: str) -> bool:
         should_collect_pod_status_evidence(message)
         or CLUSTER_OPERATOR_ANALYSIS_RE.search(message)
         or RCA_SIGNAL_ANALYSIS_RE.search(message)
+    )
+
+
+def should_collect_rca_signal_evidence_for_request(req: ChatRequest) -> bool:
+    return bool(
+        should_collect_pod_status_evidence_for_request(req)
+        or CLUSTER_OPERATOR_ANALYSIS_RE.search(req.message)
+        or RCA_SIGNAL_ANALYSIS_RE.search(req.message)
     )
 
 
@@ -7052,6 +7080,7 @@ Use this structure when RCA or operations status is requested:
 
 AIOps 리소스 원인분석 라우팅:
 - 이 프롬프트에서 "Gateway"는 KOMSCO AI Gateway/BFF 보안 경계를 뜻합니다. 사용자가 Kubernetes Gateway API를 명시적으로 묻지 않았다면 `gateway.networking.k8s.io`, `Gateway`, `GatewayClass` 문서 링크를 추가하지 마세요.
+- [현재 콘솔 컨텍스트]에 `resourceKind`와 `resourceName`이 있고 사용자가 "현재 화면", "안전한 확인 절차", "단계별 확인", "문제 여부", "원인"을 묻는 경우에는 단순 절차 안내로 끝내지 마세요. Gateway가 이미 수집한 Pod/Event/Metric/RAG evidence를 먼저 요약하고, 확인된 증적, 원인 후보, 승인 가능한 조치 후보를 구분하세요.
 - 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
 - alert 조회는 사용자가 "경고", "alert", "알람"을 명시했거나, 리소스 상태 조회 후 관련 경고를 보강할 때 사용하세요. "활성 alert에 없음"은 HPA, Pod, PVC, Job 장애가 없다는 뜻이 아닙니다.
 - HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 근거로 설명하세요.
@@ -13139,7 +13168,7 @@ async def chat_stream(
         text_reference_filter = TextReferenceFilter(
             filter_gateway_api_references=should_filter_gateway_api_references(req.message),
             filter_low_signal_references=should_filter_low_signal_references(req.message),
-            normalize_restart_language=should_collect_pod_status_evidence(req.message),
+            normalize_restart_language=should_collect_pod_status_evidence_for_request(req),
         )
         runtime_tool_plan: dict[str, Any] | None = None
         transcript_answer_chunks: list[str] = []
@@ -14137,7 +14166,7 @@ async def chat_stream(
                     ):
                         yield sse(evidence_event)
 
-            if should_collect_pod_status_evidence(req.message):
+            if should_collect_pod_status_evidence_for_request(req):
                 yield sse(
                     {
                         "type": "tool_call",
@@ -14147,7 +14176,7 @@ async def chat_stream(
                     }
                 )
                 try:
-                    pod_list_requested = is_pod_list_request(req.message)
+                    pod_list_requested = is_pod_list_request(req.message) or page_context_is_pod_workload(req)
                     pod_evidence = await collect_pod_status_evidence(
                         authorization,
                         include_pod_list=pod_list_requested,
@@ -14377,7 +14406,7 @@ async def chat_stream(
 
             if (
                 str(policy.get("decision") or "") == "allow_evidence_collection"
-                and should_collect_rca_signal_evidence(req.message)
+                and should_collect_rca_signal_evidence_for_request(req)
             ):
                 rca_preflight_collectors = [
                     (

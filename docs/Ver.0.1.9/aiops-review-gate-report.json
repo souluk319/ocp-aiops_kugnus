@@ -1,6 +1,6 @@
 {
   "schemaVersion": "v1",
-  "generatedAt": "2026-07-01T06:25:58.341255Z",
+  "generatedAt": "2026-07-01T07:07:41.291777Z",
   "branch": "v0.2.2-aiops-answer-experience",
   "reviewerCount": 3,
   "minimumReviewPassesRequired": 5,
@@ -147,7 +147,7 @@
       "ok": true,
       "command": "python3 -m py_compile komsco-ai-gateway/komsco_ai_gateway/main.py komsco-ai-gateway/tests/test_health.py",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:46.436106Z",
+      "startedAt": "2026-07-01T07:07:29.271998Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
@@ -158,9 +158,9 @@
       "ok": true,
       "command": "komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway/tests/test_health.py -q -k runtime_tool_plan or rca_context or action_candidates or execute_mode_action_plan_response_has_post_answer_rca or chat_action_plan_can_continue_through_standard_approval_api or unrestricted_executes_natural_scale_action or execute_action_request_emits_plan_and_post_answer_rca_context or read_only_action_request_skips_plan_and_emits_post_answer_rca_context",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:46.651181Z",
+      "startedAt": "2026-07-01T07:07:29.515797Z",
       "returnCode": 0,
-      "stdoutPreview": ": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"execute\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-01T06:25:48.057085+00:00\"}}\n.{\"aiopsAudit\": {\"schemaVersion\": \"v1\", \"action\": \"chat_request_accepted\", \"auditId\": \"audit-064795ee71d77e06\", \"incidentId\": \"inc-510c26f8-7a18-4010-ad13-202661d071ea\", \"policy\": {\"schemaVersion\": \"v1\", \"phase\": \"phase5-action-execution\", \"decision\": \"action_proposal_only\", \"identityMode\": \"user-token\", \"mutationAllowed\": false, \"risk\": \"approval_required\", \"reason\": \"Natural-language mutation requests must be converted to an ActionProposal and executed only through the Approval API and Action Executor.\"}, \"requestId\": \"req-ac09a512-c53b-4330-8533-744d7aa8a0ed\", \"runId\": \"run-f00b4482-ac49-4de0-b919-03cc546456b1\", \"subject\": {\"authenticatedByCluster\": \"api-server\", \"groups\": [\"system:authenticated\"], \"groupsDigest\": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"read-only\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-01T06:25:48.091892+00:00\"}}\n...\n16 passed, 201 deselected in 1.11s\n",
+      "stdoutPreview": ": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"execute\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-01T07:07:31.054330+00:00\"}}\n.{\"aiopsAudit\": {\"schemaVersion\": \"v1\", \"action\": \"chat_request_accepted\", \"auditId\": \"audit-e7e3199e145f6512\", \"incidentId\": \"inc-bc4958f3-95de-42e0-9b83-7982fc51b093\", \"policy\": {\"schemaVersion\": \"v1\", \"phase\": \"phase5-action-execution\", \"decision\": \"action_proposal_only\", \"identityMode\": \"user-token\", \"mutationAllowed\": false, \"risk\": \"approval_required\", \"reason\": \"Natural-language mutation requests must be converted to an ActionProposal and executed only through the Approval API and Action Executor.\"}, \"requestId\": \"req-cd56a8d0-32ef-4536-b83a-b2a4e69bae37\", \"runId\": \"run-364b9028-387c-47bb-9f84-374c7280709d\", \"subject\": {\"authenticatedByCluster\": \"api-server\", \"groups\": [\"system:authenticated\"], \"groupsDigest\": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"read-only\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-01T07:07:31.112849+00:00\"}}\n...\n17 passed, 201 deselected in 1.28s\n",
       "stderrPreview": ""
     },
     {
@@ -169,9 +169,9 @@
       "ok": true,
       "command": "python3 scripts/verify-aiops-answer-experience.py",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:48.564506Z",
+      "startedAt": "2026-07-01T07:07:31.613174Z",
       "returnCode": 0,
-      "stdoutPreview": "p section\nPASS contract requires prevention section\nPASS contract keeps read-only mode\nPASS contract keeps execute mode\nPASS contract keeps unrestricted mode\nPASS contract forbids blocking unrestricted selection\nPASS RcaContext carries answer experience\nPASS RcaContext carries human query plan\nPASS RcaContext forbids raw plan in default answer\nPASS RcaContext lists supported modes\nPASS RcaContext stamps tool plan digest\nPASS Gateway prompt treats ToolPlan as internal\nPASS Gateway prompt hides raw JSON\nPASS transcript stores answerMode\nPASS transcript stores assistantAnswer\nPASS transcript stores toolPlanDigest\nPASS transcript stores rcaContextDigest\nPASS transcript stores evidenceRefs\nPASS transcript names human RCA answer mode\nPASS action text uses human query plan wording\nPASS default action text does not print Tool Plan line\nPASS console has query step type\nPASS console builds queryPlan for Evidence footer\nPASS console has Evidence detail toggle\nPASS console labels human query plan\nPASS console styles query plan detail\nPASS audit page keeps raw Tool Plan JSON\nPASS audit page keeps raw RCA Context JSON\nPASS console keeps three modes\nPASS console keeps read-only label\nPASS console keeps execute label\nPASS console keeps unrestricted label\nPASS console keeps unrestricted button selectable\nPASS console does not auto-demote unrestricted mode\nPASS gateway keeps evidence-check mode\nPASS gateway keeps controlled execution mode\nPASS gateway keeps unrestricted mode\nPASS tests cover read-only action skip\nPASS tests cover execute action planning\nPASS runtime transcript JSONL ignored\n",
+      "stdoutPreview": "rience\nPASS RcaContext carries human query plan\nPASS RcaContext forbids raw plan in default answer\nPASS RcaContext lists supported modes\nPASS RcaContext stamps tool plan digest\nPASS ToolPlan promotes current Pod screen\nPASS Gateway prompt treats ToolPlan as internal\nPASS Gateway prompt hides raw JSON\nPASS Gateway collects Pod evidence from page context\nPASS Gateway prompt forbids procedure-only screen answers\nPASS transcript stores answerMode\nPASS transcript stores assistantAnswer\nPASS transcript stores toolPlanDigest\nPASS transcript stores rcaContextDigest\nPASS transcript stores evidenceRefs\nPASS transcript names human RCA answer mode\nPASS action text uses human query plan wording\nPASS default action text does not print Tool Plan line\nPASS console has query step type\nPASS console builds queryPlan for Evidence footer\nPASS console has Evidence detail toggle\nPASS console labels human query plan\nPASS quick prompt asks AIOps to run safe checks\nPASS console styles query plan detail\nPASS audit page keeps raw Tool Plan JSON\nPASS audit page keeps raw RCA Context JSON\nPASS console keeps three modes\nPASS console keeps read-only label\nPASS console keeps execute label\nPASS console keeps unrestricted label\nPASS console keeps unrestricted button selectable\nPASS console does not auto-demote unrestricted mode\nPASS gateway keeps evidence-check mode\nPASS gateway keeps controlled execution mode\nPASS gateway keeps unrestricted mode\nPASS tests cover read-only action skip\nPASS tests cover execute action planning\nPASS tests cover current Pod screen promotion\nPASS runtime transcript JSONL ignored\n",
       "stderrPreview": ""
     },
     {
@@ -180,7 +180,7 @@
       "ok": true,
       "command": "./node_modules/.bin/tsc --noEmit",
       "cwd": "komsco-ai-console-plugin",
-      "startedAt": "2026-07-01T06:25:48.623718Z",
+      "startedAt": "2026-07-01T07:07:31.689159Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
@@ -191,7 +191,7 @@
       "ok": true,
       "command": "node --check scripts/verify-kugnus-ui.mjs",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:56.966679Z",
+      "startedAt": "2026-07-01T07:07:40.224191Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
@@ -246,7 +246,7 @@
       "ok": true,
       "command": "task kugnus:scenario:verify",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:57.174061Z",
+      "startedAt": "2026-07-01T07:07:40.327717Z",
       "returnCode": 0,
       "stdoutPreview": "{\n  \"report\": \"docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\",\n  \"scenarioCount\": 13,\n  \"expectedScenarioCount\": 13,\n  \"passed\": 13,\n  \"failed\": 0,\n  \"missingRequiredScenarioIds\": [],\n  \"unexpectedScenarioIds\": [],\n  \"duplicateScenarioIds\": [],\n  \"negativeControlsPassed\": true\n}\n",
       "stderrPreview": "task: [kugnus:evaluate] python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\n"
@@ -257,7 +257,7 @@
       "ok": true,
       "command": "task kugnus:package",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:57.744214Z",
+      "startedAt": "2026-07-01T07:07:40.793595Z",
       "returnCode": 0,
       "stdoutPreview": "Generated OLM package under /home/kugnus/cywell/ocp-aiops_kugnus/olm/generated\nCSV: komsco-aiops-kugnus-operator.v0.1.9\nCatalogSource: openshift-marketplace/komsco-aiops-catalog-kugnus\nSubscription namespace: komsco-ai-kugnus\nKugnus package verification passed\nCSV: komsco-aiops-kugnus-operator.v0.1.9\nCatalogSource: openshift-marketplace/komsco-aiops-catalog-kugnus\nPackageManifest: komsco-aiops-kugnus\nConsolePlugin: komsco-ai-console-plugin-kugnus\nReadiness conditions: ActionExecutorReady, ConsolePluginConfigured, ConsolePluginDeploymentReady, GatewayReady, GatewayServiceReady, HostDiagnosticsReady, RBACReady, SafetyModeReady, ServiceCABundleReady, TargetNamespaceReady\n",
       "stderrPreview": "task: [kugnus:package] ./scripts/kugnus-olm.sh package\n"
@@ -268,7 +268,7 @@
       "ok": true,
       "command": "git diff --check",
       "cwd": ".",
-      "startedAt": "2026-07-01T06:25:58.329618Z",
+      "startedAt": "2026-07-01T07:07:41.266109Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
