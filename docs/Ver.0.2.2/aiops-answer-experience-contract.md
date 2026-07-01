@@ -36,7 +36,7 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 
 - `읽기 전용`: 증거 수집과 RCA만 수행한다. 조치 요청도 계획/승인/실행 레코드를 만들지 않는다.
 - `실행 가능`: 조치 요청 시 `ActionProposal -> SealedActionPlan`까지 만든다. 실행은 승인 이후에만 가능하다.
-- `실행 무제한`: 실험/개발용 확장 모드이다. UI와 Gateway capability가 모두 허용할 때만 선택 가능하다.
+- `실행 무제한`: 실험/개발용 확장 모드이다. UI 선택은 항상 가능해야 하며, Gateway capability가 꺼져 있으면 실행 시점에 서버가 거절 사유를 반환한다. UI가 선택 직후 임의로 `실행 가능`으로 되돌리면 안 된다.
 
 ## Acceptance Criteria
 

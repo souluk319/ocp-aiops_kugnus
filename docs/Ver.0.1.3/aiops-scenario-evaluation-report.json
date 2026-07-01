@@ -1,8 +1,8 @@
 {
-  "startedAt": "2026-07-01T06:12:44.825233+00:00",
+  "startedAt": "2026-07-01T06:25:57.724493+00:00",
   "metadata": {
     "branch": "v0.2.2-aiops-answer-experience",
-    "headSha": "d1d610860ad612de803526cb5f9a2cc922c2684e",
+    "headSha": "4118a3ff3c1c2e686bb1bcfe35fa7436dc44d795",
     "baseRef": "5477f40fc2b39bcbce6b12422cb98996d86be4ae"
   },
   "scenarioDir": "evals/aiops-scenarios",
@@ -70,7 +70,7 @@
     "missingEvidenceTypes": [
       "runbook"
     ],
-    "rcaContextDigest": "sha256:48556b1a755fa2595f7797bd77c43e95f80f3ff552b9caaec46e76042f4bb5a7",
+    "rcaContextDigest": "sha256:6d5cffe76d72702d5e7bc4bcdb661cc7ebdd32d6036db912cc23656c261127bb",
     "evidenceCounts": {
       "collected": 2,
       "partial": 0,
@@ -129,7 +129,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:68f3c55a8fd131aac45c8cb579efbce1062a53809d4d968c210336c7c5842891",
+      "rcaContextDigest": "sha256:59cf316ef1a7c375e2aa1d76b2a43ac948defa170ca823feeb4ba04d9bdd97b9",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -183,7 +183,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:a41a767c6cc2fcfc605e5994345e41f160cf6345360642780eaad681609de87e",
+      "rcaContextDigest": "sha256:2cb9f53a1428fcc7af958c7c1f34ae375ca293a6ba9313315ae9fd14afe8cace",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -237,7 +237,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:8bcb77044c1a8d4e23372f444fb50ea98c55513d58cf3680cf867a892a9cbc8f",
+      "rcaContextDigest": "sha256:f2d0422691293775383d2a08a8145bf23a1ee1050d21e48a0eee2692a0932626",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -291,7 +291,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:70cf35d1ec9e15bb1cefe3c323a0ac20d72329d9f53b04ad6dfd0fc10452dbec",
+      "rcaContextDigest": "sha256:7110e8c43a7a72bc9ed3fd6fb1075738e5a7836cf653e60033423cf3ffb50dbd",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -345,7 +345,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:c7ed702f00ac0dd1f3ac989e5d534ebaa07bc569ca4f5cc158b94b681100ddc8",
+      "rcaContextDigest": "sha256:1b72e6dd7a6505eae9eae98d1bde5aec9d12690b155b296b9c3bfd847152925c",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -409,7 +409,7 @@
       "missingEvidenceTypes": [
         "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:c923515dd267f1fc23c82e9c2282791a9a748b2d52d76858f3072c389ead8f4e",
+      "rcaContextDigest": "sha256:a4d7dda88e7705da172f61f5e70386eea2f749ff899891a3434a36680dea5447",
       "evidenceCounts": {
         "collected": 5,
         "partial": 0,
@@ -424,10 +424,10 @@
         "action_candidates": [],
         "confidence": 1.0,
         "evidence_types": [
+          "snapshot_tool",
           "grep_tool",
           "pod_status",
           "event_tool",
-          "snapshot_tool",
           "runbook_tool"
         ]
       }
@@ -473,7 +473,7 @@
       "missingEvidenceTypes": [
         "clusteroperator"
       ],
-      "rcaContextDigest": "sha256:2497f594d477a30a389415170f1ed8a0483bb19cdf44ee47c1a3d0a9c1fbabac",
+      "rcaContextDigest": "sha256:abb467ebda807fedbc01be49b049776c00e0c8e3edf20683ee0ab0711c3c5285",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
@@ -526,7 +526,7 @@
       "missingEvidenceTypes": [
         "metric"
       ],
-      "rcaContextDigest": "sha256:938dbd294f7ceafb338c450d9372369add9c36537352332e48e6261295971148",
+      "rcaContextDigest": "sha256:6aaf447991f53e8a4360c6877e1b7a11dac8e8b57897bbddf25e3de37f539753",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -581,7 +581,7 @@
       "missingEvidenceTypes": [
         "runbook"
       ],
-      "rcaContextDigest": "sha256:c6f48293c8c80aeca258d90861d5f165e4820333f41d22509979338327388fff",
+      "rcaContextDigest": "sha256:7f00b63101eedf5b138c7214e203621c1f6f6d76444150d9949151b21fe9bd06",
       "evidenceCounts": {
         "collected": 3,
         "partial": 0,
@@ -635,7 +635,7 @@
       "missingEvidenceTypes": [
         "execution_record"
       ],
-      "rcaContextDigest": "sha256:7841fc6ec504a1ad774a47b1df34f3a90737634fddc31bbb9e4c49b645ae8613",
+      "rcaContextDigest": "sha256:3781af69033842401e21f2a3fefa1bd1d8b6c144e2f5433216e2dbb57f9f787a",
       "evidenceCounts": {
         "collected": 1,
         "partial": 0,
@@ -699,7 +699,7 @@
         "clusteroperator",
         "metric"
       ],
-      "rcaContextDigest": "sha256:a4c1dd40d190ad06e7ed20bf5beaaef69a0eecb120efe6307e25e5ef386c9d83",
+      "rcaContextDigest": "sha256:8ded2dd4cc3cb6642180c97ad78072ce4bfb018f00e144c9b1794cf7fb6f094f",
       "evidenceCounts": {
         "collected": 5,
         "partial": 0,
@@ -715,10 +715,10 @@
         "action_candidates": [],
         "confidence": 0.83,
         "evidence_types": [
+          "snapshot_tool",
           "grep_tool",
           "pod_status",
           "event_tool",
-          "snapshot_tool",
           "runbook_tool"
         ]
       }
@@ -758,7 +758,7 @@
       "missingEvidenceTypes": [
         "linux_command_output"
       ],
-      "rcaContextDigest": "sha256:ce8ef6cbcd93aca178192093a6f0b702cdde61fdebcecb9fe868260792c8d34e",
+      "rcaContextDigest": "sha256:e8ee880cf566b35c0562df783d43faaa66b61ed5fa3082b2d8e40c2e109e1df4",
       "evidenceCounts": {
         "collected": 2,
         "partial": 0,
@@ -772,8 +772,8 @@
         "action_candidates": [],
         "confidence": 0.67,
         "evidence_types": [
-          "openshift",
-          "runbook_tool"
+          "runbook_tool",
+          "openshift"
         ]
       }
     },
@@ -823,7 +823,7 @@
         "metric",
         "pod_log"
       ],
-      "rcaContextDigest": "sha256:1b02ff49d750c70d6436b7f949856e067a91111b738de9944f0300fbe31de2ea",
+      "rcaContextDigest": "sha256:16c6dbf3295acf16cfda900347a1460a40515b63b0c1db6b99e5dfd36795c4e0",
       "evidenceCounts": {
         "collected": 4,
         "partial": 0,
@@ -838,9 +838,9 @@
         "confidence": 0.67,
         "evidence_types": [
           "pod_status",
-          "event_tool",
           "snapshot_tool",
-          "runbook_tool"
+          "runbook_tool",
+          "event_tool"
         ]
       }
     }

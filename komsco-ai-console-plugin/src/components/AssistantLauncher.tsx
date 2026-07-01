@@ -2278,8 +2278,6 @@ const renderExecutionModeToggle = (
   executionMode: AiopsExecutionMode,
   actionExecutionAvailable: boolean,
   actionExecutionDisabledReason: string,
-  unrestrictedAvailable: boolean,
-  unrestrictedDisabledReason: string,
   onExecutionModeChange: (mode: AiopsExecutionMode) => void,
 ) => (
   <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
@@ -2320,13 +2318,8 @@ const renderExecutionModeToggle = (
       className={`komsco-ai__mode-toggle-button${
         executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
       }`}
-      data-disabled-reason={!unrestrictedAvailable ? unrestrictedDisabledReason : undefined}
       onClick={() => onExecutionModeChange('unrestricted')}
-      title={
-        unrestrictedAvailable
-          ? '실험 무제한 모드'
-          : `실험 무제한 비활성: ${unrestrictedDisabledReason}`
-      }
+      title="실험 무제한 모드"
       type="button"
     >
       <CoolInfoIcon />
@@ -2640,10 +2633,14 @@ const renderExecutionCapabilityBadges = (
       )}
       {renderStatusTag(
         '실행 무제한',
-        unrestrictedAvailable ? (unrestrictedActive ? 'danger' : 'review') : 'neutral',
-        unrestrictedAvailable
-          ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
-          : getUnrestrictedDisabledReason(status),
+        unrestrictedActive ? 'danger' : unrestrictedAvailable ? 'review' : 'neutral',
+        unrestrictedActive
+          ? unrestrictedAvailable
+            ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
+            : '실행 무제한 모드가 선택되었습니다. Gateway capability가 OFF이면 실행 시 서버가 거절 사유를 반환합니다.'
+          : unrestrictedAvailable
+            ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
+            : getUnrestrictedDisabledReason(status),
         <CoolInfoIcon />,
       )}
     </div>
@@ -3486,7 +3483,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
     DEFAULT_AIOPS_EXECUTION_MODE,
   );
-  const [executionModeManuallySelected, setExecutionModeManuallySelected] = React.useState(false);
   const [dragActive, setDragActive] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [conversationId, setConversationId] = React.useState<string | undefined>();
@@ -3529,9 +3525,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const chatAbortControllerRef = React.useRef<AbortController | null>(null);
   const stopRequestedRef = React.useRef(false);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
-  const unrestrictedAvailable = canUseUnrestrictedCommands(aiopsStatus);
   const actionExecutionDisabledReason = getActionExecutionDisabledReason(aiopsStatus);
-  const unrestrictedDisabledReason = getUnrestrictedDisabledReason(aiopsStatus);
   const assistantConnection = getAssistantConnectionState(
     clusterSummary,
     clusterSummaryLoading,
@@ -3558,7 +3552,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     const requestedExecutionMode = draftExecutionMode(draftPrompt.pageContext);
     if (requestedExecutionMode) {
       setExecutionMode(requestedExecutionMode);
-      setExecutionModeManuallySelected(true);
     }
     setQuickPromptMenuOpen(false);
     setTaskModeMenuOpen(false);
@@ -3724,21 +3717,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [embedded, fullScreen, panelResizeUnlocked],
   );
 
-  React.useEffect(() => {
-    if (!aiopsStatus) {
-      return;
-    }
-    if (!unrestrictedAvailable && executionMode === 'unrestricted') {
-      setExecutionMode('execute');
-    }
-  }, [
-    actionExecutionAvailable,
-    aiopsStatus,
-    executionMode,
-    executionModeManuallySelected,
-    unrestrictedAvailable,
-  ]);
-
   React.useLayoutEffect(() => {
     if (!historySidebarOpen || fullScreen) {
       setHistoryDrawerBounds({});
@@ -3803,7 +3781,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const handleExecutionModeChange = React.useCallback(
     (mode: AiopsExecutionMode) => {
       setAiopsActionError('');
-      setExecutionModeManuallySelected(true);
       setExecutionMode(mode);
     },
     [],
@@ -5179,8 +5156,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     executionMode,
                     actionExecutionAvailable,
                     actionExecutionDisabledReason,
-                    unrestrictedAvailable,
-                    unrestrictedDisabledReason,
                     handleExecutionModeChange,
                   )}
                 </div>

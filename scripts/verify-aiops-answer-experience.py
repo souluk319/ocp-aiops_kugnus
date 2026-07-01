@@ -57,6 +57,7 @@ def main() -> None:
     require(CONTRACT, "읽기 전용", "contract keeps read-only mode")
     require(CONTRACT, "실행 가능", "contract keeps execute mode")
     require(CONTRACT, "실행 무제한", "contract keeps unrestricted mode")
+    require(CONTRACT, "UI 선택은 항상 가능", "contract forbids blocking unrestricted selection")
 
     require(AIOPS_CONTRACTS, '"answerExperience"', "RcaContext carries answer experience")
     require(AIOPS_CONTRACTS, '"queryPlan"', "RcaContext carries human query plan")
@@ -91,6 +92,8 @@ def main() -> None:
     require(ASSISTANT, "읽기 전용", "console keeps read-only label")
     require(ASSISTANT, "실행 가능", "console keeps execute label")
     require(ASSISTANT, "실행 무제한", "console keeps unrestricted label")
+    require(ASSISTANT, 'title="실험 무제한 모드"', "console keeps unrestricted button selectable")
+    reject(ASSISTANT, "setExecutionMode('execute');", "console does not auto-demote unrestricted mode")
     require(AIOPS_CONTRACTS, '"evidence_check"', "gateway keeps evidence-check mode")
     require(AIOPS_CONTRACTS, '"controlled_execution"', "gateway keeps controlled execution mode")
     require(AIOPS_CONTRACTS, '"unrestricted"', "gateway keeps unrestricted mode")
