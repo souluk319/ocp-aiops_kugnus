@@ -15,6 +15,7 @@ GATEWAY_TESTS = ROOT / "komsco-ai-gateway" / "tests" / "test_health.py"
 ASSISTANT = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantLauncher.tsx"
 ASSISTANT_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.css"
 PAGES = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "AiopsPages.tsx"
+PAGES_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "aiops-pages.css"
 GITIGNORE = ROOT / ".gitignore"
 
 
@@ -62,6 +63,7 @@ def main() -> None:
     require(CONTRACT, "새로고침해도 현재 대화와 최근 대화 목록이 복원", "contract keeps refresh-safe chat history")
     require(CONTRACT, "첨부 이미지 원본 데이터", "contract forbids storing raw attachment data in UI history")
     require(CONTRACT, "evidence-grounded-pod-rca-v0.2.2", "contract locks grounded Pod RCA renderer")
+    require(CONTRACT, "본문을 꽉 채우는 embedded/lockOpen 챗봇", "contract forbids embedded dashboard chatbot")
 
     require(AIOPS_CONTRACTS, '"answerExperience"', "RcaContext carries answer experience")
     require(AIOPS_CONTRACTS, '"queryPlan"', "RcaContext carries human query plan")
@@ -101,6 +103,11 @@ def main() -> None:
     require(ASSISTANT_CSS, "komsco-ai__evidence-query-plan", "console styles query plan detail")
     require(PAGES, "원본 Tool Plan JSON", "audit page keeps raw Tool Plan JSON")
     require(PAGES, "RCA Context JSON", "audit page keeps raw RCA Context JSON")
+    require(PAGES, "<AssistantLauncher draftPrompt={assistantDraftPrompt} onRunComplete={data.refresh} />", "dashboard keeps assistant as closed FAB launcher")
+    reject(PAGES, 'className="komsco-ai-page__assistant-stage"', "dashboard does not render full-width assistant stage")
+    reject(PAGES, "defaultOpen\n          draftPrompt={assistantDraftPrompt}\n          embedded\n          lockOpen", "dashboard does not force embedded locked chatbot")
+    reject(PAGES_CSS, "komsco-ai-page__assistant-stage", "dashboard CSS does not keep embedded assistant stage")
+    reject(PAGES_CSS, "komsco-ai-page__assistant-quick-toggle", "dashboard CSS does not keep duplicate quick chatbot button")
 
     require(ASSISTANT, "type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';", "console keeps three modes")
     require(ASSISTANT, "읽기 전용", "console keeps read-only label")

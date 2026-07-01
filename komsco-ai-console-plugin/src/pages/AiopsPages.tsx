@@ -1733,7 +1733,6 @@ const ChatTranscriptTable: React.FC<{ records: AiopsRecord[] }> = ({ records }) 
 
 export const AiopsDashboardPage: React.FC = () => {
   const data = useAiopsPageData();
-  const assistantStageRef = React.useRef<HTMLElement | null>(null);
   const [assistantDraftPrompt, setAssistantDraftPrompt] = React.useState<
     AssistantDraftPromptRequest | undefined
   >();
@@ -1751,44 +1750,6 @@ export const AiopsDashboardPage: React.FC = () => {
   const lightspeedProbe =
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
   const controlTower = data.overview?.spec.controlTower;
-  const focusAssistant = React.useCallback(() => {
-    const stage = assistantStageRef.current;
-    if (!stage) {
-      return;
-    }
-
-    const alignStage = () => {
-      const rect = stage.getBoundingClientRect();
-      if (rect.top >= 0 && rect.top < window.innerHeight * 0.72) {
-        return;
-      }
-
-      window.scrollTo({
-        behavior: 'auto',
-        top: rect.top + window.scrollY - 96,
-      });
-
-      let parent = stage.parentElement;
-      while (parent) {
-        const style = window.getComputedStyle(parent);
-        const scrollable =
-          /(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight;
-        if (scrollable) {
-          const parentRect = parent.getBoundingClientRect();
-          const nextRect = stage.getBoundingClientRect();
-          parent.scrollTop += nextRect.top - parentRect.top - 72;
-        }
-        parent = parent.parentElement;
-      }
-    };
-
-    stage.scrollIntoView({ behavior: 'auto', block: 'center' });
-    alignStage();
-    window.requestAnimationFrame(alignStage);
-    window.setTimeout(() => {
-      stage?.querySelector<HTMLElement>('.komsco-ai__input textarea, .komsco-ai__input')?.focus();
-    }, 250);
-  }, []);
   const activeDemoFindingId =
     typeof assistantDraftPrompt?.pageContext.findingId === 'string'
       ? assistantDraftPrompt.pageContext.findingId
@@ -1805,16 +1766,14 @@ export const AiopsDashboardPage: React.FC = () => {
       );
 
       setAssistantDraftPrompt(buildFindingDemoDraft(finding, matchingCandidate));
-      focusAssistant();
     },
-    [data.overview, focusAssistant],
+    [data.overview],
   );
   const seedActionCandidatePrompt = React.useCallback(
     (candidate: AiopsActionCandidate) => {
       setAssistantDraftPrompt(buildActionCandidatePrompt(candidate));
-      focusAssistant();
     },
-    [focusAssistant],
+    [],
   );
   const handleCandidateAction = React.useCallback(
     async (candidate: AiopsActionCandidate, lifecycle: ActionCandidateLifecycleState) => {
@@ -1864,15 +1823,6 @@ export const AiopsDashboardPage: React.FC = () => {
 
   return (
     <PageShell data={data} eyebrow="Cywell AI" icon={<ProductIcon />} title="Cywell AI">
-      <button
-        aria-label="Cywell AI 챗봇으로 이동"
-        className="komsco-ai-page__assistant-quick-toggle"
-        onClick={focusAssistant}
-        title="Cywell AI 챗봇으로 이동"
-        type="button"
-      >
-        <img alt="" src={kIcon} />
-      </button>
       <section className="komsco-ai-page__overview">
         <div className="komsco-ai-page__overview-main">
           <HealthDial score={data.summary?.healthScore} />
@@ -1953,19 +1903,7 @@ export const AiopsDashboardPage: React.FC = () => {
 
       <CustomerTopologyPanel data={data} />
 
-      <section
-        ref={assistantStageRef}
-        className="komsco-ai-page__assistant-stage"
-        aria-label="Cywell AI assistant"
-      >
-        <AssistantLauncher
-          defaultOpen
-          draftPrompt={assistantDraftPrompt}
-          embedded
-          lockOpen
-          onRunComplete={data.refresh}
-        />
-      </section>
+      <AssistantLauncher draftPrompt={assistantDraftPrompt} onRunComplete={data.refresh} />
 
       <div className="komsco-ai-page__dashboard-grid">
         <section className="komsco-ai-page__panel komsco-ai-page__panel--wide">
