@@ -4976,6 +4976,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       return;
     }
 
+    setHistorySidebarOpen(false);
+    setHistoryDrawerBounds({});
     setOpen(false);
   }, [lockOpen]);
 
@@ -5082,8 +5084,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       </div>
     </aside>
   ) : null;
+  const assistantVisible = open || embedded || lockOpen;
   const historySidebarPortal =
-    historySidebar && !fullScreen && typeof document !== 'undefined'
+    assistantVisible && historySidebar && !fullScreen && typeof document !== 'undefined'
       ? ReactDOM.createPortal(historySidebar, document.body)
       : null;
 
@@ -5108,7 +5111,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         </Button>
       )}
 
-      {(open || embedded || lockOpen) && (
+      {assistantVisible && (
         <FullscreenPortal active={fullScreen}>
           <div
             aria-label="Cywell AI assistant"
