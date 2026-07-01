@@ -546,11 +546,20 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
     assert context["analysisPlan"]["mode"] == "evidence_first"
     assert context["analysisPlan"]["answerContract"]["format"] == "operations_rca_report"
     assert context["analysisPlan"]["answerContract"]["mustNotInventEvidence"] is True
-    assert "확인 불가" in context["analysisPlan"]["answerContract"]["requiredSections"]
+    assert context["analysisPlan"]["answerContract"]["mustNotExposeRawToolPlanInDefaultAnswer"] is True
+    assert context["analysisPlan"]["answerContract"]["supportedExecutionModes"] == [
+        "evidence_check",
+        "controlled_execution",
+        "unrestricted",
+    ]
+    assert "원인 후보" in context["analysisPlan"]["answerContract"]["requiredSections"]
+    assert "확인한 증적" in context["analysisPlan"]["answerContract"]["requiredSections"]
     step_status = {
         item["evidenceType"]: item
         for item in context["analysisPlan"]["evidenceCollectionSteps"]
     }
+    query_plan = context["answerExperience"]["queryPlan"]
+    assert query_plan[0]["status"] in {"collected", "not_attempted", "missing"}
     assert step_status["pod_status"]["status"] == "collected"
     assert step_status["pod_status"]["evidenceId"] == "ev-abc"
     assert step_status["event"]["status"] == "not_attempted"

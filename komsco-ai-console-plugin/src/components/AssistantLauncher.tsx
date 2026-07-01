@@ -139,6 +139,15 @@ type EvidenceFooterMissing = {
   type?: string;
 };
 
+type EvidenceFooterQueryStep = {
+  adapter?: string;
+  evidenceType?: string;
+  reason?: string;
+  status?: string;
+  step?: string;
+  tool?: string;
+};
+
 type EvidenceFooter = {
   collectedCount: number;
   collectedRefs: EvidenceFooterRef[];
@@ -149,6 +158,7 @@ type EvidenceFooter = {
   missing: EvidenceFooterMissing[];
   missingCount: number;
   phase?: string;
+  queryPlan: EvidenceFooterQueryStep[];
   status?: string;
 };
 
@@ -895,6 +905,15 @@ const normalizeMissingEvidence = (value: Record<string, unknown>): EvidenceFoote
   type: safeEvidenceText(value.type, 'evidence'),
 });
 
+const normalizeEvidenceQueryStep = (value: Record<string, unknown>): EvidenceFooterQueryStep => ({
+  adapter: safeEvidenceText(value.adapter),
+  evidenceType: safeEvidenceText(value.evidenceType || value.evidence_type, 'evidence'),
+  reason: safeEvidenceText(value.reason || '근거 수집 단계'),
+  status: safeEvidenceText(value.status || 'planned'),
+  step: safeEvidenceText(value.step),
+  tool: safeEvidenceText(value.tool || value.official_tool, 'tool'),
+});
+
 const evidenceStatusCounts = (items: EvidenceStatusItem[] | undefined) => ({
   collected: (items ?? [])
     .filter((item) => item.status === 'collected')
@@ -917,9 +936,17 @@ const buildEvidenceFooter = (
   const metadata = asRecord(contextRecord.metadata);
   const evidence = asRecord(contextRecord.evidence);
   const summary = asRecord(evidence.summary);
+  const analysisPlan = asRecord(contextRecord.analysisPlan);
+  const answerExperience = asRecord(contextRecord.answerExperience);
   const collectedRefs = asRecordArray(evidence.collectedRefs).map(normalizeEvidenceRef);
   const failedRefs = asRecordArray(evidence.failedRefs).map(normalizeEvidenceRef);
   const missing = asRecordArray(evidence.missing).map(normalizeMissingEvidence);
+  const queryPlanSource = asRecordArray(answerExperience.queryPlan).length
+    ? asRecordArray(answerExperience.queryPlan)
+    : asRecordArray(analysisPlan.queryPlan).length
+      ? asRecordArray(analysisPlan.queryPlan)
+      : asRecordArray(analysisPlan.evidenceCollectionSteps);
+  const queryPlan = queryPlanSource.map(normalizeEvidenceQueryStep);
   const statusCounts = evidenceStatusCounts(evidenceStatus);
 
   return {
@@ -936,6 +963,7 @@ const buildEvidenceFooter = (
     missing,
     missingCount: evidenceCount(summary.missingCount, statusCounts.missing, missing.length),
     phase: safeEvidenceText(metadata.phase),
+    queryPlan,
     status: safeEvidenceText(status),
   };
 };
@@ -1567,6 +1595,14 @@ const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
     );
   });
 
+  footer.queryPlan.slice(0, 5).forEach((step) => {
+    lines.push(
+      `- query_plan: ${step.step || '-'} ${step.tool || 'tool'} ${step.evidenceType || 'evidence'} ${
+        step.status || 'planned'
+      }`,
+    );
+  });
+
   return lines.join('\n');
 };
 
@@ -1577,6 +1613,7 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
 
   const collectedRefs = footer.collectedRefs.slice(0, 3);
   const missing = footer.missing.slice(0, 3);
+  const queryPlan = footer.queryPlan.slice(0, 6);
   const traceLabel = footer.contextId || shortDigest(footer.digest) || 'context pending';
 
   return (
@@ -1619,6 +1656,24 @@ const renderEvidenceFooter = (footer: EvidenceFooter | undefined): React.ReactNo
             </span>
           ))}
         </div>
+      )}
+
+      {queryPlan.length > 0 && (
+        <details className="komsco-ai__evidence-detail">
+          <summary>
+            <span>상세 보기</span>
+            <code>조회 계획 {queryPlan.length}</code>
+          </summary>
+          <ol className="komsco-ai__evidence-query-plan" aria-label="조회 계획">
+            {queryPlan.map((step, index) => (
+              <li key={`${step.step || index}-${step.tool || 'tool'}`}>
+                <strong>{step.evidenceType || step.tool || 'evidence'}</strong>
+                <span>{step.reason || '근거 수집 단계'}</span>
+                <code>{step.status || 'planned'}</code>
+              </li>
+            ))}
+          </ol>
+        </details>
       )}
     </div>
   );

@@ -196,13 +196,14 @@ def build_requirement_summary(
         {
             "id": "aiops-answer-has-remediation-capability",
             "title": "챗봇 답변에 문제 해결 AIOps 기능 포함",
-            "ok": passed(["Gateway ToolPlan/RCA/action contract tests"]),
+            "ok": passed(["Gateway ToolPlan/RCA/action contract tests", "AIOps answer experience contract"]),
             "evidence": [
                 "execute_mode_action_plan_response_has_post_answer_rca",
                 "chat_action_plan_can_continue_through_standard_approval_api",
                 "unrestricted_executes_natural_scale_action",
                 "execute_action_request_emits_plan_and_post_answer_rca_context",
                 "read_only_action_request_skips_plan_and_emits_post_answer_rca_context",
+                "default answer hides raw ToolPlan JSON; detail/audit views keep the right projection",
             ],
         },
         {
@@ -369,6 +370,11 @@ def main() -> int:
                 "-k",
                 GATEWAY_TEST_FILTER,
             ],
+        ),
+        run_check(
+            "AIOps answer experience contract",
+            "gateway-execution-reviewer",
+            ["python3", "scripts/verify-aiops-answer-experience.py"],
         ),
         run_check(
             "Console typecheck",

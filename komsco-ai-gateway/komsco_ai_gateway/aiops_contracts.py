@@ -699,6 +699,17 @@ def build_rca_context(
         }
         for step in tool_steps
     ]
+    query_plan = [
+        {
+            "step": item.get("step"),
+            "tool": item.get("tool"),
+            "adapter": item.get("adapter"),
+            "evidenceType": item.get("evidenceType"),
+            "reason": item.get("reason"),
+            "status": item.get("status"),
+        }
+        for item in evidence_collection_steps
+    ]
     official_tool_aliases = [
         str(step.get("official_tool"))
         for step in tool_steps
@@ -736,6 +747,7 @@ def build_rca_context(
             else "deterministic_gateway_planner",
             "runId": run_id,
             "scenarioId": demo_cycle_context.get("scenarioId"),
+            "toolPlanDigest": _canonical_digest(plan),
             "version": "0.1.3",
         },
         "question": {
@@ -752,19 +764,21 @@ def build_rca_context(
         "analysisPlan": {
             "mode": "evidence_first",
             "evidenceCollectionSteps": evidence_collection_steps,
+            "queryPlan": query_plan,
             "answerContract": {
                 "format": "operations_rca_report",
                 "requiredSections": [
-                    "우선 판단",
-                    "수집 근거",
                     "원인 후보",
-                    "확인 불가",
-                    "다음 확인 명령",
-                    "우선순위",
+                    "확인한 증적",
+                    "권장 조치",
+                    "추가 확인",
+                    "재발 방지",
                 ],
                 "mustNotInventEvidence": True,
                 "mustSeparateUnknowns": True,
-                "mustRemainReadOnly": True,
+                "mustNotExposeRawToolPlanInDefaultAnswer": True,
+                "mustNotExecuteWithoutApproval": True,
+                "supportedExecutionModes": ["evidence_check", "controlled_execution", "unrestricted"],
             },
             "stopConditions": [
                 "required evidence source failed",
@@ -811,6 +825,12 @@ def build_rca_context(
                 "failedCount": len(failed_refs),
                 "missingCount": len(missing_evidence),
             },
+        },
+        "answerExperience": {
+            "defaultAnswerMode": "human_rca",
+            "detailView": "human_query_plan",
+            "auditView": "raw_tool_plan_and_rca_context_json",
+            "queryPlan": query_plan,
         },
         "causeCandidates": [
             {

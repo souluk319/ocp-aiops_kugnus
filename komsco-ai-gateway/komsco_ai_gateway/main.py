@@ -1181,6 +1181,21 @@ def build_chat_transcript_record(
     context_metadata = context.get("metadata") if isinstance(context.get("metadata"), Mapping) else {}
     evidence = context.get("evidence") if isinstance(context.get("evidence"), Mapping) else {}
     rca_result = context.get("rcaResult") if isinstance(context.get("rcaResult"), Mapping) else {}
+    tool_plan_digest = (
+        str(context_metadata.get("toolPlanDigest") or "")
+        if context_metadata.get("toolPlanDigest")
+        else canonical_digest(runtime_tool_plan)
+        if isinstance(runtime_tool_plan, Mapping)
+        else ""
+    )
+    rca_context_digest = str(context_metadata.get("digest") or "")
+    answer_mode = (
+        "action_plan"
+        if "aiops-action-v0.1.9" in answer_contracts
+        or "natural-action-plan-v0.2.1" in answer_contracts
+        or str(policy.get("decision") or "") == "action_proposal_only"
+        else "human_rca"
+    )
     transcript_projection = {
         "answer": answer_text,
         "conversationId": req.conversationId,
@@ -1198,6 +1213,7 @@ def build_chat_transcript_record(
         },
         "spec": {
             "answerContract": list(dict.fromkeys(answer_contracts)),
+            "answerMode": answer_mode,
             "assistantAnswer": truncate_chat_text(answer_text, CHAT_TRANSCRIPT_MAX_ANSWER_CHARS),
             "attachments": len(req.attachments),
             "conversationId": req.conversationId or incident_id,
@@ -1206,16 +1222,19 @@ def build_chat_transcript_record(
                 "failed": redact_sensitive(evidence.get("failedRefs", [])),
                 "missing": redact_sensitive(evidence.get("missing", [])),
             },
+            "rcaContextDigest": rca_context_digest,
             "observedState": {
                 "evidenceSummary": redact_sensitive(evidence.get("summary", {})),
-                "rcaContextDigest": context_metadata.get("digest", ""),
+                "rcaContextDigest": rca_context_digest,
                 "rcaResult": redact_sensitive(rca_result),
                 "taskType": runtime_tool_plan.get("task_type") if isinstance(runtime_tool_plan, Mapping) else "",
+                "toolPlanDigest": tool_plan_digest,
             },
             "policy": redact_sensitive(dict(policy)),
             "requestId": request_id,
             "runId": run_id,
             "status": status,
+            "toolPlanDigest": tool_plan_digest,
             "userMessage": truncate_chat_text(req.message, CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS),
             "workflow": {
                 "actionRecords": chat_action_record_refs(incident_id, run_id),
@@ -6936,6 +6955,9 @@ Answer in Korean unless the user asks otherwise.
 Use live OpenShift evidence collection when cluster facts are needed.
 Do not invent alert, pod, node, namespace, resource names, causes, or actions.
 Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
+Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
+기본 답변은 사람용 RCA로 작성하고 가능한 경우 `원인 후보`, `확인한 증적`, `권장 조치`, `추가 확인`, `재발 방지` 섹션을 사용하세요.
+조회 계획은 필요한 경우 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
 If no screenshot/image is attached, do not claim you inspected a screenshot.
 Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_evidence_collection")) if isinstance(effective_policy, Mapping) else "allow_evidence_collection"}.
@@ -6944,7 +6966,7 @@ Console context:
 Attachment context:
 {build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
 {context_handoff_block}
-For RCA or operations status, use these sections when useful: 우선 판단, 수집 근거, 원인 후보, 확인 불가, 다음 확인 명령, 우선순위.
+For RCA or operations status, use these sections when useful: 원인 후보, 확인한 증적, 권장 조치, 추가 확인, 재발 방지.
 """
         return redact_sensitive(query)
 
@@ -6954,6 +6976,8 @@ KOMSCO AI context.
 Use this pre-collected context as evidence, but still separate verified facts from unknowns.
 Do not invent alert, pod, node, namespace, resource names, causes, or actions.
 Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
+Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
+조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 Mutation is not allowed from this answer. Propose risky actions only after evidence and approval.
 If no screenshot/image is attached, do not say you inspected the screen image.
 If the user asks about this AI gateway, do not attach unrelated Kubernetes Gateway API links.
@@ -6980,12 +7004,11 @@ Answer format:
 Write in Korean unless the user asks otherwise.
 Use this structure when RCA or operations status is requested:
 ## RCA 보고서
-### 우선 판단
-### 수집 근거
 ### 원인 후보
-### 확인 불가
-### 다음 확인 명령
-### 우선순위
+### 확인한 증적
+### 권장 조치
+### 추가 확인
+### 재발 방지
 """
         return redact_sensitive(query)
 
@@ -7010,6 +7033,11 @@ Use this structure when RCA or operations status is requested:
 
 [Gateway 선조회 증거]
 {context_handoff if context_handoff else "Gateway 선조회 증거 없음"}
+
+[AIOps 답변 경험 계약]
+- Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
+- 기본 답변은 사람용 RCA로 작성하고 `원인 후보`, `확인한 증적`, `권장 조치`, `추가 확인`, `재발 방지` 순서를 우선하세요.
+- 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 
 [CrashLoopBackOff 시연 답변 계약]
 {crashloop_demo_prompt_answer_contract(req)}
@@ -7106,8 +7134,8 @@ OpenShift 경고 분석 프로토콜:
 
 답변 지침:
 - 최종 답변은 일반 문장 나열이 아니라 `## RCA 보고서` 형식으로 작성하세요.
-- 가능한 경우 아래 섹션을 순서대로 포함하세요: `### 우선 판단`, `### 수집 근거`, `### 원인 후보`, `### 확인 불가`, `### 다음 확인 명령`, `### 우선순위`.
-- 근거가 부족한 항목은 `확인 불가`에 넣고, 확인한 사실과 원인 후보를 섞지 마세요.
+- 가능한 경우 아래 섹션을 순서대로 포함하세요: `### 원인 후보`, `### 확인한 증적`, `### 권장 조치`, `### 추가 확인`, `### 재발 방지`.
+- 근거가 부족한 항목은 `추가 확인`에 넣고, 확인한 사실과 원인 후보를 섞지 마세요.
 - 실시간 클러스터 상태(경고, 이벤트, Pod, Node, 리소스, 메트릭, 로그)가 필요한 질문이면 OpenShift MCP 도구를 먼저 사용하세요.
 - 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
 - 도구를 사용할 수 없거나 결과가 부족하면 확인하지 못했다고 말하고 사용자가 확인할 명령을 제시하세요.
@@ -9181,8 +9209,8 @@ def build_aiops_answer_contract_text(
         [
             "",
             "## 승인 대기 조치",
-            f"- Tool Plan: `{task_type}` 기준으로 증거 수집 단계를 만들었습니다.",
-            f"- RCA Context: 수집 근거 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
+            f"- 조회 계획: `{task_type}` 유형으로 필요한 근거를 수집했습니다.",
+            f"- RCA 문맥: 수집 근거 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
             "- 조치 경로: `ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord` 순서로 승인 후 실행합니다.",
             "- 승인 전에는 변경 작업을 실행하지 않습니다.",
             "- 거절 경로: 운영자가 거절하면 `/v1/actions/rejections`가 `rejected` 기록을 남기고 실행을 차단합니다.",
@@ -9901,27 +9929,27 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
                 "",
                 "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
                 "",
-                "### 우선 판단",
-                f"- Namespace: `{namespace}`",
-                "- 조회된 Pod가 없습니다.",
-                "- 현재 수집 범위에서는 Pod 장애를 확인하지 못했습니다.",
-                "",
-                "### 수집 근거",
-                "- Evidence 범위: `Current Pod list evidence`",
-                "",
                 "### 원인 후보",
                 "- 조회 범위가 맞지 않거나, 현재 접근 권한/namespace 기준으로 대상 Pod가 없을 수 있습니다.",
                 "",
-                "### 확인 불가",
+                "### 확인한 증적",
+                f"- Namespace: `{namespace}`",
+                "- 조회된 Pod가 없습니다.",
+                "- Evidence 범위: `Current Pod list evidence`",
+                "- 현재 수집 범위에서는 Pod 장애를 확인하지 못했습니다.",
+                "",
+                "### 권장 조치",
+                "1. namespace와 대상 워크로드 이름을 먼저 확정합니다.",
+                "",
+                "### 추가 확인",
                 "- Pod 상세, Event, 로그는 대상 Pod가 식별되지 않아 확인하지 못했습니다.",
                 "",
-                "### 확인 명령",
                 "```bash",
                 f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A",
                 "```",
                 "",
-                "### 우선순위",
-                "1. namespace와 대상 워크로드 이름을 먼저 확정합니다.",
+                "### 재발 방지",
+                "- 운영 질문에는 namespace, 관리 객체 이름, 증상을 함께 남겨 다음 RCA가 같은 범위를 바로 조회하게 합니다.",
             ]
         )
 
@@ -9941,16 +9969,6 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
         "",
         "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
         "",
-        "### 우선 판단",
-        f"- Namespace: `{namespace}`",
-        f"- Evidence 범위: `{evidence_scope}`",
-        f"- 표시 Pod/Container row: `{total_rows}`" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
-        f"- Ready 아님: `{len(not_ready_rows)}`",
-        f"- Warning/Error 계열 상태: `{len(problem_rows)}`",
-        "",
-        "### 수집 근거",
-        "- Pod phase, container ready, restart count, lastState, owner 기준으로 목록을 정리했습니다.",
-        "",
         "### 원인 후보",
         (
             "- Warning/Error 계열 상태가 있는 Pod부터 현재 장애 가능성을 확인해야 합니다."
@@ -9958,7 +9976,20 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
             else "- 현재 목록 근거만으로는 즉시 장애 원인을 특정할 신호가 없습니다."
         ),
         "",
-        "### 확인 불가",
+        "### 확인한 증적",
+        f"- Namespace: `{namespace}`",
+        f"- Evidence 범위: `{evidence_scope}`",
+        f"- 표시 Pod/Container row: `{total_rows}`" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
+        f"- Ready 아님: `{len(not_ready_rows)}`",
+        f"- Warning/Error 계열 상태: `{len(problem_rows)}`",
+        "- Pod phase, container ready, restart count, lastState, owner 기준으로 목록을 정리했습니다.",
+        "",
+        "### 권장 조치",
+        "1. Warning/Error 계열 Pod의 상세와 Event를 먼저 확인합니다.",
+        "2. Ready 아님 상태가 계속되는 Pod는 owner/controller 상태를 확인합니다.",
+        "3. restart count는 누적값이므로 최근 증가 여부는 metric 또는 lastState 시간으로 따로 확인합니다.",
+        "",
+        "### 추가 확인",
         "- 개별 Pod 상세, Event, 이전 로그는 이 목록 요약만으로 확정하지 않습니다.",
         "",
         "### Pod 목록",
@@ -9982,15 +10013,12 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
     lines.extend(
         [
             "",
-            "### 확인 명령",
             "```bash",
             f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A",
             "```",
             "",
-            "### 우선순위",
-            "1. Warning/Error 계열 Pod의 상세와 Event를 먼저 확인합니다.",
-            "2. Ready 아님 상태가 계속되는 Pod는 owner/controller 상태를 확인합니다.",
-            "3. restart count는 누적값이므로 최근 증가 여부는 metric 또는 lastState 시간으로 따로 확인합니다.",
+            "### 재발 방지",
+            "- Pod 목록 요약만으로 원인 확정을 하지 않고, 문제가 있는 row를 Pod 상세/Event/metric 근거와 연결해 기록합니다.",
         ]
     )
     return "\n".join(lines)
@@ -10027,27 +10055,23 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
         "",
         "Gateway가 수집한 Kubernetes 증거 기준으로 대상 Pod를 우선 분석했습니다.",
         "",
-        "### 우선 판단",
+        "### 원인 후보",
+        f"- 1순위 후보: {cause}",
+        "- 로그, Event, resource limit, image pull 세부 원인은 추가 근거가 있어야 확정할 수 있습니다.",
+        "",
+        "### 확인한 증적",
         f"- 대상: `{namespace}` / Pod `{pod}` / Container `{container}`",
         f"- 현재 상태: {state}, Ready `{ready}`, restart count `{restarts}`",
         f"- 마지막 종료: `{last_state}`" + (f", `{last_finished}`" if last_finished != "-" else ""),
-        "",
-        "### 수집 근거",
         f"- 원인 근거: {cause}",
         f"- 이미지: `{image}`",
         f"- Command: `{command}`",
         f"- Args: `{args}`",
         f"- 관리 객체: `{owner_chain}`",
         "",
-        "### 원인 후보",
-        f"- 1순위 후보: {cause}",
-        "- 로그, Event, resource limit, image pull 세부 원인은 추가 근거가 있어야 확정할 수 있습니다.",
-        "",
-        "### 확인 불가",
-        "- 이 fallback은 Gateway 사전 수집 표 기반입니다. Pod 상세/Event/previous log 조회가 실패했거나 아직 수행되지 않은 항목은 확정하지 않습니다.",
+        "### 권장 조치",
     ]
 
-    lines.extend(["", "### 조치 후보"])
     if deployment:
         lines.append(
             f"- 단순 Pod 삭제나 rollout restart만으로는 같은 template이 다시 실행되어 재발할 수 있습니다. "
@@ -10063,7 +10087,13 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
             "Stage 3 RCA 답변에서는 삭제 명령을 실행하거나 제시하지 않습니다."
         )
 
-    lines.extend(["", "### 검증 명령"])
+    lines.extend(
+        [
+            "",
+            "### 추가 확인",
+            "- 이 fallback은 Gateway 사전 수집 표 기반입니다. Pod 상세/Event/previous log 조회가 실패했거나 아직 수행되지 않은 항목은 확정하지 않습니다.",
+        ]
+    )
     if deployment:
         lines.append("```bash")
         lines.append(f"oc rollout status deployment/{deployment} -n {namespace}")
@@ -10082,10 +10112,10 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
     lines.extend(
         [
             "",
-            "### 우선순위",
-            "1. 현재 상태와 Event를 확인해 현재 장애인지 과거 이력인지 분리합니다.",
-            "2. command/args/image/env/config처럼 template에 남는 원인을 먼저 수정 후보로 봅니다.",
-            "3. 실행 조치는 별도 승인 전까지 제안만 유지합니다.",
+            "### 재발 방지",
+            "- 현재 상태와 Event를 확인해 현재 장애인지 과거 이력인지 분리합니다.",
+            "- command/args/image/env/config처럼 template에 남는 원인을 먼저 수정 후보로 봅니다.",
+            "- 실행 조치는 별도 승인 전까지 제안만 유지합니다.",
         ]
     )
 
@@ -10158,12 +10188,13 @@ def build_empty_answer_fallback(
         "",
         "## RCA 보고서",
         "",
-        "### 우선 판단",
+        "### 원인 후보",
+        "- 현재 fallback은 수집된 증거를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 근거가 함께 맞을 때만 확정합니다.",
+        "",
+        "### 확인한 증적",
         f"- 질문: {redact_sensitive(req.message)}",
         "- Gateway가 수집한 증거 기준으로만 임시 요약합니다.",
         "- Lightspeed 최종 분석이 아니므로 원인은 후보로만 봅니다.",
-        "",
-        "### 수집 근거",
         "",
     ]
 
@@ -10195,10 +10226,10 @@ def build_empty_answer_fallback(
         lines.append("")
 
     lines.extend([
-        "### 원인 후보",
-        "- 현재 fallback은 수집된 증거를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 근거가 함께 맞을 때만 확정합니다.",
+        "### 권장 조치",
+        "- 확인된 비정상 리소스가 있으면 상세/Event/metric을 먼저 연결하고, 변경 작업은 승인 흐름으로 분리합니다.",
         "",
-        "### 확인 불가",
+        "### 추가 확인",
     ])
 
     # missing summary
@@ -10212,14 +10243,15 @@ def build_empty_answer_fallback(
         lines.append("- 추가 실패 도구는 보고되지 않았습니다.")
         lines.append("")
 
-    # targeted oc commands
     lines.extend([
-        "### 다음 확인 명령",
         "```bash",
         f"oc get events -n {ns} --sort-by=.lastTimestamp | tail -20",
         f"oc get pods -n {ns}",
         "oc get co",
         "```",
+        "",
+        "### 재발 방지",
+        "- fallback 답변이 반복되면 Lightspeed 최종 텍스트 생성 단계와 Gateway 수집 증거 digest를 함께 기록해 같은 질문을 재검증합니다.",
     ])
 
     return "\n".join(lines)
