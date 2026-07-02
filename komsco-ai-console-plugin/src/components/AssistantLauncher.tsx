@@ -5,12 +5,9 @@ import {
   CoolArrowDownIcon,
   CoolCaretDownIcon,
   CoolCheckIcon,
-  CoolClockIcon,
   CoolCloseIcon,
-  CoolComposeIcon,
   CoolCopyIcon,
   CoolDesktopTowerIcon,
-  CoolDocumentIcon,
   CoolExpandIcon,
   CoolGlobeIcon,
   CoolInfoIcon,
@@ -18,19 +15,17 @@ import {
   CoolLockIcon,
   CoolLockOpenIcon,
   CoolMenuIcon,
-  CoolMoreIcon,
   CoolPaperclipIcon,
   CoolPaperPlaneIcon,
-  CoolPencilIcon,
   CoolPlusIcon,
   CoolShieldCheckIcon,
   CoolShrinkIcon,
   CoolStopIcon,
   CoolTerminalIcon,
-  CoolTrashIcon,
   CoolUserCircleIcon,
   CoolWarningIcon,
 } from './coolicons';
+import AssistantHistoryPanel from './AssistantHistoryPanel';
 import {
   ACCEPTED_IMAGE_MIME_TYPES,
   ACCEPTED_RAG_DOCUMENT_EXTENSIONS,
@@ -142,8 +137,15 @@ import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
 
 const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecutionMode | null => {
-  const value = String(pageContext?.aiopsExecutionMode ?? '').trim().toLowerCase();
-  if (value === 'read-only' || value === 'read_only' || value === 'evidence-check' || value === 'evidence_check') {
+  const value = String(pageContext?.aiopsExecutionMode ?? '')
+    .trim()
+    .toLowerCase();
+  if (
+    value === 'read-only' ||
+    value === 'read_only' ||
+    value === 'evidence-check' ||
+    value === 'evidence_check'
+  ) {
     return 'read-only';
   }
   if (value === 'execute' || value === 'unrestricted') {
@@ -455,9 +457,7 @@ const readStoredConversationHistory = (): ConversationHistoryItem[] => {
     .slice(0, MAX_STORED_CONVERSATIONS);
 };
 
-const writeStoredConversationHistory = (
-  conversationHistory: ConversationHistoryItem[],
-): void => {
+const writeStoredConversationHistory = (conversationHistory: ConversationHistoryItem[]): void => {
   writeStoredJson(
     STORED_CONVERSATION_HISTORY_KEY,
     conversationHistory.slice(0, MAX_STORED_CONVERSATIONS).map((conversation) => ({
@@ -500,7 +500,8 @@ const writeStoredActiveConversation = (snapshot: StoredActiveConversation): void
 const normalizeUiLanguage = (value: unknown): UiLanguage =>
   value === 'en' || value === 'ko' ? value : 'ko';
 
-const readStoredUiLanguage = (): UiLanguage => normalizeUiLanguage(readStoredJson(STORED_UI_LANGUAGE_KEY));
+const readStoredUiLanguage = (): UiLanguage =>
+  normalizeUiLanguage(readStoredJson(STORED_UI_LANGUAGE_KEY));
 
 const writeStoredUiLanguage = (language: UiLanguage): void => {
   writeStoredJson(STORED_UI_LANGUAGE_KEY, language);
@@ -970,7 +971,10 @@ const markLastAssistantFallback = (
   return next;
 };
 
-const markLastAssistantAnswerContract = (messages: Message[], answerContract?: string): Message[] => {
+const markLastAssistantAnswerContract = (
+  messages: Message[],
+  answerContract?: string,
+): Message[] => {
   if (!answerContract) {
     return messages;
   }
@@ -1035,7 +1039,9 @@ const getResponseWaitMessage = (startedAt: number): string => {
 };
 
 const evidenceTypeLabel = (type?: string): string => {
-  const normalized = String(type || '').trim().toLowerCase();
+  const normalized = String(type || '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'node') {
     return '노드';
   }
@@ -1070,7 +1076,9 @@ const evidenceTypeLabel = (type?: string): string => {
 };
 
 const evidenceStepStatusLabel = (status?: string): string => {
-  const normalized = String(status || '').trim().toLowerCase();
+  const normalized = String(status || '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'collected' || normalized === 'success' || normalized === 'succeeded') {
     return '수집됨';
   }
@@ -1084,7 +1092,9 @@ const evidenceStepStatusLabel = (status?: string): string => {
 };
 
 const rcaContextPhaseLabel = (phase?: string): string => {
-  const normalized = String(phase || '').trim().toLowerCase();
+  const normalized = String(phase || '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'post_answer') {
     return '답변 근거 연결 완료';
   }
@@ -1095,7 +1105,9 @@ const rcaContextPhaseLabel = (phase?: string): string => {
 };
 
 const rcaStatusLabel = (status?: string): string => {
-  const normalized = String(status || '').trim().toLowerCase();
+  const normalized = String(status || '')
+    .trim()
+    .toLowerCase();
   if (normalized === 'available' || normalized === 'success' || normalized === 'ready') {
     return '연결됨';
   }
@@ -1121,9 +1133,7 @@ const productProgressText = (value?: string): string => {
   if (text === 'RCA 문맥 연결 실패') {
     return '답변 근거 연결 실패';
   }
-  const legacyRcaDigestText = ['RCA Context', 'digest와', ['evidence', 'refs'].join(' ')].join(
-    ' ',
-  );
+  const legacyRcaDigestText = ['RCA Context', 'digest와', ['evidence', 'refs'].join(' ')].join(' ');
   if (text.includes(legacyRcaDigestText)) {
     return '최종 답변에 사용한 근거를 연결했습니다.';
   }
@@ -1619,7 +1629,10 @@ const renderEvidenceFooter = (
         <span className="komsco-ai__evidence-summary">{evidenceSummary}</span>
       </div>
 
-      {(collectedRefs.length > 0 || missing.length > 0 || queryPlan.length > 0 || ragAppendixRefs.length > 0) && (
+      {(collectedRefs.length > 0 ||
+        missing.length > 0 ||
+        queryPlan.length > 0 ||
+        ragAppendixRefs.length > 0) && (
         <details className="komsco-ai__evidence-detail">
           <summary>
             <span>근거 상세보기</span>
@@ -1848,9 +1861,7 @@ const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = (
                   <span className="komsco-ai__progress-step-separator" aria-hidden="true">
                     ·
                   </span>
-                  <span className="komsco-ai__progress-step-activity">
-                    {getStepActivity(step)}
-                  </span>
+                  <span className="komsco-ai__progress-step-activity">{getStepActivity(step)}</span>
                 </span>
                 <span className="komsco-ai__progress-step-meta">{getStepElapsed(step)}</span>
               </div>
@@ -2516,7 +2527,9 @@ const hasApprovalForPlan = (approvals: AiopsRecordView[], planDigest: string): b
     const decision = getApprovalDecision(record);
     const status = String(decision?.status ?? '');
 
-    return decision?.planDigest === planDigest && ['approved', 'executed', 'rejected'].includes(status);
+    return (
+      decision?.planDigest === planDigest && ['approved', 'executed', 'rejected'].includes(status)
+    );
   });
 
 const hasExecutionForApproval = (executions: AiopsRecordView[], approvalId: string): boolean =>
@@ -3237,11 +3250,7 @@ const sessionAiopsActionRecords = (
     return [];
   }
 
-  return [
-    ...records.approvalDecisions,
-    ...records.sealedActionPlans,
-    ...records.actionProposals,
-  ]
+  return [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals]
     .filter((record) => targetKeys.has(getRecordTargetLabel(record)))
     .filter(
       (record) =>
@@ -3868,11 +3877,7 @@ const AssistantSurfacePortal: React.FC<{
   active: boolean;
   children: React.ReactNode;
   wrapperClassName: string;
-}> = ({
-  active,
-  children,
-  wrapperClassName,
-}) => {
+}> = ({ active, children, wrapperClassName }) => {
   if (active && typeof document !== 'undefined') {
     return ReactDOM.createPortal(<div className={wrapperClassName}>{children}</div>, document.body);
   }
@@ -4261,13 +4266,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     };
   }, [openHistoryMenuId, quickPromptMenuOpen, taskModeMenuOpen]);
 
-  const handleExecutionModeChange = React.useCallback(
-    (mode: AiopsExecutionMode) => {
-      setAiopsActionError('');
-      setExecutionMode(mode);
-    },
-    [],
-  );
+  const handleExecutionModeChange = React.useCallback((mode: AiopsExecutionMode) => {
+    setAiopsActionError('');
+    setExecutionMode(mode);
+  }, []);
 
   const saveCurrentConversation = React.useCallback(
     (snapshotMessages = messages, snapshotConversationId = conversationId) => {
@@ -4823,7 +4825,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   );
 
   const copyMessage = React.useCallback((message: Message, index: number) => {
-    const redactedContent = redactSensitiveText(stripDefaultEvidenceAppendix(message.content).trim());
+    const redactedContent = redactSensitiveText(
+      stripDefaultEvidenceAppendix(message.content).trim(),
+    );
     const text = `${redactedContent}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
     if (!text || !navigator.clipboard) {
       return;
@@ -5593,253 +5597,54 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setOpen(false);
   }, [lockOpen]);
 
+  const aiopsActionHistoryContent = renderActionRecordRows(
+    sessionAiopsActionRecords(aiopsStatus, executionMode, sessionActionTargetKeys),
+    '아직 만들어진 조치 계획이 없습니다.',
+    aiopsStatus,
+    executionMode,
+    aiopsActionBusyId,
+    handleAiopsAction,
+  );
   const historySidebar = historySidebarOpen ? (
-    <aside
-      className="komsco-ai__history-sidebar"
-      aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
-      style={historySidebarStyle}
-    >
-      <div
-        className="komsco-ai__history-actions"
-        aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
-      >
-        <div className="komsco-ai__history-brand">
-          <img alt="KOMSCO" className="komsco-ai__history-logo" src={komscoLogo} />
-        </div>
-        <div className="komsco-ai__history-actions-right">
-          <button
-            aria-label={copy.newChat}
-            className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
-            onClick={() => {
-              startNewConversation();
-              setHistoryPanelView('chats');
-            }}
-            title={copy.newChat}
-            type="button"
-          >
-            <CoolComposeIcon />
-          </button>
-          <div className="komsco-ai__history-action-group" role="group" aria-label={copy.sidebar}>
-            <button
-              aria-label={copy.openHistoryPanel}
-              aria-pressed={historyPanelView === 'chats'}
-              className={`komsco-ai__history-action-button${
-                historyPanelView === 'chats' ? ' komsco-ai__history-action-button--active' : ''
-              }`}
-              onClick={() => setHistoryPanelView('chats')}
-              title={copy.openHistoryPanel}
-              type="button"
-            >
-              <CoolClockIcon />
-            </button>
-            <button
-              aria-label={copy.openUploadedDocs}
-              aria-pressed={historyPanelView === 'uploads'}
-              className={`komsco-ai__history-action-button${
-                historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
-              }`}
-              onClick={() => setHistoryPanelView('uploads')}
-              title={copy.openUploadedDocs}
-              type="button"
-            >
-              <CoolDocumentIcon />
-            </button>
-          </div>
-        </div>
-      </div>
-      {sessionActionTargetKeys.size > 0 && (
-        <div className="komsco-ai__session-actions">
-          <button
-            aria-expanded={sidebarActionPanelOpen}
-            className="komsco-ai__session-actions-toggle"
-            onClick={() => setSidebarActionPanelOpen((value) => !value)}
-            type="button"
-          >
-            <CoolCaretDownIcon
-              className={sidebarActionPanelOpen ? '' : 'komsco-ai__session-actions-caret--closed'}
-            />
-            <span>이번 대화의 조치 계획</span>
-          </button>
-          {sidebarActionPanelOpen && (
-            <div className="komsco-ai__session-actions-list">
-              {renderActionRecordRows(
-                sessionAiopsActionRecords(aiopsStatus, executionMode, sessionActionTargetKeys),
-                '아직 만들어진 조치 계획이 없습니다.',
-                aiopsStatus,
-                executionMode,
-                aiopsActionBusyId,
-                handleAiopsAction,
-              )}
-            </div>
-          )}
-        </div>
-      )}
-      <div className="komsco-ai__history-title">
-        {historyPanelView === 'uploads' ? <CoolDocumentIcon /> : <CoolClockIcon />}
-        <span>{historyPanelView === 'uploads' ? copy.uploadedDocs : copy.history}</span>
-      </div>
-      {historyPanelView === 'uploads' ? (
-        <div className="komsco-ai__history-list komsco-ai__history-list--uploads">
-          {uploadedDocumentsLoading && uploadedDocuments.length === 0 ? (
-            <div className="komsco-ai__history-empty">{copy.uploadedDocsLoading}</div>
-          ) : uploadedDocumentsError && uploadedDocuments.length === 0 ? (
-            <div className="komsco-ai__history-empty komsco-ai__history-empty--error">
-              {uploadedDocumentsError}
-            </div>
-          ) : (
-            renderUploadedDocumentRows(uploadedDocuments, copy.emptyUploadedDocs)
-          )}
-        </div>
-      ) : (
-        <div className="komsco-ai__history-list" onScroll={() => setOpenHistoryMenuId(null)}>
-          {conversationHistory.length === 0 ? (
-            <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
-          ) : (
-            conversationHistory.map((conversation) => {
-              const isRenaming = renamingHistoryId === conversation.id;
-              const hasActions = (conversation.actionTargetKeys?.length ?? 0) > 0;
-              const menuOpen = openHistoryMenuId === conversation.id;
-
-              return (
-                <div className="komsco-ai__history-item-row" key={conversation.id}>
-                  {isRenaming ? (
-                    <input
-                      autoFocus
-                      className="komsco-ai__history-item-rename-input"
-                      onBlur={() => {
-                        renameConversation(conversation.id, renamingHistoryTitle);
-                        setRenamingHistoryId(null);
-                      }}
-                      onChange={(event) => setRenamingHistoryTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          renameConversation(conversation.id, renamingHistoryTitle);
-                          setRenamingHistoryId(null);
-                        } else if (event.key === 'Escape') {
-                          setRenamingHistoryId(null);
-                        }
-                      }}
-                      value={renamingHistoryTitle}
-                    />
-                  ) : (
-                    <button
-                      className={`komsco-ai__history-item${
-                        conversation.id === activeSessionId
-                          ? ' komsco-ai__history-item--active'
-                          : ''
-                      }`}
-                      disabled={loading}
-                      onClick={() => loadConversation(conversation)}
-                      title={conversation.title}
-                      type="button"
-                    >
-                      <span>{conversation.title}</span>
-                      <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
-                    </button>
-                  )}
-                  <div
-                    className="komsco-ai__history-item-menu"
-                    ref={menuOpen ? historyMenuRef : undefined}
-                  >
-                    <button
-                      aria-expanded={menuOpen}
-                      aria-haspopup="menu"
-                      aria-label="대화 옵션"
-                      className="komsco-ai__history-item-menu-trigger"
-                      onClick={(event) => {
-                        const rect = event.currentTarget.getBoundingClientRect();
-                        setHistoryMenuAnchor({
-                          right: window.innerWidth - rect.right,
-                          top: rect.bottom + 4,
-                        });
-                        setOpenHistoryMenuId((value) =>
-                          value === conversation.id ? null : conversation.id,
-                        );
-                      }}
-                      type="button"
-                    >
-                      <CoolMoreIcon />
-                    </button>
-                    {menuOpen &&
-                      historyMenuAnchor &&
-                      typeof document !== 'undefined' &&
-                      ReactDOM.createPortal(
-                        <div
-                          className="komsco-ai__history-item-menu-panel"
-                          ref={historyMenuPanelRef}
-                          role="menu"
-                          style={{
-                            right: historyMenuAnchor.right,
-                            top: historyMenuAnchor.top,
-                          }}
-                        >
-                          <button
-                            className="komsco-ai__history-item-menu-item"
-                            disabled={!hasActions}
-                            onClick={() => {
-                              setOpenHistoryMenuId(null);
-                              setSessionActionTargetKeys(
-                                new Set(conversation.actionTargetKeys ?? []),
-                              );
-                              setSidebarActionPanelOpen(true);
-                              setHistoryPanelView('chats');
-                            }}
-                            role="menuitem"
-                            title={hasActions ? undefined : '이 대화에서 만들어진 조치가 없습니다.'}
-                            type="button"
-                          >
-                            <CoolListChecklistIcon />
-                            조치 내역 보기
-                          </button>
-                          <button
-                            className="komsco-ai__history-item-menu-item"
-                            onClick={() => {
-                              setOpenHistoryMenuId(null);
-                              setRenamingHistoryId(conversation.id);
-                              setRenamingHistoryTitle(conversation.title);
-                            }}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <CoolPencilIcon />
-                            이름 변경
-                          </button>
-                          <button
-                            className="komsco-ai__history-item-menu-item komsco-ai__history-item-menu-item--danger"
-                            onClick={() => {
-                              setOpenHistoryMenuId(null);
-                              deleteConversation(conversation.id);
-                            }}
-                            role="menuitem"
-                            type="button"
-                          >
-                            <CoolTrashIcon />
-                            대화 삭제
-                          </button>
-                        </div>,
-                        document.body,
-                      )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-      <div className="komsco-ai__history-user" aria-label="현재 OpenShift 사용자">
-        <div className="komsco-ai__history-user-avatar">
-          <CoolUserCircleIcon />
-        </div>
-        <div className="komsco-ai__history-user-main">
-          <strong title={authSubject?.username || authSubjectError || '사용자 확인 중'}>
-            {authSubject?.username || (authSubjectError ? '인증 확인 필요' : '확인 중')}
-          </strong>
-          <small title={clusterSummary?.apiUrl || ''}>
-            {getClusterHost(clusterSummary?.apiUrl)}
-          </small>
-        </div>
-      </div>
-    </aside>
+    <AssistantHistoryPanel
+      activeSessionId={activeSessionId}
+      aiopsActionHistoryContent={aiopsActionHistoryContent}
+      authSubject={authSubject}
+      authSubjectError={authSubjectError}
+      clusterSummary={clusterSummary}
+      conversationHistory={conversationHistory}
+      copy={copy}
+      deleteConversation={deleteConversation}
+      formatHistoryTime={formatHistoryTime}
+      getClusterHost={getClusterHost}
+      historyMenuAnchor={historyMenuAnchor}
+      historyMenuPanelRef={historyMenuPanelRef}
+      historyMenuRef={historyMenuRef}
+      historyPanelView={historyPanelView}
+      historySidebarStyle={historySidebarStyle}
+      komscoLogo={komscoLogo}
+      loadConversation={loadConversation}
+      loading={loading}
+      openHistoryMenuId={openHistoryMenuId}
+      renameConversation={renameConversation}
+      renamingHistoryId={renamingHistoryId}
+      renamingHistoryTitle={renamingHistoryTitle}
+      renderUploadedDocumentRows={renderUploadedDocumentRows}
+      sessionActionTargetKeys={sessionActionTargetKeys}
+      setHistoryMenuAnchor={setHistoryMenuAnchor}
+      setHistoryPanelView={setHistoryPanelView}
+      setOpenHistoryMenuId={setOpenHistoryMenuId}
+      setRenamingHistoryId={setRenamingHistoryId}
+      setRenamingHistoryTitle={setRenamingHistoryTitle}
+      setSessionActionTargetKeys={setSessionActionTargetKeys}
+      setSidebarActionPanelOpen={setSidebarActionPanelOpen}
+      sidebarActionPanelOpen={sidebarActionPanelOpen}
+      startNewConversation={startNewConversation}
+      uiLanguage={uiLanguage}
+      uploadedDocuments={uploadedDocuments}
+      uploadedDocumentsError={uploadedDocumentsError}
+      uploadedDocumentsLoading={uploadedDocumentsLoading}
+    />
   ) : null;
   const assistantVisible = open || embedded || lockOpen;
   const historySidebarPortal =
@@ -5853,10 +5658,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const assistantSurfacePortalActive = assistantVisible && !embedded;
 
   return (
-    <div
-      className={assistantRootClassName}
-      data-ui-language={uiLanguage}
-    >
+    <div className={assistantRootClassName} data-ui-language={uiLanguage}>
       {!open && !embedded && (
         <Button
           aria-label="Open Cywell AI"
@@ -5990,7 +5792,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const hasContent = message.content.trim().length > 0;
                         const activeMessage = loading && index === messages.length - 1;
                         const isLatestAssistantMessage =
-                          message.role === 'assistant' && index === findLastAssistantIndex(messages);
+                          message.role === 'assistant' &&
+                          index === findLastAssistantIndex(messages);
                         const matchedActionCandidates =
                           isLatestAssistantMessage && hasContent
                             ? matchActionCandidatesForMessage(message.content, actionCandidates)

@@ -1,5 +1,27 @@
 import type { AssistantTaskMode, UiLanguage } from './assistant.types';
 
+export type AssistantCopy = {
+  emptyHistory: string;
+  emptyUploadedDocs: string;
+  fileAttach: string;
+  history: string;
+  inputPlaceholder: string;
+  newChat: string;
+  openHistoryPanel: string;
+  openUploadedDocs: string;
+  openSidebar: string;
+  sidebar: string;
+  switchLanguage: string;
+  userLabel: string;
+  systemLabel: string;
+  answerCopy: string;
+  answerCopied: string;
+  scrollToLatest: string;
+  uploadedDocs: string;
+  uploadedDocsError: string;
+  uploadedDocsLoading: string;
+};
+
 export const TASK_MODE_EMPTY_COPY: Record<
   AssistantTaskMode,
   Record<UiLanguage, { title: string; text: string }>
@@ -26,30 +48,7 @@ export const TASK_MODE_EMPTY_COPY: Record<
   },
 };
 
-export const UI_COPY: Record<
-  UiLanguage,
-  {
-    emptyHistory: string;
-    emptyUploadedDocs: string;
-    fileAttach: string;
-    history: string;
-    inputPlaceholder: string;
-    newChat: string;
-    openHistoryPanel: string;
-    openUploadedDocs: string;
-    openSidebar: string;
-    sidebar: string;
-    switchLanguage: string;
-    userLabel: string;
-    systemLabel: string;
-    answerCopy: string;
-    answerCopied: string;
-    scrollToLatest: string;
-    uploadedDocs: string;
-    uploadedDocsError: string;
-    uploadedDocsLoading: string;
-  }
-> = {
+export const UI_COPY: Record<UiLanguage, AssistantCopy> = {
   ko: {
     emptyHistory: '아직 저장된 대화가 없습니다.',
     emptyUploadedDocs: '업로드된 문서가 없습니다. 파일 첨부 RAG 연결 후 이곳에 표시됩니다.',
