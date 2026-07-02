@@ -122,6 +122,33 @@ type Message = {
   gatewayContextDigest?: string;
   progressSteps?: ProgressStep[];
   timestamp?: number;
+  toolPlan?: ToolPlanFooter;
+};
+
+type ToolPlanStep = {
+  adapter?: string;
+  evidenceType?: string;
+  reason?: string;
+  step?: number | string;
+  tool?: string;
+  verb?: string;
+};
+
+type ToolPlanMissingEvidence = {
+  reason?: string;
+  type?: string;
+};
+
+type ToolPlanFooter = {
+  executionPolicyMode?: string;
+  missingEvidence: ToolPlanMissingEvidence[];
+  steps: ToolPlanStep[];
+  targetNamespace?: string;
+  targetResourceKind?: string;
+  targetResourceName?: string;
+  taskType?: string;
+  validationOk?: boolean;
+  validationViolations: string[];
 };
 
 type EvidenceFooterRef = {
@@ -1221,6 +1248,90 @@ const attachEvidenceFooterToLastAssistant = (
   return next;
 };
 
+const buildToolPlanFooter = (raw: unknown): ToolPlanFooter | undefined => {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+
+  const plan = raw as Record<string, unknown>;
+  const target = (plan.target && typeof plan.target === 'object' ? plan.target : {}) as Record<
+    string,
+    unknown
+  >;
+  const executionPolicy = (
+    plan.execution_policy && typeof plan.execution_policy === 'object' ? plan.execution_policy : {}
+  ) as Record<string, unknown>;
+  const validation = (
+    plan.validation && typeof plan.validation === 'object' ? plan.validation : {}
+  ) as Record<string, unknown>;
+
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === 'object';
+
+  const rawSteps = Array.isArray(plan.tool_plan) ? plan.tool_plan.filter(isRecord) : [];
+  const steps: ToolPlanStep[] = rawSteps.map((step) => {
+    const stepId =
+      typeof step.step === 'number' || typeof step.step === 'string' ? step.step : undefined;
+    return {
+      adapter: typeof step.adapter === 'string' ? step.adapter : undefined,
+      evidenceType: typeof step.evidence_type === 'string' ? step.evidence_type : undefined,
+      reason: typeof step.reason === 'string' ? step.reason : undefined,
+      step: stepId,
+      tool: typeof step.tool === 'string' ? step.tool : undefined,
+      verb: typeof step.verb === 'string' ? step.verb : undefined,
+    };
+  });
+
+  const rawMissing = Array.isArray(plan.missing_evidence)
+    ? plan.missing_evidence.filter(isRecord)
+    : [];
+  const missingEvidence: ToolPlanMissingEvidence[] = rawMissing.map((item) => ({
+    reason: typeof item.reason === 'string' ? item.reason : undefined,
+    type: typeof item.type === 'string' ? item.type : undefined,
+  }));
+
+  if (steps.length === 0) {
+    return undefined;
+  }
+
+  return {
+    executionPolicyMode:
+      typeof executionPolicy.mode === 'string' ? executionPolicy.mode : undefined,
+    missingEvidence,
+    steps,
+    targetNamespace: typeof target.namespace === 'string' ? target.namespace : undefined,
+    targetResourceKind: typeof target.resourceKind === 'string' ? target.resourceKind : undefined,
+    targetResourceName: typeof target.resourceName === 'string' ? target.resourceName : undefined,
+    taskType: typeof plan.task_type === 'string' ? plan.task_type : undefined,
+    validationOk: typeof validation.ok === 'boolean' ? validation.ok : undefined,
+    validationViolations: Array.isArray(validation.violations)
+      ? validation.violations.filter((item): item is string => typeof item === 'string')
+      : [],
+  };
+};
+
+const attachToolPlanToLastAssistant = (
+  messages: Message[],
+  toolPlan: ToolPlanFooter | undefined,
+): Message[] => {
+  if (!toolPlan) {
+    return messages;
+  }
+
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    toolPlan,
+  };
+
+  return next;
+};
+
 const markLastAssistantFallback = (
   messages: Message[],
   gatewayContextDigest?: string,
@@ -2101,6 +2212,96 @@ const renderEvidenceFooter = (
           </ol>
         </details>
       )}
+    </div>
+  );
+};
+
+const isReadOnlyExecutionPolicy = (mode?: string): boolean => mode === 'evidence_check';
+
+const executionPolicyLabel = (mode?: string): string => {
+  if (mode === 'evidence_check') {
+    return '조회 전용';
+  }
+  if (mode === 'unrestricted') {
+    return '실행 무제한';
+  }
+  if (mode === 'controlled_execution') {
+    return '승인 후 실행';
+  }
+  return mode || '알 수 없음';
+};
+
+const renderToolPlanFooter = (toolPlan: ToolPlanFooter | undefined): React.ReactNode => {
+  if (!toolPlan || toolPlan.steps.length === 0) {
+    return null;
+  }
+
+  const steps = toolPlan.steps.slice(0, 6);
+  const missingEvidence = toolPlan.missingEvidence.slice(0, 3);
+  const readOnly = isReadOnlyExecutionPolicy(toolPlan.executionPolicyMode);
+  const targetLabel = [toolPlan.targetResourceKind, toolPlan.targetResourceName]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <div className="komsco-ai__toolplan-footer">
+      <div className="komsco-ai__toolplan-footer-head">
+        <span className="komsco-ai__evidence-title">조회 계획</span>
+        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
+          {toolPlan.taskType}
+        </span>
+        <span
+          className={`komsco-ai__evidence-pill ${
+            readOnly
+              ? 'komsco-ai__evidence-pill--collected'
+              : 'komsco-ai__evidence-pill--policy-warning'
+          }`}
+        >
+          {executionPolicyLabel(toolPlan.executionPolicyMode)}
+        </span>
+        {toolPlan.validationOk === false && (
+          <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
+            계획 검증 실패
+          </span>
+        )}
+      </div>
+
+      <details className="komsco-ai__evidence-detail">
+        <summary>
+          <span>조회 계획 상세보기</span>
+        </summary>
+        {targetLabel && (
+          <div className="komsco-ai__toolplan-target">
+            대상: {targetLabel}
+            {toolPlan.targetNamespace ? ` (${toolPlan.targetNamespace})` : ''}
+          </div>
+        )}
+        <ol className="komsco-ai__evidence-query-plan" aria-label="조회 계획 단계">
+          {steps.map((step, index) => (
+            <li key={`${step.step || index}-${step.tool || 'tool'}`}>
+              <strong>{evidenceTypeLabel(step.evidenceType || step.tool)}</strong>
+              <span>{step.reason || '조회 단계'}</span>
+              <code>{step.verb || step.tool}</code>
+            </li>
+          ))}
+        </ol>
+        {missingEvidence.length > 0 && (
+          <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
+            {missingEvidence.map((item, index) => (
+              <span key={`${item.type || 'missing'}-${index}`}>
+                {evidenceTypeLabel(item.type)}: {item.reason || '추가 확인 필요'}
+              </span>
+            ))}
+          </div>
+        )}
+        {toolPlan.validationViolations.length > 0 && (
+          <div className="komsco-ai__toolplan-violations" aria-label="계획 검증 문제">
+            {toolPlan.validationViolations.map((violation, index) => (
+              <span key={`violation-${index}`}>{violation}</span>
+            ))}
+          </div>
+        )}
+      </details>
     </div>
   );
 };
@@ -5229,6 +5430,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 },
               };
             });
+            setMessages((prev) =>
+              attachToolPlanToLastAssistant(prev, buildToolPlanFooter(event.plan)),
+            );
           }
 
           if (event.type === 'rca_context') {
@@ -5772,6 +5976,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 renderEvidenceFooter(message.evidenceFooter, message.content)}
+                              {message.role === 'assistant' &&
+                                hasContent &&
+                                renderToolPlanFooter(message.toolPlan)}
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 renderAssistantAnswerActions(
