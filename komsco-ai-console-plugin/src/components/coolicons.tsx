@@ -255,3 +255,32 @@ export const CoolWarningIcon: React.FC<CoolIconProps> = (props) => (
     />
   </CoolIcon>
 );
+
+export const CoolMoreIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path
+      d="M12 12.5A0.5 0.5 0 1 0 12 11.5A0.5 0.5 0 1 0 12 12.5Z M12 6.5A0.5 0.5 0 1 0 12 5.5A0.5 0.5 0 1 0 12 6.5Z M12 18.5A0.5 0.5 0 1 0 12 17.5A0.5 0.5 0 1 0 12 18.5Z"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth={1.4}
+    />
+  </CoolIcon>
+);
+
+export const CoolPencilIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path
+      d="M11 4H6C4.89543 4 4 4.89543 4 6V18C4 19.1046 4.89543 20 6 20H18C19.1046 20 20 19.1046 20 18V13M18.5 2.5C19.3284 1.67157 20.6716 1.67157 21.5 2.5C22.3284 3.32843 22.3284 4.67157 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z"
+      {...strokeProps}
+    />
+  </CoolIcon>
+);
+
+export const CoolTrashIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path
+      d="M4 7H20M10 11V17M14 11V17M5 7L6 19C6 20.1046 6.89543 21 8 21H16C17.1046 21 18 20.1046 18 19L19 7M9 7V4C9 3.44772 9.44772 3 10 3H14C14.5523 3 15 3.44772 15 4V7"
+      {...strokeProps}
+    />
+  </CoolIcon>
+);

@@ -19,14 +19,17 @@ import {
   CoolLockIcon,
   CoolLockOpenIcon,
   CoolMenuIcon,
+  CoolMoreIcon,
   CoolPaperclipIcon,
   CoolPaperPlaneIcon,
+  CoolPencilIcon,
   CoolPlusIcon,
   CoolSettingsIcon,
   CoolShieldCheckIcon,
   CoolShrinkIcon,
   CoolStopIcon,
   CoolTerminalIcon,
+  CoolTrashIcon,
   CoolUserCircleIcon,
   CoolWarningIcon,
 } from './coolicons';
@@ -265,6 +268,7 @@ type ConversationHistoryItem = {
   updatedAt: number;
   conversationId?: string;
   messages: Message[];
+  actionTargetKeys?: string[];
 };
 
 type ToolStreamEvent = {
@@ -811,6 +815,9 @@ const normalizeStoredConversation = (value: unknown): ConversationHistoryItem | 
     typeof value.conversationId === 'string' && value.conversationId
       ? value.conversationId
       : undefined;
+  const actionTargetKeys = Array.isArray(value.actionTargetKeys)
+    ? value.actionTargetKeys.filter((key): key is string => typeof key === 'string')
+    : undefined;
 
   return {
     id,
@@ -818,6 +825,7 @@ const normalizeStoredConversation = (value: unknown): ConversationHistoryItem | 
     updatedAt,
     conversationId,
     messages,
+    actionTargetKeys,
   };
 };
 
@@ -4481,6 +4489,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [uploadedDocumentsLoading, setUploadedDocumentsLoading] = React.useState(false);
   const [quickPromptMenuOpen, setQuickPromptMenuOpen] = React.useState(false);
   const [taskModeMenuOpen, setTaskModeMenuOpen] = React.useState(false);
+  const [openHistoryMenuId, setOpenHistoryMenuId] = React.useState<string | null>(null);
+  const [historyMenuAnchor, setHistoryMenuAnchor] = React.useState<{
+    right: number;
+    top: number;
+  } | null>(null);
+  const [renamingHistoryId, setRenamingHistoryId] = React.useState<string | null>(null);
+  const [renamingHistoryTitle, setRenamingHistoryTitle] = React.useState('');
   const [assistantTaskMode, setAssistantTaskMode] = React.useState<AssistantTaskMode>('ask');
   const [panelResizeUnlocked, setPanelResizeUnlocked] = React.useState(false);
   const [panelSize, setPanelSize] = React.useState<{ height?: number; width?: number }>({});
@@ -4503,6 +4518,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const consumedDraftPromptIdRef = React.useRef('');
   const quickPromptMenuRef = React.useRef<HTMLDivElement | null>(null);
   const taskModeMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const historyMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const historyMenuPanelRef = React.useRef<HTMLDivElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
   const assistantTypewriterTimerRef = React.useRef<number | undefined>();
   const assistantTextDrainResolversRef = React.useRef<Array<() => void>>([]);
@@ -4743,7 +4760,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [fullScreen, historySidebarOpen, updateHistoryDrawerBounds]);
 
   React.useEffect(() => {
-    if (!quickPromptMenuOpen && !taskModeMenuOpen) {
+    if (!quickPromptMenuOpen && !taskModeMenuOpen && !openHistoryMenuId) {
       return undefined;
     }
 
@@ -4751,13 +4768,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       const target = event.target as Node | null;
       if (
         target &&
-        (quickPromptMenuRef.current?.contains(target) || taskModeMenuRef.current?.contains(target))
+        (quickPromptMenuRef.current?.contains(target) ||
+          taskModeMenuRef.current?.contains(target) ||
+          historyMenuRef.current?.contains(target) ||
+          historyMenuPanelRef.current?.contains(target))
       ) {
         return;
       }
 
       setQuickPromptMenuOpen(false);
       setTaskModeMenuOpen(false);
+      setOpenHistoryMenuId(null);
     };
 
     const handleDocumentKeyDown = (event: KeyboardEvent) => {
@@ -4767,6 +4788,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       setQuickPromptMenuOpen(false);
       setTaskModeMenuOpen(false);
+      setOpenHistoryMenuId(null);
     };
 
     document.addEventListener('mousedown', handleDocumentMouseDown);
@@ -4776,7 +4798,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       document.removeEventListener('mousedown', handleDocumentMouseDown);
       document.removeEventListener('keydown', handleDocumentKeyDown);
     };
-  }, [quickPromptMenuOpen, taskModeMenuOpen]);
+  }, [openHistoryMenuId, quickPromptMenuOpen, taskModeMenuOpen]);
 
   const handleExecutionModeChange = React.useCallback(
     (mode: AiopsExecutionMode) => {
@@ -4798,6 +4820,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         updatedAt: Date.now(),
         conversationId: snapshotConversationId,
         messages: snapshotMessages,
+        actionTargetKeys: Array.from(sessionActionTargetKeys),
       };
 
       setConversationHistory((prev) =>
@@ -4807,7 +4830,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         ),
       );
     },
-    [activeSessionId, conversationId, messages, uiLanguage],
+    [activeSessionId, conversationId, messages, sessionActionTargetKeys, uiLanguage],
   );
 
   React.useEffect(() => {
@@ -4829,6 +4852,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setActiveSessionId(createRunId());
     setConversationId(undefined);
     setMessages([]);
+    setSessionActionTargetKeys(new Set());
     setInput('');
     setPendingAttachments([]);
     setAttachmentError('');
@@ -4848,6 +4872,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setActiveSessionId(conversation.id);
       setConversationId(conversation.conversationId);
       setMessages(conversation.messages);
+      setSessionActionTargetKeys(new Set(conversation.actionTargetKeys ?? []));
       setInput('');
       setPendingAttachments([]);
       setAttachmentError('');
@@ -4856,6 +4881,32 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     },
     [loading, saveCurrentConversation],
   );
+
+  const deleteConversation = React.useCallback(
+    (conversationHistoryId: string) => {
+      setConversationHistory((prev) =>
+        prev.filter((conversation) => conversation.id !== conversationHistoryId),
+      );
+      if (conversationHistoryId === activeSessionId) {
+        startNewConversation();
+      }
+    },
+    [activeSessionId, startNewConversation],
+  );
+
+  const renameConversation = React.useCallback((conversationHistoryId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      return;
+    }
+    setConversationHistory((prev) =>
+      prev.map((conversation) =>
+        conversation.id === conversationHistoryId
+          ? { ...conversation, title: trimmed }
+          : conversation,
+      ),
+    );
+  }, []);
 
   const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
     const body = bodyRef.current;
@@ -6179,25 +6230,138 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           )}
         </div>
       ) : (
-        <div className="komsco-ai__history-list">
+        <div className="komsco-ai__history-list" onScroll={() => setOpenHistoryMenuId(null)}>
           {conversationHistory.length === 0 ? (
             <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
           ) : (
-            conversationHistory.map((conversation) => (
-              <button
-                className={`komsco-ai__history-item${
-                  conversation.id === activeSessionId ? ' komsco-ai__history-item--active' : ''
-                }`}
-                disabled={loading}
-                key={conversation.id}
-                onClick={() => loadConversation(conversation)}
-                title={conversation.title}
-                type="button"
-              >
-                <span>{conversation.title}</span>
-                <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
-              </button>
-            ))
+            conversationHistory.map((conversation) => {
+              const isRenaming = renamingHistoryId === conversation.id;
+              const hasActions = (conversation.actionTargetKeys?.length ?? 0) > 0;
+              const menuOpen = openHistoryMenuId === conversation.id;
+
+              return (
+                <div className="komsco-ai__history-item-row" key={conversation.id}>
+                  {isRenaming ? (
+                    <input
+                      autoFocus
+                      className="komsco-ai__history-item-rename-input"
+                      onBlur={() => {
+                        renameConversation(conversation.id, renamingHistoryTitle);
+                        setRenamingHistoryId(null);
+                      }}
+                      onChange={(event) => setRenamingHistoryTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          renameConversation(conversation.id, renamingHistoryTitle);
+                          setRenamingHistoryId(null);
+                        } else if (event.key === 'Escape') {
+                          setRenamingHistoryId(null);
+                        }
+                      }}
+                      value={renamingHistoryTitle}
+                    />
+                  ) : (
+                    <button
+                      className={`komsco-ai__history-item${
+                        conversation.id === activeSessionId
+                          ? ' komsco-ai__history-item--active'
+                          : ''
+                      }`}
+                      disabled={loading}
+                      onClick={() => loadConversation(conversation)}
+                      title={conversation.title}
+                      type="button"
+                    >
+                      <span>{conversation.title}</span>
+                      <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
+                    </button>
+                  )}
+                  <div
+                    className="komsco-ai__history-item-menu"
+                    ref={menuOpen ? historyMenuRef : undefined}
+                  >
+                    <button
+                      aria-expanded={menuOpen}
+                      aria-haspopup="menu"
+                      aria-label="대화 옵션"
+                      className="komsco-ai__history-item-menu-trigger"
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setHistoryMenuAnchor({
+                          right: window.innerWidth - rect.right,
+                          top: rect.bottom + 4,
+                        });
+                        setOpenHistoryMenuId((value) =>
+                          value === conversation.id ? null : conversation.id,
+                        );
+                      }}
+                      type="button"
+                    >
+                      <CoolMoreIcon />
+                    </button>
+                    {menuOpen &&
+                      historyMenuAnchor &&
+                      typeof document !== 'undefined' &&
+                      ReactDOM.createPortal(
+                        <div
+                          className="komsco-ai__history-item-menu-panel"
+                          ref={historyMenuPanelRef}
+                          role="menu"
+                          style={{
+                            right: historyMenuAnchor.right,
+                            top: historyMenuAnchor.top,
+                          }}
+                        >
+                          <button
+                            className="komsco-ai__history-item-menu-item"
+                            disabled={!hasActions}
+                            onClick={() => {
+                              setOpenHistoryMenuId(null);
+                              setSessionActionTargetKeys(
+                                new Set(conversation.actionTargetKeys ?? []),
+                              );
+                              setSidebarActionPanelOpen(true);
+                              setHistoryPanelView('chats');
+                            }}
+                            role="menuitem"
+                            title={hasActions ? undefined : '이 대화에서 만들어진 조치가 없습니다.'}
+                            type="button"
+                          >
+                            <CoolListChecklistIcon />
+                            조치 내역 보기
+                          </button>
+                          <button
+                            className="komsco-ai__history-item-menu-item"
+                            onClick={() => {
+                              setOpenHistoryMenuId(null);
+                              setRenamingHistoryId(conversation.id);
+                              setRenamingHistoryTitle(conversation.title);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <CoolPencilIcon />
+                            이름 변경
+                          </button>
+                          <button
+                            className="komsco-ai__history-item-menu-item komsco-ai__history-item-menu-item--danger"
+                            onClick={() => {
+                              setOpenHistoryMenuId(null);
+                              deleteConversation(conversation.id);
+                            }}
+                            role="menuitem"
+                            type="button"
+                          >
+                            <CoolTrashIcon />
+                            대화 삭제
+                          </button>
+                        </div>,
+                        document.body,
+                      )}
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       )}
