@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Button, Card, CardBody, TextArea } from '@patternfly/react-core';
+import { Button, Card, CardBody, Switch, TextArea } from '@patternfly/react-core';
 import * as ReactDOM from 'react-dom';
 import {
   CoolArrowDownIcon,
@@ -4335,6 +4335,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [actionCandidates, setActionCandidates] = React.useState<AiopsActionCandidate[]>([]);
   const [busyActionCandidateId, setBusyActionCandidateId] = React.useState('');
   const busyActionCandidateIdRef = React.useRef('');
+  const [autoProposeActions, setAutoProposeActions] = React.useState(false);
+  const actionCandidatesRef = React.useRef<AiopsActionCandidate[]>([]);
+  const autoProposeActionsAllowedRef = React.useRef(false);
+  React.useEffect(() => {
+    actionCandidatesRef.current = actionCandidates;
+  }, [actionCandidates]);
   const [aiopsStatusError, setAiopsStatusError] = React.useState('');
   const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
   const aiopsActionBusyIdRef = React.useRef('');
@@ -4343,6 +4349,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
     DEFAULT_AIOPS_EXECUTION_MODE,
   );
+  React.useEffect(() => {
+    autoProposeActionsAllowedRef.current = executionMode === 'execute' && autoProposeActions;
+  }, [executionMode, autoProposeActions]);
   const [dragActive, setDragActive] = React.useState(false);
   const initialActiveConversation = React.useMemo(readStoredActiveConversation, []);
   const [messages, setMessages] = React.useState<Message[]>(
@@ -5854,6 +5863,21 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         await waitForAssistantTextQueue();
         finishAnswerStreamStep();
         await refreshAiopsRuntimeStatus();
+        if (autoProposeActionsAllowedRef.current) {
+          let latestAssistantContent = '';
+          setMessages((prev) => {
+            const assistantIndex = findLastAssistantIndex(prev);
+            latestAssistantContent = assistantIndex >= 0 ? prev[assistantIndex].content : '';
+            return prev;
+          });
+          const matched = matchActionCandidatesForMessage(
+            latestAssistantContent,
+            actionCandidatesRef.current,
+          );
+          matched.forEach((candidate) => {
+            void handleCreateActionPlanFromChat(candidate);
+          });
+        }
         if (runCompleted) {
           void onRunComplete?.();
         }
@@ -5894,6 +5918,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       draftPageContext,
       executionMode,
       flushAssistantTextQueueNow,
+      handleCreateActionPlanFromChat,
       input,
       loading,
       markRunningProgressFailed,
@@ -6420,6 +6445,32 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               </Button>
                               {quickPromptMenuOpen && (
                                 <div className="komsco-ai__quick-menu-panel" role="menu">
+                                  {executionMode === 'execute' && (
+                                    <div
+                                      aria-checked={autoProposeActions}
+                                      className="komsco-ai__quick-menu-item komsco-ai__quick-menu-item--toggle"
+                                      role="menuitemcheckbox"
+                                    >
+                                      <span className="komsco-ai__quick-prompt-icon">
+                                        <CoolShieldCheckIcon />
+                                      </span>
+                                      <span className="komsco-ai__quick-menu-copy">
+                                        <strong>조치 계획 기본 제공</strong>
+                                        <small>
+                                          질문마다 조치 계획을 먼저 보여줍니다. 끄면 요청할 때만
+                                          만듭니다.
+                                        </small>
+                                      </span>
+                                      <Switch
+                                        aria-label="답변 후 조치 계획 기본 제공"
+                                        id="komsco-ai-auto-propose-toggle"
+                                        isChecked={autoProposeActions}
+                                        onChange={(_event, checked) =>
+                                          setAutoProposeActions(checked)
+                                        }
+                                      />
+                                    </div>
+                                  )}
                                   {QUICK_PROMPTS.map((item) => (
                                     <button
                                       className="komsco-ai__quick-menu-item"
