@@ -32,6 +32,7 @@ import {
   CoolTrashIcon,
   CoolUserCircleIcon,
   CoolWarningIcon,
+  CoolWrapTextIcon,
 } from './coolicons';
 import {
   type AiopsActionCandidate,
@@ -1676,31 +1677,51 @@ const collectIndentedBlock = (lines: string[], startIndex: number): string[] => 
   return block;
 };
 
-const renderCodeBlock = (lines: string[], key: string, language?: string): React.ReactNode => {
+const CodeBlock: React.FC<{ language?: string; lines: string[] }> = ({ language, lines }) => {
+  const [wrapped, setWrapped] = React.useState(false);
   const code = lines.join('\n').trimEnd();
 
   return (
     <pre
-      className="komsco-ai__formatted-code-block"
+      className={`komsco-ai__formatted-code-block${
+        wrapped ? ' komsco-ai__formatted-code-block--wrapped' : ''
+      }`}
       data-language={language || undefined}
-      key={key}
     >
       <code>{code}</code>
-      <button
-        aria-label="명령 복사"
-        className="komsco-ai__code-copy"
-        onClick={() => {
-          if (navigator.clipboard) {
-            void navigator.clipboard.writeText(redactSensitiveText(code));
-          }
-        }}
-        type="button"
-      >
-        <CoolCopyIcon />
-      </button>
+      <div className="komsco-ai__code-actions">
+        <button
+          aria-label={wrapped ? '개행 해제' : '개행 표시'}
+          aria-pressed={wrapped}
+          className={`komsco-ai__code-wrap-toggle${
+            wrapped ? ' komsco-ai__code-wrap-toggle--active' : ''
+          }`}
+          onClick={() => setWrapped((value) => !value)}
+          title={wrapped ? '개행 해제' : '개행 표시'}
+          type="button"
+        >
+          <CoolWrapTextIcon />
+        </button>
+        <button
+          aria-label="명령 복사"
+          className="komsco-ai__code-copy"
+          onClick={() => {
+            if (navigator.clipboard) {
+              void navigator.clipboard.writeText(redactSensitiveText(code));
+            }
+          }}
+          type="button"
+        >
+          <CoolCopyIcon />
+        </button>
+      </div>
     </pre>
   );
 };
+
+const renderCodeBlock = (lines: string[], key: string, language?: string): React.ReactNode => (
+  <CodeBlock key={key} language={language} lines={lines} />
+);
 
 const getStepActivity = (step: ProgressStep): string => {
   const summary = productProgressText(step.summary);
@@ -1774,9 +1795,14 @@ const renderInlineText = (text: string, keyPrefix: string): React.ReactNode[] =>
     }
 
     if (part.startsWith('`') && part.endsWith('`')) {
+      const innerText = part.slice(1, -1);
+      if (isCommandLikeLine(innerText)) {
+        return <CodeBlock key={`${keyPrefix}-code-${index}`} lines={[innerText]} />;
+      }
+
       return (
         <code className="komsco-ai__formatted-code" key={`${keyPrefix}-code-${index}`}>
-          {part.slice(1, -1)}
+          {innerText}
         </code>
       );
     }

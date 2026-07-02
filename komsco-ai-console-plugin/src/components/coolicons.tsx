@@ -284,3 +284,12 @@ export const CoolTrashIcon: React.FC<CoolIconProps> = (props) => (
     />
   </CoolIcon>
 );
+
+export const CoolWrapTextIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path
+      d="M4 6H20M4 12H16C17.6569 12 19 13.3431 19 15C19 16.6569 17.6569 18 16 18H15M15 18L17.5 15.5M15 18L17.5 20.5M4 18H10"
+      {...strokeProps}
+    />
+  </CoolIcon>
+);
