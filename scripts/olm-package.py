@@ -65,7 +65,7 @@ KEYWORDS = [
     ).split(",")
     if item.strip()
 ]
-DEFAULT_ICON_FILE = ROOT / "komsco-ai-console-plugin" / "src" / "assets" / "aiops_icon.svg"
+DEFAULT_ICON_FILE = ROOT / "komsco-ai-console-plugin" / "src" / "assets" / "aiops_icon.png"
 READINESS_CONDITION_TYPES = [
     "TargetNamespaceReady",
     "GatewayServiceReady",
