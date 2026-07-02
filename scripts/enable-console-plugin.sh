@@ -2,15 +2,15 @@
 
 set -euo pipefail
 
-PLUGIN_NAME="${PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
+PLUGIN_NAME="${PLUGIN_NAME:-cywell-aiops-console-plugin}"
 
-if [[ "${KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN:-}" != "komsco-ai-console-plugin-kugnus" ]]; then
+if [[ "${KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN:-}" != "cywell-aiops-console-plugin" ]]; then
   echo "Refusing to patch console active plugins without explicit Kugnus approval." >&2
-  echo "Set KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN=komsco-ai-console-plugin-kugnus only after install verification." >&2
+  echo "Set KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN=cywell-aiops-console-plugin only after install verification." >&2
   exit 1
 fi
 
-if [[ "${PLUGIN_NAME}" != "komsco-ai-console-plugin-kugnus" ]]; then
+if [[ "${PLUGIN_NAME}" != "cywell-aiops-console-plugin" ]]; then
   echo "Refusing to enable protected or non-Kugnus ConsolePlugin: ${PLUGIN_NAME}" >&2
   exit 1
 fi

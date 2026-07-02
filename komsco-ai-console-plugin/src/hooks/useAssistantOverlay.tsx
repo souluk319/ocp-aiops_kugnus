@@ -2,8 +2,8 @@ import * as React from 'react';
 import { useOverlay } from '@openshift-console/dynamic-plugin-sdk';
 import AssistantLauncher from '../components/AssistantLauncher';
 
-const OVERLAY_ID = 'plugin__komsco-ai-console-plugin-kugnus__assistant-overlay';
-const AIOPS_ROUTE_PREFIX = '/aiops-kugnus';
+const OVERLAY_ID = 'plugin__cywell-aiops-console-plugin__assistant-overlay';
+const AIOPS_ROUTE_PREFIX = '/dashboards/aiops';
 
 type AssistantOverlayProps = {
   overlayId: string;

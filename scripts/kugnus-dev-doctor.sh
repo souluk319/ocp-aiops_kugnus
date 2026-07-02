@@ -4,7 +4,7 @@ set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPECTED_API_SERVER="${EXPECTED_API_SERVER:-https://api.ocp.cywell.server:6443}"
-PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
+PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 OC_TIMEOUT_SECONDS="${KUGNUS_DOCTOR_OC_TIMEOUT_SECONDS:-10}"
 OCP_LADDER_REPORT="${KUGNUS_OCP_LADDER_REPORT:-${ROOT_DIR}/docs/Ver.0.1.5/ocp-connectivity-ladder-report.json}"
 

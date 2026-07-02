@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONSOLE_URL="${CONSOLE_URL:-http://localhost:9000/dashboards}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://localhost:9000/api/kubernetes/version}"
-PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}"
+PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 PLUGIN_MANIFEST_URL="${PLUGIN_MANIFEST_URL:-http://localhost:9001/api/plugins/${PLUGIN_NAME}/plugin-manifest.json}"
 EXPECTED_API_SERVER="${OPENSHIFT_API_SERVER:-https://api.ocp.cywell.server:6443}"
 REPAIR="${KUGNUS_OKD_CONSOLE_REPAIR:-true}"

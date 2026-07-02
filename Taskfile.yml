@@ -31,7 +31,7 @@ tasks:
         expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
         echo "target=${server}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
-        test "${KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY:-}" = "komsco-ai-kugnus" || { echo "Refusing runtime apply. Re-run with KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY=komsco-ai-kugnus after explicit approval." >&2; exit 1; }
+        test "${KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY:-}" = "cywell-aiops" || { echo "Refusing runtime apply. Re-run with KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY=cywell-aiops after explicit approval." >&2; exit 1; }
         oc apply -k openshift/overlays/${KOMSCO_AIOPS_ENV:-prod}
 
   catalog:serve:
@@ -113,37 +113,37 @@ tasks:
       - ./scripts/olm-deploy.sh uninstall
 
   kugnus:package:
-    desc: Generate and verify the Kugnus OLM catalog package with deterministic internal image refs
+    desc: Generate and verify the Cywell AIOps OLM catalog package with deterministic internal image refs
     cmds:
       - ./scripts/kugnus-olm.sh package
 
   kugnus:images:
-    desc: Build and push Kugnus gateway/operator and console plugin images only when KOMSCO_AIOPS_APPROVE_IMAGES=komsco-ai-kugnus
+    desc: Build and push Cywell AIOps gateway/operator and console plugin images only when KOMSCO_AIOPS_APPROVE_IMAGES=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh images
 
   kugnus:publish:
-    desc: Build Kugnus images and register only the Kugnus OLM CatalogSource only when KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus
+    desc: Build Cywell AIOps images and register only the Cywell AIOps OLM CatalogSource only when KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh publish
 
   kugnus:install:
-    desc: Install Kugnus Subscription and AIOpsInstallation only when KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus
+    desc: Install Cywell AIOps Subscription and AIOpsInstallation only when KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh install
 
   kugnus:uninstall:
-    desc: Remove only Kugnus catalog/install/runtime resources when KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus
+    desc: Remove only Cywell AIOps catalog/install/runtime resources when KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh uninstall
 
   kugnus:status:
-    desc: Show local Kugnus package readiness by default; set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads
+    desc: Show local Cywell AIOps package readiness by default; set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads
     cmds:
       - ./scripts/kugnus-olm.sh status
 
   kugnus:company:check:
-    desc: Check target cluster identity and local Kugnus OLM package before company catalog work
+    desc: Check target cluster identity and local Cywell AIOps OLM package before company catalog work
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -153,27 +153,27 @@ tasks:
         ./scripts/kugnus-olm.sh package
 
   kugnus:company:publish:
-    desc: Build images and publish the Kugnus OperatorHub catalog entry to the approved company server
+    desc: Build images and publish the Cywell AIOps OperatorHub catalog entry to the approved company server
     cmds:
       - |
         server="$(oc whoami --show-server)"
         expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
         echo "target=${server}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
-        KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus ./scripts/kugnus-olm.sh publish
+        KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops ./scripts/kugnus-olm.sh publish
 
   kugnus:company:install:
-    desc: Install the Kugnus Subscription and AIOpsInstallation on the approved company server
+    desc: Install the Cywell AIOps Subscription and AIOpsInstallation on the approved company server
     cmds:
       - |
         server="$(oc whoami --show-server)"
         expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
         echo "target=${server}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
-        KOMSCO_AIOPS_APPROVE_INSTALL=komsco-ai-kugnus ./scripts/kugnus-olm.sh install
+        KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops ./scripts/kugnus-olm.sh install
 
   kugnus:company:status:
-    desc: Show Kugnus catalog, install, and ConsolePlugin status on the approved company server
+    desc: Show Cywell AIOps catalog, install, and ConsolePlugin status on the approved company server
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -188,13 +188,13 @@ tasks:
       - |
         server="$(oc whoami --show-server)"
         expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
-        namespace="${KOMSCO_AIOPS_NAMESPACE:-komsco-ai-kugnus}"
-        operator="${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-kugnus-operator}"
+        namespace="${KOMSCO_AIOPS_NAMESPACE:-cywell-aiops}"
+        operator="${KOMSCO_AIOPS_OPERATOR_NAME:-cywell-aiops-operator}"
         echo "target=${server}"
         echo "namespace=${namespace}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
-        test "${KOMSCO_AIOPS_APPROVE_REDEPLOY:-}" = "komsco-ai-kugnus" || { echo "Refusing redeploy. Re-run with KOMSCO_AIOPS_APPROVE_REDEPLOY=komsco-ai-kugnus after explicit approval." >&2; exit 1; }
-        KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=komsco-ai-kugnus ./scripts/kugnus-olm.sh publish
+        test "${KOMSCO_AIOPS_APPROVE_REDEPLOY:-}" = "cywell-aiops" || { echo "Refusing redeploy. Re-run with KOMSCO_AIOPS_APPROVE_REDEPLOY=cywell-aiops after explicit approval." >&2; exit 1; }
+        KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops ./scripts/kugnus-olm.sh publish
         oc rollout restart deployment/"${operator}" -n "${namespace}"
         oc rollout status deployment/"${operator}" -n "${namespace}" --timeout=180s
         oc rollout restart deployment/komsco-ai-console-plugin -n "${namespace}"
@@ -269,7 +269,7 @@ tasks:
       - bash ./scripts/kugnus-demo-resume.sh
 
   kugnus:dev:boot:
-    desc: Start the daily local Kugnus stack after PC reboot without running long strict demo gates
+    desc: Start the daily local Cywell AIOps stack after PC reboot without running long strict demo gates
     cmds:
       - KUGNUS_RESUME_RUN_STRICT_GATE=false bash ./scripts/kugnus-demo-resume.sh
 

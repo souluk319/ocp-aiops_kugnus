@@ -96,7 +96,7 @@ def main() -> int:
             "-F",
             f"labels={json.dumps(labels, separators=(',', ':'))}",
             "-F",
-            "namespace=komsco-ai-kugnus",
+            "namespace=cywell-aiops",
             "-F",
             f"version={smoke_version}",
             f"{gateway_url}/v1/rag/uploads/file",

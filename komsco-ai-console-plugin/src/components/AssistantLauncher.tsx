@@ -4718,7 +4718,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             documentFiles.map(async (file) => {
               const commonMetadata = {
                 labels: { source: 'chat-attachment', version: 'v0.1.5' },
-                namespace: 'komsco-ai-kugnus',
+                namespace: 'cywell-aiops',
                 runId: activeSessionId,
                 sourceType: 'user-upload',
                 version: 'v0.1.5',

@@ -32,8 +32,8 @@ DEFAULT_JSON_REPORT = REPO_ROOT / "docs/Ver.0.1.6/preflight-report.json"
 DEFAULT_HTML_REPORT = REPO_ROOT / "docs/Ver.0.1.6/preflight-report.html"
 DEFAULT_GATEWAY_URL = "http://127.0.0.1:18080"
 DEFAULT_CONSOLE_URL = "http://127.0.0.1:9000/dashboards"
-DEFAULT_AIOPS_ROUTE_URL = "http://127.0.0.1:9000/aiops-kugnus"
-DEFAULT_DOCS_ROUTE_URL = "http://127.0.0.1:9000/aiops-kugnus/docs"
+DEFAULT_AIOPS_ROUTE_URL = "http://127.0.0.1:9000/dashboards/aiops"
+DEFAULT_DOCS_ROUTE_URL = "http://127.0.0.1:9000/dashboards/aiops/docs"
 DEFAULT_PLUGIN_MANIFEST_URL = "http://127.0.0.1:9001/plugin-manifest.json"
 EXPECTED_OCP_SERVER = "https://api.ocp.cywell.server:6443"
 
@@ -755,7 +755,7 @@ class Preflight:
                 "scenario": "docs/Ver.0.1.6/official-demo-scenario.md",
                 "contract": "docs/Ver.0.1.6/preflight-contract.md",
                 "question": "최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.",
-                "route": "http://localhost:9000/aiops-kugnus",
+                "route": "http://localhost:9000/dashboards/aiops",
                 "supplementalEvidenceCommands": [
                     "task kugnus:runtime:smoke",
                     "task kugnus:rag:file-upload:smoke",

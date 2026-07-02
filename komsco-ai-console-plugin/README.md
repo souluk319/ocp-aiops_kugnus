@@ -7,7 +7,7 @@ but replaces the example page with a global assistant overlay:
 
 - `console.context-provider` injects the assistant at the Console root.
 - `useOverlay` renders a fixed bottom-right launcher and chat panel.
-- `consoleFetch` calls `/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/`.
+- `consoleFetch` calls `/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/`.
 - `ConsolePlugin.spec.proxy.authorization: UserToken` forwards the current
   OpenShift user token to `komsco-ai-gateway`.
 

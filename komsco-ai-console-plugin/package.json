@@ -68,7 +68,7 @@
     "webpack-dev-server": "^5.2.3"
   },
   "consolePlugin": {
-    "name": "komsco-ai-console-plugin-kugnus",
+    "name": "cywell-aiops-console-plugin",
     "version": "0.1.3",
     "displayName": "Cywell AI",
     "description": "Cywell AI assistant for OpenShift operations.",

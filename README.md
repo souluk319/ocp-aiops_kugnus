@@ -4,7 +4,7 @@ Local source workspace for the KOMSCO OpenShift AI assistant.
 
 ## 회사 서버 배포
 
-회사 OKD/OCP OperatorHub에 Kugnus AIOps를 등록할 때는 먼저 [COMPANY_DEPLOY.md](COMPANY_DEPLOY.md)를 본다.
+회사 OKD/OCP OperatorHub에 Cywell AIOps AIOps를 등록할 때는 먼저 [COMPANY_DEPLOY.md](COMPANY_DEPLOY.md)를 본다.
 
 최소 순서:
 
@@ -45,7 +45,7 @@ Task:
 AIOPS_GATEWAY_MODE=read-only task be:dev
 ```
 
-For Kugnus catalog work, keep the gateway in `read-only` mode unless a separate
+For Cywell AIOps catalog work, keep the gateway in `read-only` mode unless a separate
 lab approval explicitly says otherwise:
 
 - `읽기 전용`: analysis/planning only.
@@ -145,12 +145,12 @@ yarn start-console
 ```
 
 `start-console.sh` defaults `BRIDGE_PLUGIN_PROXY` to forward
-`/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/` to the local gateway
+`/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/` to the local gateway
 on `http://localhost:18080`.
 
-## Kugnus Catalog-Safe Path
+## Cywell AIOps Catalog-Safe Path
 
-Use this path for the current Ver.0.1.0 mission. It creates a Kugnus-specific
+Use this path for the current Ver.0.1.0 mission. It creates a Cywell AIOps-specific
 OperatorHub catalog card and does not install runtime operands by default:
 
 ```bash
@@ -161,11 +161,11 @@ task kugnus:company:status
 
 The protected names for this fork are:
 
-- package: `komsco-aiops-kugnus`
-- catalog: `komsco-aiops-catalog-kugnus`
-- namespace: `komsco-ai-kugnus`
-- ConsolePlugin: `komsco-ai-console-plugin-kugnus`
-- route base: `/aiops-kugnus`
+- package: `cywell-aiops`
+- catalog: `cywell-aiops-catalog`
+- namespace: `cywell-aiops`
+- ConsolePlugin: `cywell-aiops-console-plugin`
+- route base: `/dashboards/aiops`
 
 Optional install is deliberately gated:
 
@@ -176,7 +176,7 @@ task kugnus:company:status
 
 Do not use `task olm:deploy`, `task olm:release`, `task olm:install`,
 `task catalog:deploy`, `task catalog:release`, or `scripts/enable-console-plugin.sh`
-for this Kugnus catalog registration stage.
+for this Cywell AIOps catalog registration stage.
 
 ## OCP Dev Integration
 
@@ -200,11 +200,11 @@ helm upgrade -i komsco-ai-console-plugin \
   -f openshift/helm-values/console-plugin-dev.yaml
 ```
 
-The generic dev integration path is legacy for the current Kugnus catalog work.
+The generic dev integration path is legacy for the current Cywell AIOps catalog work.
 Do not use it to change the company console plugin list during Ver.0.1.0:
 
 ```bash
-KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN=komsco-ai-console-plugin-kugnus scripts/enable-console-plugin.sh
+KOMSCO_AIOPS_ALLOW_ENABLE_CONSOLE_PLUGIN=cywell-aiops-console-plugin scripts/enable-console-plugin.sh
 ```
 
 ## Official OLM / OperatorHub Deployment
@@ -221,7 +221,7 @@ The operator is intentionally lightweight and runs from the gateway image with
 `python -m komsco_ai_gateway.olm_operator`. OLM owns the operator lifecycle; the
 `AIOpsInstallation` custom resource owns the KOMSCO AIOps runtime.
 
-Generic OLM tasks below are for the shared upstream workflow. For Kugnus, prefer
+Generic OLM tasks below are for the shared upstream workflow. For Cywell AIOps, prefer
 `task kugnus:*` above because it hard-codes collision-safe names and approval
 guards.
 
@@ -229,15 +229,15 @@ Prepare images that are reachable by the cluster:
 
 ```bash
 export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.6
-export KOMSCO_AIOPS_OPERATOR_NAMESPACE=komsco-ai-kugnus
-export KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus
+export KOMSCO_AIOPS_OPERATOR_NAMESPACE=cywell-aiops
+export KOMSCO_AIOPS_NAMESPACE=cywell-aiops
 export KOMSCO_AIOPS_DISPLAY_NAME="Cywell AI"
-export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=komsco-ai-console-plugin-kugnus
+export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=cywell-aiops-console-plugin
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
-export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.6
-export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.6
-export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.6
+export KOMSCO_AIOPS_OPERATOR_IMAGE=image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-gateway:0.1.6
+export KOMSCO_AIOPS_PLUGIN_IMAGE=image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-console-plugin:0.1.6
+export KOMSCO_AIOPS_GATEWAY_IMAGE=image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-gateway:0.1.6
 ```
 
 `KOMSCO_AIOPS_PROVIDER_NAME=Cywell` is what makes the OpenShift catalog card
@@ -248,10 +248,10 @@ card title. The generated CSV also includes a default SVG icon; override
 asset.
 
 The console sidebar and assistant overlay are installed UI, not catalog preview
-UI. They appear only after the `komsco-ai-console-plugin-kugnus` ConsolePlugin is
+UI. They appear only after the `cywell-aiops-console-plugin` ConsolePlugin is
 enabled. For OperatorHub installs, the operator does not bootstrap a default
 `AIOpsInstallation` by default (`KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION=false`), so
-clicking Install creates the runtime and then enables the ConsolePlugin. Kugnus
+clicking Install creates the runtime and then enables the ConsolePlugin. Cywell AIOps
 installs default to `mode=read-only`, `mutations=false`, and
 `unrestrictedCommands=false`.
 
@@ -298,18 +298,18 @@ Useful checks:
 
 ```bash
 task olm:status
-oc get packagemanifest komsco-aiops-kugnus -n openshift-marketplace
-oc get subscription,csv,aiopsinstallation -n komsco-ai-kugnus
+oc get packagemanifest cywell-aiops -n openshift-marketplace
+oc get subscription,csv,aiopsinstallation -n cywell-aiops
 ```
 
 To remove the OLM install path:
 
 ```bash
-KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus task kugnus:uninstall
+KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops task kugnus:uninstall
 ```
 
 `task olm:uninstall` is the generic upstream removal path. Do not use it for
-Kugnus unless the generated manifests and target namespace have been reviewed.
+Cywell AIOps unless the generated manifests and target namespace have been reviewed.
 
 To keep the catalog card visible but remove the installed operator/runtime UI
 while testing the OperatorHub Install button:

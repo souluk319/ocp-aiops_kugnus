@@ -11,7 +11,7 @@ plugin:
     name: komsco-aiops-application-menu
     section: Cywell
     text: AIOps
-    href: https://console-openshift-console.apps.ocp.cywell.server/aiops-kugnus
+    href: https://console-openshift-console.apps.ocp.cywell.server/dashboards/aiops
   gateway:
     name: komsco-ai-gateway
     namespace: komsco-ai-dev

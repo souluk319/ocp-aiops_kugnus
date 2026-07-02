@@ -604,23 +604,23 @@ type StreamEvent =
   | { type: 'error'; message: string };
 
 const GATEWAY_STREAM_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/chat/stream';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/chat/stream';
 const GATEWAY_CLUSTER_SUMMARY_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/cluster/summary';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/cluster/summary';
 const GATEWAY_AIOPS_OVERVIEW_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/overview';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/overview';
 const GATEWAY_AIOPS_STATUS_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status';
 const GATEWAY_AIOPS_ACTION_CANDIDATES_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/action-candidates';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/action-candidates';
 const GATEWAY_RAG_UPLOADS_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/uploads';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/rag/uploads';
 const GATEWAY_RAG_SEARCH_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/search';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/rag/search';
 const GATEWAY_AUTH_SUBJECT_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/auth/subject';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/auth/subject';
 const GATEWAY_ACTIONS_URL =
-  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/actions';
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/actions';
 const CONSOLE_SELF_USER_URL = '/api/kubernetes/apis/user.openshift.io/v1/users/~';
 const GATEWAY_AUTH_ERROR_MESSAGE =
   'OpenShift 콘솔 사용자 인증이 만료되었거나 Gateway로 사용자 토큰이 전달되지 않았습니다. 콘솔을 새로고침하거나 다시 로그인한 뒤 다시 시도하세요.';
@@ -811,7 +811,7 @@ export async function uploadRagDocumentFile(
   formData.append('file', file, file.name);
   formData.append('labels', JSON.stringify(metadata.labels ?? {}));
   formData.append('customer', metadata.customer ?? 'komsco');
-  formData.append('namespace', metadata.namespace ?? 'komsco-ai-kugnus');
+  formData.append('namespace', metadata.namespace ?? 'cywell-aiops');
   formData.append('source_type', metadata.sourceType ?? 'user-upload');
   formData.append('version', metadata.version ?? 'v0.1.5');
 

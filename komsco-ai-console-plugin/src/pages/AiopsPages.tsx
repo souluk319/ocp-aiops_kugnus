@@ -664,7 +664,7 @@ const LightspeedLink: React.FC<{ data: AiopsPageData }> = ({ data }) => {
       </div>
       <div className="komsco-ai-page__endpoint-line">
         <span>콘솔 플러그인</span>
-        <code>komsco-ai-console-plugin-kugnus</code>
+        <code>cywell-aiops-console-plugin</code>
       </div>
     </div>
   );
@@ -1295,7 +1295,7 @@ export const AiopsDocsPage: React.FC = () => {
           files.map((file) =>
             uploadRagDocumentFile(file, {
               labels: { source: 'docs-page', version: 'v0.1.5' },
-              namespace: 'komsco-ai-kugnus',
+              namespace: 'cywell-aiops',
               sourceType: 'user-upload',
               version: 'v0.1.5',
             }),

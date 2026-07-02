@@ -7,15 +7,15 @@ GENERATED_DIR="${ROOT_DIR}/olm/generated"
 CATALOG_DIR="${GENERATED_DIR}/catalog"
 INSTALL_DIR="${GENERATED_DIR}/install"
 CATALOG_NAMESPACE=${KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE:-openshift-marketplace}
-CATALOG_NAME=${KOMSCO_AIOPS_OLM_CATALOG_NAME:-komsco-aiops-catalog-kugnus}
-OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai-kugnus}
-PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-komsco-aiops-kugnus}
-OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-komsco-aiops-kugnus-operator}
-INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-komsco-aiops-kugnus}
+CATALOG_NAME=${KOMSCO_AIOPS_OLM_CATALOG_NAME:-cywell-aiops-catalog}
+OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}
+PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-cywell-aiops}
+OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-cywell-aiops-operator}
+INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-cywell-aiops}
 OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
-CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-komsco-ai-console-plugin-kugnus}
+CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}
 DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AIOps}
 STATUS_MODE=${KOMSCO_AIOPS_STATUS_MODE:-local}
 ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}
@@ -47,15 +47,15 @@ Key environment variables:
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
-  KOMSCO_AIOPS_OPERATOR_NAMESPACE   Operator install namespace. Default: komsco-ai-kugnus
+  KOMSCO_AIOPS_OPERATOR_NAMESPACE   Operator install namespace. Default: cywell-aiops
   KOMSCO_AIOPS_NAMESPACE            Operand target namespace. Default: operator namespace
   KOMSCO_AIOPS_MODE                 evidence-check, execute, or unrestricted. Default: execute
   KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME  Cluster-scoped ConsolePlugin name.
   KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION
                                       true creates AIOpsInstallation automatically after UI install.
-  KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE  Must equal komsco-ai-kugnus before catalog/install/deploy cluster writes.
+  KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE  Must equal cywell-aiops before catalog/install/deploy cluster writes.
   KOMSCO_AIOPS_STATUS_MODE            local or cluster. Default: local.
-  KOMSCO_AIOPS_APPROVE_UNINSTALL      Must equal komsco-ai-kugnus before reset-install/uninstall.
+  KOMSCO_AIOPS_APPROVE_UNINSTALL      Must equal cywell-aiops before reset-install/uninstall.
 
 Example:
   KOMSCO_AIOPS_OPERATOR_VERSION=0.1.9 \\
@@ -70,25 +70,25 @@ bool_enabled() {
   [[ "${1,,}" == "true" ]]
 }
 
-validate_kugnus_safety() {
-  if [[ "${PACKAGE_NAME}" != "komsco-aiops-kugnus" ]]; then
-    echo "Refusing non-Kugnus package name: ${PACKAGE_NAME}" >&2
+validate_aiops_safety() {
+  if [[ "${PACKAGE_NAME}" != "cywell-aiops" ]]; then
+    echo "Refusing non-Cywell AIOps package name: ${PACKAGE_NAME}" >&2
     exit 1
   fi
-  if [[ "${CATALOG_NAME}" != "komsco-aiops-catalog-kugnus" ]]; then
-    echo "Refusing non-Kugnus catalog name: ${CATALOG_NAME}" >&2
+  if [[ "${CATALOG_NAME}" != "cywell-aiops-catalog" ]]; then
+    echo "Refusing non-Cywell AIOps catalog name: ${CATALOG_NAME}" >&2
     exit 1
   fi
-  if [[ "${OPERATOR_NAME}" != "komsco-aiops-kugnus-operator" ]]; then
-    echo "Refusing non-Kugnus operator name: ${OPERATOR_NAME}" >&2
+  if [[ "${OPERATOR_NAME}" != "cywell-aiops-operator" ]]; then
+    echo "Refusing non-Cywell AIOps operator name: ${OPERATOR_NAME}" >&2
     exit 1
   fi
-  if [[ "${INSTALLATION_NAME}" != "komsco-aiops-kugnus" ]]; then
-    echo "Refusing non-Kugnus installation name: ${INSTALLATION_NAME}" >&2
+  if [[ "${INSTALLATION_NAME}" != "cywell-aiops" ]]; then
+    echo "Refusing non-Cywell AIOps installation name: ${INSTALLATION_NAME}" >&2
     exit 1
   fi
-  if [[ "${OPERATOR_NAMESPACE}" != "komsco-ai-kugnus" || "${TARGET_NAMESPACE}" != "komsco-ai-kugnus" ]]; then
-    echo "Refusing non-Kugnus namespace. Set operator and target namespace to komsco-ai-kugnus." >&2
+  if [[ "${OPERATOR_NAMESPACE}" != "cywell-aiops" || "${TARGET_NAMESPACE}" != "cywell-aiops" ]]; then
+    echo "Refusing non-Cywell AIOps namespace. Set operator and target namespace to cywell-aiops." >&2
     exit 1
   fi
   case "${CONSOLE_PLUGIN_NAME}" in
@@ -104,18 +104,18 @@ validate_kugnus_safety() {
 }
 
 require_cluster_write_approval() {
-  validate_kugnus_safety
-  if [[ "${APPROVE_CLUSTER_WRITE}" != "komsco-ai-kugnus" ]]; then
-    echo "Refusing cluster write. Re-run with KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=komsco-ai-kugnus after explicit approval." >&2
+  validate_aiops_safety
+  if [[ "${APPROVE_CLUSTER_WRITE}" != "cywell-aiops" ]]; then
+    echo "Refusing cluster write. Re-run with KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=cywell-aiops after explicit approval." >&2
     exit 1
   fi
   require_company_server
 }
 
 require_uninstall_approval() {
-  validate_kugnus_safety
-  if [[ "${APPROVE_UNINSTALL}" != "komsco-ai-kugnus" ]]; then
-    echo "Refusing uninstall/reset. Re-run with KOMSCO_AIOPS_APPROVE_UNINSTALL=komsco-ai-kugnus after explicit approval." >&2
+  validate_aiops_safety
+  if [[ "${APPROVE_UNINSTALL}" != "cywell-aiops" ]]; then
+    echo "Refusing uninstall/reset. Re-run with KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops after explicit approval." >&2
     exit 1
   fi
   require_company_server
@@ -334,7 +334,7 @@ show_status() {
       show_local_status
       ;;
     cluster)
-      validate_kugnus_safety
+      validate_aiops_safety
       show_cluster_status
       ;;
     *)
@@ -444,7 +444,7 @@ PY
 }
 
 command=${1:-}
-validate_kugnus_safety
+validate_aiops_safety
 
 case "${command}" in
   package)

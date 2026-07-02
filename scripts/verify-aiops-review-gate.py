@@ -131,7 +131,7 @@ def static_console_action_button_check() -> dict[str, Any]:
 def taskfile_safety_check() -> dict[str, Any]:
     taskfile = (REPO_ROOT / "Taskfile.yml").read_text(encoding="utf-8")
     needles = [
-        "KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY=komsco-ai-kugnus",
+        "KOMSCO_AIOPS_APPROVE_RUNTIME_APPLY=cywell-aiops",
         "kugnus:aiops:live-verify",
         "python3 scripts/verify-aiops-review-gate.py",
     ]
@@ -232,7 +232,7 @@ def build_requirement_summary(
             "evidence": [
                 "ignored PDF/PNG references",
                 "company runtime apply approval gate",
-                "komsco-aiops-kugnus-operator.v0.1.9",
+                "cywell-aiops-operator.v0.1.9",
             ],
         },
     ]

@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
-NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-komsco-ai-kugnus}}
+NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}}
 PUSH_REGISTRY=${KOMSCO_AIOPS_PUSH_REGISTRY:-}
 PULL_REGISTRY=${KOMSCO_AIOPS_PULL_REGISTRY:-}
 TLS_VERIFY=${KOMSCO_AIOPS_REGISTRY_TLS_VERIFY:-false}
@@ -24,17 +24,17 @@ Commands:
 
 Key environment variables:
   KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.9
-  KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: komsco-ai-kugnus
+  KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: cywell-aiops
   KOMSCO_AIOPS_PUSH_REGISTRY         Registry used by the local machine for push.
   KOMSCO_AIOPS_PULL_REGISTRY         Registry used by cluster workloads for pull.
   KOMSCO_AIOPS_REGISTRY_TLS_VERIFY   true or false for podman login/push. Default: false
   KOMSCO_AIOPS_CONTAINER_ENGINE      podman or docker. Auto-detected if unset.
   KOMSCO_AIOPS_GRANT_IMAGE_PULL      Grant all service accounts image pull access to the image namespace. Default: true
-  KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE Must equal komsco-ai-kugnus before image namespace/OLM writes.
+  KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE Must equal cywell-aiops before image namespace/OLM writes.
 
 Example:
   KOMSCO_AIOPS_OPERATOR_VERSION=0.1.9 \\
-  KOMSCO_AIOPS_NAMESPACE=komsco-ai-kugnus \\
+  KOMSCO_AIOPS_NAMESPACE=cywell-aiops \\
   task olm:release
 EOF
 }
@@ -58,13 +58,13 @@ require_company_server() {
 }
 
 require_cluster_write_approval() {
-  if [[ "${APPROVE_CLUSTER_WRITE}" != "komsco-ai-kugnus" ]]; then
-    echo "Refusing cluster write. Re-run with KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=komsco-ai-kugnus after explicit approval." >&2
+  if [[ "${APPROVE_CLUSTER_WRITE}" != "cywell-aiops" ]]; then
+    echo "Refusing cluster write. Re-run with KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=cywell-aiops after explicit approval." >&2
     exit 1
   fi
   require_company_server
-  if [[ "${NAMESPACE}" != "komsco-ai-kugnus" ]]; then
-    echo "Refusing cluster write: this local release path only targets komsco-ai-kugnus, got ${NAMESPACE}." >&2
+  if [[ "${NAMESPACE}" != "cywell-aiops" ]]; then
+    echo "Refusing cluster write: this local release path only targets cywell-aiops, got ${NAMESPACE}." >&2
     exit 1
   fi
 }

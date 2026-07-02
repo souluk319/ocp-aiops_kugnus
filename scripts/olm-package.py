@@ -14,17 +14,17 @@ BUNDLE_DIR = GENERATED_DIR / "bundle"
 CATALOG_DIR = GENERATED_DIR / "catalog"
 INSTALL_DIR = GENERATED_DIR / "install"
 
-PACKAGE_NAME = os.getenv("KOMSCO_AIOPS_PACKAGE_NAME", "komsco-aiops-kugnus")
-OPERATOR_NAME = os.getenv("KOMSCO_AIOPS_OPERATOR_NAME", "komsco-aiops-kugnus-operator")
-INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "komsco-aiops-kugnus")
-CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "komsco-aiops-catalog-kugnus")
+PACKAGE_NAME = os.getenv("KOMSCO_AIOPS_PACKAGE_NAME", "cywell-aiops")
+OPERATOR_NAME = os.getenv("KOMSCO_AIOPS_OPERATOR_NAME", "cywell-aiops-operator")
+INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "cywell-aiops")
+CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "cywell-aiops-catalog")
 CATALOG_NAMESPACE = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE", "openshift-marketplace")
 CHANNEL = os.getenv("KOMSCO_AIOPS_CHANNEL", "stable")
 VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.9")
 CSV_NAME = f"{OPERATOR_NAME}.v{VERSION}"
 SKIPS_CSV = os.getenv("KOMSCO_AIOPS_SKIPS_CSV", "")
 VERSION_SCOPE = os.getenv("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{VERSION}")
-INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "komsco-ai-kugnus")
+INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "cywell-aiops")
 TARGET_NAMESPACE = os.getenv("KOMSCO_AIOPS_NAMESPACE", INSTALL_NAMESPACE)
 PLUGIN_IMAGE = os.getenv(
     "KOMSCO_AIOPS_PLUGIN_IMAGE",
@@ -36,11 +36,14 @@ GATEWAY_IMAGE = os.getenv(
 )
 OPERATOR_IMAGE = os.getenv("KOMSCO_AIOPS_OPERATOR_IMAGE", GATEWAY_IMAGE)
 DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "Cywell AIOps")
-CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "komsco-ai-console-plugin-kugnus")
+CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "cywell-aiops-console-plugin")
 CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", DISPLAY_NAME)
 DISABLED_CONSOLE_PLUGIN_NAMES = [
     item.strip()
-    for item in os.getenv("KOMSCO_AIOPS_DISABLED_CONSOLE_PLUGIN_NAMES", "komsco-ai-console-plugin").split(",")
+    for item in os.getenv(
+        "KOMSCO_AIOPS_DISABLED_CONSOLE_PLUGIN_NAMES",
+        "komsco-ai-console-plugin,lightspeed-console-plugin",
+    ).split(",")
     if item.strip()
 ]
 PROVIDER_NAME = os.getenv("KOMSCO_AIOPS_PROVIDER_NAME", "Cywell")
@@ -283,7 +286,7 @@ def crd() -> dict[str, Any]:
                                         },
                                         "consoleApplicationMenuHref": {
                                             "type": "string",
-                                            "default": "https://console-openshift-console.apps.ocp.cywell.server/aiops-kugnus",
+                                            "default": "https://console-openshift-console.apps.ocp.cywell.server/dashboards/aiops",
                                         },
                                         "consoleApplicationMenuImageURL": {
                                             "type": "string",

@@ -34,19 +34,19 @@ FIELD_MANAGER = os.getenv("KOMSCO_AI_FIELD_MANAGER", "komsco-aiops-operator")
 GROUP = "aiops.komsco.io"
 VERSION = "v1alpha1"
 PLURAL = "aiopsinstallations"
-DEFAULT_NAME = os.getenv("KOMSCO_AI_DEFAULT_INSTALLATION_NAME", "komsco-aiops-kugnus")
-DEFAULT_TARGET_NAMESPACE = os.getenv("KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "komsco-ai-kugnus")
+DEFAULT_NAME = os.getenv("KOMSCO_AI_DEFAULT_INSTALLATION_NAME", "cywell-aiops")
+DEFAULT_TARGET_NAMESPACE = os.getenv("KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "cywell-aiops")
 DEFAULT_PLUGIN_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_PLUGIN_IMAGE",
-    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-console-plugin:0.1.3",
+    "image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-console-plugin:0.1.3",
 )
 DEFAULT_GATEWAY_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE",
-    "image-registry.openshift-image-registry.svc:5000/komsco-ai-kugnus/komsco-ai-gateway:0.1.3",
+    "image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-gateway:0.1.3",
 )
 DEFAULT_CONSOLE_PLUGIN_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_NAME",
-    "komsco-ai-console-plugin-kugnus",
+    "cywell-aiops-console-plugin",
 )
 DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
@@ -69,7 +69,7 @@ DEFAULT_CONSOLE_APPLICATION_MENU_TEXT = os.getenv(
 )
 DEFAULT_CONSOLE_APPLICATION_MENU_HREF = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_HREF",
-    "https://console-openshift-console.apps.ocp.cywell.server/aiops-kugnus",
+    "https://console-openshift-console.apps.ocp.cywell.server/dashboards/aiops",
 )
 DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL",
@@ -77,7 +77,10 @@ DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL = os.getenv(
 )
 DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES = [
     name.strip()
-    for name in os.getenv("KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES", "komsco-ai-console-plugin").split(",")
+    for name in os.getenv(
+        "KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES",
+        "komsco-ai-console-plugin,lightspeed-console-plugin",
+    ).split(",")
     if name.strip()
 ]
 DEFAULT_ACTION_EXECUTOR_AUTH_SECRET = os.getenv(
@@ -548,15 +551,15 @@ def console_plugin_condition(config: Mapping[str, Any], generation: int) -> dict
         return condition(
             "ConsolePluginConfigured",
             "True",
-            "PluginTargetsKugnusServices",
-            f"ConsolePlugin {console_plugin_name} points to Kugnus services in {target_namespace}.",
+            "PluginTargetsCywell AIOpsServices",
+            f"ConsolePlugin {console_plugin_name} points to Cywell AIOps services in {target_namespace}.",
             generation,
         )
     return condition(
         "ConsolePluginConfigured",
         "False",
         "BackendMismatch",
-        f"ConsolePlugin {console_plugin_name} does not point to the expected Kugnus plugin/gateway services.",
+        f"ConsolePlugin {console_plugin_name} does not point to the expected Cywell AIOps plugin/gateway services.",
         generation,
     )
 
@@ -645,7 +648,7 @@ def rbac_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]
         "RBACReady",
         "True",
         "RBACPresent",
-        "Required Kugnus RBAC resources are present.",
+        "Required Cywell AIOps RBAC resources are present.",
         generation,
     )
 

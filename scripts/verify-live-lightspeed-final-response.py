@@ -290,7 +290,7 @@ def stream_chat(gateway_url: str, token: str, case: dict[str, Any], timeout: int
             {
                 "message": case["message"],
                 "pageContext": {
-                    "pathname": "/aiops-kugnus",
+                    "pathname": "/dashboards/aiops",
                     "aiopsExecutionMode": "execute",
                     "source": "live-lightspeed-final-verifier",
                 },
