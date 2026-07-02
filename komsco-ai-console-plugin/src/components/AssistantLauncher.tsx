@@ -8,6 +8,7 @@ import {
   CoolCheckIcon,
   CoolClockIcon,
   CoolCloseIcon,
+  CoolComposeIcon,
   CoolCopyIcon,
   CoolDesktopTowerIcon,
   CoolDocumentIcon,
@@ -57,6 +58,7 @@ import {
   shortDigest,
 } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
+import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
 
 const QUICK_PROMPTS = [
@@ -5833,43 +5835,48 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         className="komsco-ai__history-actions"
         aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
       >
-        <button
-          aria-label={copy.newChat}
-          className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
-          onClick={() => {
-            startNewConversation();
-            setHistoryPanelView('chats');
-          }}
-          title={copy.newChat}
-          type="button"
-        >
-          <CoolPlusIcon />
-        </button>
-        <div className="komsco-ai__history-action-group" role="group" aria-label={copy.sidebar}>
+        <div className="komsco-ai__history-brand">
+          <img alt="KOMSCO" className="komsco-ai__history-logo" src={komscoLogo} />
+        </div>
+        <div className="komsco-ai__history-actions-right">
           <button
-            aria-label={copy.openHistoryPanel}
-            aria-pressed={historyPanelView === 'chats'}
-            className={`komsco-ai__history-action-button${
-              historyPanelView === 'chats' ? ' komsco-ai__history-action-button--active' : ''
-            }`}
-            onClick={() => setHistoryPanelView('chats')}
-            title={copy.openHistoryPanel}
+            aria-label={copy.newChat}
+            className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
+            onClick={() => {
+              startNewConversation();
+              setHistoryPanelView('chats');
+            }}
+            title={copy.newChat}
             type="button"
           >
-            <CoolClockIcon />
+            <CoolComposeIcon />
           </button>
-          <button
-            aria-label={copy.openUploadedDocs}
-            aria-pressed={historyPanelView === 'uploads'}
-            className={`komsco-ai__history-action-button${
-              historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
-            }`}
-            onClick={() => setHistoryPanelView('uploads')}
-            title={copy.openUploadedDocs}
-            type="button"
-          >
-            <CoolDocumentIcon />
-          </button>
+          <div className="komsco-ai__history-action-group" role="group" aria-label={copy.sidebar}>
+            <button
+              aria-label={copy.openHistoryPanel}
+              aria-pressed={historyPanelView === 'chats'}
+              className={`komsco-ai__history-action-button${
+                historyPanelView === 'chats' ? ' komsco-ai__history-action-button--active' : ''
+              }`}
+              onClick={() => setHistoryPanelView('chats')}
+              title={copy.openHistoryPanel}
+              type="button"
+            >
+              <CoolClockIcon />
+            </button>
+            <button
+              aria-label={copy.openUploadedDocs}
+              aria-pressed={historyPanelView === 'uploads'}
+              className={`komsco-ai__history-action-button${
+                historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
+              }`}
+              onClick={() => setHistoryPanelView('uploads')}
+              title={copy.openUploadedDocs}
+              type="button"
+            >
+              <CoolDocumentIcon />
+            </button>
+          </div>
         </div>
       </div>
       <div className="komsco-ai__history-title">
@@ -5987,13 +5994,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   <CoolMenuIcon />
                 </Button>
                 <div className="komsco-ai__brand">
-                  <div className="komsco-ai__brand-mark">
-                    <img alt="" className="komsco-ai__brand-logo" src={kIcon} />
-                  </div>
-                  <div className="komsco-ai__brand-copy">
-                    <span className="komsco-ai__title">KOMSCO AIOps</span>
-                    <span className="komsco-ai__kicker">OpenShift 에이전트</span>
-                  </div>
+                  <span className="komsco-ai__title">KOMSCO AIOps Agent</span>
                 </div>
                 <div
                   className="komsco-ai__header-status"
