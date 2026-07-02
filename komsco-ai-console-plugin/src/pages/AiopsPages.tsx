@@ -46,6 +46,7 @@ import {
   buildActionCandidatePrompt,
   buildFindingDemoDraft,
 } from './AiopsDashboardSections';
+import { DocsHero, DocsLayout, DocsMetrics, uploadedDocumentQuery } from './AiopsDocsSections';
 import { safeEvidenceText } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
 import './aiops-pages.css';
@@ -119,34 +120,6 @@ const compactDigest = (value?: string): string => {
 
   return value.length > 28 ? `${value.slice(0, 24)}...` : value;
 };
-
-const DOCS_UPLOAD_ACCEPT = [
-  '.pdf',
-  '.docx',
-  '.pptx',
-  '.xlsx',
-  '.txt',
-  '.md',
-  '.markdown',
-  '.json',
-  '.yaml',
-  '.yml',
-  '.log',
-].join(',');
-
-const formatBytes = (value?: number): string => {
-  const size = typeof value === 'number' && Number.isFinite(value) ? value : 0;
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const uploadedDocumentQuery = (document: RagUploadedDocument): string =>
-  [document.title, document.sourceUri, document.documentId].filter(Boolean).join(' ');
 
 const ragBackendTone = (status?: string): Tone => {
   if (status === 'configured') {
@@ -1353,37 +1326,13 @@ export const AiopsDocsPage: React.FC = () => {
 
   return (
     <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="고객 문서">
-      <section className="komsco-ai-page__docs-hero">
-        <div>
-          <span className="komsco-ai-page__section-kicker">고객 문서</span>
-          <h2>고객 문서 저장소</h2>
-          <p>고객 문서를 등록하고 검색 가능한 근거 조각과 권한 범위를 확인합니다.</p>
-        </div>
-        <div className="komsco-ai-page__docs-actions">
-          <input
-            accept={DOCS_UPLOAD_ACCEPT}
-            className="komsco-ai-page__docs-file-input"
-            multiple
-            onChange={handleUploadChange}
-            ref={fileInputRef}
-            type="file"
-          />
-          <Button
-            isDisabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-            variant="primary"
-          >
-            {uploading ? '업로드 중' : '문서 업로드'}
-          </Button>
-          <Button
-            isDisabled={documentsLoading}
-            onClick={() => void loadDocuments()}
-            variant="secondary"
-          >
-            목록 새로고침
-          </Button>
-        </div>
-      </section>
+      <DocsHero
+        fileInputRef={fileInputRef}
+        loading={documentsLoading}
+        onRefresh={() => void loadDocuments()}
+        onUploadChange={handleUploadChange}
+        uploading={uploading}
+      />
 
       {uploadMessage && <div className="komsco-ai-page__docs-notice">{uploadMessage}</div>}
       {documentsError && <div className="komsco-ai-page__error">{documentsError}</div>}
@@ -1391,164 +1340,26 @@ export const AiopsDocsPage: React.FC = () => {
         <div className="komsco-ai-page__docs-status-line">{documentsReasonLabel}</div>
       )}
 
-      <div className="komsco-ai-page__metrics">
-        <MetricTile
-          detail={activeRagBackend?.collection || activeRagBackend?.backendType || 'gateway-only'}
-          icon={<ServerIcon />}
-          label="검색 저장소"
-          tone={ragBackendTone(activeRagBackend?.status)}
-          value={probeStatusLabel(ragStatus)}
-        />
-        <MetricTile
-          detail="현재 사용자 권한 기준"
-          icon={<ClipboardCheckIcon />}
-          label="등록 문서"
-          tone={documents.length > 0 ? 'success' : 'warning'}
-          value={documentsLoading ? '...' : documents.length}
-        />
-        <MetricTile
-          detail="검색 가능한 근거 조각"
-          icon={<ProjectDiagramIcon />}
-          label="검색 조각"
-          tone={totalChunks > 0 ? 'success' : 'warning'}
-          value={documentsLoading ? '...' : totalChunks}
-        />
-        <MetricTile
-          detail={activeRagBackend?.accessPath || 'Gateway 권한 확인'}
-          icon={<LockIcon />}
-          label="권한 제한"
-          tone={activeRagBackend?.aclRequired === false ? 'warning' : 'success'}
-          value={activeRagBackend?.aclRequired === false ? '꺼짐' : '켜짐'}
-        />
-        <MetricTile
-          detail="요약 미리보기만 표시"
-          icon={<ShieldAltIcon />}
-          label="원문 보호"
-          tone="success"
-          value="숨김"
-        />
-        <MetricTile
-          detail="저장된 문서 크기"
-          icon={<ServerIcon />}
-          label="저장 용량"
-          tone={totalBytes > 0 ? 'info' : 'warning'}
-          value={formatBytes(totalBytes)}
-        />
-      </div>
+      <DocsMetrics
+        activeRagBackend={activeRagBackend}
+        documents={documents}
+        documentsLoading={documentsLoading}
+        ragStatus={ragStatus}
+        totalBytes={totalBytes}
+        totalChunks={totalChunks}
+      />
 
-      <section className="komsco-ai-page__docs-layout">
-        <div className="komsco-ai-page__panel komsco-ai-page__docs-list-panel">
-          <div className="komsco-ai-page__panel-heading">
-            <ClipboardCheckIcon />
-            <h2>업로드 목록</h2>
-          </div>
-          {documentsLoading && documents.length === 0 ? (
-            <EmptyState label="업로드 문서를 확인하는 중입니다." />
-          ) : documents.length === 0 ? (
-            <EmptyState label="아직 업로드된 문서가 없습니다." />
-          ) : (
-            <div className="komsco-ai-page__docs-list">
-              {documents.map((document) => (
-                <button
-                  className={`komsco-ai-page__docs-item${
-                    selectedDocument?.documentId === document.documentId
-                      ? ' komsco-ai-page__docs-item--active'
-                      : ''
-                  }`}
-                  key={document.documentId}
-                  onClick={() => setSelectedDocumentId(document.documentId)}
-                  type="button"
-                >
-                  <strong>{document.title}</strong>
-                  <span>{document.sourceUri || document.documentId}</span>
-                  <small>
-                    {document.chunkCount ?? 0} chunks · {formatBytes(document.contentBytes)} ·{' '}
-                    {formatTime(document.updatedAt || document.ingestedAt)}
-                  </small>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="komsco-ai-page__panel komsco-ai-page__docs-viewer">
-          <div className="komsco-ai-page__panel-heading">
-            <ProjectDiagramIcon />
-            <h2>적재 문서 뷰어</h2>
-          </div>
-          {!selectedDocument ? (
-            <EmptyState label="문서를 선택하면 RAG 적재 상태가 표시됩니다." />
-          ) : (
-            <>
-              <div className="komsco-ai-page__docs-detail">
-                <div>
-                  <span>문서명</span>
-                  <strong>{selectedDocument.title}</strong>
-                </div>
-                <div>
-                  <span>문서 ID</span>
-                  <strong>{selectedDocument.documentId}</strong>
-                </div>
-                <div>
-                  <span>형식</span>
-                  <strong>{selectedDocument.mimeType || selectedDocument.sourceType || '-'}</strong>
-                </div>
-                <div>
-                  <span>무결성</span>
-                  <strong>{compactDigest(selectedDocument.checksum)}</strong>
-                </div>
-                <div>
-                  <span>권한</span>
-                  <strong>
-                    {(selectedDocument.aclGroups ?? []).slice(0, 3).join(', ') ||
-                      '현재 사용자 범위'}
-                  </strong>
-                </div>
-                <div>
-                  <span>상태</span>
-                  <strong>{previewLoading ? '확인 중' : probeStatusLabel(previewStatus)}</strong>
-                </div>
-              </div>
-
-              <div className="komsco-ai-page__docs-safety">
-                원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 근거 미리보기만 표시합니다.
-              </div>
-
-              {previewLoading ? (
-                <EmptyState label="적재 chunk를 확인하는 중입니다." />
-              ) : previewError ? (
-                <div className="komsco-ai-page__error">{previewError}</div>
-              ) : previewResults.length === 0 ? (
-                <EmptyState
-                  label={previewReason || '검색 가능한 적재 chunk가 아직 확인되지 않았습니다.'}
-                />
-              ) : (
-                <div className="komsco-ai-page__docs-preview-list">
-                  {previewResults.map((result, index) => (
-                    <article
-                      className="komsco-ai-page__docs-preview"
-                      key={result.id || `${result.documentId}-${index}`}
-                    >
-                      <div className="komsco-ai-page__docs-preview-head">
-                        <strong>{result.title || selectedDocument.title}</strong>
-                        <span>
-                          유사도 {typeof result.score === 'number' ? result.score.toFixed(3) : '-'}
-                        </span>
-                      </div>
-                      <p>
-                        {safeEvidenceText(
-                          result.content || result.contentPreview || 'preview 없음',
-                        )}
-                      </p>
-                      <small>{result.sourceUri || result.id || result.documentId}</small>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </section>
+      <DocsLayout
+        documents={documents}
+        documentsLoading={documentsLoading}
+        onSelectDocument={setSelectedDocumentId}
+        previewError={previewError}
+        previewLoading={previewLoading}
+        previewReason={previewReason}
+        previewResults={previewResults}
+        previewStatus={previewStatus}
+        selectedDocument={selectedDocument}
+      />
     </PageShell>
   );
 };
