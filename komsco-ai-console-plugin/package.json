@@ -70,8 +70,8 @@
   "consolePlugin": {
     "name": "cywell-aiops-console-plugin",
     "version": "0.1.3",
-    "displayName": "Cywell AI",
-    "description": "Cywell AI assistant for OpenShift operations.",
+    "displayName": "AIOps",
+    "description": "AIOps Agentic Operator assistant for OpenShift operations.",
     "exposedModules": {
       "AiopsActionsPage": "./pages/AiopsActionsPage",
       "AiopsAlertsPage": "./pages/AiopsAlertsPage",

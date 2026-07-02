@@ -112,38 +112,38 @@ tasks:
     cmds:
       - ./scripts/olm-deploy.sh uninstall
 
-  kugnus:package:
-    desc: Generate and verify the Cywell AIOps OLM catalog package with deterministic internal image refs
+  aiops:package:
+    desc: Generate and verify the AIOps OLM catalog package with deterministic internal image refs
     cmds:
       - ./scripts/kugnus-olm.sh package
 
-  kugnus:images:
-    desc: Build and push Cywell AIOps gateway/operator and console plugin images only when KOMSCO_AIOPS_APPROVE_IMAGES=cywell-aiops
+  aiops:images:
+    desc: Build and push AIOps gateway/operator and console plugin images only when KOMSCO_AIOPS_APPROVE_IMAGES=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh images
 
-  kugnus:publish:
-    desc: Build Cywell AIOps images and register only the Cywell AIOps OLM CatalogSource only when KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops
+  aiops:publish:
+    desc: Build AIOps images and register only the AIOps OLM CatalogSource only when KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh publish
 
-  kugnus:install:
-    desc: Install Cywell AIOps Subscription and AIOpsInstallation only when KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops
+  aiops:install:
+    desc: Install AIOps Subscription and AIOpsInstallation only when KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh install
 
-  kugnus:uninstall:
-    desc: Remove only Cywell AIOps catalog/install/runtime resources when KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops
+  aiops:uninstall:
+    desc: Remove only AIOps catalog/install/runtime resources when KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops
     cmds:
       - ./scripts/kugnus-olm.sh uninstall
 
-  kugnus:status:
-    desc: Show local Cywell AIOps package readiness by default; set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads
+  aiops:status:
+    desc: Show local AIOps package readiness by default; set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads
     cmds:
       - ./scripts/kugnus-olm.sh status
 
-  kugnus:company:check:
-    desc: Check target cluster identity and local Cywell AIOps OLM package before company catalog work
+  aiops:company:check:
+    desc: Check target cluster identity and local AIOps OLM package before company catalog work
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -152,8 +152,8 @@ tasks:
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
         ./scripts/kugnus-olm.sh package
 
-  kugnus:company:publish:
-    desc: Build images and publish the Cywell AIOps OperatorHub catalog entry to the approved company server
+  aiops:company:publish:
+    desc: Build images and publish the AIOps OperatorHub catalog entry to the approved company server
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -162,8 +162,8 @@ tasks:
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
         KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops ./scripts/kugnus-olm.sh publish
 
-  kugnus:company:install:
-    desc: Install the Cywell AIOps Subscription and AIOpsInstallation on the approved company server
+  aiops:company:install:
+    desc: Install the AIOps Subscription and AIOpsInstallation on the approved company server
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -172,8 +172,8 @@ tasks:
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
         KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops ./scripts/kugnus-olm.sh install
 
-  kugnus:company:status:
-    desc: Show Cywell AIOps catalog, install, and ConsolePlugin status on the approved company server
+  aiops:company:status:
+    desc: Show AIOps catalog, install, and ConsolePlugin status on the approved company server
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -182,7 +182,7 @@ tasks:
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
         KOMSCO_AIOPS_STATUS_MODE=cluster ./scripts/kugnus-olm.sh status
 
-  kugnus:company:redeploy:
+  aiops:company:redeploy:
     desc: Rebuild/publish current code, then restart installed Gateway and console plugin pods on the approved company server
     cmds:
       - |
@@ -202,6 +202,61 @@ tasks:
         oc rollout restart deployment/komsco-ai-gateway -n "${namespace}"
         oc rollout status deployment/komsco-ai-gateway -n "${namespace}" --timeout=300s
         KOMSCO_AIOPS_STATUS_MODE=cluster ./scripts/kugnus-olm.sh status
+
+  kugnus:package:
+    desc: Compatibility alias for aiops:package
+    cmds:
+      - task: aiops:package
+
+  kugnus:images:
+    desc: Compatibility alias for aiops:images
+    cmds:
+      - task: aiops:images
+
+  kugnus:publish:
+    desc: Compatibility alias for aiops:publish
+    cmds:
+      - task: aiops:publish
+
+  kugnus:install:
+    desc: Compatibility alias for aiops:install
+    cmds:
+      - task: aiops:install
+
+  kugnus:uninstall:
+    desc: Compatibility alias for aiops:uninstall
+    cmds:
+      - task: aiops:uninstall
+
+  kugnus:status:
+    desc: Compatibility alias for aiops:status
+    cmds:
+      - task: aiops:status
+
+  kugnus:company:check:
+    desc: Compatibility alias for aiops:company:check
+    cmds:
+      - task: aiops:company:check
+
+  kugnus:company:publish:
+    desc: Compatibility alias for aiops:company:publish
+    cmds:
+      - task: aiops:company:publish
+
+  kugnus:company:install:
+    desc: Compatibility alias for aiops:company:install
+    cmds:
+      - task: aiops:company:install
+
+  kugnus:company:status:
+    desc: Compatibility alias for aiops:company:status
+    cmds:
+      - task: aiops:company:status
+
+  kugnus:company:redeploy:
+    desc: Compatibility alias for aiops:company:redeploy
+    cmds:
+      - task: aiops:company:redeploy
 
   kugnus:evaluate:
     desc: Run Ver.0.1.3 offline AIOps scenario evaluator and write a pass/fail report
@@ -269,7 +324,7 @@ tasks:
       - bash ./scripts/kugnus-demo-resume.sh
 
   kugnus:dev:boot:
-    desc: Start the daily local Cywell AIOps stack after PC reboot without running long strict demo gates
+    desc: Start the daily local AIOps stack after PC reboot without running long strict demo gates
     cmds:
       - KUGNUS_RESUME_RUN_STRICT_GATE=false bash ./scripts/kugnus-demo-resume.sh
 
@@ -365,7 +420,7 @@ tasks:
       - python3 scripts/verify-stage1-evidence-rca.py --report docs/Ver.0.1.1/stage-1-evidence-rca-context-verification.json || python scripts/verify-stage1-evidence-rca.py --report docs/Ver.0.1.1/stage-1-evidence-rca-context-verification.json
 
   kugnus:ui:verify:
-    desc: Verify local Cywell AI chat UI layout, header, sidebar, fullscreen, and resize controls
+    desc: Verify local AIOps chat UI layout, header, sidebar, fullscreen, and resize controls
     cmds:
       - bash -ic 'KUGNUS_UI_VERIFY_REPORT=docs/Ver.0.1.5/ui-verifier-report.json node ./scripts/verify-kugnus-ui.mjs'
 

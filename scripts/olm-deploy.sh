@@ -16,7 +16,7 @@ OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}
-DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AIOps}
+DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-AIOps}
 STATUS_MODE=${KOMSCO_AIOPS_STATUS_MODE:-local}
 ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}
 ENABLE_DIAGNOSTICS=${KOMSCO_AIOPS_ENABLE_DIAGNOSTICS:-true}
@@ -72,23 +72,23 @@ bool_enabled() {
 
 validate_aiops_safety() {
   if [[ "${PACKAGE_NAME}" != "cywell-aiops" ]]; then
-    echo "Refusing non-Cywell AIOps package name: ${PACKAGE_NAME}" >&2
+    echo "Refusing non-AIOps package name: ${PACKAGE_NAME}" >&2
     exit 1
   fi
   if [[ "${CATALOG_NAME}" != "cywell-aiops-catalog" ]]; then
-    echo "Refusing non-Cywell AIOps catalog name: ${CATALOG_NAME}" >&2
+    echo "Refusing non-AIOps catalog name: ${CATALOG_NAME}" >&2
     exit 1
   fi
   if [[ "${OPERATOR_NAME}" != "cywell-aiops-operator" ]]; then
-    echo "Refusing non-Cywell AIOps operator name: ${OPERATOR_NAME}" >&2
+    echo "Refusing non-AIOps operator name: ${OPERATOR_NAME}" >&2
     exit 1
   fi
   if [[ "${INSTALLATION_NAME}" != "cywell-aiops" ]]; then
-    echo "Refusing non-Cywell AIOps installation name: ${INSTALLATION_NAME}" >&2
+    echo "Refusing non-AIOps installation name: ${INSTALLATION_NAME}" >&2
     exit 1
   fi
   if [[ "${OPERATOR_NAMESPACE}" != "cywell-aiops" || "${TARGET_NAMESPACE}" != "cywell-aiops" ]]; then
-    echo "Refusing non-Cywell AIOps namespace. Set operator and target namespace to cywell-aiops." >&2
+    echo "Refusing non-AIOps namespace. Set operator and target namespace to cywell-aiops." >&2
     exit 1
   fi
   case "${CONSOLE_PLUGIN_NAME}" in

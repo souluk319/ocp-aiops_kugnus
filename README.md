@@ -4,18 +4,18 @@ Local source workspace for the KOMSCO OpenShift AI assistant.
 
 ## 회사 서버 배포
 
-회사 OKD/OCP OperatorHub에 Cywell AIOps AIOps를 등록할 때는 먼저 [COMPANY_DEPLOY.md](COMPANY_DEPLOY.md)를 본다.
+회사 OKD/OCP OperatorHub에 Cywell 제공 AIOps를 등록할 때는 먼저 [COMPANY_DEPLOY.md](COMPANY_DEPLOY.md)를 본다.
 
 최소 순서:
 
 ```bash
-task kugnus:company:check
-task kugnus:company:publish
-task kugnus:company:status
+task aiops:company:check
+task aiops:company:publish
+task aiops:company:status
 
 # 설치 승인 후에만
-task kugnus:company:install
-task kugnus:company:status
+task aiops:company:install
+task aiops:company:status
 ```
 
 ## Layout
@@ -45,8 +45,8 @@ Task:
 AIOPS_GATEWAY_MODE=read-only task be:dev
 ```
 
-For Cywell AIOps catalog work, keep the gateway in `read-only` mode unless a separate
-lab approval explicitly says otherwise:
+For AIOps catalog work, the packaged runtime defaults to executable Agentic
+Operator mode. Local development can still choose a safer mode explicitly:
 
 - `읽기 전용`: analysis/planning only.
 - `실행 가능`: submit approved typed actions through the cluster Action
@@ -148,15 +148,15 @@ yarn start-console
 `/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/` to the local gateway
 on `http://localhost:18080`.
 
-## Cywell AIOps Catalog-Safe Path
+## AIOps Catalog-Safe Path
 
-Use this path for the current Ver.0.1.0 mission. It creates a Cywell AIOps-specific
-OperatorHub catalog card and does not install runtime operands by default:
+Use this path for the current mission. It creates the Cywell-provided AIOps
+OperatorHub catalog card:
 
 ```bash
-task kugnus:company:check
-task kugnus:company:publish
-task kugnus:company:status
+task aiops:company:check
+task aiops:company:publish
+task aiops:company:status
 ```
 
 The protected names for this fork are:
@@ -170,13 +170,13 @@ The protected names for this fork are:
 Optional install is deliberately gated:
 
 ```bash
-task kugnus:company:install
-task kugnus:company:status
+task aiops:company:install
+task aiops:company:status
 ```
 
 Do not use `task olm:deploy`, `task olm:release`, `task olm:install`,
 `task catalog:deploy`, `task catalog:release`, or `scripts/enable-console-plugin.sh`
-for this Cywell AIOps catalog registration stage.
+for this AIOps catalog registration stage.
 
 ## OCP Dev Integration
 
@@ -200,7 +200,7 @@ helm upgrade -i komsco-ai-console-plugin \
   -f openshift/helm-values/console-plugin-dev.yaml
 ```
 
-The generic dev integration path is legacy for the current Cywell AIOps catalog work.
+The generic dev integration path is legacy for the current AIOps catalog work.
 Do not use it to change the company console plugin list during Ver.0.1.0:
 
 ```bash
@@ -221,8 +221,8 @@ The operator is intentionally lightweight and runs from the gateway image with
 `python -m komsco_ai_gateway.olm_operator`. OLM owns the operator lifecycle; the
 `AIOpsInstallation` custom resource owns the KOMSCO AIOps runtime.
 
-Generic OLM tasks below are for the shared upstream workflow. For Cywell AIOps, prefer
-`task kugnus:*` above because it hard-codes collision-safe names and approval
+Generic OLM tasks below are for the shared upstream workflow. For AIOps, prefer
+`task aiops:*` above because it hard-codes collision-safe names and approval
 guards.
 
 Prepare images that are reachable by the cluster:
@@ -231,7 +231,7 @@ Prepare images that are reachable by the cluster:
 export KOMSCO_AIOPS_OPERATOR_VERSION=0.1.6
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE=cywell-aiops
 export KOMSCO_AIOPS_NAMESPACE=cywell-aiops
-export KOMSCO_AIOPS_DISPLAY_NAME="Cywell AI"
+export KOMSCO_AIOPS_DISPLAY_NAME="AIOps"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME=cywell-aiops-console-plugin
 export KOMSCO_AIOPS_PROVIDER_NAME=Cywell
 export KOMSCO_AIOPS_CATALOG_PUBLISHER=Cywell
@@ -251,9 +251,10 @@ The console sidebar and assistant overlay are installed UI, not catalog preview
 UI. They appear only after the `cywell-aiops-console-plugin` ConsolePlugin is
 enabled. For OperatorHub installs, the operator does not bootstrap a default
 `AIOpsInstallation` by default (`KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION=false`), so
-clicking Install creates the runtime and then enables the ConsolePlugin. Cywell AIOps
-installs default to `mode=read-only`, `mutations=false`, and
-`unrestrictedCommands=false`.
+clicking Install creates the runtime and then enables the ConsolePlugin. AIOps
+installs default to `mode=execute`, `mutations=true`, and
+`unrestrictedCommands=true` so the developed Agentic Operator features are
+available after deployment.
 
 Source-to-OLM one-shot release:
 
@@ -305,11 +306,11 @@ oc get subscription,csv,aiopsinstallation -n cywell-aiops
 To remove the OLM install path:
 
 ```bash
-KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops task kugnus:uninstall
+KOMSCO_AIOPS_APPROVE_UNINSTALL=cywell-aiops task aiops:uninstall
 ```
 
 `task olm:uninstall` is the generic upstream removal path. Do not use it for
-Cywell AIOps unless the generated manifests and target namespace have been reviewed.
+AIOps unless the generated manifests and target namespace have been reviewed.
 
 To keep the catalog card visible but remove the installed operator/runtime UI
 while testing the OperatorHub Install button:

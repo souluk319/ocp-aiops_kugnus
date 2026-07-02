@@ -50,7 +50,7 @@ DEFAULT_CONSOLE_PLUGIN_NAME = os.getenv(
 )
 DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
-    "Cywell AI",
+    "AIOps",
 )
 DEFAULT_CONSOLE_APPLICATION_MENU_ENABLED = (
     os.getenv("KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_ENABLED", "true").lower() == "true"
@@ -551,15 +551,15 @@ def console_plugin_condition(config: Mapping[str, Any], generation: int) -> dict
         return condition(
             "ConsolePluginConfigured",
             "True",
-            "PluginTargetsCywell AIOpsServices",
-            f"ConsolePlugin {console_plugin_name} points to Cywell AIOps services in {target_namespace}.",
+            "PluginTargetsAIOpsServices",
+            f"ConsolePlugin {console_plugin_name} points to AIOps services in {target_namespace}.",
             generation,
         )
     return condition(
         "ConsolePluginConfigured",
         "False",
         "BackendMismatch",
-        f"ConsolePlugin {console_plugin_name} does not point to the expected Cywell AIOps plugin/gateway services.",
+        f"ConsolePlugin {console_plugin_name} does not point to the expected AIOps plugin/gateway services.",
         generation,
     )
 
@@ -648,7 +648,7 @@ def rbac_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]
         "RBACReady",
         "True",
         "RBACPresent",
-        "Required Cywell AIOps RBAC resources are present.",
+        "Required AIOps RBAC resources are present.",
         generation,
     )
 

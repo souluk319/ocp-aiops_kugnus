@@ -8,12 +8,12 @@ export KOMSCO_AIOPS_PACKAGE_NAME="${KOMSCO_AIOPS_PACKAGE_NAME:-cywell-aiops}"
 export KOMSCO_AIOPS_OPERATOR_NAME="${KOMSCO_AIOPS_OPERATOR_NAME:-cywell-aiops-operator}"
 export KOMSCO_AIOPS_INSTALLATION_NAME="${KOMSCO_AIOPS_INSTALLATION_NAME:-cywell-aiops}"
 export KOMSCO_AIOPS_OLM_CATALOG_NAME="${KOMSCO_AIOPS_OLM_CATALOG_NAME:-cywell-aiops-catalog}"
-export KOMSCO_AIOPS_DISPLAY_NAME="${KOMSCO_AIOPS_DISPLAY_NAME:-Cywell AIOps}"
-export KOMSCO_AIOPS_CATALOG_DISPLAY_NAME="${KOMSCO_AIOPS_CATALOG_DISPLAY_NAME:-Cywell AIOps Catalog}"
+export KOMSCO_AIOPS_DISPLAY_NAME="${KOMSCO_AIOPS_DISPLAY_NAME:-AIOps}"
+export KOMSCO_AIOPS_CATALOG_DISPLAY_NAME="${KOMSCO_AIOPS_CATALOG_DISPLAY_NAME:-AIOps Catalog}"
 export KOMSCO_AIOPS_OPERATOR_NAMESPACE="${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}"
 export KOMSCO_AIOPS_NAMESPACE="${KOMSCO_AIOPS_NAMESPACE:-cywell-aiops}"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
-export KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME:-Cywell AIOps}"
+export KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME:-AIOps}"
 export KOMSCO_AIOPS_MODE="${KOMSCO_AIOPS_MODE:-execute}"
 export KOMSCO_AIOPS_ENABLE_MUTATIONS="${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}"
 export KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS:-true}"
@@ -34,11 +34,11 @@ usage() {
 Usage: $0 <command>
 
 Commands:
-  package   Generate and verify Cywell AIOps OLM package locally.
-  images    Build and push Cywell AIOps images after explicit approval.
-  publish   Build/push images, then register only the Cywell AIOps CatalogSource after explicit approval.
-  install   Install Cywell AIOps Subscription and AIOpsInstallation after explicit approval.
-  uninstall Remove only Cywell AIOps catalog/install/runtime resources after explicit approval.
+  package   Generate and verify AIOps OLM package locally.
+  images    Build and push AIOps images after explicit approval.
+  publish   Build/push images, then register only the AIOps CatalogSource after explicit approval.
+  install   Install AIOps Subscription and AIOpsInstallation after explicit approval.
+  uninstall Remove only AIOps catalog/install/runtime resources after explicit approval.
   status    Show local package readiness by default. Set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads.
 
 Image build strategies:
@@ -46,7 +46,7 @@ Image build strategies:
   local      Use local docker/podman build and external registry push only.
   auto       Try local docker/podman push first, then OpenShift binary build fallback.
 
-Set KOMSCO_AIOPS_FORCE_IMAGE_BUILD=true to rebuild existing Cywell AIOps image tags.
+Set KOMSCO_AIOPS_FORCE_IMAGE_BUILD=true to rebuild existing AIOps image tags.
 Set KOMSCO_AIOPS_APPROVE_IMAGES=cywell-aiops before image builds.
 Set KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops before CatalogSource registration.
 EOF
@@ -89,39 +89,39 @@ set_default_image_env() {
 
 validate_aiops_safety() {
   if [[ "${KOMSCO_AIOPS_PACKAGE_NAME}" != "cywell-aiops" ]]; then
-    echo "Refusing non-Cywell AIOps package name: ${KOMSCO_AIOPS_PACKAGE_NAME}" >&2
+    echo "Refusing non-AIOps package name: ${KOMSCO_AIOPS_PACKAGE_NAME}" >&2
     exit 1
   fi
 
   if [[ "${KOMSCO_AIOPS_OLM_CATALOG_NAME}" != "cywell-aiops-catalog" ]]; then
-    echo "Refusing non-Cywell AIOps catalog name: ${KOMSCO_AIOPS_OLM_CATALOG_NAME}" >&2
+    echo "Refusing non-AIOps catalog name: ${KOMSCO_AIOPS_OLM_CATALOG_NAME}" >&2
     exit 1
   fi
 
   if [[ "${KOMSCO_AIOPS_OPERATOR_NAME}" != "cywell-aiops-operator" ]]; then
-    echo "Refusing non-Cywell AIOps operator name: ${KOMSCO_AIOPS_OPERATOR_NAME}" >&2
+    echo "Refusing non-AIOps operator name: ${KOMSCO_AIOPS_OPERATOR_NAME}" >&2
     exit 1
   fi
 
   if [[ "${KOMSCO_AIOPS_INSTALLATION_NAME}" != "cywell-aiops" ]]; then
-    echo "Refusing non-Cywell AIOps AIOpsInstallation name: ${KOMSCO_AIOPS_INSTALLATION_NAME}" >&2
+    echo "Refusing non-AIOps AIOpsInstallation name: ${KOMSCO_AIOPS_INSTALLATION_NAME}" >&2
     exit 1
   fi
 
   if [[ "${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION}" != "true" ]]; then
-    echo "Refusing Cywell AIOps package without bootstrap install. Catalog install must create AIOpsInstallation." >&2
+    echo "Refusing AIOps package without bootstrap install. Catalog install must create AIOpsInstallation." >&2
     exit 1
   fi
 
   case "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" in
     komsco-ai-console-plugin|lightspeed-console-plugin)
-      echo "Refusing protected ConsolePlugin name for Cywell AIOps: ${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" >&2
+      echo "Refusing protected ConsolePlugin name for AIOps: ${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" >&2
       exit 1
       ;;
   esac
 
   if [[ "${KOMSCO_AIOPS_NAMESPACE}" != "cywell-aiops" || "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" != "cywell-aiops" ]]; then
-    echo "Refusing non-Cywell AIOps namespace. Set both namespace values to cywell-aiops." >&2
+    echo "Refusing non-AIOps namespace. Set both namespace values to cywell-aiops." >&2
     exit 1
   fi
 }
@@ -243,9 +243,9 @@ checks = {
 
 failed = [name for name, passed in checks.items() if not passed]
 if failed:
-    raise SystemExit("Cywell AIOps package verification failed: " + ", ".join(failed))
+    raise SystemExit("AIOps package verification failed: " + ", ".join(failed))
 
-print("Cywell AIOps package verification passed")
+print("AIOps package verification passed")
 print(f"CSV: {csv_name}")
 print(f"CatalogSource: {catalog_payload['metadata']['namespace']}/{catalog_payload['metadata']['name']}")
 print(f"PackageManifest: {package_payload['packageName']}")
@@ -371,7 +371,7 @@ prepare_build_context() {
 
 openshift_images() {
   require_company_server
-  echo "Building Cywell AIOps images with OpenShift binary builds in namespace ${KOMSCO_AIOPS_NAMESPACE}."
+  echo "Building AIOps images with OpenShift binary builds in namespace ${KOMSCO_AIOPS_NAMESPACE}."
   ensure_binary_build "komsco-ai-gateway" "${ROOT_DIR}/komsco-ai-gateway"
   ensure_binary_build "komsco-ai-console-plugin" "${ROOT_DIR}/komsco-ai-console-plugin"
   grant_image_pull_access
@@ -476,7 +476,7 @@ catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
 install = json.loads(install_path.read_text(encoding="utf-8"))
 csv_payload = json.loads(csv_files[0].read_text(encoding="utf-8"))
 
-print("# Cywell AIOps local OLM readiness")
+print("# AIOps local OLM readiness")
 print(f"CatalogSource manifest: {catalog['metadata']['namespace']}/{catalog['metadata']['name']}")
 print(f"Package: {os.environ['KOMSCO_AIOPS_PACKAGE_NAME']}")
 print(f"CSV: {csv_payload['metadata']['name']}")
