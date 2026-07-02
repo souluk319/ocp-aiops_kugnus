@@ -3074,6 +3074,117 @@ const hasApprovalForPlan = (approvals: AiopsRecordView[], planDigest: string): b
 const hasExecutionForApproval = (executions: AiopsRecordView[], approvalId: string): boolean =>
   executions.some((record) => getRecordSpecMap(record).approvalId === approvalId);
 
+const findExecutionForApproval = (
+  executions: AiopsRecordView[],
+  approvalId: string,
+): AiopsRecordView | undefined =>
+  executions.find((record) => getRecordSpecMap(record).approvalId === approvalId);
+
+interface ExecutionOutcomeSummary {
+  tone: 'ok' | 'warn' | 'danger';
+  title: string;
+  detail: string;
+}
+
+// evict_one_unhealthy_controller_owned_pod verification only checks the
+// target immediately after the mutation call, before the controller has
+// necessarily finished recreating the pod yet — so a fresh "여전히 존재" read
+// is expected transient noise, not a real failure signal, for the first
+// few seconds after execution.
+const REMEDIATION_REASON_LABEL_KO: Record<string, string> = {
+  target_pod_removed: '대상 Pod가 클러스터에서 제거되었습니다.',
+  target_pod_deleting: '대상 Pod가 종료 처리 중입니다. 컨트롤러가 곧 새로 만듭니다.',
+  target_pod_replaced: '컨트롤러가 대상 Pod를 새로 재생성했습니다.',
+  target_pod_still_present:
+    '조치를 실행했지만 대상 Pod가 아직 그대로입니다. 잠시 후 다시 확인해 주세요.',
+  restart_annotation_observed: '배포에 재시작 요청이 반영되었습니다.',
+  restart_annotation_not_observed: '재시작 반영이 아직 확인되지 않았습니다.',
+  scale_spec_matches: '레플리카 수 변경이 반영되었습니다.',
+  scale_spec_mismatch: '레플리카 수 변경이 아직 반영되지 않았습니다.',
+  rollback_template_annotation_observed: '이전 리비전으로 롤백이 반영되었습니다.',
+  rollback_annotation_not_observed: '롤백 반영이 아직 확인되지 않았습니다.',
+  hpa_bounds_match: 'HPA 범위 변경이 반영되었습니다.',
+  hpa_bounds_mismatch: 'HPA 범위 변경이 아직 반영되지 않았습니다.',
+  no_postcondition_for_tool:
+    '조치는 실행되었지만 이 조치 유형은 자동 확인을 지원하지 않습니다. 클러스터에서 직접 확인해 주세요.',
+  target_resource_unavailable: '대상 리소스를 다시 조회하지 못해 결과를 확인하지 못했습니다.',
+};
+
+const getExecutionOutcomeSummary = (
+  record: AiopsRecordView,
+  aiopsStatus: AiopsRuntimeStatus | null,
+): ExecutionOutcomeSummary | null => {
+  const decision = getApprovalDecision(record);
+  if (!decision) {
+    return null;
+  }
+
+  const approvalId = getApprovalId(record);
+  const executions = aiopsStatus?.spec.records.executionRecords ?? [];
+  const execution = findExecutionForApproval(executions, approvalId);
+  if (!execution) {
+    return null;
+  }
+
+  const isAutoPolicy = decision.decidedBy === 'auto-policy';
+  const decisionAction = asObjectMap(decision.action);
+  const toolName = typeof decisionAction?.toolName === 'string' ? decisionAction.toolName : '';
+  const executionSpec = getRecordSpecMap(execution);
+  const mutationOutcome = asObjectMap(executionSpec.mutationOutcome);
+  const remediationOutcome = asObjectMap(executionSpec.remediationOutcome);
+  const mutationStatus = typeof mutationOutcome?.status === 'string' ? mutationOutcome.status : '';
+  const remediationStatus =
+    typeof remediationOutcome?.status === 'string' ? remediationOutcome.status : '';
+  const remediationReason =
+    typeof remediationOutcome?.reason === 'string' ? remediationOutcome.reason : '';
+
+  const title = isAutoPolicy
+    ? toolName
+      ? `자동으로 조치를 실행했습니다 (정책: ${toolName})`
+      : '자동으로 조치를 실행했습니다.'
+    : '조치를 실행했습니다.';
+
+  if (mutationStatus === 'mutation_failed') {
+    return {
+      tone: 'danger',
+      title,
+      detail: '실행 요청이 실패했습니다. 다시 시도하거나 직접 확인해 주세요.',
+    };
+  }
+  if (mutationStatus === 'mutation_disabled') {
+    return {
+      tone: 'warn',
+      title,
+      detail: '실행 기능이 비활성화되어 있어 실제 클러스터에는 반영되지 않았습니다.',
+    };
+  }
+
+  if (remediationStatus === 'verified') {
+    return {
+      tone: 'ok',
+      title,
+      detail: REMEDIATION_REASON_LABEL_KO[remediationReason] || '문제 해결이 확인되었습니다.',
+    };
+  }
+  if (remediationStatus === 'verification_failed') {
+    return {
+      tone: 'warn',
+      title,
+      detail:
+        REMEDIATION_REASON_LABEL_KO[remediationReason] ||
+        '실행은 됐지만 해결 여부가 아직 확인되지 않았습니다.',
+    };
+  }
+
+  return {
+    tone: 'warn',
+    title,
+    detail:
+      REMEDIATION_REASON_LABEL_KO[remediationReason] ||
+      '실행은 됐지만 이 조치 유형은 자동 확인을 지원하지 않습니다. 클러스터에서 직접 확인해 주세요.',
+  };
+};
+
 const getRecordPhase = (record: AiopsRecordView): string => {
   const spec = getRecordSpecMap(record);
   const status = spec.status;
@@ -3559,11 +3670,20 @@ const latestAnswerActionRecords = (
   }
 
   return [
-    ...[...records.approvalDecisions].reverse(),
-    ...[...records.sealedActionPlans].reverse(),
-    ...[...records.actionProposals].reverse(),
+    ...records.approvalDecisions,
+    ...records.sealedActionPlans,
+    ...records.actionProposals,
   ]
-    .filter((record) => Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)))
+    .filter(
+      (record) =>
+        Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
+        Boolean(getExecutionOutcomeSummary(record, aiopsStatus)),
+    )
+    .sort(
+      (a, b) =>
+        new Date(String(b.metadata?.createdAt ?? 0)).getTime() -
+        new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
+    )
     .slice(0, 3);
 };
 
@@ -3598,11 +3718,35 @@ const renderAssistantAnswerActions = (
                 ? [action]
                 : [];
 
-          if (actions.length === 0) {
-            return null;
-          }
-
           const phase = getRecordPhase(record);
+
+          if (actions.length === 0) {
+            const outcome = getExecutionOutcomeSummary(record, aiopsStatus);
+            if (!outcome) {
+              return null;
+            }
+            const outcomeIcon = outcome.tone === 'ok' ? '✓' : outcome.tone === 'warn' ? '!' : '✕';
+
+            return (
+              <div
+                className={`komsco-ai__answer-action-card komsco-ai__answer-action-card--${outcome.tone}`}
+                data-action-lifecycle-stage={getActionRecordStage(record)}
+                key={getRecordName(record) || phase}
+              >
+                <div className="komsco-ai__answer-action-main">
+                  <span>{getActionRecordStageLabel(record)}</span>
+                  <strong>{getRecordTargetLabel(record)}</strong>
+                </div>
+                <div className="komsco-ai__answer-action-outcome">
+                  <div className="komsco-ai__answer-action-outcome-title">
+                    <span className="komsco-ai__answer-action-outcome-icon">{outcomeIcon}</span>
+                    {outcome.title}
+                  </div>
+                  <div className="komsco-ai__answer-action-outcome-detail">{outcome.detail}</div>
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div
@@ -5573,13 +5717,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             markRunningProgressFailed(event.message || 'AI response failed.');
             flushAssistantTextQueueNow();
             setMessages((prev) => [
-            ...prev,
-            {
-              role: 'system',
-              content: event.message || 'AI response failed.',
-              timestamp: Date.now(),
-            },
-          ]);
+              ...prev,
+              {
+                role: 'system',
+                content: event.message || 'AI response failed.',
+                timestamp: Date.now(),
+              },
+            ]);
           }
 
           if (event.type === 'end' && event.conversationId) {
