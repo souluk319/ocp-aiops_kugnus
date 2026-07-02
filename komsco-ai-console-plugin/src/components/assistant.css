@@ -2092,8 +2092,8 @@
 }
 
 .komsco-ai__input:focus-within {
-  border-color: #93b9ff;
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
+  border-color: #aebdcc;
+  box-shadow: none;
 }
 
 .komsco-ai__attach {
@@ -4400,8 +4400,8 @@
 }
 
 .komsco-ai__surface .komsco-ai__input:focus-within {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgb(37 99 235 / 12%);
+  border-color: #aebdcc;
+  box-shadow: none;
 }
 
 .komsco-ai__surface .komsco-ai__composer {
@@ -4718,8 +4718,8 @@
 }
 
 .komsco-ai__surface .komsco-ai__input:focus-within {
-  border-color: #3b73c5;
-  box-shadow: 0 0 0 2px rgb(59 115 197 / 14%);
+  border-color: #aebdcc;
+  box-shadow: none;
 }
 
 .komsco-ai__surface .komsco-ai__textarea,
