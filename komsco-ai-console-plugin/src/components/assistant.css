@@ -15,51 +15,45 @@
 
 .komsco-ai__fab {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  min-width: 54px;
+  height: 54px;
+  min-height: 54px;
+  padding: 0;
   color: var(
     --pf-t--global--text--color--on-brand--default,
     var(--pf-t--global--text--color--inverse)
   );
-  background-color: var(--pf-t--global--background--color--primary--default);
-  border: 1px solid var(--pf-t--global--border--color--default);
+  background: transparent;
+  border: 0;
   border-radius: 14px;
-  box-shadow: 0 10px 28px rgb(3 7 18 / 22%);
-}
-
-.komsco-ai__fab-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
   overflow: hidden;
-  background-color: var(--pf-t--global--background--color--primary--default);
-  border-radius: 10px;
+  box-shadow: 0 10px 28px rgb(3 7 18 / 22%);
 }
 
 .komsco-ai__fab-logo {
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 52px;
+  height: 52px;
   object-fit: contain;
+  border-radius: 13px;
 }
 
 .komsco-ai__fab-status {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
+  right: 4px;
+  bottom: 4px;
   width: 12px;
   height: 12px;
   background-color: var(
     --pf-t--global--color--status--success--default,
     var(--pf-t--global--color--brand--default)
   );
-  border: 2px solid var(--pf-t--global--background--color--primary--default);
+  border: 2px solid #fff;
   border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(3 7 18 / 18%);
 }
 
 .komsco-ai__panel {
@@ -1443,14 +1437,14 @@
 }
 
 .komsco-ai__answer-actions-head strong {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 780;
   color: var(--komsco-ink-900);
 }
 
 .komsco-ai__answer-actions-head span,
 .komsco-ai__answer-action-note {
-  font-size: 10px;
+  font-size: 11px;
   color: #708095;
 }
 
@@ -1463,20 +1457,20 @@
 }
 
 .komsco-ai__plan-summary-policy {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   color: var(--komsco-ink-900);
 }
 
 .komsco-ai__plan-summary-rollback {
-  font-size: 10px;
+  font-size: 11px;
   color: #708095;
 }
 
 .komsco-ai__plan-summary-note {
   flex-basis: 100%;
   margin: 0;
-  font-size: 10px;
+  font-size: 11px;
   color: #92400e;
 }
 
@@ -1487,11 +1481,12 @@
 
 .komsco-ai__answer-action-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
-  align-items: center;
+  align-items: stretch;
   min-width: 0;
   padding: 10px;
+  overflow: hidden;
   background: #fafbfc;
   border: 1px solid #eef0f3;
   border-radius: 12px;
@@ -1506,15 +1501,16 @@
 .komsco-ai__answer-action-main span,
 .komsco-ai__answer-action-main small {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 11px;
   color: #708095;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .komsco-ai__answer-action-main strong {
+  display: block;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--komsco-ink-800);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1552,7 +1548,7 @@
   display: flex;
   gap: 5px;
   align-items: center;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -1594,7 +1590,7 @@
 }
 
 .komsco-ai__answer-action-outcome-detail {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   color: #55575f;
 }
@@ -1603,7 +1599,18 @@
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  min-width: 0;
+  margin-block-start: 2px;
   justify-content: flex-end;
+}
+
+.komsco-ai__answer-action-card .komsco-ai__plan-summary {
+  min-width: 0;
+  margin-block-start: 0;
+}
+
+.komsco-ai__answer-action-card .komsco-ai__plan-summary-note {
+  overflow-wrap: anywhere;
 }
 
 .komsco-ai__action-button {
@@ -1615,7 +1622,7 @@
   min-height: 28px;
   gap: 6px;
   padding: 0 12px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -1647,7 +1654,7 @@
 
 .komsco-ai__formatted {
   gap: 9px;
-  font-size: 12.5px;
+  font-size: 13.5px;
   line-height: 1.6;
   color: var(--komsco-ink-700);
 }
@@ -1657,7 +1664,7 @@
   align-items: center;
   gap: 7px;
   margin: 14px 0 2px;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.03em;
   line-height: 1.35;
@@ -1726,14 +1733,14 @@
 .komsco-ai__formatted-list:not(.komsco-ai__formatted-list--ordered) {
   gap: 5px;
   padding-inline-start: 17px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--komsco-ink-600);
 }
 
 .komsco-ai__formatted-code-block {
   position: relative;
   padding: 11px 76px 11px 12px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.65;
   color: #dce8f7;
   background: #111b2b;
@@ -2076,7 +2083,7 @@
 }
 
 .komsco-ai__progress-step-title {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .komsco-ai__progress-step-activity,
@@ -3020,7 +3027,7 @@
   }
 }
 
-/* Final Cywell AI header contract: catalog K icon launches, KOMSCO logo brands the assistant. */
+/* Final AIOps header contract: one product icon brands the launcher, assistant, and sidebar. */
 .komsco-ai__panel,
 .komsco-ai__panel--fullscreen {
   border-radius: 8px;
@@ -3319,6 +3326,7 @@
 }
 
 .komsco-ai__history-sidebar {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -3331,13 +3339,24 @@
 }
 
 .komsco-ai__history-brand {
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  background: #06131f;
+  border: 1px solid #d8e0eb;
+  border-radius: 9px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 10%);
 }
 
 .komsco-ai__history-logo {
+  display: block;
+  width: 36px;
   height: 36px;
-  width: auto;
+  object-fit: contain;
 }
 
 .komsco-ai__history-actions {
@@ -3346,10 +3365,12 @@
   align-items: center;
   justify-content: space-between;
   min-height: 36px;
+  min-width: 0;
 }
 
 .komsco-ai__history-actions-right {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 6px;
   align-items: center;
   margin-inline-start: auto;
@@ -3512,6 +3533,8 @@
   display: grid;
   gap: 4px;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -3571,7 +3594,9 @@
   display: grid;
   gap: 3px;
   width: 100%;
+  min-width: 0;
   padding: 8px 9px;
+  overflow: hidden;
   color: var(--pf-t--global--text--color--regular);
   text-align: start;
   cursor: pointer;
@@ -3587,6 +3612,8 @@
 }
 
 .komsco-ai__history-item span {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   font-size: 12px;
   font-weight: 650;
@@ -3596,8 +3623,12 @@
 }
 
 .komsco-ai__history-item small {
+  min-width: 0;
+  overflow: hidden;
   font-size: 10px;
   color: var(--pf-t--global--text--color--subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .komsco-ai__message--assistant .komsco-ai__message-label::after {
@@ -3788,7 +3819,7 @@
 .komsco-ai__progress-title {
   position: relative;
   padding-inline-start: 8px;
-  font-size: 10px;
+  font-size: 11px;
   color: #94a3b8;
 }
 
@@ -4322,7 +4353,7 @@
 }
 
 .komsco-ai__history-list .komsco-ai__history-item {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   min-height: 48px;
   max-height: 64px;
   padding: 7px 8px;
@@ -4334,10 +4365,12 @@
   align-items: stretch;
   gap: 2px;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .komsco-ai__history-item-row .komsco-ai__history-item {
-  width: auto;
+  width: 100%;
   min-width: 0;
 }
 
@@ -4599,7 +4632,7 @@
   display: flex;
   flex-direction: column;
   gap: 0;
-  min-height: 88px;
+  min-height: 54px;
 }
 
 .komsco-ai__surface .komsco-ai__pending-attachments {
@@ -4875,17 +4908,17 @@
 .komsco-ai__surface .komsco-ai__language-button {
   display: inline-grid;
   place-items: center;
-  width: 26px;
-  min-width: 26px;
-  height: 26px;
-  min-height: 26px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
   line-height: 1;
 }
 
 .komsco-ai__surface .komsco-ai__language-button {
   grid-template-columns: 14px auto;
-  width: 40px;
+  width: 42px;
 }
 
 .komsco-ai__surface .komsco-ai__header-status {
@@ -4898,7 +4931,7 @@
 }
 
 .komsco-ai__surface .komsco-ai__composer-wrap {
-  padding: 8px;
+  padding: 5px 8px 6px;
 }
 
 .komsco-ai--embedded .komsco-ai__surface .komsco-ai__input,
@@ -4916,14 +4949,14 @@
 .komsco-ai__surface .komsco-ai__textarea,
 .komsco-ai__surface .komsco-ai__textarea textarea,
 .komsco-ai__surface .komsco-ai__input textarea {
-  --pf-v6-c-form-control__textarea--PaddingBlockStart: 12px;
-  --pf-v6-c-form-control__textarea--PaddingBlockEnd: 12px;
-  --pf-v6-c-form-control__textarea--PaddingInlineStart: 12px;
-  --pf-v6-c-form-control__textarea--PaddingInlineEnd: 12px;
+  --pf-v6-c-form-control__textarea--PaddingBlockStart: 6px;
+  --pf-v6-c-form-control__textarea--PaddingBlockEnd: 6px;
+  --pf-v6-c-form-control__textarea--PaddingInlineStart: 9px;
+  --pf-v6-c-form-control__textarea--PaddingInlineEnd: 9px;
 
-  min-height: 43px;
+  min-height: 30px;
   box-sizing: border-box;
-  padding: 12px !important;
+  padding: 6px 9px !important;
   background: transparent !important;
   border: 0 !important;
   outline: 0 !important;
@@ -4942,7 +4975,8 @@
 
 .komsco-ai__composer-toolbar {
   align-items: center;
-  padding: 0 10px 10px;
+  min-height: 32px;
+  padding: 0 8px 4px;
 }
 
 .komsco-ai__surface:not(.komsco-ai__surface--history-open) .komsco-ai__panel {
@@ -5406,24 +5440,24 @@
 }
 
 .komsco-ai__surface .komsco-ai__header-actions .komsco-ai__icon-button {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
 }
 
 .komsco-ai__surface .komsco-ai__header-actions .komsco-ai__language-button {
-  width: 42px;
-  min-width: 42px;
+  width: 44px;
+  min-width: 44px;
 }
 
 /* ── Header brand — plain wordmark, no icon frame ──────────────── */
 .komsco-ai__surface .komsco-ai__title {
   display: block;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 760;
   color: #1e293b;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
+  line-height: 1.25;
+  letter-spacing: 0;
 }
 
 /* Overlay stacking contract: the assistant must sit above the OKD chrome when opened. */

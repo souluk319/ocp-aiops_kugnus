@@ -44,18 +44,18 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   color: #06c;
-  background: var(--pf-t--global--background--color--primary--default);
-  border: 1px solid var(--pf-t--global--border--color--default);
-  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
 }
 
 .komsco-ai-page__product-icon {
   display: block;
-  width: 26px;
-  height: 26px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
 }
 

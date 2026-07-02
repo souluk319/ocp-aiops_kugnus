@@ -6,6 +6,12 @@ plugin:
   imagePullPolicy: IfNotPresent
   replicas: 2
   port: 9443
+  applicationMenu:
+    enabled: true
+    name: komsco-aiops-application-menu
+    section: Cywell
+    text: AIOps
+    href: https://console-openshift-console.apps.ocp.cywell.server/aiops-kugnus
   gateway:
     name: komsco-ai-gateway
     namespace: komsco-ai

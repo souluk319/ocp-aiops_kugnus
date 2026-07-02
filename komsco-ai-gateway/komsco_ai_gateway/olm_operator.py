@@ -52,6 +52,29 @@ DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
     "Cywell AI",
 )
+DEFAULT_CONSOLE_APPLICATION_MENU_ENABLED = (
+    os.getenv("KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_ENABLED", "true").lower() == "true"
+)
+DEFAULT_CONSOLE_APPLICATION_MENU_NAME = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_NAME",
+    "komsco-aiops-application-menu",
+)
+DEFAULT_CONSOLE_APPLICATION_MENU_SECTION = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_SECTION",
+    "Cywell",
+)
+DEFAULT_CONSOLE_APPLICATION_MENU_TEXT = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_TEXT",
+    "AIOps",
+)
+DEFAULT_CONSOLE_APPLICATION_MENU_HREF = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_HREF",
+    "https://console-openshift-console.apps.ocp.cywell.server/aiops-kugnus",
+)
+DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL = os.getenv(
+    "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL",
+    "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%2306131f%22%2F%3E%3Crect%20x%3D%2212%22%20y%3D%2212%22%20width%3D%2240%22%20height%3D%2240%22%20rx%3D%2212%22%20fill%3D%22%23081827%22%20stroke%3D%22%23334155%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M32%2015%2049%2032%2032%2049%2015%2032%2032%2015Z%22%20fill%3D%22none%22%20stroke%3D%22%2338d6c1%22%20stroke-width%3D%224%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M23%2039%2031%2022h3l8%2017h-5l-1.3-3h-6.5l-1.2%203h-5Zm7.7-7h3.7L32.5%2027%2030.7%2032Z%22%20fill%3D%22%23e5faff%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22none%22%20stroke%3D%22%2338d6c1%22%20stroke-opacity%3D%22.18%22%20stroke-width%3D%224%22%2F%3E%3C%2Fsvg%3E",
+)
 DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES = [
     name.strip()
     for name in os.getenv("KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES", "komsco-ai-console-plugin").split(",")
@@ -231,6 +254,7 @@ def resource_path(api_version: str, kind: str, name: str, resource_namespace: st
         ("rbac.authorization.k8s.io/v1", "RoleBinding"): "rolebindings",
     }
     cluster_api_plural = {
+        ("console.openshift.io/v1", "ConsoleLink"): "consolelinks",
         ("console.openshift.io/v1", "ConsolePlugin"): "consoleplugins",
         ("rbac.authorization.k8s.io/v1", "ClusterRole"): "clusterroles",
         ("rbac.authorization.k8s.io/v1", "ClusterRoleBinding"): "clusterrolebindings",
@@ -880,6 +904,24 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "consolePluginDisplayName": str(
             spec_value(spec, "consolePluginDisplayName", DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME)
         ),
+        "consoleApplicationMenuEnabled": bool(
+            spec_value(spec, "consoleApplicationMenuEnabled", DEFAULT_CONSOLE_APPLICATION_MENU_ENABLED)
+        ),
+        "consoleApplicationMenuName": str(
+            spec_value(spec, "consoleApplicationMenuName", DEFAULT_CONSOLE_APPLICATION_MENU_NAME)
+        ),
+        "consoleApplicationMenuSection": str(
+            spec_value(spec, "consoleApplicationMenuSection", DEFAULT_CONSOLE_APPLICATION_MENU_SECTION)
+        ),
+        "consoleApplicationMenuText": str(
+            spec_value(spec, "consoleApplicationMenuText", DEFAULT_CONSOLE_APPLICATION_MENU_TEXT)
+        ),
+        "consoleApplicationMenuHref": str(
+            spec_value(spec, "consoleApplicationMenuHref", DEFAULT_CONSOLE_APPLICATION_MENU_HREF)
+        ),
+        "consoleApplicationMenuImageURL": str(
+            spec_value(spec, "consoleApplicationMenuImageURL", DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL)
+        ),
         "disabledConsolePluginNames": string_list(
             spec_value(spec, "disabledConsolePluginNames", DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES)
         ),
@@ -1181,6 +1223,17 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
             str(config["consolePluginDisplayName"]),
         )
     )
+    if config["consoleApplicationMenuEnabled"]:
+        resources.append(
+            console_application_menu_link_resource(
+                labels,
+                str(config["consoleApplicationMenuName"]),
+                str(config["consoleApplicationMenuSection"]),
+                str(config["consoleApplicationMenuText"]),
+                str(config["consoleApplicationMenuHref"]),
+                str(config["consoleApplicationMenuImageURL"]),
+            )
+        )
     resources.extend(network_policies(target_namespace, labels, mutations_enabled, diagnostics_enabled))
     return resources
 
@@ -1473,6 +1526,31 @@ def console_plugin_resource(
                     },
                 }
             ],
+        },
+    }
+
+
+def console_application_menu_link_resource(
+    labels: Mapping[str, str],
+    name: str,
+    section: str,
+    text: str,
+    href: str,
+    image_url: str,
+) -> dict[str, Any]:
+    application_menu = {"section": section}
+    if image_url:
+        application_menu["imageURL"] = image_url
+
+    return {
+        "apiVersion": "console.openshift.io/v1",
+        "kind": "ConsoleLink",
+        "metadata": {"name": name, "labels": dict(labels)},
+        "spec": {
+            "location": "ApplicationMenu",
+            "applicationMenu": application_menu,
+            "text": text,
+            "href": href,
         },
     }
 

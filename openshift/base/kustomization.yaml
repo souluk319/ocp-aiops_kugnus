@@ -6,6 +6,7 @@ resources:
   - action-executor-rbac.yaml
   - action-executor-service.yaml
   - action-executor-serviceaccount.yaml
+  - consolelink-aiops.yaml
   - gateway-ca-configmap.yaml
   - gateway-deployment.yaml
   - gateway-networkpolicy.yaml

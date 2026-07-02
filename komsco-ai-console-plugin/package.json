@@ -73,11 +73,16 @@
     "displayName": "Cywell AI",
     "description": "Cywell AI assistant for OpenShift operations.",
     "exposedModules": {
+      "AiopsActionsPage": "./pages/AiopsActionsPage",
+      "AiopsAlertsPage": "./pages/AiopsAlertsPage",
       "AiopsAuditPage": "./pages/AiopsAuditPage",
       "AiopsDashboardPage": "./pages/AiopsDashboardPage",
       "AiopsDocsPage": "./pages/AiopsDocsPage",
+      "AiopsEndpointsPage": "./pages/AiopsEndpointsPage",
       "AiopsExecutionRecordsPage": "./pages/AiopsExecutionRecordsPage",
       "AiopsPolicyPage": "./pages/AiopsPolicyPage",
+      "AiopsReportsPage": "./pages/AiopsReportsPage",
+      "AiopsServiceMapPage": "./pages/AiopsServiceMapPage",
       "NullContextProvider": "./components/NullContextProvider",
       "useAssistantOverlay": "./hooks/useAssistantOverlay"
     },

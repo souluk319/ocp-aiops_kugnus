@@ -75,16 +75,14 @@ execution is acceptable. Do not use it for the company OCP catalog work.
 and then starts the local OpenShift Console bridge on `http://localhost:9000`.
 The bridge proxy forwards the assistant API path to `http://localhost:18080`.
 
-The local console bridge captures the current `oc` bearer token when it starts.
-If that token expires, `task fe:dev` validates the token with the API server and
-stops/restarts the bridge instead of keeping a broken `401 Unauthorized` console
-session alive. A static `.env.local` `OPENSHIFT_TOKEN` is not refreshable by
-itself; replace it when it expires, or configure local-only
-`OPENSHIFT_USERNAME`/`OPENSHIFT_PASSWORD` credentials. For custom SSO flows,
-configure `OPENSHIFT_RELOGIN_COMMAND` to run `oc login` and produce a fresh valid
-session. When either relogin source is configured, the dev loop uses it after
-token/health failures, verifies `oc whoami`, and restarts the bridge with the
-new token.
+The local console bridge reads the current `oc` bearer token at startup with
+`oc whoami -t`. Do not store `OPENSHIFT_TOKEN` in `.env.local`; keep the CLI
+session fresh with `oc login` instead. If the token expires, `task fe:dev`
+validates the API session and stops/restarts the bridge instead of keeping a
+broken `401 Unauthorized` console session alive. For unattended local refresh,
+configure local-only `OPENSHIFT_USERNAME`/`OPENSHIFT_PASSWORD` credentials or an
+`OPENSHIFT_RELOGIN_COMMAND` that runs `oc login` and leaves `oc whoami -t`
+returning a fresh token.
 
 The assistant supports image attachments in the local chat UI. The gateway
 validates image type and size, optionally runs a gateway-side vision

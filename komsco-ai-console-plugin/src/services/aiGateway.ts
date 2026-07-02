@@ -664,6 +664,9 @@ async function gatewayResponseDetail(response: Response): Promise<string> {
       if (detail === 'expectedPlanDigest does not match the sealed plan') {
         return '승인 실패: 화면의 계획 digest가 현재 sealed plan과 다릅니다. 새로고침 후 다시 확인하세요.';
       }
+      if (detail === 'lab-auto-unrestricted approval requires unrestricted command gate') {
+        return '실행 무제한 승인 실패: Gateway의 unrestricted command gate가 꺼져 있습니다.';
+      }
       return detail.slice(0, 240);
     }
   } catch {
@@ -964,9 +967,10 @@ export async function createActionCandidatePlan(
 export async function approveActionPlan(
   planId: string,
   expectedPlanDigest: string,
+  approvalScope = 'single-target',
 ): Promise<AiopsRecord> {
   return postGatewayJson<AiopsRecord>('/approvals', {
-    approvalScope: 'single-target',
+    approvalScope,
     expectedPlanDigest,
     planId,
   });

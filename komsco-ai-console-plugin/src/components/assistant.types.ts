@@ -160,7 +160,12 @@ export type StoredActiveConversation = {
 };
 
 export type AiopsRecordView = AiopsRecord;
-export type AiopsActionStep = 'create-plan' | 'approve-plan' | 'reject-plan' | 'execute-approval';
+export type AiopsActionStep =
+  | 'create-plan'
+  | 'approve-plan'
+  | 'approve-execute-plan'
+  | 'reject-plan'
+  | 'execute-approval';
 export type AiopsLifecycleStage = 'proposal' | 'plan' | 'approval' | 'execution';
 export type UiTone = 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
 

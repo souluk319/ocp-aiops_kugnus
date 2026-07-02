@@ -37,7 +37,11 @@ BRIDGE_ALERMANAGER_PUBLIC_URL=$(oc -n openshift-config-managed get configmap mon
 BRIDGE_K8S_MODE_OFF_CLUSTER_THANOS=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null)
 BRIDGE_K8S_MODE_OFF_CLUSTER_ALERTMANAGER=$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.alertmanagerPublicURL}' 2>/dev/null)
 set -e
-BRIDGE_K8S_AUTH_BEARER_TOKEN=$(oc whoami --show-token 2>/dev/null)
+BRIDGE_K8S_AUTH_BEARER_TOKEN=$(oc whoami -t 2>/dev/null || true)
+if [ -z "$BRIDGE_K8S_AUTH_BEARER_TOKEN" ]; then
+    echo "OpenShift token is empty. Run oc login first; the local console reads the current token with: oc whoami -t" >&2
+    exit 1
+fi
 BRIDGE_USER_SETTINGS_LOCATION="localstorage"
 BRIDGE_I18N_NAMESPACES="plugin__${PLUGIN_NAME}"
 if [ -z "${BRIDGE_PLUGIN_PROXY:-}" ]; then

@@ -65,7 +65,7 @@ KEYWORDS = [
     ).split(",")
     if item.strip()
 ]
-DEFAULT_ICON_FILE = ROOT / "docs" / "Ver.0.1.0" / "design-assets" / "K_icon.png"
+DEFAULT_ICON_FILE = ROOT / "komsco-ai-console-plugin" / "src" / "assets" / "aiops_icon.svg"
 READINESS_CONDITION_TYPES = [
     "TargetNamespaceReady",
     "GatewayServiceReady",
@@ -265,6 +265,30 @@ def crd() -> dict[str, Any]:
                                             "type": "string",
                                             "default": CONSOLE_PLUGIN_DISPLAY_NAME,
                                         },
+                                        "consoleApplicationMenuEnabled": {
+                                            "type": "boolean",
+                                            "default": True,
+                                        },
+                                        "consoleApplicationMenuName": {
+                                            "type": "string",
+                                            "default": "komsco-aiops-application-menu",
+                                        },
+                                        "consoleApplicationMenuSection": {
+                                            "type": "string",
+                                            "default": "Cywell",
+                                        },
+                                        "consoleApplicationMenuText": {
+                                            "type": "string",
+                                            "default": "AIOps",
+                                        },
+                                        "consoleApplicationMenuHref": {
+                                            "type": "string",
+                                            "default": "https://console-openshift-console.apps.ocp.cywell.server/aiops-kugnus",
+                                        },
+                                        "consoleApplicationMenuImageURL": {
+                                            "type": "string",
+                                            "default": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%2306131f%22%2F%3E%3Crect%20x%3D%2212%22%20y%3D%2212%22%20width%3D%2240%22%20height%3D%2240%22%20rx%3D%2212%22%20fill%3D%22%23081827%22%20stroke%3D%22%23334155%22%20stroke-width%3D%222%22%2F%3E%3Cpath%20d%3D%22M32%2015%2049%2032%2032%2049%2015%2032%2032%2015Z%22%20fill%3D%22none%22%20stroke%3D%22%2338d6c1%22%20stroke-width%3D%224%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M23%2039%2031%2022h3l8%2017h-5l-1.3-3h-6.5l-1.2%203h-5Zm7.7-7h3.7L32.5%2027%2030.7%2032Z%22%20fill%3D%22%23e5faff%22%2F%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2232%22%20r%3D%2212%22%20fill%3D%22none%22%20stroke%3D%22%2338d6c1%22%20stroke-opacity%3D%22.18%22%20stroke-width%3D%224%22%2F%3E%3C%2Fsvg%3E",
+                                        },
                                         "disabledConsolePluginNames": {
                                             "type": "array",
                                             "items": {"type": "string"},
@@ -367,7 +391,7 @@ def operator_rules() -> list[dict[str, Any]]:
         {"apiGroups": ["policy"], "resources": ["poddisruptionbudgets"], "verbs": ["get", "list", "watch"]},
         {"apiGroups": ["rbac.authorization.k8s.io"], "resources": ["roles", "rolebindings", "clusterroles", "clusterrolebindings"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
         {"apiGroups": ["security.openshift.io"], "resources": ["securitycontextconstraints"], "resourceNames": ["hostmount-anyuid-v2"], "verbs": ["use"]},
-        {"apiGroups": ["console.openshift.io"], "resources": ["consoleplugins"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
+        {"apiGroups": ["console.openshift.io"], "resources": ["consolelinks", "consoleplugins"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
         {"apiGroups": ["operator.openshift.io"], "resources": ["consoles"], "verbs": ["get", "patch", "update"]},
     ]
 

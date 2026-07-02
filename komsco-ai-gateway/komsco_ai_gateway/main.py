@@ -12747,7 +12747,17 @@ async def create_approval_decision(
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
-    return await _create_approval_decision_impl(req, user_auth_header)
+    unrestricted_auto_policy = req.approvalScope == "lab-auto-unrestricted"
+    if unrestricted_auto_policy and not UNRESTRICTED_COMMANDS_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="lab-auto-unrestricted approval requires unrestricted command gate",
+        )
+    return await _create_approval_decision_impl(
+        req,
+        user_auth_header,
+        auto_policy=unrestricted_auto_policy,
+    )
 
 
 @app.post("/v1/actions/rejections")

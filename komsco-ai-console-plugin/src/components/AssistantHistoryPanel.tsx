@@ -37,7 +37,7 @@ type AssistantHistoryPanelProps = {
   historyMenuRef: React.RefObject<HTMLDivElement>;
   historyPanelView: HistoryPanelView;
   historySidebarStyle: React.CSSProperties;
-  komscoLogo: string;
+  productIcon: string;
   loadConversation: (conversation: ConversationHistoryItem) => void;
   loading: boolean;
   openHistoryMenuId: string | null;
@@ -80,7 +80,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   historyMenuRef,
   historyPanelView,
   historySidebarStyle,
-  komscoLogo,
+  productIcon,
   loadConversation,
   loading,
   openHistoryMenuId,
@@ -113,7 +113,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
       aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
     >
       <div className="komsco-ai__history-brand">
-        <img alt="KOMSCO" className="komsco-ai__history-logo" src={komscoLogo} />
+        <img alt="AIOps" className="komsco-ai__history-logo" src={productIcon} />
       </div>
       <div className="komsco-ai__history-actions-right">
         <button

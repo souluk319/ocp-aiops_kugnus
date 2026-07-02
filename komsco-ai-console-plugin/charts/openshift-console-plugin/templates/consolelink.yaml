@@ -1,0 +1,17 @@
+{{- if .Values.plugin.applicationMenu.enabled }}
+apiVersion: console.openshift.io/v1
+kind: ConsoleLink
+metadata:
+  name: {{ .Values.plugin.applicationMenu.name }}
+  labels:
+    {{- include "openshift-console-plugin.labels" . | nindent 4 }}
+spec:
+  location: ApplicationMenu
+  applicationMenu:
+    section: {{ .Values.plugin.applicationMenu.section | quote }}
+    {{- if .Values.plugin.applicationMenu.imageURL }}
+    imageURL: {{ .Values.plugin.applicationMenu.imageURL | quote }}
+    {{- end }}
+  text: {{ .Values.plugin.applicationMenu.text | quote }}
+  href: {{ .Values.plugin.applicationMenu.href | quote }}
+{{- end }}

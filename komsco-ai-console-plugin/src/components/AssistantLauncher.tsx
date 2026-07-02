@@ -134,8 +134,8 @@ import {
   uploadRagDocumentFile,
 } from '../services/aiGateway';
 import { evidenceCount, redactSensitiveText, safeEvidenceText } from '../utils/evidenceDisplay';
+import aiopsIcon from '../assets/aiops_icon.svg';
 import kIcon from '../assets/k_icon.png';
-import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
 
 const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecutionMode | null => {
@@ -2414,7 +2414,7 @@ const PHASE_LABEL_KO: Record<string, string> = {
   pending: '대기 중',
   proposed: '제안됨',
   rejected: '거절됨',
-  sealed: '봉인됨',
+  sealed: '승인 대기',
   stale: '오래됨',
   submitted: '제출됨',
   succeeded: '성공',
@@ -2439,18 +2439,24 @@ const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleStage => {
   return 'proposal';
 };
 
-const getActionRecordStageLabel = (record: AiopsRecordView): string => {
+const getActionRecordStageLabel = (
+  record: AiopsRecordView,
+  executionMode?: AiopsExecutionMode,
+): string => {
   const stage = getActionRecordStage(record);
   if (stage === 'execution') {
-    return '4단계 · 완료';
+    return '4단계 · 실행 완료';
   }
   if (stage === 'approval') {
     return '3단계 · 실행 대기';
   }
   if (stage === 'plan') {
-    return '2단계 · 승인 대기';
+    if (executionMode === 'unrestricted') {
+      return '2단계 · 실행 가능';
+    }
+    return '2단계 · 승인 필요';
   }
-  return '1단계 · 계획 대기';
+  return '1단계 · 후보 접수';
 };
 
 const ACTION_STAGE_ORDER: AiopsLifecycleStage[] = ['proposal', 'plan', 'approval', 'execution'];
@@ -2476,12 +2482,18 @@ const renderActionStageDots = (stage: AiopsLifecycleStage): React.ReactNode => {
   );
 };
 
-const getActionRecordProof = (record: AiopsRecordView): string => {
+const getActionRecordProof = (
+  record: AiopsRecordView,
+  executionMode?: AiopsExecutionMode,
+): string => {
   const spec = getRecordSpecMap(record);
   const planDigest = getPlanDigest(record);
   const approvalPlanDigest = getApprovalPlanDigest(record);
 
   if (planDigest) {
+    if (executionMode === 'unrestricted') {
+      return '조치 계획이 만들어졌습니다. 실행하면 자동 승인 후 클러스터에 적용됩니다.';
+    }
     return '조치 계획이 만들어졌습니다. 승인하면 실행할 수 있습니다.';
   }
   if (approvalPlanDigest) {
@@ -2501,7 +2513,10 @@ const getActionRecordProof = (record: AiopsRecordView): string => {
   return '조치 후보가 접수됐습니다. 계획을 만들면 다음 단계로 진행됩니다.';
 };
 
-const renderPlanSummaryBlock = (record: AiopsRecordView): React.ReactNode => {
+const renderPlanSummaryBlock = (
+  record: AiopsRecordView,
+  executionMode?: AiopsExecutionMode,
+): React.ReactNode => {
   if (getActionRecordStage(record) !== 'plan') {
     return null;
   }
@@ -2518,12 +2533,13 @@ const renderPlanSummaryBlock = (record: AiopsRecordView): React.ReactNode => {
       <span className="komsco-ai__plan-summary-rollback">
         {summary.rollbackPossible ? '자동 롤백 가능' : '자동 롤백 미지원'}
       </span>
-      {(summary.risk === 'medium' || summary.risk === 'high') && (
-        <p className="komsco-ai__plan-summary-note">
-          위험도가 {summary.riskLabel}이라 이 조치를 제안한 본인은 승인할 수 없습니다. 다른 담당자의
-          승인이 필요합니다.
-        </p>
-      )}
+      {executionMode !== 'unrestricted' &&
+        (summary.risk === 'medium' || summary.risk === 'high') && (
+          <p className="komsco-ai__plan-summary-note">
+            위험도가 {summary.riskLabel}이라 이 조치를 제안한 본인은 승인할 수 없습니다. 다른
+            담당자의 승인이 필요합니다.
+          </p>
+        )}
     </div>
   );
 };
@@ -2534,13 +2550,13 @@ const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
   return [
     {
       count: records?.actionProposals.length ?? 0,
-      detail: '조치 후보 요청',
+      detail: '조치 후보 접수',
       key: 'proposal',
       label: '제안',
     },
     {
       count: records?.sealedActionPlans.length ?? 0,
-      detail: '봉인된 조치 계획',
+      detail: '승인 필요 조치 계획',
       key: 'plan',
       label: '계획',
     },
@@ -2735,12 +2751,16 @@ const getAiopsRecordAction = (
     if (!planDigest) {
       return withModeGate({
         disabledReason: 'plan digest 없음',
-        label: '승인',
-        step: 'approve-plan',
+        label: executionMode === 'unrestricted' ? '실행' : '승인',
+        step: executionMode === 'unrestricted' ? 'approve-execute-plan' : 'approve-plan',
       });
     }
     if (hasApprovalForPlan(records?.approvalDecisions ?? [], planDigest)) {
       return null;
+    }
+
+    if (executionMode === 'unrestricted') {
+      return withModeGate({ label: '실행', step: 'approve-execute-plan' });
     }
 
     return withModeGate({ label: '승인', step: 'approve-plan' });
@@ -2861,14 +2881,16 @@ const renderActionRecordRows = (
         <div className="komsco-ai__rail-command-head">
           <div className="komsco-ai__rail-command-title">
             {renderActionStageDots(getActionRecordStage(record))}
-            <span>{getActionRecordStageLabel(record)}</span>
+            <span>{getActionRecordStageLabel(record, executionMode)}</span>
             <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
           </div>
-          {renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
+          {phase !== 'sealed' && renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
         </div>
         <p>{getRecordTargetLabel(record)}</p>
-        <p className="komsco-ai__rail-action-proof">{getActionRecordProof(record)}</p>
-        {renderPlanSummaryBlock(record)}
+        <p className="komsco-ai__rail-action-proof">
+          {getActionRecordProof(record, executionMode)}
+        </p>
+        {renderPlanSummaryBlock(record, executionMode)}
         {actions.length > 0 && (
           <div className="komsco-ai__rail-action-row">
             {actions.map((item) => {
@@ -3076,7 +3098,7 @@ const renderAssistantAnswerActions = (
               >
                 <div className="komsco-ai__answer-action-main">
                   {renderActionStageDots('execution')}
-                  <span>4단계 · 완료</span>
+                  <span>4단계 · 실행 완료</span>
                   <strong>{getRecordTargetLabel(record)}</strong>
                 </div>
                 <div className="komsco-ai__answer-action-outcome">
@@ -3098,11 +3120,11 @@ const renderAssistantAnswerActions = (
             >
               <div className="komsco-ai__answer-action-main">
                 {renderActionStageDots(getActionRecordStage(record))}
-                <span>{getActionRecordStageLabel(record)}</span>
+                <span>{getActionRecordStageLabel(record, executionMode)}</span>
                 <strong>{getRecordTargetLabel(record)}</strong>
-                <small>{getActionRecordProof(record)}</small>
+                <small>{getActionRecordProof(record, executionMode)}</small>
               </div>
-              {renderPlanSummaryBlock(record)}
+              {renderPlanSummaryBlock(record, executionMode)}
               <div className="komsco-ai__answer-action-controls">
                 {actions.map((item) => {
                   const actionId = `${item.step}:${getRecordName(record)}`;
@@ -4367,6 +4389,21 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           setAiopsActionNotice('Action plan을 승인했습니다.');
         }
 
+        if (action.step === 'approve-execute-plan') {
+          const planId = getRecordName(record);
+          const planDigest = getPlanDigest(record);
+          if (!planId || !planDigest) {
+            throw new Error('Action plan id 또는 digest가 없습니다.');
+          }
+          const approval = await approveActionPlan(planId, planDigest, 'lab-auto-unrestricted');
+          const approvalId = getRecordName(approval);
+          if (!approvalId) {
+            throw new Error('자동 승인 id가 없습니다.');
+          }
+          await executeApprovedAction(approvalId, planId, planDigest);
+          setAiopsActionNotice('실행 무제한 모드로 자동 승인 후 실행했습니다.');
+        }
+
         if (action.step === 'reject-plan') {
           const planId = getRecordName(record);
           const planDigest = getPlanDigest(record);
@@ -5328,7 +5365,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       historyMenuRef={historyMenuRef}
       historyPanelView={historyPanelView}
       historySidebarStyle={historySidebarStyle}
-      komscoLogo={komscoLogo}
+      productIcon={aiopsIcon}
       loadConversation={loadConversation}
       loading={loading}
       openHistoryMenuId={openHistoryMenuId}
@@ -5371,9 +5408,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           className="komsco-ai__fab"
           onClick={() => setOpen(true)}
         >
-          <span className="komsco-ai__fab-icon">
-            <img alt="" className="komsco-ai__fab-logo" src={kIcon} />
-          </span>
+          <img alt="" className="komsco-ai__fab-logo" src={aiopsIcon} />
           <span
             className={`komsco-ai__fab-status komsco-ai__fab-status--${assistantConnection.tone}`}
           />
@@ -5410,7 +5445,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   <CoolMenuIcon />
                 </Button>
                 <div className="komsco-ai__brand">
-                  <span className="komsco-ai__title">KOMSCO AI Agent</span>
+                  <span className="komsco-ai__title">AIOps</span>
                 </div>
                 <div
                   className="komsco-ai__header-status"
@@ -5486,7 +5521,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                       {messages.length === 0 && (
                         <div className="komsco-ai__empty">
                           <div className="komsco-ai__empty-mark">
-                            <img alt="" className="komsco-ai__empty-logo" src={kIcon} />
+                            <img alt="" className="komsco-ai__empty-logo" src={aiopsIcon} />
                           </div>
                           <div className="komsco-ai__empty-title">{emptyStateCopy.title}</div>
                           <div className="komsco-ai__empty-text">{emptyStateCopy.text}</div>

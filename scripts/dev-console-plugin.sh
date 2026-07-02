@@ -152,25 +152,6 @@ token_fingerprint() {
   printf "%s" "$token" | sha256sum | awk '{print $1}'
 }
 
-oc_login_from_env() {
-  if [ -z "${OPENSHIFT_TOKEN:-}" ] || [ -z "${OPENSHIFT_API_SERVER:-}" ]; then
-    return 1
-  fi
-
-  local login_args=(login "--token=${OPENSHIFT_TOKEN}" "--server=${OPENSHIFT_API_SERVER}")
-  if is_truthy "$OPENSHIFT_INSECURE_SKIP_TLS_VERIFY"; then
-    login_args+=(--insecure-skip-tls-verify=true)
-  fi
-
-  oc "${login_args[@]}" >/dev/null
-
-  if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
-    oc project "$OPENSHIFT_NAMESPACE" >/dev/null
-  fi
-
-  oc whoami >/dev/null
-}
-
 has_relogin_credentials() {
   [ -n "${OPENSHIFT_API_SERVER:-}" ] && [ -n "${OPENSHIFT_USERNAME:-}" ] && [ -n "${OPENSHIFT_PASSWORD:-}" ]
 }
@@ -233,27 +214,6 @@ ensure_oc_login() {
     return 0
   fi
 
-  if [ -n "${OPENSHIFT_TOKEN:-}" ] && [ -n "${OPENSHIFT_API_SERVER:-}" ]; then
-    local current_token=""
-    local current_fingerprint=""
-    local env_fingerprint=""
-
-    if oc whoami >/dev/null 2>&1; then
-      current_token="$(oc whoami --show-token 2>/dev/null || true)"
-    fi
-
-    current_fingerprint="$(token_fingerprint "$current_token" 2>/dev/null || true)"
-    env_fingerprint="$(token_fingerprint "$OPENSHIFT_TOKEN" 2>/dev/null || true)"
-    if [ -z "$current_fingerprint" ] || [ "$current_fingerprint" != "$env_fingerprint" ]; then
-      if ! oc_login_from_env; then
-        echo "OPENSHIFT_TOKEN in .env/.env.local is not accepted by the API server. Refresh it or remove it and run oc login manually." >&2
-        return 1
-      fi
-    fi
-    oc whoami >/dev/null
-    return $?
-  fi
-
   oc whoami >/dev/null 2>&1
 }
 
@@ -262,8 +222,12 @@ current_token_fingerprint() {
     return 1
   fi
 
-  oc whoami >/dev/null
-  oc whoami --show-token 2>/dev/null | sha256sum | awk '{print $1}'
+  local token
+  token="$(oc whoami -t 2>/dev/null || true)"
+  if [ -z "$token" ]; then
+    return 1
+  fi
+  token_fingerprint "$token"
 }
 
 console_health_status() {
@@ -328,7 +292,7 @@ require_cmd sha256sum
 require_cmd yarn
 
 if ! ensure_oc_login; then
-  echo "oc login이 필요합니다. .env.local에 OPENSHIFT_API_SERVER/OPENSHIFT_TOKEN을 설정하거나 oc login을 먼저 수행하세요." >&2
+  echo "oc login이 필요합니다. OPENSHIFT_TOKEN을 env에 넣지 말고 oc login 후 현재 토큰을 oc whoami -t로 조회하게 하세요." >&2
   exit 1
 fi
 

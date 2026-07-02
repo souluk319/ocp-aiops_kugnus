@@ -48,7 +48,7 @@ import {
 } from './AiopsDashboardSections';
 import { DocsHero, DocsLayout, DocsMetrics, uploadedDocumentQuery } from './AiopsDocsSections';
 import { safeEvidenceText } from '../utils/evidenceDisplay';
-import kIcon from '../assets/k_icon.png';
+import aiopsIcon from '../assets/aiops_icon.svg';
 import './aiops-pages.css';
 
 type AiopsPageData = {
@@ -64,7 +64,7 @@ type Tone = 'danger' | 'info' | 'success' | 'warning';
 type RagBackendStatus = NonNullable<AiopsRuntimeStatus['spec']['capabilities']['rag']>;
 
 const ProductIcon: React.FC = () => (
-  <img alt="" className="komsco-ai-page__product-icon" src={kIcon} />
+  <img alt="" className="komsco-ai-page__product-icon" src={aiopsIcon} />
 );
 
 const formatTime = (value?: string): string => {
@@ -1094,7 +1094,7 @@ export const AiopsDashboardPage: React.FC = () => {
   );
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<ProductIcon />} title="Cywell AI">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ProductIcon />} title="AIOps">
       <section className="komsco-ai-page__overview">
         <div className="komsco-ai-page__overview-main">
           <HealthDial score={data.summary?.healthScore} />
@@ -1325,7 +1325,7 @@ export const AiopsDocsPage: React.FC = () => {
     : documentsReason;
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="고객 문서">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ClipboardCheckIcon />} title="Wiki 문서 관리">
       <DocsHero
         fileInputRef={fileInputRef}
         loading={documentsLoading}
@@ -1368,7 +1368,7 @@ export const AiopsAuditPage: React.FC = () => {
   const data = useAiopsPageData();
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<HistoryIcon />} title="감사 기록">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<HistoryIcon />} title="RCA 센터">
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <RobotIcon />
@@ -1467,7 +1467,7 @@ export const AiopsPolicyPage: React.FC = () => {
   const contract = data.status?.spec.safetyContract;
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<ShieldAltIcon />} title="정책">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ShieldAltIcon />} title="설정">
       <div className="komsco-ai-page__metrics">
         <MetricTile
           detail="호스트 진단 수집기"
@@ -1539,6 +1539,110 @@ export const AiopsPolicyPage: React.FC = () => {
             </span>
           </div>
         </div>
+      </section>
+    </PageShell>
+  );
+};
+
+export const AiopsActionsPage: React.FC = () => {
+  const data = useAiopsPageData();
+
+  return (
+    <PageShell data={data} eyebrow="Cywell AI" icon={<BoltIcon />} title="AI 추천 액션">
+      <ActionCandidateBoard overview={data.overview} status={data.status} />
+    </PageShell>
+  );
+};
+
+export const AiopsServiceMapPage: React.FC = () => {
+  const data = useAiopsPageData();
+
+  return (
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ProjectDiagramIcon />} title="서비스 맵">
+      <DataSourceBoard overview={data.overview} />
+      <CustomerTopologyPanel data={data} />
+    </PageShell>
+  );
+};
+
+export const AiopsEndpointsPage: React.FC = () => {
+  const data = useAiopsPageData();
+
+  return (
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ServerIcon />} title="엔드포인트">
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <RobotIcon />
+          <h2>답변 경로</h2>
+        </div>
+        <LightspeedLink data={data} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ServerIcon />
+          <h2>어댑터 상태</h2>
+        </div>
+        <AdapterBoard status={data.status} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ShieldAltIcon />
+          <h2>기능 게이트</h2>
+        </div>
+        <CapabilityBoard status={data.status} />
+      </section>
+    </PageShell>
+  );
+};
+
+export const AiopsAlertsPage: React.FC = () => {
+  const data = useAiopsPageData();
+
+  return (
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ExclamationTriangleIcon />} title="알림 & 이벤트">
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ExclamationCircleIcon />
+          <h2>Operator 이상</h2>
+        </div>
+        <OperatorIssues summary={data.summary} />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ChartLineIcon />
+          <h2>근거 수집 상태</h2>
+        </div>
+        <EvidenceRail status={data.status} />
+      </section>
+    </PageShell>
+  );
+};
+
+export const AiopsReportsPage: React.FC = () => {
+  const data = useAiopsPageData();
+
+  return (
+    <PageShell data={data} eyebrow="Cywell AI" icon={<ChartLineIcon />} title="보고서">
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <HistoryIcon />
+          <h2>최근 Gateway 감사 레코드</h2>
+        </div>
+        <RecordList
+          emptyLabel="보고서에 포함할 감사 기록이 아직 없습니다."
+          records={data.status?.spec.records.auditRecords ?? []}
+          variant="audit"
+        />
+      </section>
+      <section className="komsco-ai-page__panel">
+        <div className="komsco-ai-page__panel-heading">
+          <ClipboardCheckIcon />
+          <h2>승인·실행 기록</h2>
+        </div>
+        <RecordList
+          emptyLabel="보고서에 포함할 실행 기록이 아직 없습니다."
+          records={actionRecords(data.status)}
+        />
       </section>
     </PageShell>
   );

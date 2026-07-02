@@ -126,18 +126,6 @@ open_url() {
   fi
 }
 
-oc_login_from_env() {
-  if [ -z "${OPENSHIFT_TOKEN:-}" ] || [ -z "${OPENSHIFT_API_SERVER:-}" ]; then
-    return 1
-  fi
-
-  local login_args=(login "--token=${OPENSHIFT_TOKEN}" "--server=${OPENSHIFT_API_SERVER}")
-  if is_truthy "$OPENSHIFT_INSECURE_SKIP_TLS_VERIFY"; then
-    login_args+=(--insecure-skip-tls-verify=true)
-  fi
-  oc "${login_args[@]}" >/dev/null
-}
-
 oc_login_from_credentials() {
   if [ -z "${OPENSHIFT_API_SERVER:-}" ] || [ -z "${OPENSHIFT_USERNAME:-}" ] || [ -z "${OPENSHIFT_PASSWORD:-}" ]; then
     return 1
@@ -233,10 +221,6 @@ ensure_oc_login() {
     return 0
   fi
 
-  if oc_login_from_env >/dev/null 2>&1 && oc whoami >/dev/null 2>&1; then
-    return 0
-  fi
-
   if oc_login_from_credentials >/dev/null 2>&1 && oc whoami >/dev/null 2>&1; then
     return 0
   fi
@@ -319,7 +303,11 @@ write_bridge_env() {
   fi
 
   endpoint="$(oc whoami --show-server)"
-  token="$(oc whoami --show-token)"
+  token="$(oc whoami -t 2>/dev/null || true)"
+  if [ -z "$token" ]; then
+    echo "oc token is empty. Run oc login first; the console bridge reads the current token with: oc whoami -t" >&2
+    return 1
+  fi
   prometheus="$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.prometheusPublicURL}' 2>/dev/null || true)"
   thanos="$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null || true)"
   alertmanager="$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.alertmanagerPublicURL}' 2>/dev/null || true)"
