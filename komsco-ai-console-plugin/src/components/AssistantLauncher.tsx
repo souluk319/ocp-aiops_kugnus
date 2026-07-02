@@ -4280,6 +4280,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
   const [aiopsStatusError, setAiopsStatusError] = React.useState('');
   const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
+  const aiopsActionBusyIdRef = React.useRef('');
   const [aiopsActionError, setAiopsActionError] = React.useState('');
   const [aiopsActionNotice, setAiopsActionNotice] = React.useState('');
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
@@ -4893,12 +4894,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         return;
       }
       if (!executionModeAllowsActions(executionMode)) {
-        setAiopsActionError('읽기 전용 모드에서는 승인·실행을 만들지 않습니다. 실행하려면 실행 가능 또는 실행 무제한을 선택하세요.');
+        setAiopsActionError(
+          '읽기 전용 모드에서는 승인·실행을 만들지 않습니다. 실행하려면 실행 가능 또는 실행 무제한을 선택하세요.',
+        );
         return;
       }
 
       const actionId = `${action.step}:${getRecordName(record)}`;
 
+      if (aiopsActionBusyIdRef.current) {
+        return;
+      }
+      aiopsActionBusyIdRef.current = actionId;
       setAiopsActionBusyId(actionId);
       setAiopsActionError('');
       setAiopsActionNotice('');
@@ -4952,6 +4959,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       } catch (error) {
         setAiopsActionError(error instanceof Error ? error.message : 'AIOps action failed.');
       } finally {
+        aiopsActionBusyIdRef.current = '';
         setAiopsActionBusyId('');
       }
     },
