@@ -267,6 +267,21 @@ DEMO_NAMESPACE_ALLOWLIST = {
     for item in os.getenv("KOMSCO_AIOPS_DEMO_NAMESPACE_ALLOWLIST", "komsco-ai-dev,default").split(",")
     if item.strip()
 }
+# Tool names allowed to skip the human approval/execution click entirely and go
+# straight from a sealed plan to an executed action. Empty by default (feature
+# off) so this ships inert until an operator opts in. Recommended first value:
+# "evict_one_unhealthy_controller_owned_pod" (a single already-unhealthy Pod
+# eviction that its owning controller immediately recreates).
+AUTO_EXECUTE_TOOL_NAMES = {
+    item.strip()
+    for item in os.getenv("KOMSCO_AI_AUTO_EXECUTE_TOOL_NAMES", "").split(",")
+    if item.strip()
+}
+# evict_one_unhealthy_controller_owned_pod is only genuinely useful (not just
+# "safe") for transient/restart-recoverable findings. ImagePullBackOff and
+# similar persistent-failure findings reuse the same tool but would just churn
+# the pod forever, so auto-execute additionally requires one of these.
+AUTO_EXECUTE_EVICT_ELIGIBLE_SOURCE_TYPES = {"pod_crashloop", "pod_restart_spike", "pod_restart_history"}
 HOST_DIAGNOSTICS_CONTROLLER_URL = os.getenv("KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_URL", "").rstrip("/")
 HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN = os.getenv(
     "KOMSCO_AI_HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN",
@@ -608,6 +623,10 @@ ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
 SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
 APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
 EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
+# Serializes concurrent auto-execute attempts against the same target so two
+# near-simultaneous candidate-plan requests (e.g. a retried webhook) can't each
+# independently auto-approve+execute their own sealed plan for the same Pod.
+_AUTO_EXECUTE_TARGET_LOCKS: dict[str, asyncio.Lock] = {}
 RUNBOOK_PLANS: dict[str, dict[str, Any]] = {}
 PREAPPROVED_PATCH_REQUESTS: dict[str, dict[str, Any]] = {}
 BREAK_GLASS_REQUESTS: dict[str, dict[str, Any]] = {}
@@ -1670,6 +1689,7 @@ def build_action_proposal_record(
             "incidentId": request.incidentId,
             "runId": request.runId,
             "runbookRefs": redact_sensitive(request.runbookRefs),
+            "sourceType": request.policy.get("sourceType"),
             "status": {"phase": "proposed"},
         },
         "subject": redact_sensitive(dict(subject)),
@@ -1827,6 +1847,7 @@ def build_approval_decision_record(
     action_access_review: Mapping[str, Any],
     *,
     allow_self_approval: bool = False,
+    auto_policy: bool = False,
 ) -> dict[str, Any]:
     plan = plan_record["spec"]["sealedActionPlan"]
     plan_digest = plan["digest"]["planDigest"]
@@ -1841,6 +1862,7 @@ def build_approval_decision_record(
     approved_at = now_rfc3339()
     expires_at = expires_at_rfc3339(timedelta(minutes=5))
     action = plan["action"]
+    tool_name = action.get("toolName")
     target = plan["target"]
     authorization = action.get("authorization") if isinstance(action.get("authorization"), Mapping) else {}
     attestation_claims = {
@@ -1903,6 +1925,17 @@ def build_approval_decision_record(
                     "toolVersion": action.get("toolVersion"),
                     "actionRegistry": action.get("actionRegistry"),
                 },
+                **(
+                    {
+                        "decidedBy": "auto-policy",
+                        "decisionPolicy": {
+                            "toolName": tool_name,
+                            "triggeredBy": "sealed-plan-creation",
+                        },
+                    }
+                    if auto_policy
+                    else {}
+                ),
             }
         },
         "subject": redact_sensitive(dict(approver)),
@@ -3086,6 +3119,7 @@ async def create_plan_from_action_candidate(
     plan_id = str(plan_record["metadata"]["name"])
     await bounded_put_record("sealedActionPlans", plan_id, plan_record)
     increment_metric("aiops_action_plans_total")
+    auto_result = await maybe_auto_approve_and_execute(plan_record, authorization)
 
     plan = plan_record["spec"]["sealedActionPlan"]
     return {
@@ -3103,6 +3137,7 @@ async def create_plan_from_action_candidate(
             "status": "planned",
             "target": target.model_dump(),
             "title": req.title,
+            **(auto_result or {}),
         },
     }
 
@@ -6988,6 +7023,7 @@ Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw
 조회 계획은 필요한 경우 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
 If no screenshot/image is attached, do not claim you inspected a screenshot.
+사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
 Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_evidence_collection")) if isinstance(effective_policy, Mapping) else "allow_evidence_collection"}.
 Console context:
 {json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
@@ -7009,6 +7045,7 @@ Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw
 Mutation is not allowed from this answer. Propose risky actions only after evidence and approval.
 If no screenshot/image is attached, do not say you inspected the screen image.
 If the user asks about this AI gateway, do not attach unrelated Kubernetes Gateway API links.
+사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
 
 Policy:
 {json.dumps(redact_sensitive(effective_policy), ensure_ascii=False)}
@@ -7066,6 +7103,7 @@ Use this structure when RCA or operations status is requested:
 - Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
 - 기본 답변은 사람용 RCA로 작성하고 `원인 후보`, `확인한 증적`, `권장 조치`, `추가 확인`, `재발 방지` 순서를 우선하세요.
 - 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
+- 사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 Gateway 선조회 증거에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
 
 [CrashLoopBackOff 시연 답변 계약]
 {crashloop_demo_prompt_answer_contract(req)}
@@ -8566,6 +8604,54 @@ def official_namespace_restart_skipped_evidence_events(
     ]
 
 
+async def collect_cluster_wide_restart_fallback_events(
+    user_auth_header: str,
+    namespace: str,
+    request_id: str,
+) -> list[dict[str, Any]]:
+    if not OPENSHIFT_API_URL:
+        return []
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(20.0, connect=5.0),
+    ) as client:
+        pods_payload = await fetch_ocp_json(client, "/api/v1/pods?limit=200", user_auth_header)
+
+    if not pods_payload:
+        return []
+
+    candidates = namespace_restart_candidate_rows(pods_payload)
+    if not candidates:
+        return []
+
+    return [
+        {
+            "type": "tool_result",
+            "detail": safe_error_text(
+                json.dumps(
+                    {
+                        "candidatePods": candidates,
+                        "originalNamespace": namespace,
+                        "reason": f"Namespace `{namespace}` had no restart candidates; broadened to cluster-wide Pod scan.",
+                        "snapshotSource": "cluster-wide pods.status.containerStatuses",
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                limit=1600,
+            ),
+            "evidenceType": "snapshot",
+            "id": f"{request_id}-cluster-wide-restart-fallback",
+            "missingReason": "",
+            "name": "cluster_wide_restart_fallback",
+            "sourcePath": "/api/v1/pods",
+            "status": "success",
+            "summary": f"`{namespace}`에 재시작 후보가 없어 클러스터 전체로 범위를 넓혀 재조회했습니다.",
+        },
+    ]
+
+
 async def collect_official_namespace_restart_evidence_events(
     user_auth_header: str,
     namespace: str,
@@ -8665,6 +8751,12 @@ async def collect_official_namespace_restart_evidence_events(
                 log_path = f"{log_path}&container={path_segment(container_name)}"
             log_probe = await fetch_ocp_log_pattern_probe(client, log_path, user_auth_header)
 
+    fallback_events: list[dict[str, Any]] = []
+    if not candidates:
+        fallback_events = await collect_cluster_wide_restart_fallback_events(
+            user_auth_header, namespace, request_id
+        )
+
     candidate_names = {str(candidate.get("name") or "") for candidate in candidates if candidate.get("name")}
     event_summary = summarize_namespace_restart_events(events_payload, candidate_names=candidate_names)
     event_status = "success" if events_payload is not None else "skipped"
@@ -8749,6 +8841,7 @@ async def collect_official_namespace_restart_evidence_events(
             "status": log_status,
             "summary": _evidence_summary("공식 Pod 재시작 log pattern 증거", log_status),
         },
+        *fallback_events,
     ]
 
 
@@ -12579,11 +12672,12 @@ async def create_action_plan(
     plan_id = str(record["metadata"]["name"])
     await bounded_put_record("sealedActionPlans", plan_id, record)
     increment_metric("aiops_action_plans_total")
+    auto_result = await maybe_auto_approve_and_execute(record, user_auth_header)
     return {
         "apiVersion": "aiops.komsco/v1",
         "kind": "SealedActionPlan",
         "metadata": record["metadata"],
-        "spec": record["spec"],
+        "spec": {**record["spec"], **(auto_result or {})},
     }
 
 
@@ -12605,12 +12699,12 @@ async def get_action_plan(
     }
 
 
-@app.post("/v1/actions/approvals")
-async def create_approval_decision(
-    req: ApprovalDecisionCreate,
-    authorization: str | None = Header(default=None),
+async def _create_approval_decision_impl(
+    req: "ApprovalDecisionCreate",
+    user_auth_header: str,
+    *,
+    auto_policy: bool = False,
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
     product_access_review = await fetch_product_access_review(user_auth_header)
     if APPROVAL_ACCESS_REVIEW_REQUIRED:
@@ -12633,7 +12727,9 @@ async def create_approval_decision(
         plan["spec"]["sealedActionPlan"],
     )
     enforce_action_access_review(action_access_review)
-    record = build_approval_decision_record(plan, req, subject, action_access_review)
+    record = build_approval_decision_record(
+        plan, req, subject, action_access_review, allow_self_approval=auto_policy, auto_policy=auto_policy
+    )
     approval_id = str(record["metadata"]["name"])
     await bounded_put_record("approvalDecisions", approval_id, record)
     increment_metric("aiops_approval_decisions_total")
@@ -12643,6 +12739,15 @@ async def create_approval_decision(
         "metadata": record["metadata"],
         "spec": record["spec"],
     }
+
+
+@app.post("/v1/actions/approvals")
+async def create_approval_decision(
+    req: ApprovalDecisionCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    return await _create_approval_decision_impl(req, user_auth_header)
 
 
 @app.post("/v1/actions/rejections")
@@ -12674,12 +12779,12 @@ async def reject_action_plan(
     }
 
 
-@app.post("/v1/actions/execute")
-async def execute_action(
-    req: ActionExecutionCreate,
-    authorization: str | None = Header(default=None),
+async def _execute_action_impl(
+    req: "ActionExecutionCreate",
+    user_auth_header: str,
+    *,
+    auto_policy: bool = False,
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
     product_access_review = await fetch_product_access_review(user_auth_header)
     product_access_allowed = bool(product_access_review.get("allowed"))
@@ -12738,6 +12843,17 @@ async def execute_action(
             "remediationOutcome": executor_result["remediationOutcome"],
             "executorTrace": redact_sensitive(executor_result.get("executorTrace") or {}),
             "executionAuthorization": redact_sensitive(execution_access_review),
+            **(
+                {
+                    "decidedBy": "auto-policy",
+                    "decisionPolicy": {
+                        "toolName": sealed_plan["action"].get("toolName"),
+                        "triggeredBy": "sealed-plan-creation",
+                    },
+                }
+                if auto_policy
+                else {}
+            ),
         },
         "subject": redact_sensitive(dict(subject)),
     }
@@ -12754,6 +12870,165 @@ async def execute_action(
         "metadata": record["metadata"],
         "spec": record["spec"],
     }
+
+
+@app.post("/v1/actions/execute")
+async def execute_action(
+    req: ActionExecutionCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    return await _execute_action_impl(req, user_auth_header)
+
+
+def has_recent_auto_action_for_target(
+    target: Mapping[str, Any],
+    tool_name: str,
+    *,
+    window_seconds: int = 180,
+) -> bool:
+    """True if an auto-policy approval already exists for this exact target
+    and tool within the last `window_seconds`. Used inside the per-target lock
+    in `maybe_auto_approve_and_execute` so two near-simultaneous requests for
+    the same target (e.g. a retried webhook, or two overlapping chat turns)
+    can't each independently auto-execute their own separate sealed plan.
+    """
+    now = datetime.now(UTC)
+    for record in APPROVAL_DECISIONS.values():
+        decision = record.get("spec", {}).get("approvalDecision", {})
+        if decision.get("decidedBy") != "auto-policy":
+            continue
+        decision_target = decision.get("target") or {}
+        if (
+            decision_target.get("namespace") != target.get("namespace")
+            or decision_target.get("name") != target.get("name")
+            or decision_target.get("kind") != target.get("kind")
+        ):
+            continue
+        if decision.get("action", {}).get("toolName") != tool_name:
+            continue
+        try:
+            approved_at = datetime.fromisoformat(str(decision.get("approvedAt", "")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if (now - approved_at).total_seconds() <= window_seconds:
+            return True
+    return False
+
+
+async def verify_source_type_for_target(
+    user_auth_header: str, target: Mapping[str, Any]
+) -> str | None:
+    """Look up the live, server-computed action-candidates list and return the
+    real sourceType for this target, rather than trusting any client-supplied
+    value. Returns None if the target isn't currently listed as an action
+    candidate (already resolved, or the lookup itself fails), so callers can
+    fail closed instead of trusting an unverifiable claim.
+    """
+    try:
+        candidates = await aiops_action_candidates(user_auth_header)
+    except Exception:  # noqa: BLE001
+        return None
+    namespace = target.get("namespace")
+    name = target.get("name")
+    for candidate in candidates.get("spec", {}).get("candidates", []) or []:
+        candidate_target = candidate.get("target") or {}
+        if candidate_target.get("namespace") == namespace and candidate_target.get("name") == name:
+            return candidate.get("sourceType")
+    return None
+
+
+async def maybe_auto_approve_and_execute(
+    plan_record: Mapping[str, Any],
+    user_auth_header: str,
+) -> dict[str, Any] | None:
+    """If the sealed plan's tool is on the narrow AUTO_EXECUTE_TOOL_NAMES
+    allowlist (empty/off by default), skip the human approve/execute clicks
+    and drive the same internal approval + execution logic immediately.
+    Every server-side check those two paths already perform (mutation gate,
+    action executor availability, target liveness, approval expiry/reuse)
+    still runs unchanged; only the human click is skipped. Returns None when
+    the plan isn't eligible, so callers should treat that as "do nothing."
+
+    `evict_one_unhealthy_controller_owned_pod` is reused for every unhealthy
+    Pod target regardless of why it's unhealthy, but eviction only helps
+    transient/restart-recoverable states (crashloop, restart spikes) — it does
+    nothing for a persistent-failure state like ImagePullBackOff (bad image,
+    registry down) and would just churn the pod forever. So beyond the tool
+    allowlist, this tool specifically also requires the finding's sourceType
+    to be one of the transient-restart categories.
+
+    The `source_type` parameter as passed in by callers is caller-supplied (it
+    round-trips through client-controlled request fields), so it is NEVER
+    trusted for the eligibility decision below. The real check re-derives
+    sourceType from the live, server-computed action-candidates list keyed by
+    this plan's actual target, so a caller can't defeat the persistent-failure
+    guard by mislabeling a request's sourceType. If the target can't be
+    matched against a current server-computed finding at all (e.g. it already
+    resolved, or the candidates lookup errors), this fails closed — the
+    eviction stays ineligible for auto-execute and falls back to the normal
+    manual approve/execute flow.
+    """
+    if not MUTATIONS_ENABLED:
+        return None
+
+    plan = plan_record["spec"]["sealedActionPlan"]
+    tool_name = plan["action"].get("toolName")
+    if not tool_name or tool_name not in AUTO_EXECUTE_TOOL_NAMES:
+        return None
+    if tool_name == "evict_one_unhealthy_controller_owned_pod":
+        verified_source_type = await verify_source_type_for_target(
+            user_auth_header, plan["target"]
+        )
+        if verified_source_type not in AUTO_EXECUTE_EVICT_ELIGIBLE_SOURCE_TYPES:
+            return None
+
+    target = plan["target"]
+    target_key = f"{target.get('namespace')}/{target.get('kind')}/{target.get('name')}"
+    lock = _AUTO_EXECUTE_TARGET_LOCKS.setdefault(target_key, asyncio.Lock())
+
+    async with lock:
+        # Re-check after acquiring the lock: a concurrent request for the same
+        # target (e.g. a retried webhook) may have already auto-executed a
+        # different sealed plan for it while we were waiting.
+        if has_recent_auto_action_for_target(target, tool_name):
+            return {"autoExecuted": False, "autoExecuteFailed": True, "reason": "duplicate auto-execute for this target was already handled"}
+
+        plan_id = str(plan_record["metadata"]["name"])
+        plan_digest = plan["digest"]["planDigest"]
+        try:
+            approval_response = await _create_approval_decision_impl(
+                ApprovalDecisionCreate(
+                    planId=plan_id,
+                    expectedPlanDigest=plan_digest,
+                    approvalScope="auto-policy",
+                ),
+                user_auth_header,
+                auto_policy=True,
+            )
+            approval_id = str(approval_response["metadata"]["name"])
+            execution_response = await _execute_action_impl(
+                ActionExecutionCreate(
+                    approvalId=approval_id,
+                    planId=plan_id,
+                    expectedPlanDigest=plan_digest,
+                ),
+                user_auth_header,
+                auto_policy=True,
+            )
+        except HTTPException as exc:
+            return {"autoExecuted": False, "autoExecuteFailed": True, "reason": str(exc.detail)}
+        except Exception as exc:  # noqa: BLE001
+            # Auto-execute is best-effort: the plan/proposal are already persisted,
+            # so a downstream failure (e.g. Action Executor unreachable) must degrade
+            # to the normal manual approve/execute flow, not fail the whole request.
+            return {"autoExecuted": False, "autoExecuteFailed": True, "reason": str(exc)}
+
+        return {
+            "autoExecuted": True,
+            "approval": approval_response,
+            "execution": execution_response,
+        }
 
 
 @app.post("/v1/dev/commands/execute")
