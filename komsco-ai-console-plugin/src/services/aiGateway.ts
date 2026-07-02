@@ -611,6 +611,8 @@ const GATEWAY_AIOPS_OVERVIEW_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/overview';
 const GATEWAY_AIOPS_STATUS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/status';
+const GATEWAY_AIOPS_ACTION_CANDIDATES_URL =
+  '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/aiops/action-candidates';
 const GATEWAY_RAG_UPLOADS_URL =
   '/api/proxy/plugin/komsco-ai-console-plugin-kugnus/ai-gateway/v1/rag/uploads';
 const GATEWAY_RAG_SEARCH_URL =
@@ -735,6 +737,25 @@ export async function fetchAiopsOverview(): Promise<AiopsOverview> {
   }
 
   return (await response.json()) as AiopsOverview;
+}
+
+export async function fetchActionCandidates(): Promise<AiopsActionCandidateSummary> {
+  const response = await consoleFetch(
+    GATEWAY_AIOPS_ACTION_CANDIDATES_URL,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+      method: 'GET',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'AIOps action candidates request failed'));
+  }
+
+  return (await response.json()) as AiopsActionCandidateSummary;
 }
 
 export async function fetchAiopsStatus(): Promise<AiopsRuntimeStatus> {
@@ -914,11 +935,14 @@ export async function createActionPlan(proposalId: string): Promise<AiopsRecord>
 
 export async function createActionCandidatePlan(
   candidate: AiopsActionCandidate,
+  context?: { incidentId?: string; runId?: string },
 ): Promise<AiopsActionCandidatePlanResult> {
   const target = candidate.target ?? {};
   return postGatewayJson<AiopsActionCandidatePlanResult>('/candidate-plans', {
     candidateId: candidate.id,
     evidenceRefs: candidate.evidenceRefs ?? [],
+    incidentId: context?.incidentId,
+    runId: context?.runId,
     sourceFindingId: candidate.sourceFindingId,
     sourceType: candidate.sourceType,
     target: {
