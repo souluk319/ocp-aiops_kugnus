@@ -2747,6 +2747,27 @@
   gap: 3px;
 }
 
+.komsco-ai__action-stage-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.komsco-ai__action-stage-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #e2e5ea;
+}
+
+.komsco-ai__action-stage-dot--done {
+  background: #1a8a53;
+}
+
+.komsco-ai__action-stage-dot--current {
+  background: #14151a;
+}
+
 .komsco-ai__rail-command-title span {
   font-size: 9px;
   font-weight: 780;

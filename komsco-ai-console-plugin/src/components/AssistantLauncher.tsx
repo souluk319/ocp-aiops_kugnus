@@ -3288,6 +3288,29 @@ const getActionRecordStageLabel = (record: AiopsRecordView): string => {
   return '1단계 · 계획 대기';
 };
 
+const ACTION_STAGE_ORDER: AiopsLifecycleStage[] = ['proposal', 'plan', 'approval', 'execution'];
+
+const renderActionStageDots = (stage: AiopsLifecycleStage): React.ReactNode => {
+  const currentIndex = ACTION_STAGE_ORDER.indexOf(stage);
+
+  return (
+    <span className="komsco-ai__action-stage-dots" aria-hidden="true">
+      {ACTION_STAGE_ORDER.map((step, index) => (
+        <span
+          className={`komsco-ai__action-stage-dot${
+            index < currentIndex
+              ? ' komsco-ai__action-stage-dot--done'
+              : index === currentIndex
+                ? ' komsco-ai__action-stage-dot--current'
+                : ''
+          }`}
+          key={step}
+        />
+      ))}
+    </span>
+  );
+};
+
 const getActionRecordProof = (record: AiopsRecordView): string => {
   const spec = getRecordSpecMap(record);
   const planDigest = getPlanDigest(record);
@@ -3319,27 +3342,27 @@ const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
   return [
     {
       count: records?.actionProposals.length ?? 0,
-      detail: 'candidate action request',
+      detail: '조치 후보 요청',
       key: 'proposal',
-      label: 'Proposal',
+      label: '제안',
     },
     {
       count: records?.sealedActionPlans.length ?? 0,
-      detail: 'sealed plan digest',
+      detail: '봉인된 조치 계획',
       key: 'plan',
-      label: 'Sealed plan',
+      label: '계획',
     },
     {
       count: records?.approvalDecisions.length ?? 0,
-      detail: 'approval decision',
+      detail: '승인 결정',
       key: 'approval',
-      label: 'Approval',
+      label: '승인',
     },
     {
       count: records?.executionRecords.length ?? 0,
-      detail: 'execution record',
+      detail: '실행 기록',
       key: 'execution',
-      label: 'Execution',
+      label: '실행',
     },
   ] as Array<{
     count: number;
@@ -3355,10 +3378,10 @@ const getActionLifecycleSummary = (
 ) => {
   if (!status) {
     return {
-      label: 'Runtime status',
-      text: 'AIOps runtime status loading; execution disabled until status resolves.',
+      label: '실행 상태',
+      text: 'AIOps 실행 상태를 불러오는 중입니다. 상태가 확인될 때까지 실행이 비활성화됩니다.',
       tone: 'neutral' as UiTone,
-      value: 'pending',
+      value: '대기 중',
     };
   }
 
@@ -3367,29 +3390,29 @@ const getActionLifecycleSummary = (
   const actionsAllowed = canUseActionExecution(status) && executionModeAllowsActions(executionMode);
   const blockers: string[] = [];
   if (!actionExecutorConfigured) {
-    blockers.push('Action Executor URL not configured');
+    blockers.push('Action Executor가 설정되지 않았습니다');
   }
   if (!mutationsEnabled) {
-    blockers.push('Mutation gate disabled: approval execution cannot submit changes yet');
+    blockers.push('변경 실행이 비활성화되어 있어 승인된 조치도 실제로 적용되지 않습니다');
   }
   if (!executionModeAllowsActions(executionMode)) {
-    blockers.push('UI mode blocks proposal, approval, and execution mutations');
+    blockers.push('현재 모드에서는 제안·승인·실행이 제한됩니다');
   }
 
   if (blockers.length === 0 && actionsAllowed) {
     return {
-      label: 'Current gate',
-      text: 'Plan, approval, and execution requests may be submitted after server-side checks.',
+      label: '현재 상태',
+      text: '서버 측 검증을 통과하면 계획·승인·실행 요청을 보낼 수 있습니다.',
       tone: 'review' as UiTone,
       value: getExecutionModeShortLabel(executionMode),
     };
   }
 
   return {
-    label: 'Current blocker',
+    label: '제한 사유',
     text: blockers.join('; '),
     tone: 'warn' as UiTone,
-    value: 'not configured',
+    value: '설정 필요',
   };
 };
 
@@ -3484,9 +3507,9 @@ const renderActionLifecycle = (
           {renderStatusTag(summary.value, summary.tone)}
         </div>
         <p className="komsco-ai__action-lifecycle-proof">
-          Execute guard: sealed plan digest, active approval, evidence freshness, SSAR, and mutation
-          flag are checked. Expired or stale evidence blocks execution and is surfaced as a failure
-          reason; create a new plan and approval.
+          실행 전 안전장치: 계획 다이제스트, 유효한 승인, 근거 최신성, 권한 검증, 변경 실행 설정을
+          확인합니다. 근거가 오래되었거나 만료되면 실행이 막히고 실패 사유로 표시됩니다 — 이 경우 새
+          계획과 승인을 다시 만들어야 합니다.
         </p>
       </div>
     </div>
@@ -3645,6 +3668,7 @@ const renderActionRecordRows = (
       >
         <div className="komsco-ai__rail-command-head">
           <div className="komsco-ai__rail-command-title">
+            {renderActionStageDots(getActionRecordStage(record))}
             <span>{getActionRecordStageLabel(record)}</span>
             <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
           </div>
@@ -3879,6 +3903,7 @@ const renderAssistantAnswerActions = (
               key={getRecordName(record) || phase}
             >
               <div className="komsco-ai__answer-action-main">
+                {renderActionStageDots(getActionRecordStage(record))}
                 <span>{getActionRecordStageLabel(record)}</span>
                 <strong>{getRecordTargetLabel(record)}</strong>
                 <small>{getActionRecordProof(record)}</small>
