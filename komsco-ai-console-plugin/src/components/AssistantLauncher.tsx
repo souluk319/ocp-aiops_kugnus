@@ -3882,7 +3882,8 @@ const renderAssistantAnswerActions = (
                 key={getRecordName(record) || phase}
               >
                 <div className="komsco-ai__answer-action-main">
-                  <span>{getActionRecordStageLabel(record)}</span>
+                  {renderActionStageDots('execution')}
+                  <span>4단계 · 완료</span>
                   <strong>{getRecordTargetLabel(record)}</strong>
                 </div>
                 <div className="komsco-ai__answer-action-outcome">
