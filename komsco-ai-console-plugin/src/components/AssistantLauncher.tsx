@@ -377,7 +377,6 @@ const MIN_STOP_BUTTON_VISIBLE_MS = 2000;
 const SCROLL_BOTTOM_THRESHOLD_PX = 80;
 const GATEWAY_PREP_TOOLS = new Set(['access_check', 'attachment_check']);
 const GATEWAY_PREP_STEP_ID = 'gateway-request-prep';
-const ACTION_ANSWER_CONTRACT_PATTERN = /(^|[-_])action([-.]|$)/i;
 const RCA_PLAN_STEP_ID = 'assistant-rca-plan';
 const RCA_CONTEXT_STEP_ID = 'assistant-rca-context';
 const RUN_LOOP_STEP_ID = 'assistant-run-loop';
@@ -1374,9 +1373,6 @@ const markLastAssistantAnswerContract = (messages: Message[], answerContract?: s
 
   return next;
 };
-
-const isActionAnswerContract = (answerContract?: string): boolean =>
-  Boolean(answerContract && ACTION_ANSWER_CONTRACT_PATTERN.test(answerContract));
 
 const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =>
   messages
@@ -3668,11 +3664,26 @@ const renderActionRecordRows = (
 const matchActionCandidatesForMessage = (
   content: string,
   candidates: AiopsActionCandidate[],
-): AiopsActionCandidate[] =>
-  candidates.filter((candidate) => {
+): AiopsActionCandidate[] => {
+  const matched = candidates.filter((candidate) => {
     const name = candidate.target?.name;
     return Boolean(name) && content.includes(name!);
   });
+
+  // Different findings (e.g. pod_crashloop and pod_restart_spike) can point at
+  // the exact same target, each producing its own candidate id — dedupe by
+  // target so the same remediation isn't offered as two separate buttons.
+  const seenTargets = new Set<string>();
+  return matched.filter((candidate) => {
+    const target = candidate.target;
+    const targetKey = `${target?.namespace}/${target?.kind}/${target?.name}`;
+    if (seenTargets.has(targetKey)) {
+      return false;
+    }
+    seenTargets.add(targetKey);
+    return true;
+  });
+};
 
 const actionCandidateButtonLabel = (candidate: AiopsActionCandidate): string => {
   const kind = candidate.target?.kind ? `${candidate.target.kind} ` : '';
@@ -6214,15 +6225,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const activeMessage = loading && index === messages.length - 1;
                         const isLatestAssistantMessage =
                           message.role === 'assistant' && index === findLastAssistantIndex(messages);
-                        const answerActionRecords =
-                          isLatestAssistantMessage &&
-                          hasContent &&
-                          isActionAnswerContract(message.answerContract)
-                            ? latestAnswerActionRecords(aiopsStatus, executionMode)
-                            : [];
                         const matchedActionCandidates =
                           isLatestAssistantMessage && hasContent
                             ? matchActionCandidatesForMessage(message.content, actionCandidates)
+                            : [];
+                        // latestAnswerActionRecords already only returns records with a
+                        // pending action step or a real execution outcome, so it's safe to
+                        // check unconditionally here — isActionAnswerContract used to gate
+                        // this too, but that hid results for plans created via the
+                        // "조치 계획 생성" button under a non-action-classified answer.
+                        const answerActionRecords =
+                          isLatestAssistantMessage && hasContent
+                            ? latestAnswerActionRecords(aiopsStatus, executionMode)
                             : [];
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
