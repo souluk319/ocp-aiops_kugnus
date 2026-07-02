@@ -186,6 +186,12 @@ export const CoolPlusIcon: React.FC<CoolIconProps> = (props) => (
   </CoolIcon>
 );
 
+export const CoolComposeIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path d="M12 5V19M5 12H19" stroke="currentColor" strokeLinecap="round" strokeWidth={1.6} />
+  </CoolIcon>
+);
+
 export const CoolSettingsIcon: React.FC<CoolIconProps> = (props) => (
   <CoolIcon {...props}>
     <path
