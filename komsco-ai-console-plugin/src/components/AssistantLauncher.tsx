@@ -4220,7 +4220,11 @@ const renderInsightRail = (
           ...(aiopsStatus?.spec.records.sealedActionPlans ?? []),
           ...(aiopsStatus?.spec.records.approvalDecisions ?? []),
           ...(aiopsStatus?.spec.records.executionRecords ?? []),
-        ],
+        ].sort(
+          (a, b) =>
+            new Date(String(b.metadata?.createdAt ?? 0)).getTime() -
+            new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
+        ),
         '최근 승인 또는 실행 기록이 없습니다.',
         aiopsStatus,
         executionMode,
