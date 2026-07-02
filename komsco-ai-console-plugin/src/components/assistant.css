@@ -611,6 +611,7 @@
 .komsco-ai__table td {
   padding: 8px 10px;
   text-align: start;
+  white-space: nowrap;
   vertical-align: top;
   border-block-end: 1px solid var(--pf-t--global--border--color--default);
 }
