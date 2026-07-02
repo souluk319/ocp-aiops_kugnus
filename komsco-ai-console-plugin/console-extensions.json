@@ -4,7 +4,8 @@
     "properties": {
       "id": "cywell-aiops",
       "perspective": "admin",
-      "name": "AIOps"
+      "name": "AIOps",
+      "insertAfter": "administration"
     }
   },
   {
@@ -14,8 +15,7 @@
       "perspective": "admin",
       "section": "cywell-aiops",
       "name": "관제 대시보드",
-      "href": "/dashboards/aiops",
-      "insertAfter": "home"
+      "href": "/dashboards/aiops"
     }
   },
   {
@@ -229,10 +229,23 @@
     }
   },
   {
+    "type": "console.flag",
+    "properties": {
+      "handler": { "$codeRef": "AIOpsFlags.enableLightspeedPluginFlag" }
+    }
+  },
+  {
     "type": "console.context-provider",
     "properties": {
       "provider": { "$codeRef": "NullContextProvider" },
       "useValueHook": { "$codeRef": "useAssistantOverlay" }
+    }
+  },
+  {
+    "type": "console.action/provider",
+    "properties": {
+      "contextId": "ols-open-handler",
+      "provider": { "$codeRef": "useOpenAIOps" }
     }
   }
 ]

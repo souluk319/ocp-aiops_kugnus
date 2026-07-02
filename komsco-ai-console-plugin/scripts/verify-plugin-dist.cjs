@@ -52,9 +52,41 @@ for (const exposedName of Object.keys(exposedModules)) {
 }
 
 const criticalChunks = [
+  'exposed-AIOpsFlags-chunk',
   'exposed-NullContextProvider-chunk',
   'exposed-useAssistantOverlay-chunk',
+  'exposed-useOpenAIOps-chunk',
 ];
+
+const extensions = Array.isArray(manifest?.extensions) ? manifest.extensions : [];
+const hasLightspeedFlag = extensions.some(
+  (extension) =>
+    extension?.type === 'console.flag' &&
+    extension?.properties?.handler?.$codeRef === 'AIOpsFlags.enableLightspeedPluginFlag',
+);
+const hasOpenHandler = extensions.some(
+  (extension) =>
+    extension?.type === 'console.action/provider' &&
+    extension?.properties?.contextId === 'ols-open-handler' &&
+    extension?.properties?.provider?.$codeRef === 'useOpenAIOps',
+);
+const hasAssistantOverlay = extensions.some(
+  (extension) =>
+    extension?.type === 'console.context-provider' &&
+    extension?.properties?.useValueHook?.$codeRef === 'useAssistantOverlay',
+);
+
+if (!hasLightspeedFlag) {
+  failures.push('console.flag AIOpsFlags.enableLightspeedPluginFlag missing');
+}
+
+if (!hasOpenHandler) {
+  failures.push('console.action/provider ols-open-handler -> useOpenAIOps missing');
+}
+
+if (!hasAssistantOverlay) {
+  failures.push('console.context-provider useAssistantOverlay missing');
+}
 
 for (const chunkName of criticalChunks) {
   assertDistFileByPrefix(chunkName, `critical console chunk ${chunkName}`);

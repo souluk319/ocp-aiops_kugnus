@@ -232,7 +232,7 @@ def build_requirement_summary(
             "evidence": [
                 "ignored PDF/PNG references",
                 "company runtime apply approval gate",
-                "cywell-aiops-operator.v0.1.9",
+                "cywell-aiops-operator.v0.1.10",
             ],
         },
     ]

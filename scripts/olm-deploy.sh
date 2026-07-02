@@ -12,7 +12,7 @@ OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-cywell-aiops}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-cywell-aiops-operator}
 INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-cywell-aiops}
-OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
+OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}
@@ -43,7 +43,7 @@ Commands:
   uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.9
+  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.10
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
@@ -58,10 +58,10 @@ Key environment variables:
   KOMSCO_AIOPS_APPROVE_UNINSTALL      Must equal cywell-aiops before reset-install/uninstall.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.9 \\
-  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.9 \\
-  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.9 \\
-  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.9 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.10 \\
+  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.10 \\
+  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.10 \\
+  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.10 \\
   task olm:deploy
 EOF
 }

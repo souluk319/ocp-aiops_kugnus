@@ -79,7 +79,7 @@ load_release_image_env() {
 }
 
 set_default_image_env() {
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
   local pull_registry=${KOMSCO_AIOPS_PULL_REGISTRY:-image-registry.openshift-image-registry.svc:5000}
 
   export KOMSCO_AIOPS_OPERATOR_IMAGE="${KOMSCO_AIOPS_OPERATOR_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-gateway:${version}}"
@@ -137,7 +137,7 @@ import os
 from pathlib import Path
 
 root = Path(os.environ["ROOT_DIR"])
-csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.9')}"
+csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.10')}"
 csv_path = root / "olm" / "generated" / "bundle" / "manifests" / f"{csv_name}.clusterserviceversion.yaml"
 crd_path = root / "olm" / "generated" / "bundle" / "manifests" / "aiopsinstallations.aiops.komsco.io.crd.yaml"
 catalog_path = root / "olm" / "generated" / "catalog" / "01-catalogsource.yaml"
@@ -145,6 +145,9 @@ configmap_path = root / "olm" / "generated" / "catalog" / "00-catalog-configmap.
 install_path = root / "olm" / "generated" / "install" / "03-aiopsinstallation.yaml"
 deploy_script_path = root / "scripts" / "olm-deploy.sh"
 icon_path = root / os.environ["KOMSCO_AIOPS_ICON_FILE"]
+console_extensions_path = root / "komsco-ai-console-plugin" / "console-extensions.json"
+console_plugin_package_path = root / "komsco-ai-console-plugin" / "package.json"
+use_open_aiops_path = root / "komsco-ai-console-plugin" / "src" / "hooks" / "useOpenAIOps.tsx"
 expected_conditions = {
     "TargetNamespaceReady",
     "GatewayServiceReady",
@@ -157,7 +160,7 @@ expected_conditions = {
     "HostDiagnosticsReady",
     "SafetyModeReady",
 }
-version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.9")
+version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.10")
 expected_version_scope = os.environ.get("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{version}")
 
 csv_payload = json.loads(csv_path.read_text(encoding="utf-8"))
@@ -165,6 +168,9 @@ crd_payload = json.loads(crd_path.read_text(encoding="utf-8"))
 catalog_payload = json.loads(catalog_path.read_text(encoding="utf-8"))
 configmap_payload = json.loads(configmap_path.read_text(encoding="utf-8"))
 install_payload = json.loads(install_path.read_text(encoding="utf-8"))
+console_extensions = json.loads(console_extensions_path.read_text(encoding="utf-8"))
+console_plugin_package = json.loads(console_plugin_package_path.read_text(encoding="utf-8"))
+use_open_aiops_source = use_open_aiops_path.read_text(encoding="utf-8")
 package_payload = json.loads(configmap_payload["data"]["packages"])[0]
 example_payload = json.loads(csv_payload["metadata"]["annotations"]["alm-examples"])[0]
 deploy_script = deploy_script_path.read_text(encoding="utf-8")
@@ -187,6 +193,52 @@ readiness_env = {
     for item in container_env.get("KOMSCO_AI_OPERATOR_READINESS_CONDITIONS", "").split(",")
     if item.strip()
 }
+console_section = next(
+    (
+        extension
+        for extension in console_extensions
+        if extension.get("type") == "console.navigation/section"
+        and extension.get("properties", {}).get("id") == "cywell-aiops"
+    ),
+    {},
+)
+console_dashboard_href = next(
+    (
+        extension
+        for extension in console_extensions
+        if extension.get("type") == "console.navigation/href"
+        and extension.get("properties", {}).get("id") == "cywell-aiops-dashboard"
+    ),
+    {},
+)
+console_context_provider = next(
+    (
+        extension
+        for extension in console_extensions
+        if extension.get("type") == "console.context-provider"
+        and extension.get("properties", {}).get("useValueHook", {}).get("$codeRef") == "useAssistantOverlay"
+    ),
+    {},
+)
+console_lightspeed_flag = next(
+    (
+        extension
+        for extension in console_extensions
+        if extension.get("type") == "console.flag"
+        and extension.get("properties", {}).get("handler", {}).get("$codeRef") == "AIOpsFlags.enableLightspeedPluginFlag"
+    ),
+    {},
+)
+console_action_provider = next(
+    (
+        extension
+        for extension in console_extensions
+        if extension.get("type") == "console.action/provider"
+        and extension.get("properties", {}).get("contextId") == "ols-open-handler"
+    ),
+    {},
+)
+exposed_modules = console_plugin_package.get("consolePlugin", {}).get("exposedModules", {})
 visible_catalog_copy = "\n".join(
     [
         str(catalog_payload["spec"].get("displayName", "")),
@@ -239,6 +291,23 @@ checks = {
     "clusterWriteGuard": "KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE=cywell-aiops" in deploy_script,
     "iconMediaType": icon["mediatype"] == "image/png",
     "iconSha256": hashlib.sha256(decoded_icon).hexdigest() == hashlib.sha256(icon_path.read_bytes()).hexdigest(),
+    "consolePluginPackageName": console_plugin_package.get("consolePlugin", {}).get("name") == os.environ["KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME"],
+    "consolePluginPackageDisplayName": console_plugin_package.get("consolePlugin", {}).get("displayName") == os.environ["KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME"],
+    "consoleNavSection": console_section.get("properties", {}).get("name") == "AIOps",
+    "consoleNavAfterAdministration": console_section.get("properties", {}).get("insertAfter") == "administration",
+    "consoleDashboardRoute": console_dashboard_href.get("properties", {}).get("href") == "/dashboards/aiops",
+    "consoleContextProvider": bool(console_context_provider),
+    "consoleLightspeedFlag": bool(console_lightspeed_flag),
+    "consoleOlsOpenHandlerActionProvider": console_action_provider.get("properties", {}).get("provider", {}).get("$codeRef") == "useOpenAIOps",
+    "consoleExposesAIOpsFlags": exposed_modules.get("AIOpsFlags") == "./hooks/aiopsFlags",
+    "consoleExposesAssistantOverlay": exposed_modules.get("useAssistantOverlay") == "./hooks/useAssistantOverlay",
+    "consoleExposesOpenAIOps": exposed_modules.get("useOpenAIOps") == "./hooks/useOpenAIOps",
+    "openAIOpsReturnsCallback": "OpenAIOpsHandler" in use_open_aiops_source
+    and "return React.useCallback" in use_open_aiops_source,
+    "openAIOpsDoesNotReturnActionArray": "Action[]" not in use_open_aiops_source
+    and "lib/extensions/actions" not in use_open_aiops_source,
+    "openAIOpsLaunchesOverlay": "launchOverlay(AssistantOverlay" in use_open_aiops_source
+    and "defaultOpen: true" in use_open_aiops_source,
 }
 
 failed = [name for name, passed in checks.items() if not passed]
@@ -280,19 +349,20 @@ require_company_server() {
 grant_image_pull_access() {
   require_oc
   oc policy add-role-to-group system:image-puller "system:serviceaccounts:${KOMSCO_AIOPS_NAMESPACE}" -n "${KOMSCO_AIOPS_NAMESPACE}"
+  oc policy add-role-to-group system:image-puller system:serviceaccounts -n "${KOMSCO_AIOPS_NAMESPACE}"
 }
 
 patch_binary_build_output() {
   local name=$1
   oc patch buildconfig "${name}" -n "${KOMSCO_AIOPS_NAMESPACE}" --type=merge \
-    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}\"}}}}"
+    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}\"}}}}"
 }
 
 ensure_binary_build() {
   local name=$1
   local context_dir=$2
   local stage_dir
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
 
   require_oc
   oc get namespace "${KOMSCO_AIOPS_NAMESPACE}" >/dev/null 2>&1 || oc create namespace "${KOMSCO_AIOPS_NAMESPACE}"
@@ -447,7 +517,7 @@ uninstall() {
   oc delete aiopsinstallation "${KOMSCO_AIOPS_INSTALLATION_NAME}" -n "${KOMSCO_AIOPS_NAMESPACE}" --ignore-not-found=true
   oc delete consoleplugin "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" --ignore-not-found=true
   oc delete subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
-  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
+  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
   oc delete -f "${ROOT_DIR}/olm/generated/install/03-aiopsinstallation.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/02-subscription.yaml" --ignore-not-found=true || true
   oc delete -f "${ROOT_DIR}/olm/generated/install/01-operatorgroup.yaml" --ignore-not-found=true || true

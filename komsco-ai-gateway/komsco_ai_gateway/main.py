@@ -10265,7 +10265,7 @@ def build_empty_answer_fallback(
     tool_results: list[Mapping[str, Any]],
     gateway_evidence: str | None = None,
 ) -> str:
-    if policy.get("decision") == "action_proposal_only":
+    if policy.get("decision") == "action_proposal_only" and not crashloop_demo_target_from_request(req):
         return build_action_proposal_fallback(req, policy)
 
     answer_plan = build_gateway_fallback_answer_plan(

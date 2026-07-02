@@ -54,6 +54,7 @@ fi
 INSTALL_DEPS="${INSTALL_DEPS:-false}"
 PLUGIN_LOG="${PLUGIN_LOG:-${ROOT_DIR}/.dev-console-plugin-webpack.log}"
 CONSOLE_LOG="${CONSOLE_LOG:-${ROOT_DIR}/.dev-console-plugin-console.log}"
+YARN_CLI="${YARN_CLI:-${PLUGIN_DIR}/.yarn/releases/yarn-4.13.0.cjs}"
 CONSOLE_TOKEN_CHECK_INTERVAL="${CONSOLE_TOKEN_CHECK_INTERVAL:-60}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://127.0.0.1:${CONSOLE_PORT}/api/kubernetes/version}"
 PLUGIN_STARTUP_WAIT_ATTEMPTS="${PLUGIN_STARTUP_WAIT_ATTEMPTS:-1200}"
@@ -70,6 +71,21 @@ require_cmd() {
     echo "Missing required command: $1" >&2
     exit 1
   fi
+}
+
+run_yarn() {
+  if command -v yarn >/dev/null 2>&1; then
+    yarn "$@"
+    return
+  fi
+
+  if [ -f "$YARN_CLI" ]; then
+    node "$YARN_CLI" "$@"
+    return
+  fi
+
+  echo "Missing yarn. Install yarn or keep ${YARN_CLI} available." >&2
+  exit 1
 }
 
 port_open() {
@@ -255,7 +271,7 @@ start_console() {
   fi
 
   printf '[%s] Starting local console bridge with current oc token\n' "$(date -Is)" >>"$CONSOLE_LOG"
-  yarn start-console >>"$CONSOLE_LOG" 2>&1 &
+  run_yarn start-console >>"$CONSOLE_LOG" 2>&1 &
   CONSOLE_PID="$!"
 
   if ! wait_for_port "127.0.0.1" "$CONSOLE_PORT" "$CONSOLE_STARTUP_WAIT_ATTEMPTS"; then
@@ -289,7 +305,7 @@ trap cleanup EXIT INT TERM
 require_cmd oc
 require_cmd curl
 require_cmd sha256sum
-require_cmd yarn
+require_cmd node
 
 if ! ensure_oc_login; then
   echo "oc login이 필요합니다. OPENSHIFT_TOKEN을 env에 넣지 말고 oc login 후 현재 토큰을 oc whoami -t로 조회하게 하세요." >&2
@@ -299,7 +315,7 @@ fi
 cd "$PLUGIN_DIR"
 
 if [ "$INSTALL_DEPS" = "true" ]; then
-  yarn install
+  run_yarn install
 elif [ ! -d node_modules ]; then
   echo "node_modules가 없습니다. INSTALL_DEPS=true task fe:dev 또는 cd komsco-ai-console-plugin && yarn install을 실행하세요." >&2
   exit 1
@@ -309,7 +325,7 @@ if port_open "$PLUGIN_HOST" "$PLUGIN_PORT"; then
   echo "Using existing plugin dev server: http://${PLUGIN_HOST}:${PLUGIN_PORT}"
 else
   : > "$PLUGIN_LOG"
-  yarn start >"$PLUGIN_LOG" 2>&1 &
+  run_yarn start >"$PLUGIN_LOG" 2>&1 &
   PLUGIN_PID="$!"
 
   if ! wait_for_port "$PLUGIN_HOST" "$PLUGIN_PORT" "$PLUGIN_STARTUP_WAIT_ATTEMPTS"; then

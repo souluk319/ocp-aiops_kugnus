@@ -6,7 +6,7 @@ Cywell 제공 AIOps를 회사 OKD/OCP OperatorHub 카탈로그에 등록할 때�
 
 `task aiops:company:*`는 OpenShift 공식 명령이 아니라 이 repo의 바로가기다.
 
-현재 기본 배포 패키지 버전은 `0.1.9`이다. 그래서 생성되는 CSV는 `cywell-aiops-operator.v0.1.9`이어야 한다.
+현재 기본 배포 패키지 버전은 `0.1.10`이다. 그래서 생성되는 CSV는 `cywell-aiops-operator.v0.1.10`이어야 한다.
 
 원래 흐름은 네 단계다.
 

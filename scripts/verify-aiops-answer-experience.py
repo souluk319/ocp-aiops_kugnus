@@ -13,8 +13,17 @@ GATEWAY_MAIN = ROOT / "komsco-ai-gateway" / "komsco_ai_gateway" / "main.py"
 AIOPS_CONTRACTS = ROOT / "komsco-ai-gateway" / "komsco_ai_gateway" / "aiops_contracts.py"
 GATEWAY_TESTS = ROOT / "komsco-ai-gateway" / "tests" / "test_health.py"
 ASSISTANT = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantLauncher.tsx"
+ASSISTANT_PROGRESS = (
+    ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantProgressTimeline.tsx"
+)
+ASSISTANT_CONSTANTS = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.constants.tsx"
+ASSISTANT_TYPES = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.types.ts"
 ASSISTANT_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.css"
 PAGES = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "AiopsPages.tsx"
+DASHBOARD_SECTIONS = (
+    ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "AiopsDashboardSections.tsx"
+)
+DOCS_SECTIONS = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "AiopsDocsSections.tsx"
 PAGES_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "aiops-pages.css"
 GATEWAY_SERVICE = ROOT / "komsco-ai-console-plugin" / "src" / "services" / "aiGateway.ts"
 EVIDENCE_DISPLAY = ROOT / "komsco-ai-console-plugin" / "src" / "utils" / "evidenceDisplay.ts"
@@ -123,7 +132,8 @@ def main() -> None:
     require(GATEWAY_MAIN, "조회 계획:", "action text uses human query plan wording")
     reject(GATEWAY_MAIN, 'f"- Tool Plan:', "default action text does not print Tool Plan line")
 
-    require(ASSISTANT, "type EvidenceFooterQueryStep", "console has query step type")
+    require(ASSISTANT_TYPES, "export type EvidenceFooterQueryStep", "console defines query step type")
+    require(ASSISTANT, "EvidenceFooterQueryStep", "console uses query step type")
     require(ASSISTANT, "queryPlan", "console builds queryPlan for Evidence footer")
     require(ASSISTANT, "근거 상세보기", "console has Evidence detail toggle")
     require(ASSISTANT, "조회 계획", "console labels human query plan")
@@ -133,27 +143,39 @@ def main() -> None:
     require(ASSISTANT, "compactEvidenceTypeSummary", "console keeps evidence footer compact by default")
     require(ASSISTANT, "evidenceStepStatusLabel", "console translates evidence detail statuses")
     require(ASSISTANT, "rcaContextPhaseLabel", "console translates RCA stream phases")
-    require(ASSISTANT, "답변 근거 연결 완료", "console uses product wording for RCA phase")
-    require(ASSISTANT, "productProgressText", "console sanitizes stored progress wording")
+    require(ASSISTANT_PROGRESS, "답변 근거 연결 완료", "console uses product wording for RCA phase")
+    require(ASSISTANT_PROGRESS, "productProgressText", "console sanitizes stored progress wording")
     require(ASSISTANT, "normalized === 'not_attempted'", "console hides raw not_attempted status")
     reject(ASSISTANT, "RCA 문맥 연결:", "console does not expose raw RCA phase wording")
     reject(ASSISTANT, "RCA Context digest", "console does not expose raw RCA context digest wording")
     reject(ASSISTANT, "evidence refs", "console does not expose raw evidence refs wording")
     reject(ASSISTANT, "<code>{ref.evidenceId", "console does not show evidence ids in default footer")
-    require(ASSISTANT, "현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행", "quick prompt asks AIOps to run safe checks")
+    require(
+        ASSISTANT_CONSTANTS,
+        "현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행",
+        "quick prompt asks AIOps to run safe checks",
+    )
     require(ASSISTANT_CSS, "komsco-ai__evidence-query-plan", "console styles query plan detail")
     require(ASSISTANT_CSS, "komsco-ai__evidence-summary", "console styles compact evidence summary")
     require(ASSISTANT_CSS, "komsco-ai__rag-source-list", "console styles moved RAG appendix detail")
     require(PAGES, "원본 Tool Plan JSON", "audit page keeps raw Tool Plan JSON")
     require(PAGES, "RCA Context JSON", "audit page keeps raw RCA Context JSON")
-    require(PAGES, "<AssistantLauncher draftPrompt={assistantDraftPrompt} onRunComplete={data.refresh} />", "dashboard keeps assistant as closed FAB launcher")
+    require(
+        PAGES,
+        "<AssistantLauncher draftPrompt={assistantDraftPrompt} onRunComplete={data.refresh} />",
+        "dashboard keeps AssistantLauncher mount point; visual FAB is not proven by this static check",
+    )
     reject(PAGES, 'className="komsco-ai-page__assistant-stage"', "dashboard does not render full-width assistant stage")
     reject(PAGES, "defaultOpen\n          draftPrompt={assistantDraftPrompt}\n          embedded\n          lockOpen", "dashboard does not force embedded locked chatbot")
     reject(PAGES_CSS, "komsco-ai-page__assistant-stage", "dashboard CSS does not keep embedded assistant stage")
     reject(PAGES_CSS, "komsco-ai-page__assistant-quick-toggle", "dashboard CSS does not keep duplicate quick chatbot button")
     dashboard = text_between(PAGES, "export const AiopsDashboardPage", "export const AiopsDocsPage")
     require_in_text(dashboard, "관제탑", "dashboard remains the control tower route")
-    require_in_text(dashboard, "AssistantLauncher", "dashboard keeps FAB assistant")
+    require_in_text(
+        dashboard,
+        "AssistantLauncher",
+        "dashboard keeps AssistantLauncher wiring; visual FAB requires browser proof",
+    )
     reject_in_text(dashboard, "<ToolPlanPanel", "dashboard does not render ToolPlanPanel")
     reject_in_text(dashboard, "<RcaContextPanel", "dashboard does not render RcaContextPanel")
     reject_in_text(dashboard, "<AdapterBoard", "dashboard does not render AdapterBoard")
@@ -162,19 +184,19 @@ def main() -> None:
     reject_in_text(dashboard, "Lightspeed stream", "dashboard does not show stream jargon")
     reject_in_text(dashboard, "controlled_execution", "dashboard does not show raw safety mode")
 
-    require(PAGES, "ACTION_CANDIDATE_DISPLAY_LIMIT", "dashboard bounds visible action candidates")
-    require(PAGES, "rankActionCandidatesForDisplay", "dashboard deduplicates action candidates")
-    require(PAGES, "중복 후보", "dashboard tells operator repeated candidates are collapsed")
-    require(PAGES, "isImagePullBackOffCandidate", "dashboard blocks unsafe ImagePullBackOff eviction")
+    require(DASHBOARD_SECTIONS, "ACTION_CANDIDATE_DISPLAY_LIMIT", "dashboard bounds visible action candidates")
+    require(DASHBOARD_SECTIONS, "rankActionCandidatesForDisplay", "dashboard deduplicates action candidates")
+    require(DASHBOARD_SECTIONS, "중복 후보", "dashboard tells operator repeated candidates are collapsed")
+    require(DASHBOARD_SECTIONS, "isImagePullBackOffCandidate", "dashboard blocks unsafe ImagePullBackOff eviction")
     require(PAGES, "mode === 'execute'", "dashboard maps execute mode before display")
     require(PAGES, "return '실행 가능';", "dashboard displays execute mode in Korean")
     reject(PAGES, "Cywell AI 복구 계획", "dashboard does not label candidates as recovery plan")
-    require(PAGES, "normalizeFindingDisplayText", "dashboard repairs redacted resource placeholders")
-    require(PAGES, "최근 1시간 재시작 증가", "dashboard displays restart metric evidence in Korean")
+    require(DASHBOARD_SECTIONS, "normalizeFindingDisplayText", "dashboard repairs redacted resource placeholders")
+    require(DASHBOARD_SECTIONS, "최근 1시간 재시작 증가", "dashboard displays restart metric evidence in Korean")
     require(EVIDENCE_DISPLAY, "(?=.*[.~+/=])", "redaction avoids Kubernetes and metric identifier names")
     reject(EVIDENCE_DISPLAY, "(?=.*[._~+/=-])", "redaction does not treat long hyphenated resource names as tokens")
-    require(PAGES, 'title="고객 문서"', "docs page uses Korean operator title")
-    reject(PAGES, 'title="LLM Wiki"', "docs page does not expose wiki jargon as title")
+    require(DOCS_SECTIONS, "고객 문서 저장소", "docs page uses Korean operator title")
+    reject(DOCS_SECTIONS, "LLM Wiki", "docs page does not expose wiki jargon as title")
     require(PAGES, "ChatTranscriptList", "audit uses mobile-readable chat cards")
     require(PAGES, "RecordList", "audit/execution uses mobile-readable record cards")
     require(PAGES_CSS, "komsco-ai-page__record-list", "record cards are styled")
@@ -182,7 +204,11 @@ def main() -> None:
     require(GATEWAY_SERVICE, "gatewayResponseDetail", "action errors parse Gateway detail")
     require(GATEWAY_SERVICE, "separation of duties requires requester and approver to differ", "action errors translate approval conflicts")
 
-    require(ASSISTANT, "type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';", "console keeps three modes")
+    require(
+        ASSISTANT_TYPES,
+        "export type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';",
+        "console keeps three modes",
+    )
     require(ASSISTANT, "읽기 전용", "console keeps read-only label")
     require(ASSISTANT, "실행 가능", "console keeps execute label")
     require(ASSISTANT, "실행 무제한", "console keeps unrestricted label")
@@ -197,9 +223,9 @@ def main() -> None:
     reject(ASSISTANT, "OLS 질의 전달", "console does not show OLS query jargon")
     reject(ASSISTANT, "본문 스트리밍", "console does not show streaming jargon")
     reject(ASSISTANT, "브라우저로 중계", "console does not show relay wording")
-    require(ASSISTANT, "STORED_CONVERSATION_HISTORY_KEY", "console has conversation history storage key")
-    require(ASSISTANT, "STORED_ACTIVE_CONVERSATION_KEY", "console has active conversation storage key")
-    require(ASSISTANT, "STORED_UI_LANGUAGE_KEY", "console persists language selection")
+    require(ASSISTANT_CONSTANTS, "STORED_CONVERSATION_HISTORY_KEY", "console has conversation history storage key")
+    require(ASSISTANT_CONSTANTS, "STORED_ACTIVE_CONVERSATION_KEY", "console has active conversation storage key")
+    require(ASSISTANT_CONSTANTS, "STORED_UI_LANGUAGE_KEY", "console persists language selection")
     require(ASSISTANT, "readStoredUiLanguage", "console restores language selection")
     require(ASSISTANT, "writeStoredUiLanguage(uiLanguage)", "console stores language selection")
     require(ASSISTANT, 'data-ui-language={uiLanguage}', "console exposes current language state")

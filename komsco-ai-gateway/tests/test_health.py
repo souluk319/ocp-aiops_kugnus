@@ -3227,6 +3227,49 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "Live 조회" not in fallback
 
 
+def test_empty_answer_fallback_keeps_crashloop_rca_when_policy_is_action_proposal_only() -> None:
+    message = (
+        "다음 OpenShift 이상 징후를 RCA 분석하고, 승인 필요한 조치 후보까지 정리해줘.\n"
+        "대상: komsco-ai-dev/Pod/aiops-scenario-1-crashloop-7448bf8897-2pnvz\n"
+        "다음 확인: oc logs aiops-scenario-1-crashloop-7448bf8897-2pnvz -n komsco-ai-dev -c crashloop --previous\n"
+        "연결된 조치 후보: CrashLoopBackOff 조치 후보 / 승인 후 실행 계획 생성 가능\n"
+        "주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. "
+        "실제 변경은 계획, 승인, 검증 조건을 거쳐야 한다."
+    )
+    page_context = {
+        "aiopsDemoCycle": {
+            "scenarioId": "crashloop",
+            "target": {
+                "kind": "Pod",
+                "namespace": "komsco-ai-dev",
+                "name": "aiops-scenario-1-crashloop-7448bf8897-2pnvz",
+            },
+        }
+    }
+    req = ChatRequest(
+        message=message,
+        pageContext=page_context,
+    )
+    policy = classify_request_policy(message)
+    fallback = build_empty_answer_fallback(
+        req,
+        policy,
+        [
+            {
+                "name": "lightspeed_stream",
+                "status": "error",
+                "summary": "OpenShift Lightspeed stream failed",
+            }
+        ],
+        "Pod waiting.reason=CrashLoopBackOff, restartCount=34",
+    )
+
+    assert policy["decision"] == "action_proposal_only"
+    assert "현재 요청은 변경/재시작/삭제/스케일/패치 계열 작업으로 분류되었습니다." not in fallback
+    assert "CrashLoopBackOff" in fallback
+    assert "## RCA 보고서" in fallback
+
+
 def test_fallback_answer_planner_separates_health_from_rca_contract() -> None:
     health_policy = classify_request_policy("작동하는가")
     rca_policy = classify_request_policy("Failed Pod를 현재 장애로 봐도 되는지 판단해줘")

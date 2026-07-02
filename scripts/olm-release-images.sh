@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.9}
+VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
 NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}}
 PUSH_REGISTRY=${KOMSCO_AIOPS_PUSH_REGISTRY:-}
 PULL_REGISTRY=${KOMSCO_AIOPS_PULL_REGISTRY:-}
@@ -23,7 +23,7 @@ Commands:
   env         Print the image references that would be used.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.9
+  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.10
   KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: cywell-aiops
   KOMSCO_AIOPS_PUSH_REGISTRY         Registry used by the local machine for push.
   KOMSCO_AIOPS_PULL_REGISTRY         Registry used by cluster workloads for pull.
@@ -33,7 +33,7 @@ Key environment variables:
   KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE Must equal cywell-aiops before image namespace/OLM writes.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.9 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.10 \\
   KOMSCO_AIOPS_NAMESPACE=cywell-aiops \\
   task olm:release
 EOF

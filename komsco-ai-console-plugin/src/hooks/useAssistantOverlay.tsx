@@ -1,12 +1,17 @@
 import * as React from 'react';
 import { useOverlay } from '@openshift-console/dynamic-plugin-sdk';
+import type { OverlayComponent } from '@openshift-console/dynamic-plugin-sdk/lib/app/modal-support/OverlayProvider';
 import AssistantLauncher from '../components/AssistantLauncher';
+import type { AssistantLauncherProps } from '../components/assistant.types';
 
-const OVERLAY_ID = 'plugin__cywell-aiops-console-plugin__assistant-overlay';
+export const OVERLAY_ID = 'plugin__cywell-aiops-console-plugin__assistant-overlay';
 const AIOPS_ROUTE_PREFIX = '/dashboards/aiops';
 
-type AssistantOverlayProps = {
+export type AssistantOverlayLaunchProps = AssistantLauncherProps & {
   overlayId: string;
+};
+
+type AssistantOverlayProps = AssistantOverlayLaunchProps & {
   closeOverlay: () => void;
 };
 
@@ -35,7 +40,9 @@ const useCurrentPathname = (): string => {
   return pathname;
 };
 
-const AssistantOverlay: React.FC<AssistantOverlayProps> = (props) => {
+export const AssistantOverlay: OverlayComponent<AssistantOverlayLaunchProps> = (
+  props: AssistantOverlayProps,
+) => {
   const pathname = useCurrentPathname();
 
   if (pathname.includes(AIOPS_ROUTE_PREFIX)) {

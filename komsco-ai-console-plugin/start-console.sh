@@ -13,9 +13,6 @@ is_wsl() {
 # Plugin metadata is declared in package.json
 PLUGIN_NAME=${npm_package_consolePlugin_name:-cywell-aiops-console-plugin}
 PLUGIN_DEV_SERVER_PATH=${PLUGIN_DEV_SERVER_PATH:-}
-if [ -z "$PLUGIN_DEV_SERVER_PATH" ]; then
-    PLUGIN_DEV_SERVER_PATH="/api/plugins/${PLUGIN_NAME}"
-fi
 
 echo "Starting local OpenShift console..."
 
