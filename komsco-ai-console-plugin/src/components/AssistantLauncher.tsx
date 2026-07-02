@@ -1825,6 +1825,22 @@ const renderAttachmentGrid = (
   );
 };
 
+const FORMATTED_HEADING_TONE_KEYWORDS: Array<{ keywords: string[]; tone: string }> = [
+  { keywords: ['재발 방지', '재발방지'], tone: 'prevention' },
+  { keywords: ['후속 조치', '후속조치'], tone: 'followup' },
+  { keywords: ['권장 조치', '조치 방안', '조치'], tone: 'action' },
+  { keywords: ['추가 확인', '검증'], tone: 'evidence' },
+  { keywords: ['원인'], tone: 'cause' },
+  { keywords: ['근거'], tone: 'evidence' },
+];
+
+const formattedHeadingTone = (headingText: string): string | undefined => {
+  const match = FORMATTED_HEADING_TONE_KEYWORDS.find(({ keywords }) =>
+    keywords.some((keyword) => headingText.includes(keyword)),
+  );
+  return match?.tone;
+};
+
 const renderFormattedContent = (
   message: Message,
   onPreviewAttachment: React.Dispatch<React.SetStateAction<ImageAttachment | null>>,
@@ -2080,9 +2096,16 @@ const renderFormattedContent = (
     flushAll();
 
     if (line.startsWith('#')) {
+      const headingText = line.replace(/^#+\s*/, '');
+      const tone = formattedHeadingTone(headingText);
       nodes.push(
-        <div className="komsco-ai__formatted-heading" key={`heading-${index}`}>
-          {renderInlineText(line.replace(/^#+\s*/, ''), `heading-${index}`)}
+        <div
+          className={`komsco-ai__formatted-heading${
+            tone ? ` komsco-ai__formatted-heading--${tone}` : ''
+          }`}
+          key={`heading-${index}`}
+        >
+          {renderInlineText(headingText, `heading-${index}`)}
         </div>,
       );
       continue;
