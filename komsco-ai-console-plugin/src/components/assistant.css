@@ -3496,7 +3496,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-block: 14px 1px;
+  margin-block: 18px 7px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -3512,8 +3512,14 @@
 .komsco-ai__formatted-list,
 .komsco-ai__formatted-list--ordered {
   display: grid;
-  gap: 7px;
+  gap: 10px;
   padding-inline-start: 20px;
+}
+
+.komsco-ai__formatted-list-item strong,
+.komsco-ai__formatted-line strong {
+  color: #14151a;
+  font-weight: 700;
 }
 
 .komsco-ai__formatted-list--ordered {
