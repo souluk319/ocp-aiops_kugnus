@@ -6125,7 +6125,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   <CoolMenuIcon />
                 </Button>
                 <div className="komsco-ai__brand">
-                  <span className="komsco-ai__title">KOMSCO AIOps Agent</span>
+                  <span className="komsco-ai__title">KOMSCO AI Agent</span>
                 </div>
                 <div
                   className="komsco-ai__header-status"
