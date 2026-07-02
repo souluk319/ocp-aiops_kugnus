@@ -31,6 +31,7 @@ import {
   CoolWarningIcon,
 } from './coolicons';
 import {
+  type AiopsActionCandidate,
   type AiopsRecord,
   type AiopsRuntimeStatus,
   type AuthSubject,
@@ -40,8 +41,10 @@ import {
   type ImageAttachment,
   type RagUploadedDocument,
   approveActionPlan,
+  createActionCandidatePlan,
   createActionPlan,
   executeApprovedAction,
+  fetchActionCandidates,
   fetchAiopsStatus,
   fetchClusterSummary,
   fetchConsoleUserSubject,
@@ -3662,6 +3665,21 @@ const renderActionRecordRows = (
   });
 };
 
+const matchActionCandidatesForMessage = (
+  content: string,
+  candidates: AiopsActionCandidate[],
+): AiopsActionCandidate[] =>
+  candidates.filter((candidate) => {
+    const name = candidate.target?.name;
+    return Boolean(name) && content.includes(name!);
+  });
+
+const actionCandidateButtonLabel = (candidate: AiopsActionCandidate): string => {
+  const kind = candidate.target?.kind ? `${candidate.target.kind} ` : '';
+  const name = candidate.target?.name ?? candidate.title;
+  return `조치 계획 생성: ${kind}${name}`;
+};
+
 const latestAnswerActionRecords = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
@@ -3687,6 +3705,36 @@ const latestAnswerActionRecords = (
         new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
     )
     .slice(0, 3);
+};
+
+const renderCreateActionPlanButtons = (
+  candidates: AiopsActionCandidate[],
+  busyCandidateId: string,
+  onCreatePlan: (candidate: AiopsActionCandidate) => void,
+): React.ReactNode => {
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="komsco-ai__create-action-plan">
+      {candidates.map((candidate) => {
+        const busy = candidate.id === busyCandidateId;
+        return (
+          <Button
+            isDisabled={busy}
+            isLoading={busy}
+            key={candidate.id}
+            onClick={() => onCreatePlan(candidate)}
+            size="sm"
+            variant="secondary"
+          >
+            {actionCandidateButtonLabel(candidate)}
+          </Button>
+        );
+      })}
+    </div>
+  );
 };
 
 const renderAssistantAnswerActions = (
@@ -4284,6 +4332,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [authSubject, setAuthSubject] = React.useState<AuthSubject | null>(null);
   const [authSubjectError, setAuthSubjectError] = React.useState('');
   const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
+  const [actionCandidates, setActionCandidates] = React.useState<AiopsActionCandidate[]>([]);
+  const [busyActionCandidateId, setBusyActionCandidateId] = React.useState('');
+  const busyActionCandidateIdRef = React.useRef('');
   const [aiopsStatusError, setAiopsStatusError] = React.useState('');
   const [aiopsActionBusyId, setAiopsActionBusyId] = React.useState('');
   const aiopsActionBusyIdRef = React.useRef('');
@@ -4820,6 +4871,35 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [open]);
 
   React.useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    let disposed = false;
+
+    const loadActionCandidates = async () => {
+      try {
+        const summary = await fetchActionCandidates();
+        if (!disposed) {
+          setActionCandidates(summary.spec?.candidates ?? []);
+        }
+      } catch {
+        // Best-effort: the "조치 계획 생성" button simply won't appear if this fails.
+      }
+    };
+
+    void loadActionCandidates();
+    const timer = window.setInterval(() => {
+      void loadActionCandidates();
+    }, CLUSTER_SUMMARY_REFRESH_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [open]);
+
+  React.useEffect(() => {
     if (!open || !historySidebarOpen || historyPanelView !== 'uploads') {
       return undefined;
     }
@@ -4970,6 +5050,32 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       }
     },
     [aiopsStatus, executionMode, refreshAiopsRuntimeStatus],
+  );
+
+  const handleCreateActionPlanFromChat = React.useCallback(
+    async (candidate: AiopsActionCandidate) => {
+      if (busyActionCandidateIdRef.current) {
+        return;
+      }
+      busyActionCandidateIdRef.current = candidate.id;
+      setBusyActionCandidateId(candidate.id);
+      setAiopsActionError('');
+      setAiopsActionNotice('');
+
+      try {
+        await createActionCandidatePlan(candidate);
+        setAiopsActionNotice('조치 계획을 생성했습니다.');
+        await refreshAiopsRuntimeStatus();
+      } catch (error) {
+        setAiopsActionError(
+          error instanceof Error ? error.message : '조치 계획 생성에 실패했습니다.',
+        );
+      } finally {
+        busyActionCandidateIdRef.current = '';
+        setBusyActionCandidateId('');
+      }
+    },
+    [refreshAiopsRuntimeStatus],
   );
 
   const appendAssistantText = React.useCallback((content: string) => {
@@ -6089,6 +6195,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           isActionAnswerContract(message.answerContract)
                             ? latestAnswerActionRecords(aiopsStatus, executionMode)
                             : [];
+                        const matchedActionCandidates =
+                          isLatestAssistantMessage && hasContent
+                            ? matchActionCandidatesForMessage(message.content, actionCandidates)
+                            : [];
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
@@ -6159,6 +6269,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 renderToolPlanFooter(message.toolPlan)}
+                              {message.role === 'assistant' &&
+                                hasContent &&
+                                renderCreateActionPlanButtons(
+                                  matchedActionCandidates,
+                                  busyActionCandidateId,
+                                  handleCreateActionPlanFromChat,
+                                )}
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 renderAssistantAnswerActions(
