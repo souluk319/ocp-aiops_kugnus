@@ -4432,6 +4432,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [authSubject, setAuthSubject] = React.useState<AuthSubject | null>(null);
   const [authSubjectError, setAuthSubjectError] = React.useState('');
   const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
+  // Guards against an out-of-order response (e.g. the 10s poller firing right
+  // before a post-action refresh) silently overwriting fresher status with
+  // stale data — only the response to the most recently issued request wins.
+  const aiopsStatusRequestSeqRef = React.useRef(0);
   const [actionCandidates, setActionCandidates] = React.useState<AiopsActionCandidate[]>([]);
   const [busyActionCandidateId, setBusyActionCandidateId] = React.useState('');
   const busyActionCandidateIdRef = React.useRef('');
@@ -4916,6 +4920,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
     const loadSummary = async () => {
       setClusterSummaryLoading(true);
+      const seq = ++aiopsStatusRequestSeqRef.current;
       const [summaryResult, statusResult, consoleUserResult] = await Promise.allSettled([
         fetchClusterSummary(),
         fetchAiopsStatus(),
@@ -4924,6 +4929,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       if (disposed) {
         return;
       }
+      const isLatestStatusRequest = seq === aiopsStatusRequestSeqRef.current;
 
       if (summaryResult.status === 'fulfilled') {
         setClusterSummary(summaryResult.value);
@@ -4936,36 +4942,38 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         );
       }
 
-      if (statusResult.status === 'fulfilled') {
-        setAiopsStatus(statusResult.value);
-        setAiopsStatusError('');
-        const subject = statusResult.value.spec.subject;
-        if (subject) {
-          setAuthSubject(subject);
-          setAuthSubjectError('');
-        } else if (consoleUserResult.status === 'fulfilled') {
-          setAuthSubject(consoleUserResult.value);
-          setAuthSubjectError('');
+      if (isLatestStatusRequest) {
+        if (statusResult.status === 'fulfilled') {
+          setAiopsStatus(statusResult.value);
+          setAiopsStatusError('');
+          const subject = statusResult.value.spec.subject;
+          if (subject) {
+            setAuthSubject(subject);
+            setAuthSubjectError('');
+          } else if (consoleUserResult.status === 'fulfilled') {
+            setAuthSubject(consoleUserResult.value);
+            setAuthSubjectError('');
+          } else {
+            setAuthSubject(null);
+            setAuthSubjectError('Subject not returned by status endpoint.');
+          }
         } else {
-          setAuthSubject(null);
-          setAuthSubjectError('Subject not returned by status endpoint.');
-        }
-      } else {
-        setAiopsStatusError(
-          statusResult.reason instanceof Error
-            ? statusResult.reason.message
-            : 'AIOps status request failed.',
-        );
-        if (consoleUserResult.status === 'fulfilled') {
-          setAuthSubject(consoleUserResult.value);
-          setAuthSubjectError('');
-        } else {
-          setAuthSubject(null);
-          setAuthSubjectError(
+          setAiopsStatusError(
             statusResult.reason instanceof Error
               ? statusResult.reason.message
-              : 'Auth subject request failed.',
+              : 'AIOps status request failed.',
           );
+          if (consoleUserResult.status === 'fulfilled') {
+            setAuthSubject(consoleUserResult.value);
+            setAuthSubjectError('');
+          } else {
+            setAuthSubject(null);
+            setAuthSubjectError(
+              statusResult.reason instanceof Error
+                ? statusResult.reason.message
+                : 'Auth subject request failed.',
+            );
+          }
         }
       }
 
@@ -5054,12 +5062,19 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [copy.uploadedDocsError, historyPanelView, historySidebarOpen, open]);
 
   const refreshAiopsRuntimeStatus = React.useCallback(async () => {
+    const seq = ++aiopsStatusRequestSeqRef.current;
     try {
       const status = await fetchAiopsStatus();
+      if (seq !== aiopsStatusRequestSeqRef.current) {
+        return;
+      }
 
       setAiopsStatus(status);
       setAiopsStatusError('');
     } catch (error) {
+      if (seq !== aiopsStatusRequestSeqRef.current) {
+        return;
+      }
       setAiopsStatusError(error instanceof Error ? error.message : 'AIOps status request failed.');
     }
   }, []);
