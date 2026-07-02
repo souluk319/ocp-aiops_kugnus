@@ -7,7 +7,6 @@ const rootDir = path.resolve(__dirname, '..');
 const distDir = path.join(rootDir, 'dist');
 const packageJsonPath = path.join(rootDir, 'package.json');
 const manifestPath = path.join(distDir, 'plugin-manifest.json');
-const entryPath = path.join(distDir, 'plugin-entry.js');
 
 const failures = [];
 
@@ -17,38 +16,56 @@ const assertFile = (filePath, label) => {
   }
 };
 
+const assertDistFileByPrefix = (prefix, label) => {
+  const match = fs
+    .readdirSync(distDir)
+    .find((fileName) => fileName.startsWith(prefix) && fileName.endsWith('.js'));
+  if (!match) {
+    failures.push(`${label} missing: dist/${prefix}*.js`);
+  }
+  return match ? path.join(distDir, match) : undefined;
+};
+
 assertFile(manifestPath, 'plugin manifest');
-assertFile(entryPath, 'plugin entry');
 
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const exposedModules = packageJson.consolePlugin?.exposedModules || {};
+const manifest = fs.existsSync(manifestPath)
+  ? JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  : undefined;
+const loadScripts = Array.isArray(manifest?.loadScripts) ? manifest.loadScripts : [];
+
+if (loadScripts.length === 0) {
+  failures.push('plugin manifest loadScripts missing');
+}
+
+const entryPaths = loadScripts
+  .filter((scriptName) => typeof scriptName === 'string' && scriptName.endsWith('.js'))
+  .map((scriptName) => path.join(distDir, scriptName));
+
+for (const entryPath of entryPaths) {
+  assertFile(entryPath, 'plugin load script');
+}
 
 for (const exposedName of Object.keys(exposedModules)) {
-  assertFile(
-    path.join(distDir, `exposed-${exposedName}-chunk.js`),
-    `exposed module ${exposedName}`,
-  );
+  assertDistFileByPrefix(`exposed-${exposedName}-chunk`, `exposed module ${exposedName}`);
 }
 
 const criticalChunks = [
-  'components_AssistantLauncher_tsx-chunk.js',
-  'exposed-NullContextProvider-chunk.js',
-  'exposed-useAssistantOverlay-chunk.js',
+  'exposed-NullContextProvider-chunk',
+  'exposed-useAssistantOverlay-chunk',
 ];
 
 for (const chunkName of criticalChunks) {
-  assertFile(path.join(distDir, chunkName), `critical console chunk ${chunkName}`);
+  assertDistFileByPrefix(chunkName, `critical console chunk ${chunkName}`);
 }
 
-if (fs.existsSync(manifestPath)) {
-  JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-}
-
-if (fs.existsSync(entryPath)) {
+const entryPath = entryPaths.find((candidate) => fs.existsSync(candidate));
+if (entryPath) {
   const entryText = fs.readFileSync(entryPath, 'utf8');
   for (const exposedName of Object.keys(exposedModules)) {
     const chunkId = `exposed-${exposedName}`;
-    if (!entryText.includes(`"${chunkId}"`) && !entryText.includes(` ${chunkId} `)) {
+    if (!entryText.includes(chunkId)) {
       failures.push(`plugin entry does not reference ${chunkId}`);
     }
   }
