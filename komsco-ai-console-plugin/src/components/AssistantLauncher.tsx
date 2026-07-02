@@ -3208,6 +3208,7 @@ const getRecordTargetLabel = (record: AiopsRecordView): string => {
   const directTarget = spec.target;
   const candidate = spec.candidate;
   const sealedActionPlan = spec.sealedActionPlan;
+  const approvalDecision = spec.approvalDecision;
   const target =
     directTarget && typeof directTarget === 'object'
       ? directTarget
@@ -3215,7 +3216,9 @@ const getRecordTargetLabel = (record: AiopsRecordView): string => {
         ? (candidate as Record<string, unknown>).targetNode
         : sealedActionPlan && typeof sealedActionPlan === 'object'
           ? (sealedActionPlan as Record<string, unknown>).target
-          : undefined;
+          : approvalDecision && typeof approvalDecision === 'object'
+            ? (approvalDecision as Record<string, unknown>).target
+            : undefined;
 
   if (!target || typeof target !== 'object') {
     return record.metadata?.name ?? 'unknown';
@@ -3656,6 +3659,10 @@ const renderActionRecordRows = (
             )}
           </div>
         )}
+        <details className="komsco-ai__rail-command-detail">
+          <summary>상세보기 (JSON)</summary>
+          <pre>{JSON.stringify(record, null, 2)}</pre>
+        </details>
       </div>
     );
   });
@@ -3691,10 +3698,20 @@ const actionCandidateButtonLabel = (candidate: AiopsActionCandidate): string => 
   return `조치 계획 생성: ${kind}${name}`;
 };
 
-const latestAnswerActionRecords = (
+// Matches the "namespace/name" shape getRecordTargetLabel derives from a
+// record's target, so a candidate's target and a record's target can be
+// compared as the same session-tracked key.
+const targetKeyFromParts = (namespace?: string, name?: string): string =>
+  namespace ? `${namespace}/${name ?? ''}` : (name ?? '');
+
+const sessionAiopsActionRecords = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
+  targetKeys: Set<string>,
 ): AiopsRecordView[] => {
+  if (targetKeys.size === 0) {
+    return [];
+  }
   const records = aiopsStatus?.spec.records;
   if (!records) {
     return [];
@@ -3705,6 +3722,29 @@ const latestAnswerActionRecords = (
     ...records.sealedActionPlans,
     ...records.actionProposals,
   ]
+    .filter((record) => targetKeys.has(getRecordTargetLabel(record)))
+    .filter(
+      (record) =>
+        Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
+        Boolean(getExecutionOutcomeSummary(record, aiopsStatus)),
+    )
+    .sort(
+      (a, b) =>
+        new Date(String(b.metadata?.createdAt ?? 0)).getTime() -
+        new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
+    );
+};
+
+const latestAnswerActionRecords = (
+  aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+): AiopsRecordView[] => {
+  const records = aiopsStatus?.spec.records;
+  if (!records) {
+    return [];
+  }
+
+  return [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals]
     .filter(
       (record) =>
         Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
@@ -4379,6 +4419,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   );
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
+  const [sessionActionTargetKeys, setSessionActionTargetKeys] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const [sidebarActionPanelOpen, setSidebarActionPanelOpen] = React.useState(false);
   const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
   const [uploadedDocumentsError, setUploadedDocumentsError] = React.useState('');
   const [uploadedDocumentsLoading, setUploadedDocumentsLoading] = React.useState(false);
@@ -5024,6 +5068,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           }
           await createActionPlan(proposalId);
           setAiopsActionNotice('Action plan을 생성했습니다.');
+          const targetKey = getRecordTargetLabel(record);
+          setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
+          setSidebarActionPanelOpen(true);
         }
 
         if (action.step === 'approve-plan') {
@@ -5085,6 +5132,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       try {
         await createActionCandidatePlan(candidate);
         setAiopsActionNotice('조치 계획을 생성했습니다.');
+        const targetKey = targetKeyFromParts(candidate.target?.namespace, candidate.target?.name);
+        setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
+        setSidebarActionPanelOpen(true);
         await refreshAiopsRuntimeStatus();
       } catch (error) {
         setAiopsActionError(
@@ -6021,6 +6071,33 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           </div>
         </div>
       </div>
+      {sessionActionTargetKeys.size > 0 && (
+        <div className="komsco-ai__session-actions">
+          <button
+            aria-expanded={sidebarActionPanelOpen}
+            className="komsco-ai__session-actions-toggle"
+            onClick={() => setSidebarActionPanelOpen((value) => !value)}
+            type="button"
+          >
+            <CoolCaretDownIcon
+              className={sidebarActionPanelOpen ? '' : 'komsco-ai__session-actions-caret--closed'}
+            />
+            <span>이번 대화의 조치 계획</span>
+          </button>
+          {sidebarActionPanelOpen && (
+            <div className="komsco-ai__session-actions-list">
+              {renderActionRecordRows(
+                sessionAiopsActionRecords(aiopsStatus, executionMode, sessionActionTargetKeys),
+                '아직 만들어진 조치 계획이 없습니다.',
+                aiopsStatus,
+                executionMode,
+                aiopsActionBusyId,
+                handleAiopsAction,
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <div className="komsco-ai__history-title">
         {historyPanelView === 'uploads' ? <CoolDocumentIcon /> : <CoolClockIcon />}
         <span>{historyPanelView === 'uploads' ? copy.uploadedDocs : copy.history}</span>
