@@ -54,12 +54,7 @@ import {
   uploadRagDocument,
   uploadRagDocumentFile,
 } from '../services/aiGateway';
-import {
-  evidenceCount,
-  redactSensitiveText,
-  safeEvidenceText,
-  shortDigest,
-} from '../utils/evidenceDisplay';
+import { evidenceCount, redactSensitiveText, safeEvidenceText } from '../utils/evidenceDisplay';
 import kIcon from '../assets/k_icon.png';
 import komscoLogo from '../assets/komsco_logo.svg';
 import './assistant.css';
@@ -3242,6 +3237,28 @@ const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neu
   return 'neutral';
 };
 
+const PHASE_LABEL_KO: Record<string, string> = {
+  approved: '승인됨',
+  completed: '완료',
+  denied: '거부됨',
+  disabled: '비활성',
+  executed: '실행됨',
+  expired: '만료됨',
+  failed: '실패',
+  mismatch: '불일치',
+  pending: '대기 중',
+  proposed: '제안됨',
+  rejected: '거절됨',
+  sealed: '봉인됨',
+  stale: '오래됨',
+  submitted: '제출됨',
+  succeeded: '성공',
+  verified: '확인됨',
+  waiting: '대기 중',
+};
+
+const phaseLabelKo = (phase: string): string => PHASE_LABEL_KO[phase] || phase;
+
 const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleStage => {
   const spec = getRecordSpecMap(record);
   const kind = record.kind ?? '';
@@ -3260,36 +3277,40 @@ const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleStage => {
 const getActionRecordStageLabel = (record: AiopsRecordView): string => {
   const stage = getActionRecordStage(record);
   if (stage === 'execution') {
-    return 'Execution record';
+    return '4단계 · 완료';
   }
   if (stage === 'approval') {
-    return 'Approval decision';
+    return '3단계 · 실행 대기';
   }
   if (stage === 'plan') {
-    return 'Sealed plan';
+    return '2단계 · 승인 대기';
   }
-  return 'Proposal';
+  return '1단계 · 계획 대기';
 };
 
 const getActionRecordProof = (record: AiopsRecordView): string => {
   const spec = getRecordSpecMap(record);
   const planDigest = getPlanDigest(record);
   const approvalPlanDigest = getApprovalPlanDigest(record);
-  const approvalId = getApprovalId(record);
 
   if (planDigest) {
-    return `sealed plan digest ${shortDigest(planDigest)}`;
+    return '조치 계획이 만들어졌습니다. 승인하면 실행할 수 있습니다.';
   }
   if (approvalPlanDigest) {
     const decision = getApprovalDecision(record);
     const status = String(decision?.status ?? 'unknown');
-    const approvalLabel = status === 'approved' ? 'active approval' : `${status} approval`;
-    return `${approvalLabel} ${shortDigest(approvalId)} · plan digest ${shortDigest(approvalPlanDigest)}`;
+    if (status === 'rejected') {
+      return '이 조치는 거절되었습니다.';
+    }
+    if (status === 'approved') {
+      return '승인이 완료됐습니다. 실행 버튼을 누르면 클러스터에 적용됩니다.';
+    }
+    return `승인 상태: ${status}`;
   }
   if (typeof spec.approvalId === 'string') {
-    return `execution record · approval ${shortDigest(spec.approvalId)}`;
+    return '조치가 실행 처리되었습니다.';
   }
-  return 'proposal waits for a sealed plan before approval';
+  return '조치 후보가 접수됐습니다. 계획을 만들면 다음 단계로 진행됩니다.';
 };
 
 const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
@@ -3588,7 +3609,7 @@ const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
       <div className="komsco-ai__rail-command" key={record.metadata?.name ?? phase}>
         <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
         <p>{getRecordTargetLabel(record)}</p>
-        {renderStatusTag(phase, getPhaseTone(phase))}
+        {renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
       </div>
     );
   });
@@ -3627,7 +3648,7 @@ const renderActionRecordRows = (
             <span>{getActionRecordStageLabel(record)}</span>
             <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
           </div>
-          {renderStatusTag(phase, getPhaseTone(phase))}
+          {renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
         </div>
         <p>{getRecordTargetLabel(record)}</p>
         <p className="komsco-ai__rail-action-proof">{getActionRecordProof(record)}</p>
@@ -3638,7 +3659,8 @@ const renderActionRecordRows = (
               const busy = actionId === busyActionId;
               return (
                 <Button
-                  className="komsco-ai__rail-action-button"
+                  className="komsco-ai__action-button"
+                  data-answer-action-step={item.step}
                   isDisabled={busy || Boolean(item.disabledReason)}
                   isLoading={busy}
                   key={item.step}
@@ -3650,7 +3672,7 @@ const renderActionRecordRows = (
                   <span className="komsco-ai__rail-action-icon">
                     <CoolTerminalIcon />
                   </span>
-                  {item.label}
+                  {busy ? '처리 중' : item.label}
                 </Button>
               );
             })}
@@ -3773,6 +3795,7 @@ const renderCreateActionPlanButtons = (
         const busy = candidate.id === busyCandidateId;
         return (
           <Button
+            className="komsco-ai__action-button"
             isDisabled={busy}
             isLoading={busy}
             key={candidate.id}
@@ -3780,7 +3803,7 @@ const renderCreateActionPlanButtons = (
             size="sm"
             variant="secondary"
           >
-            {actionCandidateButtonLabel(candidate)}
+            {busy ? '처리 중' : actionCandidateButtonLabel(candidate)}
           </Button>
         );
       })}
@@ -3866,7 +3889,7 @@ const renderAssistantAnswerActions = (
                   const busy = actionId === busyActionId;
                   return (
                     <Button
-                      className="komsco-ai__answer-action-button"
+                      className="komsco-ai__action-button"
                       data-answer-action-step={item.step}
                       isDisabled={busy || Boolean(item.disabledReason)}
                       isLoading={busy}
@@ -3879,7 +3902,7 @@ const renderAssistantAnswerActions = (
                       <span className="komsco-ai__rail-action-icon">
                         <CoolTerminalIcon />
                       </span>
-                      {item.label}
+                      {busy ? '처리 중' : item.label}
                     </Button>
                   );
                 })}
