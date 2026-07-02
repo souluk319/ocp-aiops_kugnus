@@ -442,6 +442,18 @@ const TOOL_LABELS: Record<string, string> = {
   subject_review: '사용자 주체 확인',
   vision_analysis: '이미지 분석',
 };
+const ACTION_POLICY_LABELS: Record<string, string> = {
+  evict_one_unhealthy_controller_owned_pod: '비정상 Pod 축출(재생성 유도)',
+  rollout_restart_deployment: '배포 롤아웃 재시작',
+  rollback_deployment_to_revision: '이전 리비전으로 롤백',
+  set_replicas_within_bounds: '레플리카 수 조정',
+  set_hpa_bounds: '오토스케일러(HPA) 범위 조정',
+};
+const RISK_LABEL_KO: Record<string, { label: string; tone: 'ok' | 'warn' | 'danger' }> = {
+  low: { label: '낮음', tone: 'ok' },
+  medium: { label: '보통', tone: 'warn' },
+  high: { label: '높음', tone: 'danger' },
+};
 const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
   spec: {
     capabilities: {
@@ -3066,6 +3078,38 @@ const getRecordName = (record: AiopsRecordView): string => record.metadata?.name
 const getSealedActionPlan = (record: AiopsRecordView): Record<string, unknown> | undefined =>
   asObjectMap(getRecordSpecMap(record).sealedActionPlan);
 
+type PlanSummary = {
+  risk: string;
+  riskLabel: string;
+  riskTone: 'ok' | 'warn' | 'danger' | 'neutral';
+  rollbackDescription: string;
+  rollbackPossible: boolean;
+  toolLabel: string;
+};
+
+const getPlanSummary = (record: AiopsRecordView): PlanSummary | null => {
+  const plan = getSealedActionPlan(record);
+  if (!plan) {
+    return null;
+  }
+
+  const action = asObjectMap(plan.action);
+  const safety = asObjectMap(plan.safety);
+  const toolName = typeof action?.toolName === 'string' ? action.toolName : '';
+  const risk = typeof safety?.risk === 'string' ? safety.risk : '';
+  const riskInfo = RISK_LABEL_KO[risk] ?? { label: risk || '알 수 없음', tone: 'neutral' as const };
+
+  return {
+    risk,
+    riskLabel: riskInfo.label,
+    riskTone: riskInfo.tone,
+    rollbackDescription:
+      typeof safety?.rollbackDescription === 'string' ? safety.rollbackDescription : '',
+    rollbackPossible: safety?.rollbackPossible === true,
+    toolLabel: ACTION_POLICY_LABELS[toolName] ?? (toolName || '알 수 없는 정책'),
+  };
+};
+
 const getPlanDigest = (record: AiopsRecordView): string => {
   const plan = getSealedActionPlan(record);
   const digest = asObjectMap(plan?.digest);
@@ -3368,6 +3412,33 @@ const getActionRecordProof = (record: AiopsRecordView): string => {
     return '조치가 실행 처리되었습니다.';
   }
   return '조치 후보가 접수됐습니다. 계획을 만들면 다음 단계로 진행됩니다.';
+};
+
+const renderPlanSummaryBlock = (record: AiopsRecordView): React.ReactNode => {
+  if (getActionRecordStage(record) !== 'plan') {
+    return null;
+  }
+
+  const summary = getPlanSummary(record);
+  if (!summary) {
+    return null;
+  }
+
+  return (
+    <div className="komsco-ai__plan-summary">
+      <span className="komsco-ai__plan-summary-policy">{summary.toolLabel}</span>
+      {renderStatusTag(`위험도 ${summary.riskLabel}`, summary.riskTone)}
+      <span className="komsco-ai__plan-summary-rollback">
+        {summary.rollbackPossible ? '자동 롤백 가능' : '자동 롤백 미지원'}
+      </span>
+      {(summary.risk === 'medium' || summary.risk === 'high') && (
+        <p className="komsco-ai__plan-summary-note">
+          위험도가 {summary.riskLabel}이라 이 조치를 제안한 본인은 승인할 수 없습니다. 다른 담당자의
+          승인이 필요합니다.
+        </p>
+      )}
+    </div>
+  );
 };
 
 const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
@@ -3710,6 +3781,7 @@ const renderActionRecordRows = (
         </div>
         <p>{getRecordTargetLabel(record)}</p>
         <p className="komsco-ai__rail-action-proof">{getActionRecordProof(record)}</p>
+        {renderPlanSummaryBlock(record)}
         {actions.length > 0 && (
           <div className="komsco-ai__rail-action-row">
             {actions.map((item) => {
@@ -3875,6 +3947,8 @@ const renderAssistantAnswerActions = (
   executionMode: AiopsExecutionMode,
   busyActionId: string,
   onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
+  aiopsActionError: string,
+  aiopsActionNotice: string,
 ) => {
   if (records.length === 0) {
     return null;
@@ -3890,6 +3964,8 @@ const renderAssistantAnswerActions = (
         <strong>바로 해결</strong>
         <span>검증된 AIOps 기록에서 다음 버튼만 표시합니다.</span>
       </div>
+      {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
+      {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
       <div className="komsco-ai__answer-action-list">
         {records.map((record) => {
           const action = getAiopsRecordAction(record, aiopsStatus, executionMode);
@@ -3943,6 +4019,7 @@ const renderAssistantAnswerActions = (
                 <strong>{getRecordTargetLabel(record)}</strong>
                 <small>{getActionRecordProof(record)}</small>
               </div>
+              {renderPlanSummaryBlock(record)}
               <div className="komsco-ai__answer-action-controls">
                 {actions.map((item) => {
                   const actionId = `${item.step}:${getRecordName(record)}`;
@@ -6654,6 +6731,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                   executionMode,
                                   aiopsActionBusyId,
                                   handleAiopsAction,
+                                  aiopsActionError,
+                                  aiopsActionNotice,
                                 )}
                               {hasProgress && message.progressSteps && (
                                 <ProgressTimeline

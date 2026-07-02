@@ -45,11 +45,22 @@ Allowed without extra permission:
 Before continuing interrupted work:
 
 - Read `AGENTS.md`.
+- Before creating or modifying frontend, UI, visual layout, presentation, design-system, or browser-facing work, read `DESIGN.md` if it exists.
 - Read the latest user request and any attached handoff text.
 - Check `git status --short`.
 - Search references with `rg` before editing.
 - Identify which files are protected artifacts and which files are integration code.
 - Run the smallest useful verifier once before changing behavior, so failures are based on evidence.
+
+## Design Context
+
+Before creating or modifying frontend, UI, website, presentation, visual asset, or design-system work:
+
+1. Read the project-local `DESIGN.md` if present.
+2. Follow project-local design rules before general frontend preferences.
+3. For KOMSCO AIOps, treat the UI as an OpenShift operator console and Incident Copilot, not a marketing page.
+4. Do not ship UI that violates `DESIGN.md` unless the user explicitly asks for that exception.
+5. Before reporting completion, check the result against the relevant `DESIGN.md` checklist.
 
 ## When Work Is Going In Circles
 

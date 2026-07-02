@@ -1,13 +1,16 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "StrictDemoAuditReport",
-  "generatedAt": "2026-06-30T21:24:24.649756Z",
-  "branch": "feat/v.0.1.9",
-  "headSha": "28aa2297881fc85c21b7a924f25041b50f88fffe",
+  "generatedAt": "2026-07-01T15:45:34.719435Z",
+  "branch": "v0.2.2-aiops-answer-experience",
+  "headSha": "d4ce654cbc1eff8278f1e8a9dc0b874063ccc9de",
   "localRcaReady": true,
-  "strictLightspeedReady": true,
-  "successClaimAllowed": true,
-  "blockingGates": [],
+  "strictLightspeedReady": false,
+  "successClaimAllowed": false,
+  "blockingGates": [
+    "ocp_connectivity",
+    "strict_lightspeed"
+  ],
   "gates": [
     {
       "name": "runtime_smoke",
@@ -74,7 +77,7 @@
       "report": "docs/Ver.0.1.5/ui-verifier-report.json",
       "details": {
         "ok": true,
-        "checked": 115,
+        "checked": 123,
         "failedCount": 0
       }
     },
@@ -90,26 +93,30 @@
     },
     {
       "name": "ocp_connectivity",
-      "ok": true,
+      "ok": false,
       "requirement": "OCP connectivity ladder is ready for strict Lightspeed gate",
       "report": "docs/Ver.0.1.5/ocp-connectivity-ladder-report.json",
       "details": {
-        "readyForStrictLightspeedGate": true,
-        "firstFailingLayer": "",
-        "message": "OCP connectivity ladder passed; run task kugnus:lightspeed:live-verify.",
-        "likelyCause": "none_detected",
+        "readyForStrictLightspeedGate": false,
+        "firstFailingLayer": "tcp",
+        "message": "TCP 6443 connection failed",
+        "likelyCause": "windows_vpn_adapter_disabled_and_private_route_missing",
         "nextActions": [
-          "Run task kugnus:lightspeed:live-verify."
+          "Connect the Windows-side company VPN client that owns the OCP private route.",
+          "Confirm Windows route print for the OCP private IP shows an active route.",
+          "After the Windows route exists, restart or reopen WSL if the WSL route remains stale.",
+          "Rerun task kugnus:ocp:doctor and check that firstFailingLayer is no longer tcp.",
+          "Only after readyForStrictLightspeedGate=true, rerun task kugnus:demo:resume or task kugnus:lightspeed:live-verify."
         ]
       }
     },
     {
       "name": "strict_lightspeed",
-      "ok": true,
+      "ok": false,
       "requirement": "fallback-free Lightspeed final response allSucceeded=true",
       "report": "docs/Ver.0.1.5/live-lightspeed-final-response-verification.json",
       "details": {
-        "allSucceeded": true,
+        "allSucceeded": false,
         "preflightError": null,
         "ocpFirstFailingLayer": null,
         "ocpLikelyCause": null

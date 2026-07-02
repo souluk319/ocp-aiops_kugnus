@@ -1454,6 +1454,32 @@
   color: #708095;
 }
 
+.komsco-ai__plan-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-block-start: 2px;
+}
+
+.komsco-ai__plan-summary-policy {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--komsco-ink-900);
+}
+
+.komsco-ai__plan-summary-rollback {
+  font-size: 10px;
+  color: #708095;
+}
+
+.komsco-ai__plan-summary-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 10px;
+  color: #92400e;
+}
+
 .komsco-ai__answer-action-list {
   display: grid;
   gap: 6px;
