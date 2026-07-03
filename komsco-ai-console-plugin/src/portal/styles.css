@@ -999,7 +999,7 @@ button:disabled {
 
 .queue-row {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) 76px;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   min-height: 78px;
@@ -1022,6 +1022,19 @@ button:disabled {
 
 .queue-row__content {
   min-width: 0;
+}
+
+.queue-row__actions {
+  display: grid;
+  gap: 6px;
+  align-self: center;
+}
+
+.queue-row__actions .portal-button {
+  width: 64px;
+  min-width: 64px;
+  height: 30px;
+  padding: 0 8px;
 }
 
 .queue-row__meta {
@@ -1685,7 +1698,7 @@ button:disabled {
 
 .endpoint-table {
   width: 100%;
-  min-width: 760px;
+  min-width: 860px;
   font-size: 12px;
   border-collapse: collapse;
 }
@@ -1717,6 +1730,12 @@ button:disabled {
   margin-top: 2px;
   font-size: 10.5px;
   color: #8794a8;
+}
+
+.endpoint-table td:last-child .portal-button {
+  min-width: 54px;
+  height: 30px;
+  padding: 0 8px;
 }
 
 .table-pagination {
@@ -4657,7 +4676,7 @@ button:disabled {
 }
 
 .resource-distribution article {
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.45fr) 70px;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.45fr) 62px auto;
 }
 
 .resource-distribution article > div:first-child {
@@ -4680,6 +4699,13 @@ button:disabled {
   font-size: 13px;
   color: #059669;
   text-align: right;
+}
+
+.resource-distribution .portal-button {
+  width: 54px;
+  min-width: 54px;
+  height: 30px;
+  padding: 0 8px;
 }
 
 .alert-summary-strip {
@@ -4955,6 +4981,18 @@ button:disabled {
   background: #ffffff;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
+}
+
+.issue-correlation-list__actions {
+  display: grid;
+  gap: 6px;
+}
+
+.issue-correlation-list__actions .portal-button {
+  width: 58px;
+  min-width: 58px;
+  height: 30px;
+  padding: 0 8px;
 }
 
 .issue-correlation-list strong,
@@ -7271,11 +7309,24 @@ button:disabled {
   .report-history-table article,
   .settings-grid,
   .resource-distribution article,
-  .event-filter-row,
-  .event-ledger article,
-  .rca-evidence-grid article {
-    grid-template-columns: 1fr;
-  }
+	  .event-filter-row,
+	  .event-ledger article,
+	  .issue-correlation-list article,
+	  .queue-row,
+	  .rca-evidence-grid article {
+	    grid-template-columns: 1fr;
+	  }
+
+	  .issue-correlation-list__actions,
+	  .queue-row__actions {
+	    grid-template-columns: repeat(2, minmax(0, 1fr));
+	  }
+
+	  .issue-correlation-list__actions .portal-button,
+	  .queue-row__actions .portal-button {
+	    width: 100%;
+	    min-width: 0;
+	  }
 
   .workbench-hero__metrics {
     min-width: 0;

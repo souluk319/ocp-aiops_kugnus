@@ -1427,6 +1427,84 @@
   border-top: 1px solid #e1e8f0;
 }
 
+.komsco-ai__runbook-answer {
+  display: grid;
+  gap: 8px;
+}
+
+.komsco-ai__runbook-section {
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #dbe5f0;
+  border-left: 3px solid #2563eb;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.komsco-ai__runbook-section.is-action {
+  border-left-color: #0f766e;
+}
+
+.komsco-ai__runbook-section.is-cause,
+.komsco-ai__runbook-section.is-verification {
+  border-left-color: #f59e0b;
+}
+
+.komsco-ai__runbook-section.is-details {
+  border-left-color: #64748b;
+}
+
+.komsco-ai__runbook-section-head {
+  display: flex;
+  align-items: center;
+  min-height: 31px;
+  padding: 0 10px;
+  background: #f8fbff;
+  border-bottom: 1px solid #e8eef6;
+}
+
+.komsco-ai__runbook-section-head span {
+  font-size: 11.5px;
+  font-weight: 850;
+  color: #1e3a8a;
+}
+
+.komsco-ai__runbook-section-body {
+  padding: 9px 10px 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--komsco-ink-800);
+}
+
+.komsco-ai__runbook-section-body p {
+  margin: 0;
+}
+
+.komsco-ai__runbook-section-body ul {
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.komsco-ai__runbook-section-body li {
+  position: relative;
+  min-width: 0;
+  padding-left: 12px;
+}
+
+.komsco-ai__runbook-section-body li::before {
+  position: absolute;
+  top: 0.72em;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  content: "";
+  background: #2563eb;
+  border-radius: 999px;
+}
+
 .komsco-ai__answer-actions-head {
   display: flex;
   flex-wrap: wrap;
@@ -5487,6 +5565,23 @@
 
 .komsco-ai__fab {
   pointer-events: auto;
+}
+
+.komsco-ai__surface .komsco-ai__header-actions .komsco-ai__icon-button,
+.komsco-ai__surface .komsco-ai__sidebar-toggle,
+.komsco-ai__surface .komsco-ai__mode-toggle-button {
+  color: #0f172a;
+}
+
+.komsco-ai__surface .komsco-ai__header-actions .komsco-ai__icon-button svg,
+.komsco-ai__surface .komsco-ai__sidebar-toggle svg,
+.komsco-ai__surface .komsco-ai__mode-toggle-button svg {
+  color: currentColor;
+  stroke: currentColor;
+}
+
+.komsco-ai__surface .komsco-ai__language-code {
+  color: #0f172a;
 }
 
 .komsco-ai__surface .komsco-ai__header,

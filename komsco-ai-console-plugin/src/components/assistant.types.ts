@@ -97,6 +97,18 @@ export type AssistantDraftPrompt = {
   taskMode?: AssistantTaskMode;
 };
 
+export type AssistantLaunchContext = {
+  actionType?: string;
+  evidenceRefs?: string[];
+  kind?: string;
+  name?: string;
+  namespace?: string;
+  promptDraft: string;
+  reason?: string;
+  severity?: string;
+  source: string;
+};
+
 export type ProgressStatus = 'running' | 'completed' | 'failed';
 
 export type ProgressStep = {

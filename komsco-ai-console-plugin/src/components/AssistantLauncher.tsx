@@ -156,6 +156,41 @@ const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecuti
   return null;
 };
 
+const aiopsActionErrorMessage = (error: unknown): string => {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : JSON.stringify(error ?? '');
+  const text = raw.trim();
+  const lower = text.toLowerCase();
+
+  if (/digest|expectedplandigest|mismatch|does not match/.test(lower)) {
+    return '조치 계획 검증값이 현재 기록과 맞지 않습니다. 최신 상태로 다시 조회한 뒤 계획을 다시 만들어 주세요.';
+  }
+  if (/expired|ttl|stale/.test(lower)) {
+    return '조치 계획 또는 승인 토큰이 만료되었습니다. 같은 대상에 대해 새 계획을 만들어야 합니다.';
+  }
+  if (/forbidden|403|rbac|access|permission|ssar|denied/.test(lower)) {
+    return '현재 사용자 권한으로는 이 조치를 실행할 수 없습니다. 대상 리소스 권한과 승인자를 확인해 주세요.';
+  }
+  if (/not found|404|target.*missing|target.*unavailable/.test(lower)) {
+    return '대상 리소스를 찾지 못했습니다. 네임스페이스와 리소스 이름이 최신인지 확인해 주세요.';
+  }
+  if (/disabled|capability|executor|mutation.*disabled|mutations.*disabled/.test(lower)) {
+    return '게이트웨이 실행 기능이 꺼져 있어 실제 변경을 보낼 수 없습니다. 실행 기능과 Action Executor 설정을 확인해 주세요.';
+  }
+  if (/separation of duties|same.*approver|requester and approver|conflict|409/.test(lower)) {
+    return '승인 정책과 충돌했습니다. 위험도가 있는 조치는 요청자 본인이 승인할 수 없거나 최신 계획과 승인 조건이 맞지 않습니다.';
+  }
+  if (/failed|error|exception|timeout/.test(lower)) {
+    return '조치 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하거나 실행 기록에서 원문 오류를 확인해 주세요.';
+  }
+
+  return text || 'AIOps 조치 요청을 완료하지 못했습니다.';
+};
+
 const flushReactSync = (callback: () => void) => {
   const flushSync = (ReactDOM as unknown as { flushSync?: (syncCallback: () => void) => void })
     .flushSync;
@@ -1088,6 +1123,152 @@ const renderAttachmentGrid = (
   );
 };
 
+type RunbookSectionId =
+  | 'summary'
+  | 'impact'
+  | 'evidence'
+  | 'cause'
+  | 'action'
+  | 'verification'
+  | 'details';
+
+type RunbookSection = {
+  id: RunbookSectionId;
+  lines: string[];
+  title: string;
+};
+
+const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
+  action: 'Action Plan',
+  cause: '원인 후보',
+  details: '근거 상세보기',
+  evidence: '확인한 근거',
+  impact: '영향 범위',
+  summary: '요약',
+  verification: '검증/롤백',
+};
+
+const normalizeRunbookHeading = (line: string): string =>
+  line
+    .replace(/^#+\s*/, '')
+    .replace(/^\d+[.)]\s*/, '')
+    .replace(/^[-*]\s*/, '')
+    .replace(/[：:]\s*$/, '')
+    .trim();
+
+const runbookSectionId = (line: string): RunbookSectionId | null => {
+  const heading = normalizeRunbookHeading(line);
+  if (/^(요약|현재 판단|결론)$/i.test(heading)) {
+    return 'summary';
+  }
+  if (/^(영향 범위|영향|대상|범위)$/i.test(heading)) {
+    return 'impact';
+  }
+  if (/^(확인한 근거|근거|증거|관측 근거|확인 근거)$/i.test(heading)) {
+    return 'evidence';
+  }
+  if (/^(원인 후보|가능한 원인|원인|가설)$/i.test(heading)) {
+    return 'cause';
+  }
+  if (/^(action plan|조치 계획|실행 계획|권장 조치|조치)$/i.test(heading)) {
+    return 'action';
+  }
+  if (/^(검증\/롤백|검증|롤백|확인 및 롤백)$/i.test(heading)) {
+    return 'verification';
+  }
+  if (/^(근거 상세보기|상세 근거|상세|원문 근거)$/i.test(heading)) {
+    return 'details';
+  }
+  return null;
+};
+
+const parseRunbookSections = (content: string): RunbookSection[] | null => {
+  const lines = stripDefaultEvidenceAppendix(content).split('\n');
+  const intro: string[] = [];
+  const sections: RunbookSection[] = [];
+  let current: RunbookSection | null = null;
+
+  const pushCurrent = () => {
+    if (!current) {
+      return;
+    }
+    current.lines = current.lines.filter((line) => line.trim());
+    if (current.lines.length > 0) {
+      sections.push(current);
+    }
+    current = null;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    const sectionId = line ? runbookSectionId(line) : null;
+    if (sectionId) {
+      pushCurrent();
+      current = {
+        id: sectionId,
+        lines: [],
+        title: RUNBOOK_SECTION_TITLES[sectionId],
+      };
+      return;
+    }
+    if (current) {
+      current.lines.push(rawLine);
+      return;
+    }
+    intro.push(rawLine);
+  });
+  pushCurrent();
+
+  const cleanIntro = intro.filter((line) => line.trim());
+  if (cleanIntro.length > 0 && !sections.some((section) => section.id === 'summary')) {
+    sections.unshift({
+      id: 'summary',
+      lines: cleanIntro.slice(0, 4),
+      title: RUNBOOK_SECTION_TITLES.summary,
+    });
+  }
+
+  return sections.length >= 3 ? sections : null;
+};
+
+const renderRunbookLines = (lines: string[], sectionKey: string): React.ReactNode => {
+  const items = lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, ''));
+
+  if (items.length === 0) {
+    return <p>표시할 내용이 없습니다.</p>;
+  }
+
+  if (items.length === 1) {
+    return <p>{renderInlineText(items[0], `${sectionKey}-line`)}</p>;
+  }
+
+  return (
+    <ul>
+      {items.slice(0, 6).map((item, index) => (
+        <li key={`${sectionKey}-${index}`}>{renderInlineText(item, `${sectionKey}-${index}`)}</li>
+      ))}
+    </ul>
+  );
+};
+
+const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
+  <div className="komsco-ai__runbook-answer">
+    {sections.map((section) => (
+      <section className={`komsco-ai__runbook-section is-${section.id}`} key={section.id}>
+        <div className="komsco-ai__runbook-section-head">
+          <span>{section.title}</span>
+        </div>
+        <div className="komsco-ai__runbook-section-body">
+          {renderRunbookLines(section.lines, `runbook-${section.id}`)}
+        </div>
+      </section>
+    ))}
+  </div>
+);
+
 const renderFormattedContent = (
   message: Message,
   onPreviewAttachment: React.Dispatch<React.SetStateAction<ImageAttachment | null>>,
@@ -1099,6 +1280,11 @@ const renderFormattedContent = (
         {renderAttachmentGrid(message.attachments, 'message', onPreviewAttachment)}
       </div>
     );
+  }
+
+  const runbookSections = parseRunbookSections(message.content);
+  if (runbookSections) {
+    return renderRunbookAnswer(runbookSections);
   }
 
   const lines = stripDefaultEvidenceAppendix(message.content).split('\n');
@@ -2367,6 +2553,7 @@ const getRecordTargetLabel = (record: AiopsRecordView): string => {
   const spec = getRecordSpecMap(record);
   const directTarget = spec.target;
   const candidate = spec.candidate;
+  const candidateActionRequest = spec.candidateActionRequest;
   const sealedActionPlan = spec.sealedActionPlan;
   const approvalDecision = spec.approvalDecision;
   const target =
@@ -2374,6 +2561,8 @@ const getRecordTargetLabel = (record: AiopsRecordView): string => {
       ? directTarget
       : candidate && typeof candidate === 'object'
         ? (candidate as Record<string, unknown>).targetNode
+        : candidateActionRequest && typeof candidateActionRequest === 'object'
+          ? (candidateActionRequest as Record<string, unknown>).target
         : sealedActionPlan && typeof sealedActionPlan === 'object'
           ? (sealedActionPlan as Record<string, unknown>).target
           : approvalDecision && typeof approvalDecision === 'object'
@@ -2388,6 +2577,41 @@ const getRecordTargetLabel = (record: AiopsRecordView): string => {
   const namespace = map.namespace ? `${String(map.namespace)}/` : '';
   return `${namespace}${String(map.name ?? record.metadata?.name ?? 'unknown')}`;
 };
+
+const getActionRecordToolName = (record: AiopsRecordView): string => {
+  const spec = getRecordSpecMap(record);
+  const candidateActionRequest = asObjectMap(spec.candidateActionRequest);
+  const candidateAction = asObjectMap(candidateActionRequest?.action);
+  const sealedActionPlan = asObjectMap(spec.sealedActionPlan);
+  const sealedAction = asObjectMap(sealedActionPlan?.action);
+  const approvalDecision = asObjectMap(spec.approvalDecision);
+  const approvalAction = asObjectMap(approvalDecision?.action);
+  const toolName =
+    candidateAction?.toolName ??
+    sealedAction?.toolName ??
+    approvalAction?.toolName ??
+    spec.action ??
+    record.kind ??
+    'action';
+
+  return String(toolName || 'action');
+};
+
+const ACTION_STAGE_RANK: Record<AiopsLifecycleStage, number> = {
+  approval: 3,
+  execution: 4,
+  plan: 2,
+  proposal: 1,
+};
+
+const actionRecordCreatedAt = (record: AiopsRecordView): number =>
+  new Date(String(record.metadata?.createdAt ?? 0)).getTime() || 0;
+
+const actionRecordDedupeKey = (record: AiopsRecordView): string =>
+  [
+    getRecordTargetLabel(record).trim().toLowerCase(),
+    getActionRecordToolName(record).trim().toLowerCase(),
+  ].join('|');
 
 const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neutral' => {
   if (/verified|succeeded|completed|executed|approved|submitted/.test(phase)) {
@@ -2965,6 +3189,47 @@ const actionCandidateButtonLabel = (candidate: AiopsActionCandidate): string => 
 const targetKeyFromParts = (namespace?: string, name?: string): string =>
   namespace ? `${namespace}/${name ?? ''}` : (name ?? '');
 
+const actionRecordDisplayRank = (
+  record: AiopsRecordView,
+  aiopsStatus: AiopsRuntimeStatus | null,
+): number => {
+  if (getExecutionOutcomeSummary(record, aiopsStatus)) {
+    return 5;
+  }
+  return ACTION_STAGE_RANK[getActionRecordStage(record)];
+};
+
+const collapseActionRecordsForDisplay = (
+  records: AiopsRecordView[],
+  aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+): AiopsRecordView[] => {
+  const eligible = records
+    .filter(
+      (record) =>
+        Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
+        Boolean(getExecutionOutcomeSummary(record, aiopsStatus)),
+    )
+    .sort((a, b) => {
+      const rankDelta =
+        actionRecordDisplayRank(b, aiopsStatus) - actionRecordDisplayRank(a, aiopsStatus);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      return actionRecordCreatedAt(b) - actionRecordCreatedAt(a);
+    });
+  const seen = new Set<string>();
+
+  return eligible.filter((record) => {
+    const key = actionRecordDedupeKey(record);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
 const sessionAiopsActionRecords = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
@@ -2978,18 +3243,11 @@ const sessionAiopsActionRecords = (
     return [];
   }
 
-  return [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals]
-    .filter((record) => targetKeys.has(getRecordTargetLabel(record)))
-    .filter(
-      (record) =>
-        Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
-        Boolean(getExecutionOutcomeSummary(record, aiopsStatus)),
-    )
-    .sort(
-      (a, b) =>
-        new Date(String(b.metadata?.createdAt ?? 0)).getTime() -
-        new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
-    );
+  return collapseActionRecordsForDisplay(
+    [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals],
+    aiopsStatus,
+    executionMode,
+  ).filter((record) => targetKeys.has(getRecordTargetLabel(record)));
 };
 
 const latestAnswerActionRecords = (
@@ -3001,18 +3259,11 @@ const latestAnswerActionRecords = (
     return [];
   }
 
-  return [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals]
-    .filter(
-      (record) =>
-        Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
-        Boolean(getExecutionOutcomeSummary(record, aiopsStatus)),
-    )
-    .sort(
-      (a, b) =>
-        new Date(String(b.metadata?.createdAt ?? 0)).getTime() -
-        new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
-    )
-    .slice(0, 3);
+  return collapseActionRecordsForDisplay(
+    [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals],
+    aiopsStatus,
+    executionMode,
+  ).slice(0, 3);
 };
 
 const renderCreateActionPlanButtons = (
@@ -4431,7 +4682,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
         await refreshAiopsRuntimeStatus();
       } catch (error) {
-        setAiopsActionError(error instanceof Error ? error.message : 'AIOps action failed.');
+        setAiopsActionError(aiopsActionErrorMessage(error));
       } finally {
         aiopsActionBusyIdRef.current = '';
         setAiopsActionBusyId('');
@@ -4458,9 +4709,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         setSidebarActionPanelOpen(true);
         await refreshAiopsRuntimeStatus();
       } catch (error) {
-        setAiopsActionError(
-          error instanceof Error ? error.message : '조치 계획 생성에 실패했습니다.',
-        );
+        setAiopsActionError(aiopsActionErrorMessage(error));
       } finally {
         busyActionCandidateIdRef.current = '';
         setBusyActionCandidateId('');
@@ -4640,6 +4889,40 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             elapsedMs: endedAt - step.startedAt,
             endedAt,
             status: 'failed',
+            summary,
+          };
+        }),
+      };
+
+      return next;
+    });
+  }, []);
+
+  const finalizeRunningProgressSteps = React.useCallback((summary = '응답 완료') => {
+    setMessages((prev) => {
+      const assistantIndex = findLastAssistantIndex(prev);
+      if (assistantIndex < 0) {
+        return prev;
+      }
+
+      const next = [...prev];
+      const message = next[assistantIndex];
+
+      next[assistantIndex] = {
+        ...message,
+        progressSteps: message.progressSteps?.map((step) => {
+          if (step.status !== 'running') {
+            return step;
+          }
+
+          const endedAt = Date.now();
+
+          return {
+            ...step,
+            detail: step.detail || summary,
+            elapsedMs: endedAt - step.startedAt,
+            endedAt,
+            status: 'completed',
             summary,
           };
         }),
@@ -5246,6 +5529,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         finishResponseWaitStep('스트림 종료');
         await waitForAssistantTextQueue();
         finishAnswerStreamStep();
+        finalizeRunningProgressSteps('답변 완료');
         await refreshAiopsRuntimeStatus();
         if (autoProposeActionsAllowedRef.current) {
           let latestAssistantContent = '';
@@ -5293,6 +5577,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         }
         chatAbortControllerRef.current = null;
         stopRequestedRef.current = false;
+        finalizeRunningProgressSteps('응답 흐름 정리 완료');
         setLoading(false);
       }
     },
@@ -5301,6 +5586,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       assistantTaskMode,
       draftPageContext,
       executionMode,
+      finalizeRunningProgressSteps,
       flushAssistantTextQueueNow,
       handleCreateActionPlanFromChat,
       input,

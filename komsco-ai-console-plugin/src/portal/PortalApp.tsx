@@ -20,6 +20,12 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import AssistantLauncher from '../components/AssistantLauncher';
+import type {
+  AiopsExecutionMode,
+  AssistantDraftPrompt,
+  AssistantLaunchContext,
+} from '../components/assistant.types';
 import { fetchAiopsEvents, fetchAiopsStatus, fetchClusterSummary } from './api';
 import aiopsIconUrl from './assets/aiops_icon.svg';
 import type {
@@ -53,6 +59,118 @@ type RuntimeState = {
   refresh: (options?: { silent?: boolean }) => Promise<void>;
   status: AiopsRuntimeStatus;
   summary: ClusterSummary;
+};
+
+type AssistantLaunchRequest = {
+  context: AssistantLaunchContext;
+  executionMode?: AiopsExecutionMode;
+  taskMode?: AssistantDraftPrompt['taskMode'];
+};
+
+type AssistantLaunchHandler = (request: AssistantLaunchRequest) => void;
+
+const cleanAssistantText = (value?: string): string | undefined => {
+  const text = value?.trim();
+  return text && text !== '-' ? text : undefined;
+};
+
+const parseAssistantTarget = (
+  target?: string,
+  fallbackKind?: string,
+): Pick<AssistantLaunchContext, 'kind' | 'name' | 'namespace'> => {
+  const cleanTarget = cleanAssistantText(target);
+  if (!cleanTarget) {
+    return fallbackKind ? { kind: fallbackKind } : {};
+  }
+
+  const slashParts = cleanTarget
+    .split(/\s*\/\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (slashParts.length >= 3) {
+    return {
+      namespace: cleanAssistantText(slashParts[0]),
+      kind: cleanAssistantText(slashParts[1]) ?? fallbackKind,
+      name: cleanAssistantText(slashParts.slice(2).join('/')),
+    };
+  }
+
+  if (slashParts.length === 2) {
+    return {
+      namespace: cleanAssistantText(slashParts[0]),
+      kind: fallbackKind,
+      name: cleanAssistantText(slashParts[1]),
+    };
+  }
+
+  return {
+    kind: fallbackKind,
+    name: cleanTarget,
+  };
+};
+
+const assistantTargetLine = (context: AssistantLaunchContext): string =>
+  [context.namespace, context.kind, context.name].filter(Boolean).join(' / ') ||
+  context.name ||
+  context.reason ||
+  '클러스터';
+
+const buildAssistantPrompt = (context: AssistantLaunchContext): string => {
+  const evidence = context.evidenceRefs?.filter(Boolean).slice(0, 4) ?? [];
+  return [
+    '다음 AIOps for OCP 운영 신호를 RCA 관점으로 분석하고 필요한 경우 Action Plan 조건까지 정리해줘.',
+    '',
+    `대상: ${assistantTargetLine(context)}`,
+    context.severity ? `심각도: ${context.severity}` : '',
+    context.reason ? `이유: ${context.reason}` : '',
+    context.actionType ? `요청 작업: ${context.actionType}` : '',
+    evidence.length > 0 ? `근거: ${evidence.join(' / ')}` : '',
+    '',
+    '답변 형식: 요약, 영향 범위, 확인한 근거, 원인 후보, Action Plan, 검증/롤백, 근거 상세보기 순서.',
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+};
+
+const queueAssistantContext = (
+  item: QueueItem,
+  source: AssistantLaunchContext['source'],
+  actionType = 'rca',
+): AssistantLaunchContext => {
+  const target = parseAssistantTarget(item.target, item.category);
+  const base: AssistantLaunchContext = {
+    ...target,
+    actionType,
+    evidenceRefs: item.evidence,
+    reason: item.category ?? item.title,
+    severity: item.severity,
+    source,
+    promptDraft: '',
+  };
+  return {
+    ...base,
+    promptDraft: buildAssistantPrompt(base),
+  };
+};
+
+const endpointAssistantContext = (
+  endpoint: Endpoint,
+  source: AssistantLaunchContext['source'],
+): AssistantLaunchContext => {
+  const base: AssistantLaunchContext = {
+    ...parseAssistantTarget(`${endpoint.group}/${endpoint.name}`, endpoint.type),
+    actionType: 'resource-rca',
+    evidenceRefs: [endpoint.path, `CPU ${endpoint.cpu}`, `Memory ${endpoint.memory}`, `Latency ${endpoint.latency}`],
+    reason: endpoint.lastEvent,
+    severity: endpoint.severity,
+    source,
+    promptDraft: '',
+  };
+  return {
+    ...base,
+    promptDraft: buildAssistantPrompt(base),
+  };
 };
 
 const emptySummary: ClusterSummary = {
@@ -1736,6 +1854,32 @@ const eventGroupFromRow = (row: AlertEventRow, queues: QueueItem[]): EventInboxG
   };
   group.relatedIssue = relatedIssueForEvent(group, queues);
   return group;
+};
+
+const eventAssistantContext = (
+  group: EventInboxGroup,
+  source: AssistantLaunchContext['source'],
+): AssistantLaunchContext => {
+  const base: AssistantLaunchContext = {
+    ...parseAssistantTarget(
+      [group.namespace, group.target].filter((value) => value && value !== '-').join('/'),
+      group.kind,
+    ),
+    actionType: 'event-rca',
+    evidenceRefs: [
+      group.detail,
+      `${group.rows.length} events`,
+      group.relatedIssue?.title ?? '',
+    ].filter(Boolean),
+    reason: group.reason,
+    severity: group.severity,
+    source,
+    promptDraft: '',
+  };
+  return {
+    ...base,
+    promptDraft: buildAssistantPrompt(base),
+  };
 };
 
 const eventCommands = (group: EventInboxGroup): Array<{ command: string; title: string }> => {
@@ -3535,9 +3679,10 @@ const commandResourceLabel = (item: QueueItem): string => {
 const DetailDrawer: React.FC<{
   clusterName: string;
   item: QueueItem | null;
+  onAssistantLaunch?: AssistantLaunchHandler;
   onClose: () => void;
   onNavigate: (view: NavView) => void;
-}> = ({ clusterName, item, onClose, onNavigate }) => {
+}> = ({ clusterName, item, onAssistantLaunch, onClose, onNavigate }) => {
   const runCommand = (view: NavView) => {
     onClose();
     onNavigate(view);
@@ -3651,6 +3796,14 @@ const DetailDrawer: React.FC<{
             <button className="incident-command-bar__primary" onClick={() => runCommand('rca')} type="button">
               RCA 추적 열기
             </button>
+            {onAssistantLaunch && (
+              <button
+                onClick={() => onAssistantLaunch({ context: queueAssistantContext(item, 'issue-detail') })}
+                type="button"
+              >
+                Assistant RCA
+              </button>
+            )}
 	            <button onClick={() => runCommand('endpoints')} type="button">
 	              {commandResourceLabel(item)}
             </button>
@@ -3682,11 +3835,12 @@ const Panel: React.FC<{
 const DashboardView: React.FC<{
   clock: string;
   events: AiopsEventFeed;
+  onAssistantLaunch?: AssistantLaunchHandler;
   onNavigate: (view: NavView) => void;
   onOpenItem: (item: QueueItem) => void;
   status: AiopsRuntimeStatus;
   summary: ClusterSummary;
-}> = ({ clock, events, onNavigate, onOpenItem, status, summary }) => {
+}> = ({ clock, events, onAssistantLaunch, onNavigate, onOpenItem, status, summary }) => {
   const [queueFilter, setQueueFilter] = React.useState<'all' | 'risk' | 'warn'>('all');
   const [scopeQuery, setScopeQuery] = React.useState('');
   const [activeScope, setActiveScope] = React.useState('cluster');
@@ -3836,7 +3990,7 @@ const DashboardView: React.FC<{
             </div>
           }
         >
-          <QueueList items={visibleQueues} onOpenItem={onOpenItem} />
+          <QueueList items={visibleQueues} onAssistantLaunch={onAssistantLaunch} onOpenItem={onOpenItem} />
         </Panel>
 
         <Panel
@@ -3853,7 +4007,7 @@ const DashboardView: React.FC<{
         <IssueSummary queues={queues} summary={summary} />
       </section>
 
-      <EndpointTable endpoints={endpoints} />
+      <EndpointTable endpoints={endpoints} onAssistantLaunch={onAssistantLaunch} />
 
       <section className="portal-grid portal-grid--activity">
         <ActivityTimeline activities={activities} />
@@ -3883,8 +4037,13 @@ const queueMetaItems = (item: QueueItem): string[] =>
     item.updatedAt ? `업데이트 ${item.updatedAt}` : '',
   ].filter(Boolean);
 
-const QueueList: React.FC<{ items: QueueItem[]; onOpenItem: (item: QueueItem) => void }> = ({
+const QueueList: React.FC<{
+  items: QueueItem[];
+  onAssistantLaunch?: AssistantLaunchHandler;
+  onOpenItem: (item: QueueItem) => void;
+}> = ({
   items,
+  onAssistantLaunch,
   onOpenItem,
 }) => {
   if (items.length === 0) {
@@ -3905,9 +4064,20 @@ const QueueList: React.FC<{ items: QueueItem[]; onOpenItem: (item: QueueItem) =>
               ))}
             </div>
           </div>
-          <button className="portal-button" onClick={() => onOpenItem(item)} type="button">
-            이슈 상세
-          </button>
+          <div className="queue-row__actions">
+            {onAssistantLaunch && (
+              <button
+                className="portal-button is-primary"
+                onClick={() => onAssistantLaunch({ context: queueAssistantContext(item, 'dashboard-queue') })}
+                type="button"
+              >
+                RCA
+              </button>
+            )}
+            <button className="portal-button" onClick={() => onOpenItem(item)} type="button">
+              상세
+            </button>
+          </div>
         </div>
       ))}
     </div>
@@ -3966,7 +4136,10 @@ const IssueSummary: React.FC<{ queues: QueueItem[]; summary: ClusterSummary }> =
   </Panel>
 );
 
-const EndpointTable: React.FC<{ endpoints: Endpoint[] }> = ({ endpoints }) => {
+const EndpointTable: React.FC<{
+  endpoints: Endpoint[];
+  onAssistantLaunch?: AssistantLaunchHandler;
+}> = ({ endpoints, onAssistantLaunch }) => {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
   const [query, setQuery] = React.useState('');
@@ -4052,12 +4225,13 @@ const EndpointTable: React.FC<{ endpoints: Endpoint[] }> = ({ endpoints }) => {
               <th>메모리</th>
               <th>응답시간</th>
               <th>최근 이벤트</th>
+              {onAssistantLaunch && <th>Assistant</th>}
             </tr>
           </thead>
           <tbody>
             {visibleEndpoints.length === 0 ? (
               <tr>
-                <td colSpan={8}>조건에 맞는 리소스가 없습니다.</td>
+                <td colSpan={onAssistantLaunch ? 9 : 8}>조건에 맞는 리소스가 없습니다.</td>
               </tr>
             ) : (
               pageEndpoints.map((endpoint) => (
@@ -4078,6 +4252,17 @@ const EndpointTable: React.FC<{ endpoints: Endpoint[] }> = ({ endpoints }) => {
                     <span className={`event-dot ${severityClass(endpoint.severity)}`} />
                     {endpoint.lastEvent}
                   </td>
+                  {onAssistantLaunch && (
+                    <td>
+                      <button
+                        className="portal-button"
+                        onClick={() => onAssistantLaunch({ context: endpointAssistantContext(endpoint, 'resource-table') })}
+                        type="button"
+                      >
+                        RCA
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
@@ -4533,11 +4718,12 @@ const AuditLedgerTable: React.FC<{ entries: LedgerEntry[] }> = ({ entries }) => 
 };
 
 const RcaView: React.FC<{
+  onAssistantLaunch?: AssistantLaunchHandler;
   onNavigate: (view: NavView) => void;
   onOpenItem: (item: QueueItem) => void;
   status: AiopsRuntimeStatus;
   summary: ClusterSummary;
-}> = ({ onNavigate, onOpenItem, status, summary }) => {
+}> = ({ onAssistantLaunch, onNavigate, onOpenItem, status, summary }) => {
   const liveQueues = buildQueues(summary, status);
   const sampleMode = liveQueues.length === 0;
   const queues = sampleMode ? sampleRcaQueues : liveQueues;
@@ -4593,6 +4779,19 @@ const RcaView: React.FC<{
     setActionNote('RCA 번들 JSON을 생성했습니다.');
   }, [caseId, commandBundle, evidencePack, findings, podSummary, runbookGates, selected, selectedIssueType, summary, timeline]);
 
+  const launchSelectedAssistant = React.useCallback(
+    (actionType: string) => {
+      if (!selected || !onAssistantLaunch) {
+        return;
+      }
+      onAssistantLaunch({
+        context: queueAssistantContext(selected, 'rca-center', actionType),
+      });
+      setActionNote('선택한 RCA 컨텍스트를 Assistant에 전달했습니다.');
+    },
+    [onAssistantLaunch, selected],
+  );
+
   return (
     <section className="rca-workbench-v2 stack-view">
       <section className={`rca-case-header is-${selectedIssueType.toLowerCase().replaceAll('_', '-')}`}>
@@ -4619,6 +4818,11 @@ const RcaView: React.FC<{
           </div>
         </div>
         <div className="rca-case-header__actions">
+          {onAssistantLaunch && (
+            <button className="portal-button is-primary" onClick={() => launchSelectedAssistant('rca')} type="button">
+              Assistant RCA
+            </button>
+          )}
           <button className="portal-button" onClick={copyCommands} type="button">oc 묶음</button>
           <button className="portal-button" onClick={() => setActionNote('원본 증거 YAML은 BE evidence store 연동 후 열 수 있습니다.')} type="button">원본 증거</button>
           <button className="portal-button" onClick={exportBundle} type="button">RCA 보고서</button>
@@ -4775,9 +4979,9 @@ const RcaView: React.FC<{
           title="RCA 명령 묶음"
           action={
             <div className="rca-command-actions">
-              <button className="portal-button" onClick={copyCommands} type="button">oc 묶음 복사</button>
-              <button className="portal-button" onClick={exportBundle} type="button">RCA 번들 내보내기</button>
-            </div>
+            <button className="portal-button" onClick={copyCommands} type="button">oc 묶음 복사</button>
+            <button className="portal-button" onClick={exportBundle} type="button">RCA 번들 내보내기</button>
+          </div>
           }
         >
           <div className="rca-command-preview">
@@ -4790,7 +4994,13 @@ const RcaView: React.FC<{
           </div>
           <div className="rca-command-bar">
             <button className="portal-button" onClick={() => setActionNote('원본 증거 YAML은 BE evidence store 연동 후 열 수 있습니다.')} type="button">원본 증거 열기</button>
-            <button className="portal-button" onClick={() => setActionNote('변경 요청 초안을 로컬 화면에 생성했습니다.')} type="button">변경 요청 생성</button>
+            <button
+              className="portal-button"
+              onClick={() => launchSelectedAssistant('action-plan')}
+              type="button"
+            >
+              변경 요청 생성
+            </button>
             <button className="portal-button" onClick={() => onNavigate('executions')} type="button">실행 기록</button>
             {actionNote && <span>{actionNote}</span>}
           </div>
@@ -5012,7 +5222,10 @@ const ServiceMapView: React.FC<{ onNavigate: (view: NavView) => void; summary: C
   );
 };
 
-const ResourceInventoryView: React.FC<{ summary: ClusterSummary }> = ({ summary }) => {
+const ResourceInventoryView: React.FC<{
+  onAssistantLaunch?: AssistantLaunchHandler;
+  summary: ClusterSummary;
+}> = ({ onAssistantLaunch, summary }) => {
   const endpoints = buildEndpoints(summary);
   const resources = summary.resources?.items ?? [];
   const risk = endpoints.filter((endpoint) => endpoint.severity === 'risk').length;
@@ -5026,7 +5239,7 @@ const ResourceInventoryView: React.FC<{ summary: ClusterSummary }> = ({ summary 
         <KpiCard color={summary.nodes.notReady > 0 ? 'red' : 'green'} label="노드 상태" sub={`비정상 ${summary.nodes.notReady}`} value={`${summary.nodes.ready}/${summary.nodes.total}`} />
         <KpiCard color={summary.resources?.issues ? 'red' : 'green'} label="리소스 이슈" sub="게이트웨이 요약" value={summary.resources?.issues ?? 0} />
       </section>
-      <EndpointTable endpoints={endpoints} />
+      <EndpointTable endpoints={endpoints} onAssistantLaunch={onAssistantLaunch} />
       <Panel title="리소스 그룹 분포">
         <div className="resource-distribution">
           {resources.map((resource) => (
@@ -5037,6 +5250,33 @@ const ResourceInventoryView: React.FC<{ summary: ClusterSummary }> = ({ summary 
               </div>
               <div className="meter"><span style={{ width: `${Math.min(100, Number(resource.ready) / Math.max(1, resource.total) * 100)}%` }} /></div>
               <b>{resource.score}</b>
+              {onAssistantLaunch && resource.issues > 0 && (
+                <button
+                  className="portal-button"
+                  onClick={() =>
+                    onAssistantLaunch({
+                      context: endpointAssistantContext(
+                        {
+                          cpu: '-',
+                          group: `전체 ${resource.total}`,
+                          id: resource.id,
+                          lastEvent: formatTime(summary.updatedAt),
+                          latency: `이슈 ${resource.issues}건`,
+                          memory: '-',
+                          name: resourceNameLabel(resource.id, resource.name, resource.kind),
+                          path: localizeTelemetryText(resource.detail),
+                          severity: resource.severity,
+                          type: ledgerKindLabel(resource.kind),
+                        },
+                        'resource-distribution',
+                      ),
+                    })
+                  }
+                  type="button"
+                >
+                  RCA
+                </button>
+              )}
             </article>
           ))}
         </div>
@@ -5047,9 +5287,10 @@ const ResourceInventoryView: React.FC<{ summary: ClusterSummary }> = ({ summary 
 
 const EventDetailDrawer: React.FC<{
   group: EventInboxGroup | null;
+  onAssistantLaunch?: AssistantLaunchHandler;
   onClose: () => void;
   onOpenIssue: (item: QueueItem) => void;
-}> = ({ group, onClose, onOpenIssue }) => {
+}> = ({ group, onAssistantLaunch, onClose, onOpenIssue }) => {
   const commands = group ? eventCommands(group) : [];
   return (
     <div className={`portal-drawer event-detail-drawer ${group ? 'is-open' : ''}`} onClick={onClose}>
@@ -5121,6 +5362,15 @@ const EventDetailDrawer: React.FC<{
                   연결 이슈 열기
                 </button>
               )}
+              {onAssistantLaunch && (
+                <button
+                  className="portal-button is-primary event-issue-open"
+                  onClick={() => onAssistantLaunch({ context: eventAssistantContext(group, 'event-detail') })}
+                  type="button"
+                >
+                  Assistant RCA
+                </button>
+              )}
             </>
           )}
         </div>
@@ -5131,10 +5381,11 @@ const EventDetailDrawer: React.FC<{
 
 const AlertsEventsView: React.FC<{
   events: AiopsEventFeed;
+  onAssistantLaunch?: AssistantLaunchHandler;
   onOpenItem: (item: QueueItem) => void;
   status: AiopsRuntimeStatus;
   summary: ClusterSummary;
-}> = ({ events, onOpenItem, status, summary }) => {
+}> = ({ events, onAssistantLaunch, onOpenItem, status, summary }) => {
   const rows = buildAlertEventRows(summary, status, events);
   const queues = buildQueues(summary, status);
   const rawEventRows = rows.filter((row) => row.source !== '게이트웨이 요약' && row.category !== '클러스터 알림');
@@ -5336,14 +5587,30 @@ const AlertsEventsView: React.FC<{
                   <strong>{item.title}</strong>
                   <span>{isPodIssue(item) ? `이벤트 ${criticalCount + warningCount}건 연결 · BackOff/Probe/Failed` : item.detail}</span>
                 </div>
-                <button className="portal-button" onClick={() => onOpenItem(item)} type="button">상세</button>
+                <div className="issue-correlation-list__actions">
+                  {onAssistantLaunch && (
+                    <button
+                      className="portal-button is-primary"
+                      onClick={() => onAssistantLaunch({ context: queueAssistantContext(item, 'alert-linked-issue') })}
+                      type="button"
+                    >
+                      RCA
+                    </button>
+                  )}
+                  <button className="portal-button" onClick={() => onOpenItem(item)} type="button">상세</button>
+                </div>
               </article>
             ))}
           </div>
         </Panel>
       </section>
 
-      <EventDetailDrawer group={selectedEventGroup} onClose={() => setSelectedEventGroup(null)} onOpenIssue={onOpenItem} />
+      <EventDetailDrawer
+        group={selectedEventGroup}
+        onAssistantLaunch={onAssistantLaunch}
+        onClose={() => setSelectedEventGroup(null)}
+        onOpenIssue={onOpenItem}
+      />
     </section>
   );
 };
@@ -7149,16 +7416,18 @@ const AppContent: React.FC<{
   activeView: NavView;
   clock: string;
   events: AiopsEventFeed;
+  onAssistantLaunch?: AssistantLaunchHandler;
   onNavigate: (view: NavView) => void;
   onOpenItem: (item: QueueItem) => void;
   status: AiopsRuntimeStatus;
   summary: ClusterSummary;
-}> = ({ activeView, clock, events, onNavigate, onOpenItem, status, summary }) => {
+}> = ({ activeView, clock, events, onAssistantLaunch, onNavigate, onOpenItem, status, summary }) => {
   if (activeView === 'dashboard') {
     return (
       <DashboardView
         clock={clock}
         events={events}
+        onAssistantLaunch={onAssistantLaunch}
         onNavigate={onNavigate}
         onOpenItem={onOpenItem}
         status={status}
@@ -7170,16 +7439,32 @@ const AppContent: React.FC<{
     return <ExecutionRecordsView onNavigate={onNavigate} status={status} />;
   }
   if (activeView === 'rca') {
-    return <RcaView onNavigate={onNavigate} onOpenItem={onOpenItem} status={status} summary={summary} />;
+    return (
+      <RcaView
+        onAssistantLaunch={onAssistantLaunch}
+        onNavigate={onNavigate}
+        onOpenItem={onOpenItem}
+        status={status}
+        summary={summary}
+      />
+    );
   }
   if (activeView === 'service-map') {
     return <ServiceMapView onNavigate={onNavigate} summary={summary} />;
   }
   if (activeView === 'endpoints') {
-    return <ResourceInventoryView summary={summary} />;
+    return <ResourceInventoryView onAssistantLaunch={onAssistantLaunch} summary={summary} />;
   }
   if (activeView === 'alerts') {
-    return <AlertsEventsView events={events} onOpenItem={onOpenItem} status={status} summary={summary} />;
+    return (
+      <AlertsEventsView
+        events={events}
+        onAssistantLaunch={onAssistantLaunch}
+        onOpenItem={onOpenItem}
+        status={status}
+        summary={summary}
+      />
+    );
   }
   if (activeView === 'wiki') {
     return <WikiDocsView />;
@@ -7312,6 +7597,7 @@ const consoleRouteByView: Record<NavView, string> = {
 export const PortalEmbeddedPage: React.FC<{ view: NavView }> = ({ view }) => {
   const clock = useLiveClock();
   const runtime = usePortalRuntime();
+  const [assistantDraftPrompt, setAssistantDraftPrompt] = React.useState<AssistantDraftPrompt | undefined>();
   const [drawerItem, setDrawerItem] = React.useState<QueueItem | null>(null);
 
   const navigateToView = React.useCallback((nextView: NavView) => {
@@ -7325,6 +7611,29 @@ export const PortalEmbeddedPage: React.FC<{ view: NavView }> = ({ view }) => {
   React.useEffect(() => {
     setDrawerItem(null);
   }, [view]);
+
+  const launchAssistant = React.useCallback<AssistantLaunchHandler>(
+    ({ context, executionMode, taskMode = 'troubleshooting' }) => {
+      setAssistantDraftPrompt({
+        id: `aiops-${context.source}-${Date.now().toString(36)}`,
+        pageContext: {
+          aiopsExecutionMode: executionMode,
+          aiopsLaunchContext: context,
+          actionType: context.actionType,
+          evidenceRefs: context.evidenceRefs,
+          kind: context.kind,
+          name: context.name,
+          namespace: context.namespace,
+          reason: context.reason,
+          severity: context.severity,
+          source: context.source,
+        },
+        prompt: context.promptDraft,
+        taskMode,
+      });
+    },
+    [],
+  );
 
   return (
     <div className="aiops-console-portal portal-shell portal-shell--embedded">
@@ -7351,6 +7660,7 @@ export const PortalEmbeddedPage: React.FC<{ view: NavView }> = ({ view }) => {
             activeView={view}
             clock={clock}
             events={runtime.events}
+            onAssistantLaunch={launchAssistant}
             onNavigate={navigateToView}
             onOpenItem={setDrawerItem}
             status={runtime.status}
@@ -7361,9 +7671,11 @@ export const PortalEmbeddedPage: React.FC<{ view: NavView }> = ({ view }) => {
       <DetailDrawer
         clusterName={clusterLabel(runtime.summary)}
         item={drawerItem}
+        onAssistantLaunch={launchAssistant}
         onClose={() => setDrawerItem(null)}
         onNavigate={navigateToView}
       />
+      <AssistantLauncher draftPrompt={assistantDraftPrompt} onRunComplete={runtime.refresh} />
     </div>
   );
 };
