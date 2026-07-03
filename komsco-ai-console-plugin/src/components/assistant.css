@@ -5651,7 +5651,7 @@
 }
 
 .komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen) {
-  width: min(calc(520px + var(--komsco-history-width)), calc(100vw - 32px));
+  width: min(520px, calc(100vw - 32px));
 }
 
 .komsco-ai__surface .komsco-ai__panel,
@@ -5667,8 +5667,7 @@
 
 .komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
   .komsco-ai__panel {
-  border-start-start-radius: 0;
-  border-end-start-radius: 0;
+  border-radius: var(--komsco-jk-radius);
 }
 
 .komsco-ai__surface .komsco-ai__header {
@@ -5914,8 +5913,8 @@
   .komsco-ai__history-sidebar {
   border-start-start-radius: var(--komsco-jk-radius);
   border-end-start-radius: var(--komsco-jk-radius);
-  border-start-end-radius: 0;
-  border-end-end-radius: 0;
+  border-start-end-radius: var(--komsco-jk-radius);
+  border-end-end-radius: var(--komsco-jk-radius);
 }
 
 .komsco-ai__history-brand {
