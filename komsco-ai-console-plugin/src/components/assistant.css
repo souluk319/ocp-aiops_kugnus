@@ -5683,13 +5683,17 @@
 }
 
 .komsco-ai__surface:not(.komsco-ai__surface--fullscreen) {
-  width: min(520px, calc(100vw - 32px));
+  grid-template-columns: minmax(0, 0) minmax(0, var(--komsco-floating-panel-width));
+  width: min(var(--komsco-floating-panel-width), calc(100vw - 32px));
 }
 
 .komsco-ai:not(.komsco-ai--embedded)
   .komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen),
 .komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen) {
-  grid-template-columns: var(--komsco-history-width) minmax(0, var(--komsco-floating-panel-width));
+  grid-template-columns: minmax(0, var(--komsco-history-width)) minmax(
+      0,
+      var(--komsco-floating-panel-width)
+    );
   width: min(
     calc(var(--komsco-history-width) + var(--komsco-floating-panel-width)),
     calc(100vw - 32px)
@@ -5701,6 +5705,8 @@
 .komsco-ai__surface:not(.komsco-ai__surface--history-open) .komsco-ai__panel,
 .komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
   .komsco-ai__panel {
+  grid-column: 2;
+  min-width: 0;
   overflow: hidden;
   background: var(--komsco-jk-surface);
   border: 0;
