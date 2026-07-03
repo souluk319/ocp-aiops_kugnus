@@ -24,6 +24,10 @@ task aiops:company:status
 komsco-ai-console-plugin/
   OpenShift Console Dynamic Plugin based on console-plugin-template release-4.20.
 
+komsco-ai-portal/
+  Standalone React SPA portal for AIOps for OCP. It is frontend-only and calls
+  the Gateway/BFF through `/v1/*` APIs.
+
 komsco-ai-gateway/
   FastAPI gateway/BFF for UserToken forwarding and OpenShift Lightspeed
   streaming.
@@ -60,6 +64,18 @@ In another terminal:
 ```bash
 task fe:dev
 ```
+
+Standalone AIOps for OCP portal:
+
+```bash
+task portal:dev
+```
+
+`task portal:dev` starts the independent portal on `http://localhost:5173` and
+proxies `/v1/*` to `AIOPS_GATEWAY_ORIGIN`, defaulting to
+`http://127.0.0.1:18080`. The task injects the current CLI token at runtime with
+`oc whoami -t` so the portal sees the same company OCP data as the local console
+plugin. Do not commit real tokens to `.env.example`.
 
 `task be:dev` port-forwards
 `openshift-lightspeed/lightspeed-app-server:8443` to `127.0.0.1:18443` and

@@ -18,6 +18,20 @@ tasks:
     cmds:
       - ./scripts/dev-console-plugin.sh
 
+  portal:dev:
+    desc: Run standalone React AIOps for OCP portal SPA connected to the local gateway
+    dir: komsco-ai-portal
+    cmds:
+      - npm install
+      - AIOPS_DEV_OPENSHIFT_TOKEN="$(oc whoami -t)" npm run dev
+
+  portal:build:
+    desc: Build standalone React AIOps for OCP portal SPA
+    dir: komsco-ai-portal
+    cmds:
+      - npm install
+      - npm run build
+
   catalog:package:
     desc: Package the Helm chart and generate a Software Catalog repository index
     cmds:

@@ -31,6 +31,8 @@
 5. 포털, Gateway, action logic, console plugin, 배포 산출물을 한 커밋에 섞지 않는다.
 6. 회사 서버 배포는 이번 범위 밖이다.
 7. 테스트가 없는 "완료" 보고를 금지한다.
+8. `aiops:company:*`, `olm:*`, `catalog:*`, `oc apply/delete`, `helm upgrade`는 이번 lane에서 실행하지 않는다.
+9. Application Launcher 변경은 portal build와 Gateway 계약 검증이 통과한 뒤 source-only로만 다룬다.
 
 ## 이식 Lane
 
@@ -225,13 +227,15 @@ komsco-ai-gateway/.venv/bin/python -m pytest -q komsco-ai-gateway/tests/test_hea
 반영:
 
 - 제품명: `AIOps for OCP`
-- 내부 콘솔 좌측 메뉴는 기존 AIOps 운영 화면 유지 여부를 별도 판단
-- Application Launcher는 독립 포털 URL로 연결
+- 내부 콘솔 좌측 메뉴 `/dashboards/aiops`는 유지
+- Application Launcher 최종 목표 URL은 `https://aiops.cywell.co.kr`
 - 기존 FAB/assistant overlay는 콘솔 내부 보조 경험으로 유지
 
 주의:
 
 - 이번 lane에서도 회사 서버 배포는 하지 않는다.
+- source manifest/values/default만 검토하고, cluster apply는 하지 않는다.
+- portal build가 실패하면 launcher source 변경도 하지 않는다.
 - Route, Caddy, DNS, TLS는 배포 계약 문서에서 별도 처리한다.
 
 ### Lane 7: Decommission Or Reconcile Existing Standalone
@@ -290,7 +294,9 @@ git reset --hard
 | V025-05 | Gateway가 포털 필수 API를 제공한다. | curl / pytest | API response |
 | V025-06 | Gateway가 unavailable이면 포털이 reviewable demo data를 표시한다. | local browser/build | UI evidence |
 | V025-07 | natural action followup, ambiguous mutation, read-only RCA, unrestricted execution이 테스트된다. | pytest | test output |
-| V025-08 | Application Launcher의 제품명은 `AIOps for OCP`로 통일된다. | source grep | plugin/OLM config |
+| V025-08a | 콘솔 내부 좌측 메뉴 `/dashboards/aiops`는 유지된다. | source grep | console-extensions |
+| V025-08b | Application Launcher 최종 href 목표는 `https://aiops.cywell.co.kr`로 문서화된다. | source grep | chart/operator/defaults |
+| V025-08c | OLM/Helm/base 변경은 source-only이며 cluster apply가 없다. | command log / git diff | no deploy command |
 | V025-09 | 회사 서버 배포 리소스는 이번 작업에서 변경하지 않는다. | `git diff --name-only` | diff check |
 | V025-10 | protected artifacts와 `evals/aiops-scenarios/*`는 수정하지 않는다. | git status | diff check |
 
@@ -344,4 +350,3 @@ v0.2.5 완료는 아래가 모두 참일 때만 선언한다.
 ```
 
 이 작업의 목적은 빠르게 화면 하나를 띄우는 것이 아니라, 상위 엔지니어가 준 정답지를 우리 제품의 새 기준점으로 만드는 것이다.
-

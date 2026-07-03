@@ -77,7 +77,6 @@
     "displayName": "AIOps",
     "description": "AIOps Agentic Operator assistant for OpenShift operations.",
     "exposedModules": {
-      "AiopsActionsPage": "./pages/AiopsActionsPage",
       "AiopsAlertsPage": "./pages/AiopsAlertsPage",
       "AiopsAuditPage": "./pages/AiopsAuditPage",
       "AiopsDashboardPage": "./pages/AiopsDashboardPage",
@@ -96,5 +95,8 @@
       "@console/pluginAPI": "^4.20.0"
     }
   },
-  "packageManager": "yarn@4.13.0"
+  "packageManager": "yarn@4.13.0",
+  "dependencies": {
+    "lucide-react": "^0.468.0"
+  }
 }

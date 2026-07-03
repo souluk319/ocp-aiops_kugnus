@@ -560,6 +560,12 @@ K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT = {
     "services": "Service",
     "statefulsets": "StatefulSet",
 }
+AIOPS_WORKLOAD_RE = re.compile(
+    r"(aiops|komsco[-_.]?ai|cywell[-_.]?aiops|openshift[-_.]?lightspeed|"
+    r"lightspeed|trustyai|rhoai|open[-_.]?data[-_.]?hub|\bodh\b|model[-_.]?registry|"
+    r"nvidia|gpu|dcgm|\bmig\b|device[-_.]?plugin)",
+    re.IGNORECASE,
+)
 PAGE_CONTEXT_ALLOWED_KEYS = {
     "aiopsDemoCycle",
     "aiopsExecutionMode",
@@ -3822,6 +3828,405 @@ def summarize_operator(operator: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def resource_summary_item(
+    *,
+    detail: str,
+    id: str,
+    issues: int,
+    kind: str,
+    name: str,
+    ready: int | str,
+    severity: str,
+    total: int,
+) -> dict[str, Any]:
+    score = f"{ready}/{total}" if isinstance(ready, int) else str(ready)
+    return {
+        "id": id,
+        "name": name,
+        "kind": kind,
+        "total": total,
+        "ready": ready,
+        "issues": issues,
+        "score": score,
+        "detail": detail,
+        "severity": severity,
+    }
+
+
+def workload_severity(issues: int, total: int) -> str:
+    if issues <= 0:
+        return "ok"
+    if total > 0 and issues == total:
+        return "risk"
+    return "warn"
+
+
+def summarize_pod_resources(pods_payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    pods = resource_items(pods_payload)
+    phase_counts: dict[str, int] = {}
+    running = 0
+    ready = 0
+    succeeded = 0
+    failed = 0
+    terminating = 0
+    restarts = 0
+    issues = 0
+
+    for pod in pods:
+        status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+        phase = str(status.get("phase") or "Unknown")
+        phase_counts[phase] = phase_counts.get(phase, 0) + 1
+        running += 1 if phase == "Running" else 0
+        succeeded += 1 if phase == "Succeeded" else 0
+        failed += 1 if phase == "Failed" else 0
+        terminating += 1 if pod_is_terminating(pod) else 0
+        restarts += pod_restart_total(pod)
+
+        pod_ready = pod_is_fully_ready(pod)
+        ready += 1 if pod_ready else 0
+        if phase not in {"Running", "Succeeded"} or (phase == "Running" and not pod_ready):
+            issues += 1
+
+    return resource_summary_item(
+        id="pods",
+        name="Pods",
+        kind="Pod",
+        total=len(pods),
+        ready=ready,
+        issues=issues + terminating,
+        severity="risk" if failed else workload_severity(issues + terminating, len(pods)),
+        detail=(
+            f"Running {running} · Ready {ready} · Pending {phase_counts.get('Pending', 0)} · "
+            f"Failed {failed} · Succeeded {succeeded} · Restarts {restarts}"
+        ),
+    )
+
+
+def summarize_replicated_resources(
+    payload: Mapping[str, Any] | None,
+    *,
+    id: str,
+    kind: str,
+    name: str,
+) -> dict[str, Any]:
+    resources = resource_items(payload)
+    desired = 0
+    ready = 0
+    available = 0
+    updated = 0
+    healthy = 0
+    issues = 0
+
+    for resource in resources:
+        spec = resource.get("spec", {}) if isinstance(resource.get("spec"), Mapping) else {}
+        status = resource.get("status", {}) if isinstance(resource.get("status"), Mapping) else {}
+        resource_desired = int(spec.get("replicas") or status.get("replicas") or 0)
+        resource_ready = int(status.get("readyReplicas") or 0)
+        resource_available = int(status.get("availableReplicas") or 0)
+        desired += resource_desired
+        ready += resource_ready
+        available += resource_available
+        updated += int(status.get("updatedReplicas") or 0)
+        unavailable = int(status.get("unavailableReplicas") or 0)
+        metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
+        generation = int(metadata.get("generation") or 0)
+        observed_generation = int(status.get("observedGeneration") or generation or 0)
+        if unavailable > 0 or resource_ready < resource_desired or observed_generation < generation:
+            issues += 1
+        else:
+            healthy += 1
+
+    return resource_summary_item(
+        id=id,
+        name=name,
+        kind=kind,
+        total=len(resources),
+        ready=healthy,
+        issues=issues,
+        severity=workload_severity(issues, len(resources)),
+        detail=f"Ready replicas {ready}/{desired} · Available {available} · Updated {updated} · Issues {issues}",
+    )
+
+
+def summarize_daemonset_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    daemonsets = resource_items(payload)
+    desired = 0
+    ready = 0
+    available = 0
+    healthy = 0
+    issues = 0
+
+    for daemonset in daemonsets:
+        status = daemonset.get("status", {}) if isinstance(daemonset.get("status"), Mapping) else {}
+        resource_desired = int(status.get("desiredNumberScheduled") or 0)
+        resource_ready = int(status.get("numberReady") or 0)
+        desired += resource_desired
+        ready += resource_ready
+        available += int(status.get("numberAvailable") or 0)
+        unavailable = int(status.get("numberUnavailable") or 0)
+        if unavailable > 0 or resource_ready < resource_desired:
+            issues += 1
+        else:
+            healthy += 1
+
+    return resource_summary_item(
+        id="daemonsets",
+        name="DaemonSets",
+        kind="DaemonSet",
+        total=len(daemonsets),
+        ready=healthy,
+        issues=issues,
+        severity=workload_severity(issues, len(daemonsets)),
+        detail=f"Ready pods {ready}/{desired} · Available {available} · Issues {issues}",
+    )
+
+
+def aiops_workload_match_text(resource: Mapping[str, Any]) -> str:
+    metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
+    spec = resource.get("spec", {}) if isinstance(resource.get("spec"), Mapping) else {}
+    template = spec.get("template", {}) if isinstance(spec.get("template"), Mapping) else {}
+    template_metadata = (
+        template.get("metadata", {}) if isinstance(template.get("metadata"), Mapping) else {}
+    )
+    labels = metadata.get("labels", {}) if isinstance(metadata.get("labels"), Mapping) else {}
+    template_labels = (
+        template_metadata.get("labels", {})
+        if isinstance(template_metadata.get("labels"), Mapping)
+        else {}
+    )
+    return " ".join(
+        [
+            str(metadata.get("namespace") or ""),
+            str(metadata.get("name") or ""),
+            " ".join(f"{key}={value}" for key, value in labels.items()),
+            " ".join(f"{key}={value}" for key, value in template_labels.items()),
+        ]
+    )
+
+
+def is_aiops_workload(resource: Mapping[str, Any]) -> bool:
+    return bool(AIOPS_WORKLOAD_RE.search(aiops_workload_match_text(resource)))
+
+
+def summarize_aiops_workload(resource: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
+    metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
+    spec = resource.get("spec", {}) if isinstance(resource.get("spec"), Mapping) else {}
+    status = resource.get("status", {}) if isinstance(resource.get("status"), Mapping) else {}
+
+    if kind == "DaemonSet":
+        desired = int(status.get("desiredNumberScheduled") or 0)
+        ready = int(status.get("numberReady") or 0)
+        available = int(status.get("numberAvailable") or 0)
+        updated = int(status.get("updatedNumberScheduled") or 0)
+        unavailable = int(status.get("numberUnavailable") or max(desired - ready, 0))
+    else:
+        desired = int(spec.get("replicas") or status.get("replicas") or 0)
+        ready = int(status.get("readyReplicas") or 0)
+        available = int(status.get("availableReplicas") or 0)
+        updated = int(status.get("updatedReplicas") or 0)
+        unavailable = int(status.get("unavailableReplicas") or max(desired - ready, 0))
+
+    generation = int(metadata.get("generation") or 0)
+    observed_generation = int(status.get("observedGeneration") or generation or 0)
+    rollout_lagging = bool(generation and observed_generation < generation)
+    has_issue = unavailable > 0 or ready < desired or rollout_lagging
+    severity = "risk" if desired > 0 and ready == 0 else "warn" if has_issue else "ok"
+
+    return {
+        "available": available,
+        "createdAt": metadata.get("creationTimestamp"),
+        "desired": desired,
+        "detail": (
+            f"Ready {ready}/{desired} · Available {available} · Updated {updated}"
+            + (" · Rollout lagging" if rollout_lagging else "")
+        ),
+        "kind": kind,
+        "name": str(metadata.get("name") or f"unknown-{kind.lower()}"),
+        "namespace": str(metadata.get("namespace") or "default"),
+        "ready": ready,
+        "severity": severity,
+        "updated": updated,
+    }
+
+
+def build_aiops_workload_summary(
+    *,
+    daemonsets_payload: Mapping[str, Any] | None,
+    deployments_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    deployments = [
+        summarize_aiops_workload(deployment, kind="Deployment")
+        for deployment in resource_items(deployments_payload)
+        if is_aiops_workload(deployment)
+    ]
+    daemonsets = [
+        summarize_aiops_workload(daemonset, kind="DaemonSet")
+        for daemonset in resource_items(daemonsets_payload)
+        if is_aiops_workload(daemonset)
+    ]
+    workloads = deployments + daemonsets
+    namespaces = sorted({str(workload.get("namespace")) for workload in workloads})
+
+    return {
+        "daemonsets": daemonsets,
+        "deployments": deployments,
+        "issues": len([workload for workload in workloads if workload.get("severity") != "ok"]),
+        "namespaces": namespaces[:12],
+        "total": len(workloads),
+    }
+
+
+def summarize_route_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    routes = resource_items(payload)
+    admitted = 0
+    issues = 0
+    for route in routes:
+        status = route.get("status", {}) if isinstance(route.get("status"), Mapping) else {}
+        ingresses = status.get("ingress")
+        route_admitted = False
+        if isinstance(ingresses, list):
+            for ingress in ingresses:
+                if not isinstance(ingress, Mapping):
+                    continue
+                conditions = ingress.get("conditions")
+                if isinstance(conditions, list) and any(
+                    isinstance(condition, Mapping)
+                    and condition.get("type") == "Admitted"
+                    and condition.get("status") == "True"
+                    for condition in conditions
+                ):
+                    route_admitted = True
+                    break
+        admitted += 1 if route_admitted else 0
+        issues += 0 if route_admitted else 1
+
+    return resource_summary_item(
+        id="routes",
+        name="Routes",
+        kind="Route",
+        total=len(routes),
+        ready=admitted,
+        issues=issues,
+        severity=workload_severity(issues, len(routes)),
+        detail=f"Admitted {admitted}/{len(routes)} · Issues {issues}",
+    )
+
+
+def summarize_pvc_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    pvcs = resource_items(payload)
+    bound = 0
+    issues = 0
+    for pvc in pvcs:
+        status = pvc.get("status", {}) if isinstance(pvc.get("status"), Mapping) else {}
+        phase = str(status.get("phase") or "Unknown")
+        bound += 1 if phase == "Bound" else 0
+        issues += 0 if phase == "Bound" else 1
+
+    return resource_summary_item(
+        id="persistentvolumeclaims",
+        name="PVCs",
+        kind="PersistentVolumeClaim",
+        total=len(pvcs),
+        ready=bound,
+        issues=issues,
+        severity=workload_severity(issues, len(pvcs)),
+        detail=f"Bound {bound}/{len(pvcs)} · Issues {issues}",
+    )
+
+
+def summarize_namespace_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    namespaces = resource_items(payload)
+    active = 0
+    terminating = 0
+    for namespace in namespaces:
+        status = namespace.get("status", {}) if isinstance(namespace.get("status"), Mapping) else {}
+        phase = str(status.get("phase") or "Unknown")
+        active += 1 if phase == "Active" else 0
+        terminating += 1 if phase == "Terminating" else 0
+
+    return resource_summary_item(
+        id="namespaces",
+        name="Namespaces",
+        kind="Namespace",
+        total=len(namespaces),
+        ready=active,
+        issues=len(namespaces) - active,
+        severity=workload_severity(len(namespaces) - active, len(namespaces)),
+        detail=f"Active {active}/{len(namespaces)} · Terminating {terminating}",
+    )
+
+
+def summarize_simple_resource_count(
+    payload: Mapping[str, Any] | None,
+    *,
+    id: str,
+    kind: str,
+    name: str,
+) -> dict[str, Any]:
+    resources = resource_items(payload)
+    total = len(resources)
+    return resource_summary_item(
+        id=id,
+        name=name,
+        kind=kind,
+        total=total,
+        ready=total,
+        issues=0,
+        severity="ok",
+        detail=f"Total {total}",
+    )
+
+
+def build_resource_summary(
+    *,
+    daemonsets_payload: Mapping[str, Any] | None,
+    deployments_payload: Mapping[str, Any] | None,
+    namespaces_payload: Mapping[str, Any] | None,
+    pods_payload: Mapping[str, Any] | None,
+    pvcs_payload: Mapping[str, Any] | None,
+    replicasets_payload: Mapping[str, Any] | None,
+    routes_payload: Mapping[str, Any] | None,
+    services_payload: Mapping[str, Any] | None,
+    statefulsets_payload: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    items = [
+        summarize_pod_resources(pods_payload),
+        summarize_replicated_resources(
+            deployments_payload,
+            id="deployments",
+            kind="Deployment",
+            name="Deployments",
+        ),
+        summarize_replicated_resources(
+            replicasets_payload,
+            id="replicasets",
+            kind="ReplicaSet",
+            name="ReplicaSets",
+        ),
+        summarize_daemonset_resources(daemonsets_payload),
+        summarize_replicated_resources(
+            statefulsets_payload,
+            id="statefulsets",
+            kind="StatefulSet",
+            name="StatefulSets",
+        ),
+        summarize_simple_resource_count(
+            services_payload,
+            id="services",
+            kind="Service",
+            name="Services",
+        ),
+        summarize_route_resources(routes_payload),
+        summarize_pvc_resources(pvcs_payload),
+        summarize_namespace_resources(namespaces_payload),
+    ]
+    return {
+        "total": sum(int(item.get("total") or 0) for item in items),
+        "issues": sum(int(item.get("issues") or 0) for item in items),
+        "items": items,
+    }
+
+
 def compute_health_score(
     nodes_summary: Mapping[str, Any],
     operators_summary: Mapping[str, Any],
@@ -3844,6 +4249,15 @@ def build_cluster_summary(
     node_metrics_payload: Mapping[str, Any] | None,
     cluster_version_payload: Mapping[str, Any] | None,
     cluster_operators_payload: Mapping[str, Any] | None,
+    pods_payload: Mapping[str, Any] | None = None,
+    deployments_payload: Mapping[str, Any] | None = None,
+    replicasets_payload: Mapping[str, Any] | None = None,
+    daemonsets_payload: Mapping[str, Any] | None = None,
+    statefulsets_payload: Mapping[str, Any] | None = None,
+    services_payload: Mapping[str, Any] | None = None,
+    routes_payload: Mapping[str, Any] | None = None,
+    pvcs_payload: Mapping[str, Any] | None = None,
+    namespaces_payload: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     node_items = nodes_payload.get("items", [])
     if not isinstance(node_items, list):
@@ -3909,6 +4323,19 @@ def build_cluster_summary(
         else {}
     )
     available_updates = cluster_version_status.get("availableUpdates")
+    available_update_versions = [
+        str(update.get("version"))
+        for update in available_updates
+        if isinstance(update, Mapping) and update.get("version")
+    ] if isinstance(available_updates, list) else []
+    conditional_updates = cluster_version_status.get("conditionalUpdates")
+    conditional_update_versions = [
+        str(update.get("release", {}).get("version"))
+        for update in conditional_updates
+        if isinstance(update, Mapping)
+        and isinstance(update.get("release"), Mapping)
+        and update.get("release", {}).get("version")
+    ] if isinstance(conditional_updates, list) else []
     upgradeable_condition = (
         find_condition(cluster_version_payload or {}, "Upgradeable")
         if isinstance(cluster_version_payload, Mapping)
@@ -3918,12 +4345,29 @@ def build_cluster_summary(
         "version": desired.get("version"),
         "channel": cluster_version_status.get("channel"),
         "updateAvailable": isinstance(available_updates, list) and len(available_updates) > 0,
+        "availableUpdates": available_update_versions[:5],
+        "conditionalUpdates": conditional_update_versions[:5],
         "upgradeable": upgradeable_condition.get("status") != "False"
         if upgradeable_condition
         else None,
         "upgradeableReason": upgradeable_condition.get("reason") if upgradeable_condition else None,
         "upgradeableMessage": upgradeable_condition.get("message") if upgradeable_condition else None,
     }
+    resources_summary = build_resource_summary(
+        daemonsets_payload=daemonsets_payload,
+        deployments_payload=deployments_payload,
+        namespaces_payload=namespaces_payload,
+        pods_payload=pods_payload,
+        pvcs_payload=pvcs_payload,
+        replicasets_payload=replicasets_payload,
+        routes_payload=routes_payload,
+        services_payload=services_payload,
+        statefulsets_payload=statefulsets_payload,
+    )
+    aiops_workloads_summary = build_aiops_workload_summary(
+        daemonsets_payload=daemonsets_payload,
+        deployments_payload=deployments_payload,
+    )
 
     return {
         "updatedAt": datetime.now(UTC).isoformat(),
@@ -3931,6 +4375,8 @@ def build_cluster_summary(
         "healthScore": compute_health_score(nodes_summary, operators_summary, version_summary),
         "nodes": nodes_summary,
         "operators": operators_summary,
+        "resources": resources_summary,
+        "aiopsWorkloads": aiops_workloads_summary,
         "version": version_summary,
     }
 
@@ -5179,7 +5625,7 @@ def build_aiops_overview(
             },
             "safety": {
                 "mutationsEnabled": MUTATIONS_ENABLED,
-                "executionDefault": not MUTATIONS_ENABLED,
+                "executionDefault": MUTATIONS_ENABLED,
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
             },
         },
@@ -10849,26 +11295,51 @@ async def cluster_summary(authorization: str | None = Header(default=None)) -> d
         verify=OPENSHIFT_API_CA_FILE,
         timeout=httpx.Timeout(20.0, connect=5.0),
     ) as client:
-        nodes_payload = await fetch_ocp_json(
-            client,
-            "/api/v1/nodes",
-            user_auth_header,
-            required=True,
-        )
-        node_metrics_payload = await fetch_ocp_json(
-            client,
-            "/apis/metrics.k8s.io/v1beta1/nodes",
-            user_auth_header,
-        )
-        cluster_version_payload = await fetch_ocp_json(
-            client,
-            "/apis/config.openshift.io/v1/clusterversions/version",
-            user_auth_header,
-        )
-        cluster_operators_payload = await fetch_ocp_json(
-            client,
-            "/apis/config.openshift.io/v1/clusteroperators",
-            user_auth_header,
+        (
+            nodes_payload,
+            node_metrics_payload,
+            cluster_version_payload,
+            cluster_operators_payload,
+            pods_payload,
+            deployments_payload,
+            replicasets_payload,
+            daemonsets_payload,
+            statefulsets_payload,
+            services_payload,
+            routes_payload,
+            pvcs_payload,
+            namespaces_payload,
+        ) = await asyncio.gather(
+            fetch_ocp_json(
+                client,
+                "/api/v1/nodes",
+                user_auth_header,
+                required=True,
+            ),
+            fetch_ocp_json(
+                client,
+                "/apis/metrics.k8s.io/v1beta1/nodes",
+                user_auth_header,
+            ),
+            fetch_ocp_json(
+                client,
+                "/apis/config.openshift.io/v1/clusterversions/version",
+                user_auth_header,
+            ),
+            fetch_ocp_json(
+                client,
+                "/apis/config.openshift.io/v1/clusteroperators",
+                user_auth_header,
+            ),
+            fetch_ocp_json(client, "/api/v1/pods", user_auth_header),
+            fetch_ocp_json(client, "/apis/apps/v1/deployments", user_auth_header),
+            fetch_ocp_json(client, "/apis/apps/v1/replicasets", user_auth_header),
+            fetch_ocp_json(client, "/apis/apps/v1/daemonsets", user_auth_header),
+            fetch_ocp_json(client, "/apis/apps/v1/statefulsets", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/services", user_auth_header),
+            fetch_ocp_json(client, "/apis/route.openshift.io/v1/routes", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/persistentvolumeclaims", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/namespaces", user_auth_header),
         )
 
     return build_cluster_summary(
@@ -10876,6 +11347,15 @@ async def cluster_summary(authorization: str | None = Header(default=None)) -> d
         node_metrics_payload,
         cluster_version_payload,
         cluster_operators_payload,
+        pods_payload,
+        deployments_payload,
+        replicasets_payload,
+        daemonsets_payload,
+        statefulsets_payload,
+        services_payload,
+        routes_payload,
+        pvcs_payload,
+        namespaces_payload,
     )
 
 
@@ -12494,6 +12974,395 @@ def build_skipped_product_access_review(reason: str) -> dict[str, Any]:
     }
 
 
+def compact_event_detail(value: Any, *, limit: int = 420) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 1]}..."
+
+
+def parse_kubernetes_timestamp(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def aiops_event_timestamp(event: Mapping[str, Any]) -> str:
+    for key in ("eventTime", "lastTimestamp", "firstTimestamp"):
+        value = event.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    metadata = event.get("metadata", {}) if isinstance(event.get("metadata"), Mapping) else {}
+    value = metadata.get("creationTimestamp")
+    return str(value or now_rfc3339())
+
+
+def aiops_event_involved_target(event: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    metadata = event.get("metadata", {}) if isinstance(event.get("metadata"), Mapping) else {}
+    involved = event.get("involvedObject", {})
+    involved = involved if isinstance(involved, Mapping) else {}
+    namespace = str(involved.get("namespace") or metadata.get("namespace") or "")
+    kind = str(involved.get("kind") or "Resource")
+    name = str(involved.get("name") or metadata.get("name") or "unknown")
+    target = f"{kind}/{name}" if not namespace else f"{namespace}/{kind}/{name}"
+    return namespace, kind, name, target
+
+
+def aiops_event_severity(reason: str, event_type: str, message: str = "") -> str:
+    text = f"{reason} {event_type} {message}".lower()
+    risk_tokens = (
+        "crashloopbackoff",
+        "errimagepull",
+        "failed",
+        "failedmount",
+        "failedscheduling",
+        "imagepullbackoff",
+        "oomkilled",
+        "unhealthy",
+    )
+    warn_tokens = ("backoff", "notready", "unavailable", "warning")
+    if any(token in text for token in risk_tokens):
+        return "risk"
+    if str(event_type).lower() == "warning" or any(token in text for token in warn_tokens):
+        return "warn"
+    return "ok"
+
+
+def build_kubernetes_event_items(
+    events_payload: Mapping[str, Any] | None,
+    *,
+    limit: int = 40,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    ok_budget = max(2, limit // 10)
+    ok_count = 0
+    for event in resource_items(events_payload):
+        metadata = event.get("metadata", {}) if isinstance(event.get("metadata"), Mapping) else {}
+        reason = str(event.get("reason") or "Event")
+        event_type = str(event.get("type") or "Normal")
+        message = compact_event_detail(event.get("message"))
+        namespace, kind, name, target = aiops_event_involved_target(event)
+        severity = aiops_event_severity(reason, event_type, message)
+        if severity == "ok":
+            if ok_count >= ok_budget:
+                continue
+            ok_count += 1
+
+        event_id = str(metadata.get("uid") or f"{namespace}-{kind}-{name}-{reason}-{aiops_event_timestamp(event)}")
+        items.append(
+            {
+                "category": "event",
+                "detail": message or f"{event_type} event observed.",
+                "id": f"k8s-event-{event_id}",
+                "namespace": namespace,
+                "severity": severity,
+                "source": "Kubernetes Event",
+                "target": target,
+                "time": aiops_event_timestamp(event),
+                "title": f"{reason} · {kind}/{name}",
+            }
+        )
+
+    items.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
+    return items[:limit]
+
+
+def pod_container_signal_summary(pod: Mapping[str, Any]) -> str:
+    status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+    statuses = status.get("containerStatuses")
+    if not isinstance(statuses, list):
+        return "-"
+
+    signals: list[str] = []
+    for container_status in statuses:
+        if not isinstance(container_status, Mapping):
+            continue
+        name = str(container_status.get("name") or "container")
+        state = state_summary(container_status)
+        last_state, _finished_at = last_termination_summary(container_status)
+        restarts = int(container_status.get("restartCount") or 0)
+        if state == "running" and restarts < 3 and last_state == "-":
+            continue
+        suffix = f"{name} {state} restart={restarts}"
+        if last_state != "-":
+            suffix = f"{suffix} last={last_state}"
+        signals.append(suffix)
+
+    return "; ".join(signals[:4]) if signals else "-"
+
+
+def pod_has_recent_restart(pod: Mapping[str, Any], *, hours: int = 6) -> bool:
+    status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+    statuses = status.get("containerStatuses")
+    if not isinstance(statuses, list):
+        return False
+
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    for container_status in statuses:
+        if not isinstance(container_status, Mapping):
+            continue
+        if int(container_status.get("restartCount") or 0) <= 0:
+            continue
+        _last_state, finished_at = last_termination_summary(container_status)
+        finished_at_dt = parse_kubernetes_timestamp(finished_at)
+        if finished_at_dt is not None and finished_at_dt >= cutoff:
+            return True
+
+    return False
+
+
+def is_openshift_build_pod(pod: Mapping[str, Any]) -> bool:
+    metadata = pod.get("metadata", {}) if isinstance(pod.get("metadata"), Mapping) else {}
+    labels = metadata.get("labels", {}) if isinstance(metadata.get("labels"), Mapping) else {}
+    owner_refs = metadata.get("ownerReferences", [])
+    if labels.get("openshift.io/build.name") or labels.get("openshift.io/build-config.name"):
+        return True
+    if labels.get("buildconfig") and str(metadata.get("name") or "").endswith("-build"):
+        return True
+    if isinstance(owner_refs, list):
+        return any(isinstance(ref, Mapping) and str(ref.get("kind") or "").lower() == "build" for ref in owner_refs)
+    return False
+
+
+def build_problem_pod_event_items(
+    pods_payload: Mapping[str, Any] | None,
+    *,
+    limit: int = 30,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    observed_at = now_rfc3339()
+    for pod in resource_items(pods_payload):
+        metadata = pod.get("metadata", {}) if isinstance(pod.get("metadata"), Mapping) else {}
+        status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
+        name = str(metadata.get("name") or "")
+        namespace = str(metadata.get("namespace") or "")
+        if is_openshift_build_pod(pod):
+            continue
+        phase = str(status.get("phase") or "Unknown")
+        restarts = pod_restart_total(pod)
+        ready = pod_ready_summary(pod)
+        terminating = pod_is_terminating(pod)
+        recent_restart = pod_has_recent_restart(pod)
+        problem = (
+            terminating
+            or phase not in {"Running", "Succeeded"}
+            or (phase == "Running" and not pod_is_fully_ready(pod))
+            or (phase != "Succeeded" and restarts >= 3 and recent_restart)
+        )
+        if not problem:
+            continue
+
+        created_at = str(metadata.get("creationTimestamp") or now_rfc3339())
+        created_at_dt = parse_kubernetes_timestamp(created_at)
+        if (
+            phase in {"Failed", "Succeeded"}
+            and created_at_dt is not None
+            and datetime.now(UTC) - created_at_dt > timedelta(hours=24)
+        ):
+            continue
+
+        container_signal = pod_container_signal_summary(pod)
+        ready_count, ready_total = pod_ready_numbers(pod)
+        signal_text = container_signal.lower()
+        severity = (
+            "risk"
+            if (
+                phase in {"Failed", "Unknown"}
+                or (phase == "Running" and ready_total > 0 and ready_count == 0 and restarts > 0)
+                or any(token in signal_text for token in ("crashloopbackoff", "errimagepull", "imagepullbackoff", "oomkilled"))
+            )
+            else "warn"
+        )
+        if (phase == "Pending" or terminating) and severity != "risk":
+            severity = "warn"
+        target = f"{namespace}/Pod/{name}" if namespace else f"Pod/{name}"
+        detail_parts = [
+            f"phase={phase}",
+            f"ready={ready}",
+            f"restart={restarts}",
+            f"created={created_at}",
+            "terminating=true" if terminating else "",
+            pod_container_signal_summary(pod),
+        ]
+        items.append(
+            {
+                "category": "pod",
+                "detail": compact_event_detail(" · ".join(part for part in detail_parts if part and part != "-")),
+                "id": f"pod-signal-{namespace}-{name}",
+                "namespace": namespace,
+                "severity": severity,
+                "source": "Pod status",
+                "target": target,
+                "time": observed_at,
+                "title": f"Pod 상태 이상 · {name}",
+            }
+        )
+
+    severity_order = {"risk": 2, "warn": 1, "ok": 0}
+    items.sort(
+        key=lambda item: (
+            severity_order.get(str(item.get("severity") or "ok"), 0),
+            str(item.get("time") or ""),
+        ),
+        reverse=True,
+    )
+    return items[:limit]
+
+
+def record_target_label(record: Mapping[str, Any]) -> str:
+    spec = record.get("spec", {}) if isinstance(record.get("spec"), Mapping) else {}
+    target = spec.get("target")
+    if not isinstance(target, Mapping):
+        return "-"
+    namespace = str(target.get("namespace") or "")
+    kind = str(target.get("kind") or target.get("resource") or "")
+    name = str(target.get("name") or "")
+    label = "/".join(part for part in (kind, name) if part)
+    if namespace and label:
+        return f"{namespace}/{label}"
+    return label or "-"
+
+
+def record_event_phase(record: Mapping[str, Any]) -> str:
+    spec = record.get("spec", {}) if isinstance(record.get("spec"), Mapping) else {}
+    status = spec.get("status")
+    if isinstance(status, Mapping):
+        phase = status.get("phase")
+        if phase:
+            return str(phase)
+
+    mutation_outcome = spec.get("mutationOutcome")
+    if isinstance(mutation_outcome, Mapping) and mutation_outcome.get("status"):
+        return str(mutation_outcome["status"])
+
+    policy = spec.get("policy")
+    if isinstance(policy, Mapping) and policy.get("decision"):
+        return str(policy["decision"])
+
+    action = spec.get("action")
+    if action:
+        return str(action)
+
+    return "recorded"
+
+
+def record_event_severity(record: Mapping[str, Any]) -> str:
+    phase = record_event_phase(record).lower()
+    if any(token in phase for token in ("failed", "denied", "rejected", "error")):
+        return "risk"
+    if any(token in phase for token in ("pending", "proposed", "requested", "succeeded")):
+        return "warn" if any(token in phase for token in ("pending", "proposed", "requested")) else "ok"
+    return "ok"
+
+
+def build_aiops_record_event_items(
+    subject: Mapping[str, Any],
+    *,
+    product_access_allowed: bool = False,
+    limit: int = 30,
+) -> list[dict[str, Any]]:
+    records = [
+        *latest_readable_audit_records(subject, product_access_allowed=product_access_allowed, limit=limit),
+        *latest_readable_records(DIAGNOSTIC_REQUESTS, subject, product_access_allowed=product_access_allowed, limit=limit),
+        *latest_readable_records(ACTION_PROPOSALS, subject, product_access_allowed=product_access_allowed, limit=limit),
+        *latest_readable_records(SEALED_ACTION_PLANS, subject, product_access_allowed=product_access_allowed, limit=limit),
+        *latest_readable_records(APPROVAL_DECISIONS, subject, product_access_allowed=product_access_allowed, limit=limit),
+        *latest_readable_records(EXECUTION_RECORDS, subject, product_access_allowed=product_access_allowed, limit=limit),
+    ]
+
+    items: list[dict[str, Any]] = []
+    for record in records:
+        metadata = record.get("metadata", {}) if isinstance(record.get("metadata"), Mapping) else {}
+        spec = record.get("spec", {}) if isinstance(record.get("spec"), Mapping) else {}
+        kind = str(record.get("kind") or "AIOpsRecord")
+        name = str(metadata.get("name") or kind)
+        created_at = str(metadata.get("createdAt") or now_rfc3339())
+        phase = record_event_phase(record)
+        target = record_target_label(record)
+        detail = f"{kind} · phase={phase}"
+        if target != "-":
+            detail = f"{detail} · target={target}"
+        items.append(
+            {
+                "category": "record",
+                "detail": compact_event_detail(detail),
+                "id": f"aiops-record-{kind}-{name}-{created_at}",
+                "namespace": "",
+                "severity": record_event_severity(record),
+                "source": "AIOps Gateway",
+                "target": target,
+                "time": created_at,
+                "title": name if kind != "AuditRecord" else str(spec.get("action") or phase),
+            }
+        )
+
+    items.sort(key=lambda item: str(item.get("time") or ""), reverse=True)
+    return items[:limit]
+
+
+@app.get("/v1/aiops/events")
+async def get_aiops_events(
+    authorization: str | None = Header(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    product_access_review = await fetch_product_access_review(user_auth_header)
+    product_access_allowed = bool(product_access_review.get("allowed"))
+
+    events_payload: Mapping[str, Any] | None = None
+    pods_payload: Mapping[str, Any] | None = None
+    sources = ["AIOps Gateway"]
+    if OPENSHIFT_API_URL:
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(20.0, connect=5.0),
+        ) as client:
+            events_payload, pods_payload = await asyncio.gather(
+                fetch_ocp_json(client, "/api/v1/events?limit=500", user_auth_header),
+                fetch_ocp_json(client, "/api/v1/pods", user_auth_header),
+            )
+        sources.extend(["Kubernetes Event", "Pod status"])
+
+    items = [
+        *build_kubernetes_event_items(events_payload, limit=limit),
+        *build_problem_pod_event_items(pods_payload, limit=limit),
+        *build_aiops_record_event_items(
+            subject,
+            product_access_allowed=product_access_allowed,
+            limit=limit,
+        ),
+    ]
+    items.sort(
+        key=lambda item: (
+            str(item.get("time") or ""),
+            str(item.get("source") or ""),
+        ),
+        reverse=True,
+    )
+
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "AIOpsEventFeed",
+        "metadata": {
+            "generatedAt": now_rfc3339(),
+            "name": "activity-feed",
+        },
+        "spec": {
+            "items": items[:limit],
+            "pollIntervalSeconds": 30,
+            "sources": sources,
+        },
+    }
+
+
 @app.get("/v1/aiops/status")
 async def get_aiops_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
@@ -12720,6 +13589,8 @@ async def _create_approval_decision_impl(
     if not can_subject_read_record(plan, subject) and product_access_review.get("allowed") is not True:
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
     plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
+    if req.expectedPlanDigest != plan_digest:
+        raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
     if plan_has_approval_status(plan_digest, {"rejected"}):
         raise HTTPException(status_code=409, detail="Action plan has been rejected")
     action_access_review = await fetch_action_access_review(

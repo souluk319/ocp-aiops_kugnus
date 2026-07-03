@@ -282,11 +282,11 @@ def crd() -> dict[str, Any]:
                                         },
                                         "consoleApplicationMenuText": {
                                             "type": "string",
-                                            "default": "AIOps",
+                                            "default": "AIOps for OCP",
                                         },
                                         "consoleApplicationMenuHref": {
                                             "type": "string",
-                                            "default": "https://console-openshift-console.apps.ocp.cywell.server/dashboards/aiops",
+                                            "default": "https://aiops.cywell.co.kr",
                                         },
                                         "consoleApplicationMenuImageURL": {
                                             "type": "string",

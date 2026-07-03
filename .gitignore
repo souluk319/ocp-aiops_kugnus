@@ -13,6 +13,7 @@ __pycache__/
 var/aiops/
 komsco-ai-gateway/var/aiops/
 *.pyc
+*.tsbuildinfo
 *.log
 .tmp-*
 .dev-*.pid

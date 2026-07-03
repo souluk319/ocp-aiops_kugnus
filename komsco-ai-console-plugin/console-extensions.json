@@ -14,7 +14,7 @@
       "id": "cywell-aiops-dashboard",
       "perspective": "admin",
       "section": "cywell-aiops",
-      "name": "관제 대시보드",
+      "name": "대시보드",
       "href": "/dashboards/aiops"
     }
   },
@@ -54,21 +54,10 @@
   {
     "type": "console.navigation/href",
     "properties": {
-      "id": "cywell-aiops-actions",
-      "perspective": "admin",
-      "section": "cywell-aiops",
-      "name": "AI 추천 액션",
-      "href": "/dashboards/aiops/actions",
-      "startsWith": ["/dashboards/aiops/actions"]
-    }
-  },
-  {
-    "type": "console.navigation/href",
-    "properties": {
       "id": "cywell-aiops-endpoints",
       "perspective": "admin",
       "section": "cywell-aiops",
-      "name": "엔드포인트",
+      "name": "클러스터 리소스",
       "href": "/dashboards/aiops/endpoints",
       "startsWith": ["/dashboards/aiops/endpoints"]
     }
@@ -90,7 +79,7 @@
       "id": "cywell-aiops-docs",
       "perspective": "admin",
       "section": "cywell-aiops",
-      "name": "Wiki 문서 관리",
+      "name": "위키 문서 관리",
       "href": "/dashboards/aiops/docs",
       "insertAfter": "cywell-aiops-operations-separator",
       "startsWith": ["/dashboards/aiops/docs"]
@@ -136,15 +125,6 @@
       "exact": true,
       "perspective": "admin",
       "component": { "$codeRef": "AiopsDashboardPage" }
-    }
-  },
-  {
-    "type": "console.page/route",
-    "properties": {
-      "path": "/dashboards/aiops/actions",
-      "exact": true,
-      "perspective": "admin",
-      "component": { "$codeRef": "AiopsActionsPage" }
     }
   },
   {

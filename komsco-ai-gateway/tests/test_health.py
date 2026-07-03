@@ -1316,7 +1316,7 @@ def test_page_context_aiops_execution_mode_accepts_unrestricted_aliases() -> Non
         page_context_aiops_execution_mode(unrestricted_req)
         == "unrestricted"
     )
-    assert not gateway_main.execution_mode_allows_immediate_actions(unrestricted_req)
+    assert gateway_main.execution_mode_allows_immediate_actions(unrestricted_req)
     assert (
         page_context_aiops_execution_mode(
             ChatRequest(
@@ -5930,12 +5930,67 @@ def test_build_cluster_summary_returns_real_operational_counts() -> None:
             },
         ]
     }
+    pods_payload = {
+        "items": [
+            {
+                "metadata": {"name": "cywell-aiops-gateway-1", "namespace": "cywell-aiops"},
+                "status": {
+                    "containerStatuses": [{"name": "gateway", "ready": True, "restartCount": 0}],
+                    "phase": "Running",
+                },
+            },
+            {
+                "metadata": {"name": "broken-1", "namespace": "prod"},
+                "status": {
+                    "containerStatuses": [{"name": "app", "ready": False, "restartCount": 4}],
+                    "phase": "Running",
+                },
+            },
+        ]
+    }
+    deployments_payload = {
+        "items": [
+            {
+                "metadata": {"generation": 1, "name": "cywell-aiops-gateway", "namespace": "cywell-aiops"},
+                "spec": {"replicas": 1},
+                "status": {"availableReplicas": 1, "observedGeneration": 1, "readyReplicas": 1, "replicas": 1, "updatedReplicas": 1},
+            }
+        ]
+    }
+    replicasets_payload = {"items": []}
+    daemonsets_payload = {"items": []}
+    statefulsets_payload = {"items": []}
+    services_payload = {"items": [{"metadata": {"name": "cywell-aiops-gateway", "namespace": "cywell-aiops"}}]}
+    routes_payload = {
+        "items": [
+            {
+                "metadata": {"name": "aiops", "namespace": "cywell-aiops"},
+                "status": {"ingress": [{"conditions": [{"status": "True", "type": "Admitted"}]}]},
+            }
+        ]
+    }
+    pvcs_payload = {"items": []}
+    namespaces_payload = {
+        "items": [
+            {"metadata": {"name": "cywell-aiops"}, "status": {"phase": "Active"}},
+            {"metadata": {"name": "old"}, "status": {"phase": "Terminating"}},
+        ]
+    }
 
     summary = build_cluster_summary(
         nodes_payload,
         node_metrics_payload,
         cluster_version_payload,
         cluster_operators_payload,
+        pods_payload,
+        deployments_payload,
+        replicasets_payload,
+        daemonsets_payload,
+        statefulsets_payload,
+        services_payload,
+        routes_payload,
+        pvcs_payload,
+        namespaces_payload,
     )
 
     assert summary["nodes"]["total"] == 1
@@ -5944,7 +5999,12 @@ def test_build_cluster_summary_returns_real_operational_counts() -> None:
     assert summary["operators"]["degraded"] == 1
     assert summary["operators"]["issues"][0]["name"] == "marketplace"
     assert summary["version"]["updateAvailable"] is True
+    assert summary["version"]["availableUpdates"] == ["4.20.24"]
     assert summary["version"]["upgradeable"] is False
+    assert summary["resources"]["issues"] >= 2
+    assert {item["id"] for item in summary["resources"]["items"]} >= {"pods", "deployments", "routes", "namespaces"}
+    assert summary["aiopsWorkloads"]["total"] == 1
+    assert summary["aiopsWorkloads"]["deployments"][0]["name"] == "cywell-aiops-gateway"
     assert summary["healthScore"] < 100
 
 
@@ -6520,7 +6580,7 @@ def test_aiops_overview_api_collects_cluster_and_monitoring_sources(monkeypatch)
         assert payload["kind"] == "AIOpsOverview"
         assert payload["spec"]["clusterSummary"]["nodes"]["ready"] == 1
         assert payload["spec"]["clusterSummary"]["nodes"]["items"][0]["usage"]["cpu"] == "42m"
-        assert payload["spec"]["controlTower"]["mode"] == "controlled_execution"
+        assert payload["spec"]["controlTower"]["mode"] == "execute"
         assert payload["spec"]["monitoring"]["probe"]["resultCount"] == 3
         assert {source["name"] for source in payload["spec"]["dataSources"]} == {
             "nodes",
@@ -6786,6 +6846,129 @@ def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> N
         audit_record = payload["spec"]["records"]["auditRecords"][0]
         assert audit_record["metadata"]["name"] == "audit-runtime"
         assert audit_record["spec"]["action"] == "chat_request_accepted"
+        assert "Bearer" not in json.dumps(payload)
+
+    asyncio.run(run())
+
+
+def test_aiops_events_api_merges_kubernetes_events_pod_signals_and_records(monkeypatch) -> None:
+    AUDIT_RECORDS.clear()
+    DIAGNOSTIC_REQUESTS.clear()
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    AUDIT_RECORDS["audit-runtime"] = {
+        "schemaVersion": "v1",
+        "action": "chat_request_accepted",
+        "auditId": "audit-runtime",
+        "incidentId": "incident-runtime",
+        "policy": {"decision": "allow_evidence_collection"},
+        "requestId": "request-runtime",
+        "runId": "run-runtime",
+        "subject": subject,
+        "target": {"messageLength": 10},
+        "timestamp": "2026-06-21T00:02:00Z",
+    }
+    EXECUTION_RECORDS["execution-runtime"] = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ExecutionRecord",
+        "metadata": {"name": "execution-runtime", "createdAt": "2026-06-21T00:01:00Z"},
+        "spec": {
+            "mutationOutcome": {"status": "mutation_succeeded"},
+            "target": {"kind": "Deployment", "name": "web", "namespace": "team-a"},
+        },
+        "subject": subject,
+    }
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return subject
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {"allowed": True}
+
+    async def fake_fetch_ocp_json(_client, path, _authorization, **_kwargs):
+        if path.startswith("/api/v1/events"):
+            return {
+                "items": [
+                    {
+                        "eventTime": "2026-06-21T00:03:00Z",
+                        "involvedObject": {"kind": "Pod", "name": "web-1", "namespace": "team-a"},
+                        "message": "Back-off restarting failed container",
+                        "metadata": {"uid": "event-1", "namespace": "team-a"},
+                        "reason": "BackOff",
+                        "type": "Warning",
+                    }
+                ]
+            }
+        if path == "/api/v1/pods":
+            return {
+                "items": [
+                    {
+                        "metadata": {"creationTimestamp": "2026-06-21T00:00:00Z", "name": "web-1", "namespace": "team-a"},
+                        "status": {
+                            "containerStatuses": [
+                                {
+                                    "lastState": {"terminated": {"finishedAt": "2026-06-21T00:02:30Z", "reason": "Error"}},
+                                    "name": "web",
+                                    "ready": False,
+                                    "restartCount": 5,
+                                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                                }
+                            ],
+                            "phase": "Running",
+                        },
+                    },
+                    {
+                        "metadata": {
+                            "creationTimestamp": "2026-06-21T00:00:00Z",
+                            "labels": {
+                                "buildconfig": "komsco-ai-console-plugin",
+                                "openshift.io/build.name": "komsco-ai-console-plugin-8",
+                            },
+                            "name": "komsco-ai-console-plugin-8-build",
+                            "namespace": "cywell-aiops",
+                        },
+                        "status": {
+                            "containerStatuses": [
+                                {
+                                    "name": "docker-build",
+                                    "ready": False,
+                                    "restartCount": 0,
+                                    "state": {"terminated": {"reason": "Error"}},
+                                }
+                            ],
+                            "phase": "Failed",
+                        },
+                    },
+                ]
+            }
+        return None
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/v1/aiops/events",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "AIOpsEventFeed"
+        assert {"AIOps Gateway", "Kubernetes Event", "Pod status"}.issubset(set(payload["spec"]["sources"]))
+        items = payload["spec"]["items"]
+        assert any(item["source"] == "Kubernetes Event" and item["severity"] in {"warn", "risk"} for item in items)
+        assert any(item["source"] == "Pod status" and item["target"] == "team-a/Pod/web-1" for item in items)
+        assert not any(item["target"] == "cywell-aiops/Pod/komsco-ai-console-plugin-8-build" for item in items)
+        assert any(item["source"] == "AIOps Gateway" and item["title"] == "chat_request_accepted" for item in items)
         assert "Bearer" not in json.dumps(payload)
 
     asyncio.run(run())
@@ -7549,11 +7732,30 @@ def test_execution_evidence_freshness_rejects_expired_evidence_refs() -> None:
     assert "create a new plan and approval" in str(exc_info.value.detail)
 
 
-def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution() -> None:
+def test_actions_api_rejects_stale_approval_and_blocks_disabled_execution(monkeypatch: pytest.MonkeyPatch) -> None:
     ACTION_PROPOSALS.clear()
     SEALED_ACTION_PLANS.clear()
     APPROVAL_DECISIONS.clear()
     EXECUTION_RECORDS.clear()
+    subject = safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_subject_review(_user_auth_header: str) -> dict[str, object]:
+        return subject
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict[str, object]:
+        return {"allowed": True, "enabled": True, "required": False}
+
+    async def fake_action_access_review(_user_auth_header: str, _plan: dict[str, object]) -> dict[str, object]:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "resourceAttributes": {"group": "apps", "resource": "deployments", "verb": "patch"},
+        }
+
+    monkeypatch.setattr(gateway_main, "MUTATIONS_ENABLED", False)
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_action_access_review", fake_action_access_review)
 
     async def run() -> None:
         transport = httpx.ASGITransport(app=app)

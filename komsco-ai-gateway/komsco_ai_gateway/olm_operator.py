@@ -65,11 +65,11 @@ DEFAULT_CONSOLE_APPLICATION_MENU_SECTION = os.getenv(
 )
 DEFAULT_CONSOLE_APPLICATION_MENU_TEXT = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_TEXT",
-    "AIOps",
+    "AIOps for OCP",
 )
 DEFAULT_CONSOLE_APPLICATION_MENU_HREF = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_HREF",
-    "https://console-openshift-console.apps.ocp.cywell.server/dashboards/aiops",
+    "https://aiops.cywell.co.kr",
 )
 DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_APPLICATION_MENU_IMAGE_URL",
