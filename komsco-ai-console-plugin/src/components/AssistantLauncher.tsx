@@ -3972,6 +3972,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const assistantTextDrainResolversRef = React.useRef<Array<() => void>>([]);
   const chatAbortControllerRef = React.useRef<AbortController | null>(null);
   const stopRequestedRef = React.useRef(false);
+  const panelDragFrameRef = React.useRef<number | undefined>();
+  const panelDragNextOffsetRef = React.useRef<{ x: number; y: number } | null>(null);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
   const actionExecutionDisabledReason = getActionExecutionDisabledReason(aiopsStatus);
   const assistantConnection = getAssistantConnectionState(
@@ -3995,6 +3997,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       messages,
     });
   }, [activeSessionId, conversationId, messages]);
+
+  React.useEffect(
+    () => () => {
+      if (panelDragFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(panelDragFrameRef.current);
+        panelDragFrameRef.current = undefined;
+      }
+      panelDragNextOffsetRef.current = null;
+    },
+    [],
+  );
 
   React.useEffect(() => {
     writeStoredConversationHistory(conversationHistory);
@@ -4149,18 +4162,51 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       document.body.style.userSelect = 'none';
       document.body.style.cursor = 'grabbing';
 
+      const applyPanelOffset = (nextOffset: { x: number; y: number }) => {
+        panelDragNextOffsetRef.current = nextOffset;
+        if (panelDragFrameRef.current !== undefined) {
+          return;
+        }
+
+        panelDragFrameRef.current = window.requestAnimationFrame(() => {
+          panelDragFrameRef.current = undefined;
+          const pendingOffset = panelDragNextOffsetRef.current;
+          panelDragNextOffsetRef.current = null;
+          if (!pendingOffset) {
+            return;
+          }
+
+          setPanelOffset({
+            x: Number(pendingOffset.x.toFixed(1)),
+            y: Number(pendingOffset.y.toFixed(1)),
+          });
+        });
+      };
+
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const rawX = startOffset.x + moveEvent.clientX - startX;
         const rawY = startOffset.y + moveEvent.clientY - startY;
-        setPanelOffset({
-          x: Math.round(clamp(rawX, minLeft - baseLeft, maxLeft - baseLeft)),
-          y: Math.round(clamp(rawY, minTop - baseTop, maxTop - baseTop)),
+        applyPanelOffset({
+          x: clamp(rawX, minLeft - baseLeft, maxLeft - baseLeft),
+          y: clamp(rawY, minTop - baseTop, maxTop - baseTop),
         });
       };
 
       const stopPanelDrag = () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', stopPanelDrag);
+        if (panelDragFrameRef.current !== undefined) {
+          window.cancelAnimationFrame(panelDragFrameRef.current);
+          panelDragFrameRef.current = undefined;
+        }
+        const finalOffset = panelDragNextOffsetRef.current;
+        panelDragNextOffsetRef.current = null;
+        if (finalOffset) {
+          setPanelOffset({
+            x: Number(finalOffset.x.toFixed(1)),
+            y: Number(finalOffset.y.toFixed(1)),
+          });
+        }
         document.body.style.userSelect = previousUserSelect;
         document.body.style.cursor = previousCursor;
         setPanelDragActive(false);

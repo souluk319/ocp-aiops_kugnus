@@ -4105,6 +4105,16 @@
   cursor: grabbing;
 }
 
+.komsco-ai__surface--dragging:not(.komsco-ai__surface--fullscreen) {
+  transition:
+    transform 115ms cubic-bezier(0.16, 1, 0.3, 1),
+    width 190ms cubic-bezier(0.2, 0, 0, 1),
+    grid-template-columns 190ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 190ms ease,
+    border-color 190ms ease;
+  will-change: transform;
+}
+
 .komsco-ai--embedded .komsco-ai__surface--resize-unlocked:not(.komsco-ai__surface--fullscreen) {
   min-width: min(460px, 100%);
   max-width: 100%;
@@ -5665,6 +5675,7 @@
   box-shadow: 0 24px 70px rgb(15 23 42 / 22%);
   transform-origin: top right;
   transition:
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1),
     width 190ms cubic-bezier(0.2, 0, 0, 1),
     grid-template-columns 190ms cubic-bezier(0.2, 0, 0, 1),
     box-shadow 190ms ease,
