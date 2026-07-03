@@ -45,23 +45,65 @@ JK 브랜치가 우리보다 우위인 부분은 아래이다.
 | `demo/ocp_chatbot_redesign.html` | 우선 확인 3개, command block, copy control, context rail, quick prompt, read-only indicator | 카드 정보 구조와 expanded/docked 화면 흐름 |
 | `docs/ols-gateway-tool-boundary.md` | OLS는 read-only observation, Gateway는 BFF/policy/SSE, mutation은 별도 승인 흐름 | Gateway prompt와 UI 라벨 책임 경계 |
 | `docs/aiops-agent-architecture-proposal.md` | ActionProposal, SealedActionPlan, ApprovalDecision, ExecutionGrant, Action Executor 경계 | Action Plan lifecycle UI와 실행 모드 설명 |
+| `komsco-ai-gateway/komsco_ai_gateway/main.py` | 자연어 intent, followup 복원, target resolution, action plan 생성/실행 branch | UI보다 먼저 로직 계약 inventory로 흡수 |
+| `komsco-ai-gateway/komsco_ai_gateway/aiops_core.py` | typed mutation request builder, HPA/rollback/eviction precondition | 실행 전 deterministic validation 기준 |
+| `komsco-ai-gateway/komsco_ai_gateway/action_executor.py` | ExecutionGrant audience/digest/target/policy 검증 | 승인 후 실행 경계와 실패 문구 기준 |
+| `komsco-ai-gateway/komsco_ai_gateway/security.py` | mutation request classification과 gateway guardrail | OLS 일반 답변으로 빠지면 안 되는 변경 요청 차단 기준 |
 | `docs/aiops-agentic-scenario-verification-report.md` | 3/4/5턴 `진행해`, restart/scale/evict/rollback/HPA, ambiguous block | Gateway/action regression gate |
 | `scripts/evaluate-aiops-actions-e2e.py` | live action e2e의 setup, approve, execute, verify 흐름 | 이후 별도 검증 스크립트 또는 task 설계 참고 |
 
 ## 구현 범위
 
-v0.2.4 구현은 4개 lane으로 나눈다. 한 브랜치에서 모두 섞지 않는다.
+v0.2.4 구현은 5개 lane으로 나눈다. 한 브랜치에서 모두 섞지 않는다.
 
 ```text
-lane 1: assistant runbook card UI
-lane 2: expanded assistant context rail
-lane 3: Action Plan lifecycle/dedupe/error wording
-lane 4: typed action verification gate
+lane 1: JK backend/action logic absorption
+lane 2: assistant runbook card UI
+lane 3: expanded assistant context rail
+lane 4: Action Plan lifecycle/dedupe/error wording
+lane 5: typed action verification gate
 ```
 
 배포 lane은 없다. 회사 서버 배포는 v0.2.4 구현/검증이 끝난 뒤 별도 배포 계약에서 다룬다.
 
-## Lane 1: Assistant Runbook Card UI
+## Lane 1: JK Backend/Action Logic Absorption
+
+### 목표
+
+UI를 바꾸기 전에 JK 브랜치에서 배울 agentic action 로직을 현재 repo의 구현과 비교해, 이미 있는 것과 보강할 것을 나눈다.
+
+이 lane은 사용자가 말한 "단순 UI 참고로 끝내면 안 되는 지점"을 고정하는 단계이다.
+
+### 로직 학습 대상
+
+| 영역 | JK에서 볼 것 | 우리 구현에서 확인할 것 |
+| --- | --- | --- |
+| Natural action intent | scale/restart/rollback/evict/HPA 자연어 분류 | `parse_natural_action_intent`가 한국어 운영 표현을 충분히 받는지 |
+| Followup execution | 3/4/5턴 뒤 `진행해`가 최근 action request를 복원 | `recent_natural_action_request`가 assistant/system 문장에 끌려가지 않는지 |
+| Target resolution | namespace/kind/name, pageContext, cluster-wide ambiguity 처리 | 대상 불명확 시 OLS로 넘기지 않고 Gateway에서 중단하는지 |
+| Action registry | toolName, targetKind, parameter schema, risk, pathTemplate | registry version/digest가 plan/approval/execution에 일관되게 묶이는지 |
+| Runbook registry | runbook step과 typed action 연결 | UI의 "런북 카드"가 실제 action/runbook id와 연결되는지 |
+| Mutation builder | restart/scale/evict/rollback/HPA별 deterministic request 생성 | HPA review, controller owner, rollback revision, min/max validation |
+| Approval/Execution | SealedActionPlan, ApprovalDecision, ExecutionGrant 검증 | self-approval, expiry, digest mismatch, policy hash mismatch 처리 |
+| Error surface | Conflict, policy disabled, reauth, target mismatch | 사용자 화면 문구가 원인 단위로 번역되는지 |
+
+### 구현 산출물
+
+- 새 코드 대량 이식 전에 `docs/Ver.0.2.4/aiops-jk-logic-inventory.md`를 작성한다.
+- inventory는 `already covered`, `partial`, `missing`, `do not copy` 네 구역으로 나눈다.
+- `partial`과 `missing`만 후속 구현 대상으로 올린다.
+- UI lane은 이 inventory를 기준으로 카드의 상태/버튼/에러 문구를 결정한다.
+
+### Pass/Fail
+
+| ID | Pass | Fail |
+| --- | --- | --- |
+| LOGIC-01 | JK action 로직과 현재 repo 로직의 차이가 파일/함수 단위로 정리된다. | "로직도 참고" 같은 추상 문장만 있다. |
+| LOGIC-02 | 이미 구현된 기능과 부족한 기능이 분리된다. | 이미 있는 코드를 중복 구현한다. |
+| LOGIC-03 | UI 카드가 실제 action lifecycle 상태와 연결된다. | 예쁜 카드만 생기고 실행/승인 상태와 무관하다. |
+| LOGIC-04 | ambiguous/read-only/unrestricted/followup 로직이 각각 검증 항목으로 매핑된다. | 실행 모드와 후속 명령이 화면 문구 수준에 머문다. |
+
+## Lane 2: Assistant Runbook Card UI
 
 ### 목표
 
@@ -107,7 +149,7 @@ Action Plan
 | UI-03 | 답변 완료 후 loading animation이 사라진다. | 완료된 답변 아래 spinner가 계속 움직인다. |
 | UI-04 | dark theme에서 헤더 아이콘과 버튼이 보인다. | KR/EN, 전체화면, 잠금, 닫기 아이콘이 사라진다. |
 
-## Lane 2: Expanded Assistant Context Rail
+## Lane 3: Expanded Assistant Context Rail
 
 ### 목표
 
@@ -148,7 +190,7 @@ context rail은 아래 항목을 가진다.
 | XR-02 | context rail에 cluster health, 주요 경고, scope, Action Plan 상태가 있다. | 단순 장식 패널이거나 더미 데이터만 있다. |
 | XR-03 | mobile/docked에서 UI가 겹치지 않는다. | 버튼, badge, mode toggle이 겹친다. |
 
-## Lane 3: Action Plan Lifecycle 정규화
+## Lane 4: Action Plan Lifecycle 정규화
 
 ### 목표
 
@@ -221,7 +263,7 @@ namespace + targetKind + targetName + toolName + normalizedParametersDigest
 | `reauth_required` | 인증 정보가 만료되었습니다. 콘솔을 새로고침하거나 다시 로그인해야 합니다. |
 | policy disabled | 현재 설치 설정에서 실행 기능이 비활성화되어 있습니다. |
 
-## Lane 4: Typed Action Verification Gate
+## Lane 5: Typed Action Verification Gate
 
 ### 목표
 
@@ -290,7 +332,45 @@ docs/Ver.0.2.4/aiops-jk-reference-absorption-plan.md
 - 회사 서버 배포 제외가 명시되어 있다.
 - Acceptance Criteria가 pass/fail로 있다.
 
-### Step 2: assistant runbook card UI
+### Step 2: JK backend/action logic inventory
+
+권장 브랜치:
+
+```text
+feature/v0.2.4-action-logic-inventory
+```
+
+변경 대상:
+
+```text
+docs/Ver.0.2.4/aiops-jk-logic-inventory.md
+```
+
+확인 대상:
+
+```text
+komsco-ai-gateway/komsco_ai_gateway/main.py
+komsco-ai-gateway/komsco_ai_gateway/aiops_core.py
+komsco-ai-gateway/komsco_ai_gateway/action_executor.py
+komsco-ai-gateway/komsco_ai_gateway/security.py
+komsco-ai-gateway/tests/test_health.py
+scripts/evaluate-aiops-actions-e2e.py
+```
+
+구현 내용:
+
+- JK 브랜치와 현재 repo의 자연어 action, registry, target resolution, approval/execution, test coverage를 비교한다.
+- `already covered`, `partial`, `missing`, `do not copy`로 나눈다.
+- UI lane에서 필요한 상태/문구/dedupe 기준을 logic inventory에서 가져오게 한다.
+
+검증:
+
+```bash
+git diff --check
+rg -n "already covered|partial|missing|do not copy" docs/Ver.0.2.4/aiops-jk-logic-inventory.md
+```
+
+### Step 3: assistant runbook card UI
 
 권장 브랜치:
 
@@ -321,7 +401,7 @@ cd komsco-ai-console-plugin && node .yarn/releases/yarn-4.13.0.cjs typecheck
 cd komsco-ai-console-plugin && node .yarn/releases/yarn-4.13.0.cjs build-dev
 ```
 
-### Step 3: expanded context rail
+### Step 4: expanded context rail
 
 권장 브랜치:
 
@@ -342,7 +422,7 @@ feature/v0.2.4-assistant-context-rail
 - docked/mobile에서 rail 미표시.
 - 가로 스크롤 없음.
 
-### Step 4: Action Plan lifecycle/dedupe/error wording
+### Step 5: Action Plan lifecycle/dedupe/error wording
 
 권장 브랜치:
 
@@ -363,7 +443,7 @@ feature/v0.2.4-action-lifecycle-polish
 - Conflict 원문 대신 재확인 필요 문구가 보인다.
 - 승인/거절/실행 버튼이 좁은 패널에서 겹치지 않는다.
 
-### Step 5: typed action verification gate
+### Step 6: typed action verification gate
 
 권장 브랜치:
 
@@ -397,6 +477,8 @@ komsco-ai-gateway/.venv/bin/python -m pytest -q komsco-ai-gateway/tests/test_hea
 | V024-08 | read-only RCA 요청은 mutation record 없이 evidence/RCA만 만든다. | Gateway test | pytest |
 | V024-09 | ambiguous mutation 요청은 OLS 일반 답변으로 빠지지 않고 대상 부족으로 중단된다. | Gateway test | pytest |
 | V024-10 | 3/4/5턴 `진행해`는 가장 최근 실행 가능한 사용자 요청만 복원한다. | Gateway stream test | pytest/SSE event |
+| V024-11 | JK backend/action logic inventory가 작성되고, already covered/partial/missing/do not copy가 분리된다. | doc grep/source comparison | inventory doc |
+| V024-12 | UI Action Plan 카드의 상태/버튼/에러 문구가 실제 lifecycle 로직에 매핑된다. | source grep + UI check | typecheck/browser |
 
 ## 완료 보고 형식
 
@@ -434,14 +516,14 @@ OLM publish/install scripts unless a later deployment task explicitly asks
 
 ## 최종 판정
 
-JK 브랜치에서 배울 핵심은 "예쁜 화면"보다 아래 네 가지이다.
+JK 브랜치에서 배울 핵심은 "예쁜 화면"보다 아래 다섯 가지이다.
 
 ```text
-1. 챗봇 답변을 운영 런북 카드로 보이게 한다.
-2. expanded 화면은 context rail로 운영 상황을 고정한다.
-3. OLS/Gateway/Action Executor 책임 경계를 제품 언어로 일관되게 말한다.
-4. typed action은 시나리오와 verifier로 증명한다.
+1. 자연어 운영 요청을 typed action lifecycle로 연결한다.
+2. 챗봇 답변을 운영 런북 카드로 보이게 한다.
+3. expanded 화면은 context rail로 운영 상황을 고정한다.
+4. OLS/Gateway/Action Executor 책임 경계를 제품 언어로 일관되게 말한다.
+5. typed action은 시나리오와 verifier로 증명한다.
 ```
 
 이 네 가지를 흡수하면 현재 우리 제품의 기능량은 유지하면서, 선임이나 동료가 봤을 때 허접해 보이는 지점인 UI 첫인상, Action Plan 중복/혼선, 실행 경계 설명 부족을 줄일 수 있다.
-
