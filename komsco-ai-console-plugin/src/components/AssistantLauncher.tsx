@@ -1148,6 +1148,47 @@ const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
   verification: '검증/롤백',
 };
 
+const RUNBOOK_SECTION_META: Record<
+  RunbookSectionId,
+  { badge: string; subtitle: string; tone: 'high' | 'mid' | 'low' | 'neutral' }
+> = {
+  action: {
+    badge: '조치',
+    subtitle: '승인 조건과 실행 전 확인 사항',
+    tone: 'high',
+  },
+  cause: {
+    badge: '가설',
+    subtitle: '증상과 근거로 좁힌 원인 후보',
+    tone: 'mid',
+  },
+  details: {
+    badge: '상세',
+    subtitle: '감사와 재검토를 위한 원문 근거',
+    tone: 'neutral',
+  },
+  evidence: {
+    badge: '근거',
+    subtitle: '클러스터에서 확인한 신호와 조회 결과',
+    tone: 'low',
+  },
+  impact: {
+    badge: '영향',
+    subtitle: '서비스 영향 범위와 우선순위',
+    tone: 'mid',
+  },
+  summary: {
+    badge: '판단',
+    subtitle: '현재 상황과 먼저 볼 항목',
+    tone: 'low',
+  },
+  verification: {
+    badge: '검증',
+    subtitle: '실행 후 확인과 실패 시 되돌림',
+    tone: 'low',
+  },
+};
+
 const normalizeRunbookHeading = (line: string): string =>
   line
     .replace(/^#+\s*/, '')
@@ -1241,14 +1282,29 @@ const renderRunbookLines = (lines: string[], sectionKey: string): React.ReactNod
     return <p>표시할 내용이 없습니다.</p>;
   }
 
+  if (items.every(isCommandLikeLine)) {
+    return renderCodeBlock(items.slice(0, 6), `${sectionKey}-commands`);
+  }
+
   if (items.length === 1) {
+    if (isCommandLikeLine(items[0])) {
+      return renderCodeBlock([items[0]], `${sectionKey}-command`);
+    }
+
     return <p>{renderInlineText(items[0], `${sectionKey}-line`)}</p>;
   }
 
   return (
     <ul>
       {items.slice(0, 6).map((item, index) => (
-        <li key={`${sectionKey}-${index}`}>{renderInlineText(item, `${sectionKey}-${index}`)}</li>
+        <li
+          className={isCommandLikeLine(item) ? 'is-command' : undefined}
+          key={`${sectionKey}-${index}`}
+        >
+          {isCommandLikeLine(item)
+            ? renderCodeBlock([item], `${sectionKey}-${index}-command`)
+            : renderInlineText(item, `${sectionKey}-${index}`)}
+        </li>
       ))}
     </ul>
   );
@@ -1256,16 +1312,31 @@ const renderRunbookLines = (lines: string[], sectionKey: string): React.ReactNod
 
 const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
   <div className="komsco-ai__runbook-answer">
-    {sections.map((section) => (
-      <section className={`komsco-ai__runbook-section is-${section.id}`} key={section.id}>
-        <div className="komsco-ai__runbook-section-head">
-          <span>{section.title}</span>
-        </div>
+    {sections.map((section, index) => {
+      const meta = RUNBOOK_SECTION_META[section.id];
+      return (
+        <details
+          className={`komsco-ai__runbook-section is-${section.id} tone-${meta.tone}`}
+          key={section.id}
+          open={index === 0}
+        >
+          <summary className="komsco-ai__runbook-section-head">
+            <span className="komsco-ai__runbook-step-index">
+              {String(index + 1).padStart(2, '0')}
+            </span>
+            <span className="komsco-ai__runbook-section-copy">
+              <span className="komsco-ai__runbook-section-title">{section.title}</span>
+              <span className="komsco-ai__runbook-section-subtitle">{meta.subtitle}</span>
+            </span>
+            <span className={`komsco-ai__runbook-badge tone-${meta.tone}`}>{meta.badge}</span>
+            <CoolCaretDownIcon />
+          </summary>
         <div className="komsco-ai__runbook-section-body">
           {renderRunbookLines(section.lines, `runbook-${section.id}`)}
         </div>
-      </section>
-    ))}
+        </details>
+      );
+    })}
   </div>
 );
 
