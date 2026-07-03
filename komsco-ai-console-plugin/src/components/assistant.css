@@ -4087,6 +4087,24 @@
   resize: both;
 }
 
+.komsco-ai__surface--resize-unlocked:not(.komsco-ai__surface--fullscreen)
+  .komsco-ai__header {
+  cursor: grab;
+  user-select: none;
+}
+
+.komsco-ai__surface--resize-unlocked:not(.komsco-ai__surface--fullscreen)
+  .komsco-ai__header button,
+.komsco-ai__surface--resize-unlocked:not(.komsco-ai__surface--fullscreen)
+  .komsco-ai__header-status {
+  cursor: auto;
+}
+
+.komsco-ai__surface--dragging:not(.komsco-ai__surface--fullscreen),
+.komsco-ai__surface--dragging:not(.komsco-ai__surface--fullscreen) .komsco-ai__header {
+  cursor: grabbing;
+}
+
 .komsco-ai--embedded .komsco-ai__surface--resize-unlocked:not(.komsco-ai__surface--fullscreen) {
   min-width: min(460px, 100%);
   max-width: 100%;

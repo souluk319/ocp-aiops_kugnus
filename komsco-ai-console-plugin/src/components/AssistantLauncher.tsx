@@ -3944,6 +3944,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [assistantTaskMode, setAssistantTaskMode] = React.useState<AssistantTaskMode>('ask');
   const [panelResizeUnlocked, setPanelResizeUnlocked] = React.useState(false);
   const [panelSize, setPanelSize] = React.useState<{ height?: number; width?: number }>({});
+  const [panelOffset, setPanelOffset] = React.useState({ x: 0, y: 0 });
+  const [panelDragActive, setPanelDragActive] = React.useState(false);
   const [historyDrawerBounds, setHistoryDrawerBounds] = React.useState<{
     height?: number;
     left?: number;
@@ -4035,6 +4037,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     if (panelSize.width) {
       style.width = `${panelSize.width}px`;
     }
+    if (panelOffset.x || panelOffset.y) {
+      style.transform = `translate(${panelOffset.x}px, ${panelOffset.y}px)`;
+    }
     if (
       historySidebarOpen &&
       historyDrawerBounds.height &&
@@ -4052,6 +4057,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     historyDrawerBounds.left,
     historyDrawerBounds.top,
     historySidebarOpen,
+    panelOffset.x,
+    panelOffset.y,
     panelSize.height,
     panelSize.width,
   ]);
@@ -4099,6 +4106,71 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
     setPanelResizeUnlocked((value) => !value);
   }, [captureCurrentPanelSize, panelResizeUnlocked]);
+
+  const startPanelDrag = React.useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (!panelResizeUnlocked || fullScreen || event.button !== 0) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest(
+          'button, a, input, textarea, select, [role="button"], .komsco-ai__header-status',
+        )
+      ) {
+        return;
+      }
+
+      const surface = surfaceRef.current;
+      if (!surface) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const rect = surface.getBoundingClientRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startOffset = panelOffset;
+      const baseLeft = rect.left - startOffset.x;
+      const baseTop = rect.top - startOffset.y;
+      const minLeft = 8;
+      const maxLeft = Math.max(minLeft, window.innerWidth - Math.min(rect.width, 180));
+      const minTop = 8;
+      const maxTop = Math.max(minTop, window.innerHeight - 120);
+      const clamp = (value: number, min: number, max: number) =>
+        Math.min(Math.max(value, min), max);
+      const previousUserSelect = document.body.style.userSelect;
+      const previousCursor = document.body.style.cursor;
+
+      setPanelDragActive(true);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'grabbing';
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const rawX = startOffset.x + moveEvent.clientX - startX;
+        const rawY = startOffset.y + moveEvent.clientY - startY;
+        setPanelOffset({
+          x: Math.round(clamp(rawX, minLeft - baseLeft, maxLeft - baseLeft)),
+          y: Math.round(clamp(rawY, minTop - baseTop, maxTop - baseTop)),
+        });
+      };
+
+      const stopPanelDrag = () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', stopPanelDrag);
+        document.body.style.userSelect = previousUserSelect;
+        document.body.style.cursor = previousCursor;
+        setPanelDragActive(false);
+      };
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', stopPanelDrag);
+    },
+    [fullScreen, panelOffset, panelResizeUnlocked],
+  );
 
   const updateHistoryDrawerBounds = React.useCallback(() => {
     const surface = surfaceRef.current;
@@ -5709,14 +5781,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
             }${panelResizeUnlocked ? ' komsco-ai__surface--resize-unlocked' : ''}${
               !panelResizeUnlocked ? ' komsco-ai__surface--resize-locked' : ''
-            }`}
+            }${panelDragActive ? ' komsco-ai__surface--dragging' : ''}`}
             style={surfaceStyle}
           >
             {historySidebar}
             <Card
               className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}
             >
-              <div className="komsco-ai__header">
+              <div className="komsco-ai__header" onMouseDown={startPanelDrag}>
                 <Button
                   aria-label={copy.openSidebar}
                   className="komsco-ai__icon-button komsco-ai__sidebar-toggle"
