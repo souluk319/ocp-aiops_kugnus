@@ -5676,10 +5676,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     />
   ) : null;
   const assistantVisible = open || embedded || lockOpen;
-  const historySidebarPortal =
-    assistantVisible && historySidebar && !fullScreen && typeof document !== 'undefined'
-      ? ReactDOM.createPortal(historySidebar, document.body)
-      : null;
 
   const assistantRootClassName = `komsco-ai${embedded ? ' komsco-ai--embedded' : ''}${
     fullScreen ? ' komsco-ai--fullscreen-active' : ''
@@ -5716,7 +5712,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             }`}
             style={surfaceStyle}
           >
-            {fullScreen ? historySidebar : null}
+            {historySidebar}
             <Card
               className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}
             >
@@ -6221,7 +6217,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           </div>
         </AssistantSurfacePortal>
       )}
-      {historySidebarPortal}
       {previewAttachment && (
         <div
           aria-label={`${previewAttachment.name} 크게 보기`}

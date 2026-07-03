@@ -5635,6 +5635,7 @@
   --komsco-jk-blue-soft: #eff6ff;
   --komsco-jk-green: #10b981;
   --komsco-jk-radius: 18px;
+  --komsco-floating-panel-width: 520px;
 
   overflow: hidden;
   font-family: Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont,
@@ -5650,8 +5651,15 @@
   width: min(520px, calc(100vw - 32px));
 }
 
+.komsco-ai:not(.komsco-ai--embedded)
+  .komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen),
 .komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen) {
-  width: min(520px, calc(100vw - 32px));
+  grid-template-columns: var(--komsco-history-width) minmax(0, var(--komsco-floating-panel-width));
+  width: min(
+    calc(var(--komsco-history-width) + var(--komsco-floating-panel-width)),
+    calc(100vw - 32px)
+  ) !important;
+  overflow: hidden;
 }
 
 .komsco-ai__surface .komsco-ai__panel,
@@ -5667,7 +5675,8 @@
 
 .komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
   .komsco-ai__panel {
-  border-radius: var(--komsco-jk-radius);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
 }
 
 .komsco-ai__surface .komsco-ai__header {
@@ -5902,19 +5911,21 @@
   gap: 12px;
   padding: 12px;
   color: #1e293b;
-  background:
-    linear-gradient(180deg, #f8fafc 0%, #f2f6fb 100%),
-    #f8fafc;
+  background: #f7f9fc;
   border: 0;
-  box-shadow: inset -1px 0 0 rgb(219 227 238 / 42%);
+  border-inline-end: 0;
+  box-shadow: none;
 }
 
 .komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
   .komsco-ai__history-sidebar {
-  border-start-start-radius: var(--komsco-jk-radius);
-  border-end-start-radius: var(--komsco-jk-radius);
-  border-start-end-radius: var(--komsco-jk-radius);
-  border-end-end-radius: var(--komsco-jk-radius);
+  position: static;
+  align-self: stretch;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .komsco-ai__history-brand {
