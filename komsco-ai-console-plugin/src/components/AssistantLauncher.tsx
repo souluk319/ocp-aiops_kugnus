@@ -5827,7 +5827,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
             }${panelResizeUnlocked ? ' komsco-ai__surface--resize-unlocked' : ''}${
               !panelResizeUnlocked ? ' komsco-ai__surface--resize-locked' : ''
-            }${panelDragActive ? ' komsco-ai__surface--dragging' : ''}`}
+            }${loading ? ' komsco-ai__surface--responding' : ''}${
+              panelDragActive ? ' komsco-ai__surface--dragging' : ''
+            }`}
             style={surfaceStyle}
           >
             {historySidebar}

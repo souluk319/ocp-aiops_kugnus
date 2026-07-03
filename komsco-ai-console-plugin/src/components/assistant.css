@@ -5744,6 +5744,36 @@
   opacity: 0.95;
 }
 
+.komsco-ai__surface--responding .komsco-ai__header::after {
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    rgb(56 189 248 / 14%) 0%,
+    rgb(56 189 248 / 26%) 18%,
+    rgb(255 255 255 / 48%) 34%,
+    rgb(94 234 212 / 46%) 48%,
+    rgb(37 99 235 / 30%) 64%,
+    rgb(16 185 129 / 22%) 82%,
+    rgb(56 189 248 / 14%) 100%
+  );
+  background-size: 220% 100%;
+  filter:
+    drop-shadow(0 0 3px rgb(94 234 212 / 28%))
+    drop-shadow(0 0 8px rgb(37 99 235 / 14%));
+  opacity: 0.88;
+  animation: komsco-ai-header-bottom-glow 2.65s linear infinite;
+}
+
+@keyframes komsco-ai-header-bottom-glow {
+  from {
+    background-position: 220% 0;
+  }
+
+  to {
+    background-position: 0 0;
+  }
+}
+
 .komsco-ai__surface .komsco-ai__brand {
   min-width: 0;
 }
@@ -5865,6 +5895,7 @@
 }
 
 .komsco-ai__surface .komsco-ai__message--user .komsco-ai__message-content {
+  min-width: 86px;
   max-width: min(78%, 560px);
   padding: 10px 12px;
   font-size: 13px;
@@ -5874,6 +5905,11 @@
   border: 1px solid #bfdbfe;
   border-radius: 15px 15px 5px;
   box-shadow: 0 8px 24px rgb(37 99 235 / 8%);
+}
+
+.komsco-ai__surface .komsco-ai__message--user .komsco-ai__message-text {
+  overflow-wrap: break-word;
+  word-break: keep-all;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-answer {
