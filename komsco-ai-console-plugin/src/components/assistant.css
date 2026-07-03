@@ -5645,6 +5645,12 @@
   border: 1px solid rgb(148 163 184 / 35%);
   border-radius: var(--komsco-jk-radius);
   box-shadow: 0 24px 70px rgb(15 23 42 / 22%);
+  transform-origin: top right;
+  transition:
+    width 190ms cubic-bezier(0.2, 0, 0, 1),
+    grid-template-columns 190ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 190ms ease,
+    border-color 190ms ease;
 }
 
 .komsco-ai__surface:not(.komsco-ai__surface--fullscreen) {
@@ -5677,6 +5683,7 @@
   .komsco-ai__panel {
   border-start-start-radius: 0;
   border-end-start-radius: 0;
+  transition: border-radius 190ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .komsco-ai__surface .komsco-ai__header {
@@ -5926,6 +5933,19 @@
   min-height: 0;
   border-radius: 0;
   box-shadow: none;
+  animation: komsco-ai-history-enter 190ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes komsco-ai-history-enter {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .komsco-ai__history-brand {
