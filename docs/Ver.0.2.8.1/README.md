@@ -14,6 +14,10 @@ v0.2.8.1의 목표는 챗봇 답변 형식과 좌측 패널의 조치 목록 경
 ## Documents
 
 - [chatbot-answer-ux-plan.md](./chatbot-answer-ux-plan.md)
+- [ui-redesign-plan.md](./ui-redesign-plan.md)
+- [local-aiops-scenario-test-plan.md](./local-aiops-scenario-test-plan.md)
+- [local-aiops-manual-test-guide.md](./local-aiops-manual-test-guide.md)
+- [local-aiops-scenario-test-report.json](./local-aiops-scenario-test-report.json)
 
 ## Scope
 
@@ -32,4 +36,3 @@ v0.2.8.1의 목표는 챗봇 답변 형식과 좌측 패널의 조치 목록 경
 - protected artifact 수정
 - 대량 리팩터링
 - JK 코드 그대로 복사
-
