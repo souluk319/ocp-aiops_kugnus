@@ -3013,6 +3013,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 sessionActionRefs,
                               )
                             : [];
+                        const answerActionRefs =
+                          isLatestAssistantMessage && hasContent && messageActionAnchor
+                            ? sessionActionRefs
+                                .filter((ref) => ref.messageAnchor === messageActionAnchor)
+                                .slice(0, 3)
+                            : [];
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
@@ -3069,6 +3075,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     aiopsStatus={aiopsStatus}
                                     busyActionId={aiopsActionBusyId}
                                     executionMode={executionMode}
+                                    fallbackRefs={answerActionRefs}
                                     onAction={handleAiopsAction}
                                     records={answerActionRecords}
                                     resolveAction={getAiopsRecordAction}

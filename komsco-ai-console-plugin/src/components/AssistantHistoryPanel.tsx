@@ -3,12 +3,14 @@ import * as ReactDOM from 'react-dom';
 
 import {
   CoolCaretDownIcon,
+  CoolCheckIcon,
   CoolClockIcon,
   CoolComposeIcon,
   CoolDocumentIcon,
   CoolListChecklistIcon,
   CoolMoreIcon,
   CoolPencilIcon,
+  CoolShieldCheckIcon,
   CoolTrashIcon,
   CoolUserCircleIcon,
 } from './coolicons';
@@ -69,6 +71,25 @@ type AssistantHistoryPanelProps = {
   uploadedDocumentsError: string;
   uploadedDocumentsLoading: boolean;
 };
+
+const HistoryActionStageIcon: React.FC<{ stage: ConversationActionRef['stage'] }> = ({ stage }) => {
+  const Icon =
+    stage === 'execution'
+      ? CoolCheckIcon
+      : stage === 'approval'
+        ? CoolClockIcon
+        : stage === 'plan'
+          ? CoolShieldCheckIcon
+          : CoolListChecklistIcon;
+
+  return (
+    <span className={`komsco-ai__history-action-ref-icon is-${stage}`} aria-hidden="true">
+      <Icon />
+    </span>
+  );
+};
+
+const compactActionLabel = (label: string): string => label.replace(/^\d+단계\s*·\s*/, '');
 
 const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   activeSessionId,
@@ -266,11 +287,14 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                         }`}
                         type="button"
                       >
-                        <span className="komsco-ai__history-action-ref-stage">
-                          {actionRef.label}
+                        <HistoryActionStageIcon stage={actionRef.stage} />
+                        <span className="komsco-ai__history-action-ref-copy">
+                          <span className="komsco-ai__history-action-ref-stage">
+                            {compactActionLabel(actionRef.label)}
+                          </span>
+                          <strong>{actionRef.toolName || '조치'}</strong>
+                          <small>{actionRef.targetKey}</small>
                         </span>
-                        <strong>{actionRef.toolName || '조치'}</strong>
-                        <small>{actionRef.targetKey}</small>
                       </button>
                     ))}
                   </div>

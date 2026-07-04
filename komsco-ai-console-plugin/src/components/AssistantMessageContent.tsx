@@ -75,7 +75,7 @@ const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
   details: '근거 상세보기',
   evidence: '확인한 근거',
   impact: '영향 범위',
-  summary: '요약',
+  summary: '현재 판단',
   verification: '검증/롤백',
 };
 
@@ -129,20 +129,20 @@ const normalizeRunbookHeading = (line: string): string =>
     .trim();
 
 const runbookSectionId = (line: string): RunbookSectionId | null => {
-  const heading = normalizeRunbookHeading(line);
-  if (/^(요약|현재 판단|결론)$/i.test(heading)) {
+  const heading = normalizeRunbookHeading(line).replace(/\s*\([^)]*\)\s*/g, '').trim();
+  if (/^(요약|현재 판단|우선 판단|우선 확인|상세 분석|분석 결과|결론)$/i.test(heading)) {
     return 'summary';
   }
-  if (/^(영향 범위|영향|대상|범위)$/i.test(heading)) {
+  if (/^(영향 범위|운영 영향|서비스 영향|영향|대상|범위|심각도|우선순위)$/i.test(heading)) {
     return 'impact';
   }
-  if (/^(확인한 근거|근거|증거|관측 근거|확인 근거)$/i.test(heading)) {
+  if (/^(확인한 근거|실제 근거|근거|증거|관측 근거|확인 근거)$/i.test(heading)) {
     return 'evidence';
   }
-  if (/^(원인 후보|가능한 원인|원인|가설)$/i.test(heading)) {
+  if (/^(원인 후보|원인 후보 및 추가 확인 필요 항목|추가 확인 필요|가능한 원인|원인|가설)$/i.test(heading)) {
     return 'cause';
   }
-  if (/^(action plan|조치 계획|실행 계획|권장 조치|조치)$/i.test(heading)) {
+  if (/^(action plan|조치 계획|실행 계획|권장 조치|권장 명령|다음 확인|다음 확인 명령|조치)$/i.test(heading)) {
     return 'action';
   }
   if (/^(검증\/롤백|검증|롤백|확인 및 롤백)$/i.test(heading)) {

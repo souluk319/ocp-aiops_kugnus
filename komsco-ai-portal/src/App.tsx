@@ -954,9 +954,12 @@ const mutationStatusLabel = (value: string): string => {
   return labels[value] ?? value;
 };
 
-const clusterLabel = (summary: ClusterSummary): string => {
+const clusterLabel = (summary: ClusterSummary, error = ''): string => {
   if (!summary.apiUrl) {
-    return '게이트웨이 연결 대기';
+    if (isOpenShiftAuthError(error)) {
+      return 'OpenShift 인증 필요';
+    }
+    return 'OpenShift 상태 확인 필요';
   }
 
   try {
@@ -2531,6 +2534,21 @@ const useLiveClock = (): string => {
   return clock;
 };
 
+const isOpenShiftAuthError = (error: string): boolean =>
+  /Unauthorized|Missing OpenShift bearer token|openshift_user_auth_failed|사용자 인증|인증이 만료/.test(
+    error,
+  );
+
+const portalConnectionLabel = (isLive: boolean, error: string): string => {
+  if (isLive) {
+    return '게이트웨이 연결됨';
+  }
+  if (isOpenShiftAuthError(error)) {
+    return 'OpenShift 인증 필요';
+  }
+  return '게이트웨이 연결 확인 필요';
+};
+
 const usePortalRuntime = (): RuntimeState => {
   const [summary, setSummary] = React.useState<ClusterSummary>(emptySummary);
   const [status, setStatus] = React.useState<AiopsRuntimeStatus>(emptyStatus);
@@ -2646,13 +2664,15 @@ const Sidebar: React.FC<{
 const Topbar: React.FC<{
   activeView: NavView;
   alarmCount: number;
+  error: string;
   isLive: boolean;
   loading: boolean;
   onNavigate: (view: NavView) => void;
   onRefresh: () => void;
   summary: ClusterSummary;
-}> = ({ activeView, alarmCount, isLive, loading, onNavigate, onRefresh, summary }) => {
+}> = ({ activeView, alarmCount, error, isLive, loading, onNavigate, onRefresh, summary }) => {
   const activeItem = navItems.find((item) => item.id === activeView);
+  const connectionLabel = portalConnectionLabel(isLive, error);
 
   return (
     <header className="portal-topbar">
@@ -2662,14 +2682,14 @@ const Topbar: React.FC<{
       </div>
       <div className="portal-topbar__controls">
         <select aria-label="클러스터 선택" className="portal-select">
-          <option>{clusterLabel(summary)}</option>
+          <option>{clusterLabel(summary, error)}</option>
         </select>
         <select aria-label="조회 시간 선택" className="portal-select">
           <option>현재 상태</option>
           <option>최근 게이트웨이 응답</option>
         </select>
         <span className={`portal-mode ${isLive ? 'is-live' : 'is-demo'}`}>
-          {isLive ? '게이트웨이 연결됨' : '게이트웨이 연결 끊김'}
+          {connectionLabel}
         </span>
         <button
           aria-label="새로고침"
@@ -7063,7 +7083,7 @@ const SettingsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSumma
       <section className="settings-grid">
         <Panel title="게이트웨이 연결">
           <div className="settings-form">
-            <label><span>API URL</span><input readOnly value={summary.apiUrl ?? '게이트웨이 연결 대기'} /></label>
+            <label><span>API URL</span><input readOnly value={summary.apiUrl ?? 'OpenShift 상태 확인 필요'} /></label>
             <label><span>클러스터</span><input readOnly value={clusterLabel(summary)} /></label>
             <label><span>상태</span><input readOnly value={summary.healthScore >= 90 ? '정상' : '확인 필요'} /></label>
           </div>
@@ -7156,13 +7176,19 @@ const ClusterSignalStrip: React.FC<{
   onRefresh: () => Promise<void>;
 }> = ({ error, lastSnapshot, onNavigate, onRefresh }) => {
   const errorLine = error.split('\n').find(Boolean) ?? '게이트웨이 연결 실패';
+  const authRequired = isOpenShiftAuthError(error);
 
   return (
     <div className="cluster-signal-strip">
       <span className="cluster-signal-strip__dot" aria-hidden="true" />
       <div>
-        <strong>게이트웨이 신호 저하</strong>
-        <span>실시간 클러스터 텔레메트리를 사용할 수 없어 마지막 수집 스냅샷을 표시합니다 · {lastSnapshot}</span>
+        <strong>{authRequired ? 'OpenShift 인증 필요' : '게이트웨이 신호 확인 필요'}</strong>
+        <span>
+          {authRequired
+            ? '독립 포털은 OKD 콘솔 토큰을 자동으로 받지 못해 클러스터 조회가 제한됩니다.'
+            : '실시간 클러스터 텔레메트리를 사용할 수 없어 마지막 수집 스냅샷을 표시합니다.'}{' '}
+          · {lastSnapshot}
+        </span>
         <small>{errorLine}</small>
       </div>
       <button onClick={() => void onRefresh()} type="button">
@@ -7220,6 +7246,7 @@ export const App: React.FC = () => {
         <Topbar
           activeView={activeView}
           alarmCount={aiopsAlarmCount(runtime.events)}
+          error={runtime.error}
           isLive={runtime.isLive}
           loading={runtime.loading}
           onNavigate={navigateToView}

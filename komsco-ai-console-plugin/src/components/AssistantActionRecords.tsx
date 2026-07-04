@@ -1,7 +1,13 @@
 import * as React from 'react';
 import { Button } from '@patternfly/react-core';
 
-import { CoolTerminalIcon } from './coolicons';
+import {
+  CoolCheckIcon,
+  CoolClockIcon,
+  CoolListChecklistIcon,
+  CoolShieldCheckIcon,
+  CoolTerminalIcon,
+} from './coolicons';
 import {
   getActionRecordProof,
   getActionRecordStage,
@@ -19,6 +25,7 @@ import type {
   AiopsLifecycleStage,
   AiopsRecordAction,
   AiopsRecordView,
+  ConversationActionRef,
 } from './assistant.types';
 import type { AiopsRuntimeStatus } from '../services/aiGateway';
 
@@ -50,6 +57,52 @@ export const ActionStageDots: React.FC<{ stage: AiopsLifecycleStage }> = ({ stag
       ))}
     </span>
   );
+};
+
+export const ActionStageIcon: React.FC<{ stage: AiopsLifecycleStage }> = ({ stage }) => {
+  const Icon =
+    stage === 'execution'
+      ? CoolCheckIcon
+      : stage === 'approval'
+        ? CoolClockIcon
+        : stage === 'plan'
+          ? CoolShieldCheckIcon
+          : CoolListChecklistIcon;
+
+  return (
+    <span className={`komsco-ai__action-stage-icon is-${stage}`} aria-hidden="true">
+      <Icon />
+    </span>
+  );
+};
+
+const primaryActionLabel = (action: AiopsRecordAction): string => {
+  if (action.step === 'create-plan') {
+    return 'Action Plan 생성';
+  }
+  if (action.step === 'approve-plan') {
+    return '승인 요청';
+  }
+  if (action.step === 'approve-execute-plan') {
+    return '승인 후 실행';
+  }
+  if (action.step === 'execute-approval') {
+    return '실행';
+  }
+  return action.label;
+};
+
+const actionCardMetaLabel = (stage: AiopsLifecycleStage): string => {
+  if (stage === 'proposal') {
+    return '조치 후보';
+  }
+  if (stage === 'plan') {
+    return '승인 가능한 계획';
+  }
+  if (stage === 'approval') {
+    return '승인 결정';
+  }
+  return '실행 결과';
 };
 
 export const PlanSummaryBlock: React.FC<{
@@ -202,6 +255,7 @@ type AssistantAnswerActionsProps = {
   aiopsStatus: AiopsRuntimeStatus | null;
   busyActionId: string;
   executionMode: AiopsExecutionMode;
+  fallbackRefs?: ConversationActionRef[];
   onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void;
   records: AiopsRecordView[];
   resolveAction: (
@@ -217,13 +271,19 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
   aiopsStatus,
   busyActionId,
   executionMode,
+  fallbackRefs = [],
   onAction,
   records,
   resolveAction,
 }) => {
-  if (records.length === 0) {
+  const visibleFallbackRefs = records.length === 0 ? fallbackRefs.slice(0, 3) : [];
+
+  if (records.length === 0 && visibleFallbackRefs.length === 0) {
     return null;
   }
+
+  const readOnlyBlocked = executionMode === 'read-only';
+  const hasResolvedRecords = records.length > 0;
 
   return (
     <div
@@ -232,16 +292,25 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
       aria-label="챗봇 답변 직접 조치 버튼"
     >
       <div className="komsco-ai__answer-actions-head">
-        <strong>바로 해결</strong>
-        <span>검증된 AIOps 기록에서 다음 버튼만 표시합니다.</span>
+        <strong>Action Plan</strong>
+        <span>
+          {!hasResolvedRecords
+            ? '좌측 조치 목록에 연결된 계획 흐름입니다. record 연결 후 승인 버튼을 표시합니다.'
+            : readOnlyBlocked
+            ? '읽기 전용 모드라 조치 버튼은 숨기고 계획 상태만 보여줍니다.'
+            : '승인 가능한 조치 흐름만 카드로 표시합니다.'}
+        </span>
       </div>
       {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
       {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
       <div className="komsco-ai__answer-action-list">
         {records.map((record) => {
           const action = resolveAction(record, aiopsStatus, executionMode);
+          const stage = getActionRecordStage(record);
           const actions =
-            action?.step === 'approve-plan'
+            readOnlyBlocked
+              ? []
+              : action?.step === 'approve-plan'
               ? [action, { ...action, label: '거절', step: 'reject-plan' as const }]
               : action
                 ? [action]
@@ -249,7 +318,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
 
           const phase = getRecordPhase(record);
 
-          if (actions.length === 0) {
+          if (actions.length === 0 && !action) {
             const outcome = getExecutionOutcomeSummary(record, aiopsStatus);
             if (!outcome) {
               return null;
@@ -262,10 +331,13 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                 data-action-lifecycle-stage={getActionRecordStage(record)}
                 key={getRecordName(record) || phase}
               >
-                <div className="komsco-ai__answer-action-main">
-                  <ActionStageDots stage="execution" />
-                  <span>4단계 · 실행 완료</span>
-                  <strong>{getRecordTargetLabel(record)}</strong>
+                <div className="komsco-ai__answer-action-headline">
+                  <ActionStageIcon stage="execution" />
+                  <div className="komsco-ai__answer-action-main">
+                    <span>{actionCardMetaLabel('execution')}</span>
+                    <strong>{getRecordTargetLabel(record)}</strong>
+                    <small>4단계 · 실행 완료</small>
+                  </div>
                 </div>
                 <div className="komsco-ai__answer-action-outcome">
                   <div className="komsco-ai__answer-action-outcome-title">
@@ -284,11 +356,16 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
               data-action-lifecycle-stage={getActionRecordStage(record)}
               key={getRecordName(record) || phase}
             >
-              <div className="komsco-ai__answer-action-main">
-                <ActionStageDots stage={getActionRecordStage(record)} />
-                <span>{getActionRecordStageLabel(record, executionMode)}</span>
-                <strong>{getRecordTargetLabel(record)}</strong>
-                <small>{getActionRecordProof(record, executionMode)}</small>
+              <div className="komsco-ai__answer-action-headline">
+                <ActionStageIcon stage={stage} />
+                <div className="komsco-ai__answer-action-main">
+                  <span>{actionCardMetaLabel(stage)}</span>
+                  <strong>{getRecordTargetLabel(record)}</strong>
+                  <small>{getActionRecordStageLabel(record, executionMode)}</small>
+                </div>
+              </div>
+              <div className="komsco-ai__answer-action-proof">
+                {getActionRecordProof(record, executionMode)}
               </div>
               <PlanSummaryBlock record={record} executionMode={executionMode} />
               <div className="komsco-ai__answer-action-controls">
@@ -310,17 +387,38 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                       <span className="komsco-ai__rail-action-icon">
                         <CoolTerminalIcon />
                       </span>
-                      {busy ? '처리 중' : item.label}
+                      {busy ? '처리 중' : primaryActionLabel(item)}
                     </Button>
                   );
                 })}
               </div>
-              {action?.disabledReason && (
+              {!readOnlyBlocked && action?.disabledReason && (
                 <div className="komsco-ai__answer-action-note">{action.disabledReason}</div>
               )}
             </div>
           );
         })}
+        {visibleFallbackRefs.map((ref) => (
+          <div
+            className="komsco-ai__answer-action-card komsco-ai__answer-action-card--fallback"
+            data-action-lifecycle-stage={ref.stage}
+            key={ref.id}
+          >
+            <div className="komsco-ai__answer-action-headline">
+              <ActionStageIcon stage={ref.stage} />
+              <div className="komsco-ai__answer-action-main">
+                <span>{actionCardMetaLabel(ref.stage)}</span>
+                <strong>{ref.targetKey || '대상 확인 필요'}</strong>
+                <small>{ref.label.replace(/^\d+단계\s*·\s*/, '')}</small>
+              </div>
+            </div>
+            <div className="komsco-ai__answer-action-proof">
+              {ref.toolName
+                ? `${ref.toolName} 조치 흐름이 이 답변에 연결되어 있습니다. Gateway record가 연결되면 승인/실행 버튼을 표시합니다.`
+                : '조치 흐름이 이 답변에 연결되어 있습니다. Gateway record가 연결되면 승인/실행 버튼을 표시합니다.'}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
