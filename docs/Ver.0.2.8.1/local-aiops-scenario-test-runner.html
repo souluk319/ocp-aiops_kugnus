@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v0.2.8.1 Local AIOps Scenario Test Runner</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --line: #d8e0ec;
+      --line-strong: #b9c7d9;
+      --ink: #142033;
+      --muted: #5f6f85;
+      --soft: #ecf2f9;
+      --navy: #0b1930;
+      --blue: #1f6feb;
+      --green: #169b62;
+      --amber: #b7791f;
+      --red: #c2410c;
+      --shadow: 0 18px 44px rgba(21, 34, 56, 0.12);
+      font-family: Inter, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.62;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 22px 18px;
+      background: #eef3f9;
+      border-right: 1px solid var(--line);
+      overflow: auto;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--navy);
+      color: #67e8f9;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .brand strong { display: block; font-size: 15px; }
+    .brand span { display: block; color: var(--muted); font-size: 12px; }
+
+    .nav-section { margin-top: 20px; }
+    .nav-title {
+      margin: 0 0 8px;
+      color: #6d7c90;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .nav-link,
+    .scenario-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 8px 9px;
+      border-radius: 8px;
+      color: var(--ink);
+      text-align: left;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .nav-link:hover,
+    .scenario-link:hover { background: #e2ebf6; text-decoration: none; }
+    .scenario-link .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scenario-link .state { color: var(--green); font-size: 12px; font-weight: 800; }
+
+    .content {
+      min-width: 0;
+      padding: 28px clamp(22px, 4vw, 54px) 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 22px;
+    }
+
+    .hero-main,
+    .status-card,
+    .scenario-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-main { padding: 24px; }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(25px, 4vw, 38px);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .hero-main p {
+      max-width: 850px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 36px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      color: var(--ink);
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      border-color: #0b1930;
+      background: #0b1930;
+      color: #fff;
+    }
+
+    .btn:hover { filter: brightness(0.98); text-decoration: none; }
+
+    .status-card {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .metric {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .metric:last-child { border-bottom: 0; padding-bottom: 0; }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .metric strong { font-size: 22px; line-height: 1; }
+    .metric .pass { color: var(--green); }
+
+    .notice {
+      margin: 18px 0 22px;
+      padding: 12px 14px;
+      border: 1px solid #f2d59b;
+      border-left: 4px solid var(--amber);
+      border-radius: 8px;
+      background: #fff8e6;
+      color: #573b09;
+      font-weight: 700;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 28px 0 12px;
+    }
+
+    .section-title h2 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .command {
+      display: block;
+      width: 100%;
+      margin: 8px 0 0;
+      padding: 12px 13px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #0b1930;
+      color: #dbeafe;
+      font: 13px/1.6 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      white-space: pre;
+    }
+
+    .scenario-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .scenario-card {
+      overflow: hidden;
+    }
+
+    .scenario-head {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, #fff, #fbfdff);
+    }
+
+    .scenario-num {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: var(--soft);
+      color: #24415f;
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    .scenario-head h3 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .scenario-head p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #bce3ce;
+      background: #ecfdf3;
+      color: #12613e;
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .scenario-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface-2);
+      padding: 13px;
+      min-width: 0;
+    }
+
+    .panel h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: #29405e;
+      letter-spacing: 0;
+    }
+
+    .question {
+      margin: 0;
+      padding: 11px 12px;
+      border: 1px solid #c8d8eb;
+      border-radius: 8px;
+      background: #fff;
+      font-weight: 800;
+      color: #15243a;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr);
+      gap: 7px;
+      align-items: start;
+      color: #32445d;
+      font-size: 14px;
+    }
+
+    .checklist input {
+      width: 16px;
+      height: 16px;
+      margin-top: 3px;
+      accent-color: var(--blue);
+    }
+
+    .shot {
+      display: block;
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      object-fit: cover;
+    }
+
+    .shot-caption {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .mini-list {
+      margin: 0;
+      padding-left: 18px;
+      color: #354861;
+      font-size: 14px;
+    }
+
+    .footer {
+      margin-top: 30px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--muted);
+    }
+
+    @media (max-width: 1060px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; }
+      .hero,
+      .scenario-body { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">AI</div>
+        <div>
+          <strong>Local AIOps Test</strong>
+          <span>v0.2.8.1 scenario runner</span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">Local Targets</p>
+        <a class="nav-link" href="http://localhost:9000/dashboards/aiops" target="_blank" rel="noreferrer">Console Plugin <span>9000</span></a>
+        <a class="nav-link" href="http://localhost:5174/dashboards/aiops" target="_blank" rel="noreferrer">Standalone Portal <span>5174</span></a>
+        <a class="nav-link" href="./local-aiops-scenario-test-report.json" target="_blank" rel="noreferrer">자동 테스트 report <span>JSON</span></a>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">Scenarios</p>
+        <button class="scenario-link" data-scroll="#s01"><span class="label">01 최근 경고 정리</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s02"><span class="label">02 CrashLoop Action Plan</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s03"><span class="label">03 ImagePullBackOff</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s04"><span class="label">04 Pod 3개 생성</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s05"><span class="label">05 Deployment scale</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s06"><span class="label">06 읽기 전용 조치 요청</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s07"><span class="label">07 승인 거절</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s08"><span class="label">08 승인 실행</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s09"><span class="label">09 좌패널 대화/조치</span><span class="state">PASS</span></button>
+        <button class="scenario-link" data-scroll="#s10"><span class="label">10 응답 중 신뢰 UI</span><span class="state">PASS</span></button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="hero">
+        <div class="hero-main">
+          <p class="eyebrow">Local-only AIOps Scenario Course</p>
+          <h1>회사 OKD를 건드리지 않고, 로컬에서 AIOps Action Plan 흐름을 눈으로 검증합니다.</h1>
+          <p>
+            이 HTML은 자동 verifier가 통과한 10개 시나리오를 사람이 직접 따라 하기 위한 테스트 대시보드입니다.
+            질문을 복사해 로컬 챗봇에 입력하고, 오른쪽 스크린샷과 체크리스트 기준으로 화면을 비교합니다.
+          </p>
+          <div class="button-row">
+            <a class="btn primary" href="http://localhost:9000/dashboards/aiops" target="_blank" rel="noreferrer">Console Plugin 열기</a>
+            <a class="btn" href="http://localhost:5174/dashboards/aiops" target="_blank" rel="noreferrer">5174 Portal 열기</a>
+            <button class="btn" data-copy="node scripts/verify-v0281-local-aiops-scenarios.cjs --runs 10 --report docs/Ver.0.2.8.1/local-aiops-scenario-test-report.json">자동 테스트 명령 복사</button>
+            <button class="btn" id="resetChecks">체크 초기화</button>
+          </div>
+        </div>
+        <div class="status-card" aria-label="자동 테스트 결과">
+          <div class="metric"><span>자동 시나리오</span><strong class="pass">10/10</strong></div>
+          <div class="metric"><span>회사 OKD mutation</span><strong class="pass">0</strong></div>
+          <div class="metric"><span>스크린샷</span><strong>10장</strong></div>
+          <div class="metric"><span>5174 portal</span><strong class="pass">연결됨</strong></div>
+        </div>
+      </section>
+
+      <div class="notice">
+        이번 테스트의 실행 성공은 실제 Pod 생성/scale이 아니라 local simulator의 ExecutionRecord 성공을 의미합니다.
+        회사 OKD 격리 namespace 테스트는 다음 단계입니다.
+      </div>
+
+      <section class="section-title">
+        <h2>실행 순서</h2>
+      </section>
+      <pre class="command">cd /home/kugnus/cywell/ocp-aiops_kugnus
+node scripts/verify-v0281-local-aiops-scenarios.cjs --runs 10 --report docs/Ver.0.2.8.1/local-aiops-scenario-test-report.json</pre>
+
+      <section class="section-title">
+        <h2>10개 로컬 시나리오</h2>
+      </section>
+
+      <div class="scenario-grid">
+        <article class="scenario-card" id="s01">
+          <div class="scenario-head">
+            <div class="scenario-num">01</div>
+            <div>
+              <h3>최근 OpenShift 경고 정리</h3>
+              <p>조회/분석 질문에서는 Action Plan 없이 판단, 영향, 근거, 추가 확인만 보여야 합니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.</p>
+              <div class="button-row"><button class="btn" data-copy="최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s01-1"><span>현재 판단, 영향 범위, 확인한 근거, 원인 후보, 추가 확인이 분리되어 보인다.</span></li>
+                <li><input type="checkbox" data-check="s01-2"><span>승인/실행 버튼이 없다.</span></li>
+                <li><input type="checkbox" data-check="s01-3"><span>내부 계획명, 원문 출처, 점수, 단계명 같은 개발자용 문자열이 기본 화면에 없다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/01-01-alert-triage.png" alt="최근 OpenShift 경고 정리 시나리오 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/01-01-alert-triage.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s02">
+          <div class="scenario-head">
+            <div class="scenario-num">02</div>
+            <div>
+              <h3>CrashLoopBackOff 조치 후보</h3>
+              <p>조치 가능한 장애는 승인 가능한 Action Plan 1개로 신뢰 있게 보여야 합니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">CrashLoopBackOff 상태인 Pod를 안전하게 복구할 Action Plan을 만들어줘.</p>
+              <div class="button-row"><button class="btn" data-copy="CrashLoopBackOff 상태인 Pod를 안전하게 복구할 Action Plan을 만들어줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s02-1"><span>Pod 상태 근거와 원인 후보가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s02-2"><span>Action Plan 카드가 1개만 보인다.</span></li>
+                <li><input type="checkbox" data-check="s02-3"><span>영향, 검증 방법, 롤백 또는 실패 시 대응이 같이 보인다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/02-02-crashloop-action-plan.png" alt="CrashLoopBackOff Action Plan 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/02-02-crashloop-action-plan.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s03">
+          <div class="scenario-head">
+            <div class="scenario-num">03</div>
+            <div>
+              <h3>ImagePullBackOff</h3>
+              <p>이미지 풀 실패에는 Pod eviction이 해결책처럼 뜨면 안 됩니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">ImagePullBackOff 경고를 확인하고 조치 후보를 알려줘.</p>
+              <div class="button-row"><button class="btn" data-copy="ImagePullBackOff 경고를 확인하고 조치 후보를 알려줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s03-1"><span>Events, image tag, pull secret 확인이 먼저 보인다.</span></li>
+                <li><input type="checkbox" data-check="s03-2"><span>Pod eviction Action Plan이 없다.</span></li>
+                <li><input type="checkbox" data-check="s03-3"><span>근거 더 수집 또는 image/secret 확인 조치만 허용된다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/03-03-imagepullbackoff-no-eviction.png" alt="ImagePullBackOff 시나리오 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/03-03-imagepullbackoff-no-eviction.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s04">
+          <div class="scenario-head">
+            <div class="scenario-num">04</div>
+            <div>
+              <h3>Pod 3개 생성 요청</h3>
+              <p>실제 생성 없이 local simulator 안에서만 생성 계획과 실행 결과를 검증합니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">komsco-ai-local namespace에 테스트 Pod 3개 만들어줘.</p>
+              <div class="button-row"><button class="btn" data-copy="komsco-ai-local namespace에 테스트 Pod 3개 만들어줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s04-1"><span>대상 namespace와 생성 수량 3개가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s04-2"><span>승인 전에는 생성 완료로 바뀌지 않는다.</span></li>
+                <li><input type="checkbox" data-check="s04-3"><span>승인/실행 후 simulator 상태만 ready 3/3으로 표시된다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/04-04-create-three-pods.png" alt="Pod 3개 생성 요청 시나리오 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/04-04-create-three-pods.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s05">
+          <div class="scenario-head">
+            <div class="scenario-num">05</div>
+            <div>
+              <h3>Deployment scale 요청</h3>
+              <p>현재값과 목표값 사이 gap이 있을 때만 scale Action Plan이 나와야 합니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">aiops-local-worker Deployment를 3개로 늘려줘.</p>
+              <div class="button-row"><button class="btn" data-copy="aiops-local-worker Deployment를 3개로 늘려줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s05-1"><span>현재 1개, 목표 3개, gap 2개가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s05-2"><span>gap이 있을 때만 Action Plan이 보인다.</span></li>
+                <li><input type="checkbox" data-check="s05-3"><span>이미 3개인 경우 조치 없음 판정이 기준으로 남아 있다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/05-05-deployment-scale-gap.png" alt="Deployment scale 요청 시나리오 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/05-05-deployment-scale-gap.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s06">
+          <div class="scenario-head">
+            <div class="scenario-num">06</div>
+            <div>
+              <h3>읽기 전용 모드에서 조치 요청</h3>
+              <p>읽기 전용은 제품 한계가 아니라 실행 모드이며, 실행 버튼은 반복 노출되면 안 됩니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">이 문제를 바로 복구해줘.</p>
+              <div class="button-row"><button class="btn" data-copy="이 문제를 바로 복구해줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s06-1"><span>실행 버튼이 없다.</span></li>
+                <li><input type="checkbox" data-check="s06-2"><span>실행 가능 모드가 필요하다는 안내가 1회만 보인다.</span></li>
+                <li><input type="checkbox" data-check="s06-3"><span>비활성 버튼이 반복해서 쌓이지 않는다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/06-06-readonly-action-request.png" alt="읽기 전용 모드 조치 요청 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/06-06-readonly-action-request.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s07">
+          <div class="scenario-head">
+            <div class="scenario-num">07</div>
+            <div>
+              <h3>승인 거절 경로</h3>
+              <p>거절은 실행 차단 기록으로 남고 ExecutionRecord를 만들면 실패입니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">이 Action Plan은 거절해줘.</p>
+              <div class="button-row"><button class="btn" data-copy="이 Action Plan은 거절해줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s07-1"><span>거절 버튼 또는 rejected 상태가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s07-2"><span>실행 버튼이 차단된다.</span></li>
+                <li><input type="checkbox" data-check="s07-3"><span>ExecutionRecord가 생성되지 않는다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/07-07-approval-rejection.png" alt="승인 거절 경로 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/07-07-approval-rejection.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s08">
+          <div class="scenario-head">
+            <div class="scenario-num">08</div>
+            <div>
+              <h3>승인 실행 경로</h3>
+              <p>승인 후 실행은 local simulator ExecutionRecord와 검증 통과 상태로만 남습니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">승인하고 실행까지 진행해줘.</p>
+              <div class="button-row"><button class="btn" data-copy="승인하고 실행까지 진행해줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s08-1"><span>승인 후 실행 대기 상태가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s08-2"><span>실행 후 simulated ExecutionRecord가 생긴다.</span></li>
+                <li><input type="checkbox" data-check="s08-3"><span><code>mutation simulated</code>, <code>verification passed</code> 의미가 제품 문구로 보인다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/08-08-approval-execution.png" alt="승인 실행 경로 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/08-08-approval-execution.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s09">
+          <div class="scenario-head">
+            <div class="scenario-num">09</div>
+            <div>
+              <h3>좌패널 대화/조치 목록</h3>
+              <p>대화별 하위 조치 목록이 보이고, 클릭해도 순서가 바뀌지 않아야 합니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>기대 형태</h4>
+              <pre class="command"># 대화내용
+  - 조치 후보
+  - 승인 가능한 계획
+# 대화내용
+  - 실행 완료</pre>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s09-1"><span>대화 제목 아래 조치 row가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s09-2"><span>조치 row에는 stage icon과 target 요약이 있다.</span></li>
+                <li><input type="checkbox" data-check="s09-3"><span>클릭하거나 펼쳐도 날짜별 대화 순서가 바뀌지 않는다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/09-09-history-action-list.png" alt="좌패널 대화 조치 목록 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/09-09-history-action-list.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="scenario-card" id="s10">
+          <div class="scenario-head">
+            <div class="scenario-num">10</div>
+            <div>
+              <h3>응답 중 상태와 신뢰 UI</h3>
+              <p>응답 중 light rail, 외곽 프레임 없는 아이콘, 14px 이상 본문 가독성을 확인합니다.</p>
+            </div>
+            <span class="badge">PASS</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">현재 화면 기준으로 안전하게 확인해줘.</p>
+              <div class="button-row"><button class="btn" data-copy="현재 화면 기준으로 안전하게 확인해줘.">질문 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s10-1"><span>응답 중 헤더 하단 light rail 애니메이션이 보인다.</span></li>
+                <li><input type="checkbox" data-check="s10-2"><span>중앙/메시지 아이콘 외곽 프레임이 없다.</span></li>
+                <li><input type="checkbox" data-check="s10-3"><span>본문 폰트가 14px 이상으로 읽힌다.</span></li>
+              </ul>
+            </div>
+            <div>
+              <img class="shot" src="local-aiops-screenshots/10-10-responding-trust-ui.png" alt="응답 중 상태와 신뢰 UI 스크린샷">
+              <div class="shot-caption"><span>자동 테스트 증거</span><a href="local-aiops-screenshots/10-10-responding-trust-ui.png" target="_blank" rel="noreferrer">원본 보기</a></div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <footer class="footer">
+        <strong>다음 단계:</strong>
+        이 HTML로 로컬 화면을 직접 비교한 뒤, 회사 OKD 격리 namespace 테스트는 별도 계획에서 진행합니다.
+        이 페이지는 protected scenario JSON을 수정하지 않고, 현재 자동 verifier의 report와 screenshot 증거를 보기 쉽게 연결합니다.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    const storagePrefix = "v0281-local-aiops-runner.";
+
+    document.querySelectorAll("[data-scroll]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = document.querySelector(button.dataset.scroll);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
+    async function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (error) {
+          // Fall through to the textarea path below.
+        }
+      }
+
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "readonly");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (error) {
+        copied = false;
+      }
+      document.body.removeChild(area);
+      return copied;
+    }
+
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const text = button.dataset.copy;
+        if (await copyText(text)) {
+          const before = button.textContent;
+          button.textContent = "복사됨";
+          setTimeout(() => { button.textContent = before; }, 1100);
+        } else {
+          window.prompt("복사할 내용", text);
+        }
+      });
+    });
+
+    document.querySelectorAll("input[data-check]").forEach((input) => {
+      const key = storagePrefix + input.dataset.check;
+      input.checked = localStorage.getItem(key) === "true";
+      input.addEventListener("change", () => {
+        localStorage.setItem(key, input.checked ? "true" : "false");
+      });
+    });
+
+    document.getElementById("resetChecks").addEventListener("click", () => {
+      document.querySelectorAll("input[data-check]").forEach((input) => {
+        input.checked = false;
+        localStorage.removeItem(storagePrefix + input.dataset.check);
+      });
+    });
+  </script>
+</body>
+</html>
