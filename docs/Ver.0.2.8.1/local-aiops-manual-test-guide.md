@@ -6,7 +6,17 @@
 
 ## 준비
 
-로컬 콘솔과 포털을 먼저 띄운다.
+5174 standalone portal은 로컬 테스트에서 정적 포털 화면과 fixture `/v1/*` API를 같은 서버에서 제공한다.
+회사 OKD를 건드리지 않고 로컬 테스트를 하려면 아래 단일 서버를 띄운다.
+
+```bash
+AIOPS_LOCAL_FIXTURE_HOST=0.0.0.0 \
+AIOPS_LOCAL_FIXTURE_PORT=5174 \
+AIOPS_LOCAL_SERVE_PORTAL=1 \
+node scripts/serve-v0281-local-aiops-gateway.cjs
+```
+
+다른 터미널에서 Console Plugin을 빌드한다.
 
 ```bash
 cd komsco-ai-console-plugin
@@ -26,6 +36,7 @@ node scripts/verify-v0281-local-aiops-scenarios.cjs \
 ```text
 Console Plugin: http://localhost:9000/dashboards/aiops
 Standalone Portal: http://localhost:5174/dashboards/aiops
+Fixture Gateway: http://localhost:5174/healthz
 Report: docs/Ver.0.2.8.1/local-aiops-scenario-test-report.json
 Screenshots: docs/Ver.0.2.8.1/local-aiops-screenshots/
 ```
@@ -201,6 +212,7 @@ ls docs/Ver.0.2.8.1/local-aiops-screenshots/
 
 ```bash
 node --check scripts/verify-v0281-local-aiops-scenarios.cjs
+node --check scripts/serve-v0281-local-aiops-gateway.cjs
 ```
 
 Console Plugin 타입:

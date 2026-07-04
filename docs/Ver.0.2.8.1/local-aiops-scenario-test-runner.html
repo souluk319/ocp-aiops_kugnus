@@ -441,6 +441,8 @@
           <div class="button-row">
             <a class="btn primary" href="http://localhost:9000/dashboards/aiops" target="_blank" rel="noreferrer">Console Plugin 열기</a>
             <a class="btn" href="http://localhost:5174/dashboards/aiops" target="_blank" rel="noreferrer">5174 Portal 열기</a>
+            <a class="btn" href="http://localhost:5174/healthz" target="_blank" rel="noreferrer">Fixture Gateway 확인</a>
+            <button class="btn" data-copy="AIOPS_LOCAL_FIXTURE_HOST=0.0.0.0 AIOPS_LOCAL_FIXTURE_PORT=5174 AIOPS_LOCAL_SERVE_PORTAL=1 node scripts/serve-v0281-local-aiops-gateway.cjs">5174 서버 명령 복사</button>
             <button class="btn" data-copy="node scripts/verify-v0281-local-aiops-scenarios.cjs --runs 10 --report docs/Ver.0.2.8.1/local-aiops-scenario-test-report.json">자동 테스트 명령 복사</button>
             <button class="btn" id="resetChecks">체크 초기화</button>
           </div>
@@ -462,6 +464,7 @@
         <h2>실행 순서</h2>
       </section>
       <pre class="command">cd /home/kugnus/cywell/ocp-aiops_kugnus
+AIOPS_LOCAL_FIXTURE_HOST=0.0.0.0 AIOPS_LOCAL_FIXTURE_PORT=5174 AIOPS_LOCAL_SERVE_PORTAL=1 node scripts/serve-v0281-local-aiops-gateway.cjs
 node scripts/verify-v0281-local-aiops-scenarios.cjs --runs 10 --report docs/Ver.0.2.8.1/local-aiops-scenario-test-report.json</pre>
 
       <section class="section-title">
