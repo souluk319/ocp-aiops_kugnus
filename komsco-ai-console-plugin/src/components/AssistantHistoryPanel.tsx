@@ -2,7 +2,6 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 
 import {
-  CoolCaretDownIcon,
   CoolCheckIcon,
   CoolClockIcon,
   CoolComposeIcon,
@@ -31,7 +30,6 @@ type HistoryMenuAnchor = {
 
 type AssistantHistoryPanelProps = {
   activeSessionId: string;
-  aiopsActionHistoryContent: React.ReactNode;
   authSubject: AuthSubject | null;
   authSubjectError: string;
   clusterSummary: ClusterSummary | null;
@@ -56,15 +54,11 @@ type AssistantHistoryPanelProps = {
   renameConversation: (conversationHistoryId: string, title: string) => void;
   renamingHistoryId: string | null;
   renamingHistoryTitle: string;
-  sessionActionTargetKeys: Set<string>;
   setHistoryMenuAnchor: React.Dispatch<React.SetStateAction<HistoryMenuAnchor | null>>;
   setHistoryPanelView: React.Dispatch<React.SetStateAction<HistoryPanelView>>;
   setOpenHistoryMenuId: React.Dispatch<React.SetStateAction<string | null>>;
   setRenamingHistoryId: React.Dispatch<React.SetStateAction<string | null>>;
   setRenamingHistoryTitle: React.Dispatch<React.SetStateAction<string>>;
-  setSessionActionTargetKeys: React.Dispatch<React.SetStateAction<Set<string>>>;
-  setSidebarActionPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  sidebarActionPanelOpen: boolean;
   startNewConversation: () => void;
   uiLanguage: UiLanguage;
   uploadedDocuments: RagUploadedDocument[];
@@ -93,7 +87,6 @@ const compactActionLabel = (label: string): string => label.replace(/^\d+단계\
 
 const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   activeSessionId,
-  aiopsActionHistoryContent,
   authSubject,
   authSubjectError,
   clusterSummary,
@@ -115,15 +108,11 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   renameConversation,
   renamingHistoryId,
   renamingHistoryTitle,
-  sessionActionTargetKeys,
   setHistoryMenuAnchor,
   setHistoryPanelView,
   setOpenHistoryMenuId,
   setRenamingHistoryId,
   setRenamingHistoryTitle,
-  setSessionActionTargetKeys,
-  setSidebarActionPanelOpen,
-  sidebarActionPanelOpen,
   startNewConversation,
   uiLanguage,
   uploadedDocuments,
@@ -183,24 +172,6 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
         </div>
       </div>
     </div>
-    {sessionActionTargetKeys.size > 0 && (
-      <div className="komsco-ai__session-actions">
-        <button
-          aria-expanded={sidebarActionPanelOpen}
-          className="komsco-ai__session-actions-toggle"
-          onClick={() => setSidebarActionPanelOpen((value) => !value)}
-          type="button"
-        >
-          <CoolCaretDownIcon
-            className={sidebarActionPanelOpen ? '' : 'komsco-ai__session-actions-caret--closed'}
-          />
-          <span>이번 대화의 조치 계획</span>
-        </button>
-        {sidebarActionPanelOpen && (
-          <div className="komsco-ai__session-actions-list">{aiopsActionHistoryContent}</div>
-        )}
-      </div>
-    )}
     <div className="komsco-ai__history-title">
       {historyPanelView === 'uploads' ? <CoolDocumentIcon /> : <CoolClockIcon />}
       <span>{historyPanelView === 'uploads' ? copy.uploadedDocs : copy.history}</span>
@@ -228,48 +199,74 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
           conversationHistory.map((conversation) => {
             const isRenaming = renamingHistoryId === conversation.id;
             const actionRefs = conversation.actionRefs ?? [];
-            const actionTargetKeys = [
-              ...(conversation.actionTargetKeys ?? []),
-              ...actionRefs.map((actionRef) => actionRef.targetKey),
-            ].filter(Boolean);
-            const hasActions = actionTargetKeys.length > 0;
             const menuOpen = openHistoryMenuId === conversation.id;
 
             return (
-              <div className="komsco-ai__history-item-row" key={conversation.id}>
-                {isRenaming ? (
-                  <input
-                    autoFocus
-                    className="komsco-ai__history-item-rename-input"
-                    onBlur={() => {
-                      renameConversation(conversation.id, renamingHistoryTitle);
-                      setRenamingHistoryId(null);
-                    }}
-                    onChange={(event) => setRenamingHistoryTitle(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
+              <div
+                className={`komsco-ai__history-item-row${
+                  conversation.id === activeSessionId ? ' komsco-ai__history-item-row--active' : ''
+                }`}
+                key={conversation.id}
+              >
+                <div className="komsco-ai__history-item-main">
+                  {isRenaming ? (
+                    <input
+                      autoFocus
+                      className="komsco-ai__history-item-rename-input"
+                      onBlur={() => {
                         renameConversation(conversation.id, renamingHistoryTitle);
                         setRenamingHistoryId(null);
-                      } else if (event.key === 'Escape') {
-                        setRenamingHistoryId(null);
-                      }
-                    }}
-                    value={renamingHistoryTitle}
-                  />
-                ) : (
-                  <button
-                    className={`komsco-ai__history-item${
-                      conversation.id === activeSessionId ? ' komsco-ai__history-item--active' : ''
-                    }`}
-                    disabled={loading}
-                    onClick={() => loadConversation(conversation)}
-                    title={conversation.title}
-                    type="button"
+                      }}
+                      onChange={(event) => setRenamingHistoryTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          renameConversation(conversation.id, renamingHistoryTitle);
+                          setRenamingHistoryId(null);
+                        } else if (event.key === 'Escape') {
+                          setRenamingHistoryId(null);
+                        }
+                      }}
+                      value={renamingHistoryTitle}
+                    />
+                  ) : (
+                    <button
+                      className={`komsco-ai__history-item${
+                        conversation.id === activeSessionId ? ' komsco-ai__history-item--active' : ''
+                      }`}
+                      disabled={loading}
+                      onClick={() => loadConversation(conversation)}
+                      title={conversation.title}
+                      type="button"
+                    >
+                      <span>{conversation.title}</span>
+                      <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
+                    </button>
+                  )}
+                  <div
+                    className="komsco-ai__history-item-menu"
+                    ref={menuOpen ? historyMenuRef : undefined}
                   >
-                    <span>{conversation.title}</span>
-                    <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
-                  </button>
-                )}
+                    <button
+                      aria-expanded={menuOpen}
+                      aria-haspopup="menu"
+                      aria-label="대화 옵션"
+                      className="komsco-ai__history-item-menu-trigger"
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setHistoryMenuAnchor({
+                          right: window.innerWidth - rect.right,
+                          top: rect.bottom + 4,
+                        });
+                        setOpenHistoryMenuId((value) =>
+                          value === conversation.id ? null : conversation.id,
+                        );
+                      }}
+                      type="button"
+                    >
+                      <CoolMoreIcon />
+                    </button>
+                  </div>
+                </div>
                 {!isRenaming && actionRefs.length > 0 && (
                   <div
                     aria-label={`${conversation.title} 조치 목록`}
@@ -299,89 +296,47 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                     ))}
                   </div>
                 )}
-                <div
-                  className="komsco-ai__history-item-menu"
-                  ref={menuOpen ? historyMenuRef : undefined}
-                >
-                  <button
-                    aria-expanded={menuOpen}
-                    aria-haspopup="menu"
-                    aria-label="대화 옵션"
-                    className="komsco-ai__history-item-menu-trigger"
-                    onClick={(event) => {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      setHistoryMenuAnchor({
-                        right: window.innerWidth - rect.right,
-                        top: rect.bottom + 4,
-                      });
-                      setOpenHistoryMenuId((value) =>
-                        value === conversation.id ? null : conversation.id,
-                      );
-                    }}
-                    type="button"
-                  >
-                    <CoolMoreIcon />
-                  </button>
-                  {menuOpen &&
-                    historyMenuAnchor &&
-                    typeof document !== 'undefined' &&
-                    ReactDOM.createPortal(
-                      <div
-                        className="komsco-ai__history-item-menu-panel"
-                        ref={historyMenuPanelRef}
-                        role="menu"
-                        style={{
-                          right: historyMenuAnchor.right,
-                          top: historyMenuAnchor.top,
+                {menuOpen &&
+                  historyMenuAnchor &&
+                  typeof document !== 'undefined' &&
+                  ReactDOM.createPortal(
+                    <div
+                      className="komsco-ai__history-item-menu-panel"
+                      ref={historyMenuPanelRef}
+                      role="menu"
+                      style={{
+                        right: historyMenuAnchor.right,
+                        top: historyMenuAnchor.top,
+                      }}
+                    >
+                      <button
+                        className="komsco-ai__history-item-menu-item"
+                        onClick={() => {
+                          setOpenHistoryMenuId(null);
+                          setRenamingHistoryId(conversation.id);
+                          setRenamingHistoryTitle(conversation.title);
                         }}
+                        role="menuitem"
+                        type="button"
                       >
-                        <button
-                          className="komsco-ai__history-item-menu-item"
-                          disabled={!hasActions}
-                          onClick={() => {
-                            setOpenHistoryMenuId(null);
-                            setSessionActionTargetKeys(
-                              new Set(actionTargetKeys),
-                            );
-                            setSidebarActionPanelOpen(true);
-                            setHistoryPanelView('chats');
-                          }}
-                          role="menuitem"
-                          title={hasActions ? undefined : '이 대화에서 만들어진 조치가 없습니다.'}
-                          type="button"
-                        >
-                          <CoolListChecklistIcon />
-                          조치 내역 보기
-                        </button>
-                        <button
-                          className="komsco-ai__history-item-menu-item"
-                          onClick={() => {
-                            setOpenHistoryMenuId(null);
-                            setRenamingHistoryId(conversation.id);
-                            setRenamingHistoryTitle(conversation.title);
-                          }}
-                          role="menuitem"
-                          type="button"
-                        >
-                          <CoolPencilIcon />
-                          이름 변경
-                        </button>
-                        <button
-                          className="komsco-ai__history-item-menu-item komsco-ai__history-item-menu-item--danger"
-                          onClick={() => {
-                            setOpenHistoryMenuId(null);
-                            deleteConversation(conversation.id);
-                          }}
-                          role="menuitem"
-                          type="button"
-                        >
-                          <CoolTrashIcon />
-                          대화 삭제
-                        </button>
-                      </div>,
-                      document.body,
-                    )}
-                </div>
+                        <CoolPencilIcon />
+                        이름 변경
+                      </button>
+                      <button
+                        className="komsco-ai__history-item-menu-item komsco-ai__history-item-menu-item--danger"
+                        onClick={() => {
+                          setOpenHistoryMenuId(null);
+                          deleteConversation(conversation.id);
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <CoolTrashIcon />
+                        대화 삭제
+                      </button>
+                    </div>,
+                    document.body,
+                  )}
               </div>
             );
           })

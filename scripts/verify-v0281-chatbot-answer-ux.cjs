@@ -36,6 +36,7 @@ const assert = (condition, message, evidence = undefined) => {
 const sourceReview = () => {
   const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
+  const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
   const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
   const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
   const portal = readFile('komsco-ai-portal/src/App.tsx');
@@ -54,6 +55,23 @@ const sourceReview = () => {
     'history sidebar action refs must include stage icons',
   );
   assert(
+    historyPanel.includes('komsco-ai__history-item-main'),
+    'history sidebar must group conversation title and action refs under one row',
+  );
+  assert(
+    launcher.includes('productIcon={aiopsIcon}') && !launcher.includes('aiops_mark.svg'),
+    'history sidebar must keep the original app icon; border removal only applies to message avatars',
+  );
+  assert(
+    launcher.includes('suppressNextHistoryAutosaveRef') &&
+      launcher.includes('saveCurrentConversation({ preserveUpdatedAt: true, promote: false })'),
+    'loading an existing history item must not promote or reorder the sidebar list',
+  );
+  assert(
+    !historyPanel.includes('이번 대화의 조치 계획') && !historyPanel.includes('komsco-ai__session-actions'),
+    'history sidebar must not promote clicked actions into a separate top aggregate panel',
+  );
+  assert(
     messageContent.includes("summary: '현재 판단'"),
     'runbook answer must start with current judgment label',
   );
@@ -62,6 +80,29 @@ const sourceReview = () => {
     'v0.2.8.1 CSS guard block missing',
   );
   assert(css.includes('font-size: 14.5px'), 'assistant answer body font must be >= 14px');
+  assert(css.includes('--komsco-history-width: 268px'), 'history sidebar must be slightly wider');
+  assert(css.includes('v0.2.8.1: group history actions under each conversation'), 'history grouping CSS guard missing');
+  assert(
+    css.includes('header chrome alignment and message icon scope fix'),
+    'header alignment and message icon scope guard missing',
+  );
+  assert(
+    css.includes('.komsco-ai__message--assistant .komsco-ai__message-avatar') &&
+      css.includes('background: transparent') &&
+      css.includes('border: 0'),
+    'only assistant message avatar should lose its outer frame',
+  );
+  assert(
+    /\.komsco-ai__surface \.komsco-ai__empty-mark\s*\{[\s\S]*background: transparent;[\s\S]*border: 0;[\s\S]*box-shadow: none;[\s\S]*\}/.test(css) &&
+      /\.komsco-ai__surface \.komsco-ai__empty-logo\s*\{[\s\S]*width: 52px;[\s\S]*height: 52px;[\s\S]*\}/.test(css),
+    'empty-state assistant icon should be enlarged without an outer card frame',
+  );
+  assert(
+    css.includes('v0.2.8.1: responding header light rail') &&
+      css.includes('komsco-ai-header-bottom-scan') &&
+      css.includes('.komsco-ai__surface.komsco-ai__surface--responding .komsco-ai__header::after'),
+    'assistant header must show a moving light rail while responding',
+  );
   assert(
     portal.includes('OpenShift 인증 필요') && portal.includes('portalConnectionLabel'),
     'standalone portal must distinguish OpenShift auth from Gateway outage',
@@ -335,15 +376,36 @@ const installAssistantFixture = async () =>
       conversationId: 'v0281-fixture-conversation',
       messages
     };
-    const history = [{
-      id: 'v0281-fixture-session',
-      title: 'v0.2.8.1 Action Plan UX fixture',
-      updatedAt: Date.now(),
-      conversationId: 'v0281-fixture-conversation',
-      messages,
-      actionRefs: refs,
-      actionTargetKeys: refs.map((ref) => ref.targetKey)
-    }];
+    const olderMessages = [
+      { role: 'user', content: '현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행해줘.', timestamp: Date.now() - 30000 },
+      { role: 'assistant', content: content.replace('상세 분석', '현재 판단'), answerContract: 'v0281-fixture-older', timestamp: Date.now() - 29000 }
+    ];
+    const olderRefs = refs.map((ref, index) => ({
+      ...ref,
+      id: ref.id + '|older',
+      messageAnchor: 'assistant-message-1',
+      updatedAt: Date.now() - 20000 - index * 1000
+    }));
+    const history = [
+      {
+        id: 'v0281-fixture-session',
+        title: 'v0.2.8.1 Action Plan UX fixture',
+        updatedAt: Date.now(),
+        conversationId: 'v0281-fixture-conversation',
+        messages,
+        actionRefs: refs,
+        actionTargetKeys: refs.map((ref) => ref.targetKey)
+      },
+      {
+        id: 'v0281-fixture-session-older',
+        title: '이전 OpenShift 조치 후보',
+        updatedAt: Date.now() - 20000,
+        conversationId: 'v0281-fixture-conversation-older',
+        messages: olderMessages,
+        actionRefs: olderRefs,
+        actionTargetKeys: olderRefs.map((ref) => ref.targetKey)
+      }
+    ];
     localStorage.setItem(activeKey, JSON.stringify(snapshot));
     localStorage.setItem(historyKey, JSON.stringify(history));
     localStorage.setItem(languageKey, JSON.stringify('ko'));
@@ -433,14 +495,116 @@ const verifyConsoleAssistant = async () => {
   assert(metrics.disabledActionButtons === 0, 'read-only mode must not show repeated disabled action buttons', metrics);
   assert(metrics.rawTerms.length === 0, 'default assistant answer must not expose raw internal terms', metrics);
 
+  const headerMetrics = await evaluate(`(() => {
+    const header = document.querySelector('.komsco-ai__header');
+    const sidebar = document.querySelector('.komsco-ai__sidebar-toggle');
+    const brand = document.querySelector('.komsco-ai__brand');
+    const actions = document.querySelector('.komsco-ai__header-actions');
+    const status = document.querySelector('.komsco-ai__header-status');
+    const avatar = document.querySelector('.komsco-ai__message--assistant .komsco-ai__message-avatar');
+    const rect = (el) => {
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+    };
+    const sidebarRect = rect(sidebar);
+    const brandRect = rect(brand);
+    const actionsRect = rect(actions);
+    const statusRect = rect(status);
+    const headerStyle = header ? getComputedStyle(header) : null;
+    const avatarStyle = avatar ? getComputedStyle(avatar) : null;
+    const buttons = Array.from(document.querySelectorAll('.komsco-ai__header-actions .komsco-ai__icon-button, .komsco-ai__sidebar-toggle'));
+    const buttonRects = buttons.map(rect).filter(Boolean);
+    const overlaps = [];
+    for (let i = 0; i < buttonRects.length; i += 1) {
+      for (let j = i + 1; j < buttonRects.length; j += 1) {
+        const a = buttonRects[i];
+        const b = buttonRects[j];
+        const separated = a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+        if (!separated) overlaps.push([i, j]);
+      }
+    }
+    return {
+      actionsRect,
+      avatarBackground: avatarStyle?.backgroundColor || '',
+      avatarBorderTopWidth: avatarStyle?.borderTopWidth || '',
+      brandRect,
+      buttonWidths: buttonRects.map((r) => Math.round(r.width)),
+      display: headerStyle?.display || '',
+      overlaps,
+      sidebarRect,
+      statusRect
+    };
+  })()`);
+  assert(headerMetrics.display === 'grid', 'assistant header must use a stable grid layout', headerMetrics);
+  assert(headerMetrics.overlaps.length === 0, 'assistant header buttons must not overlap', headerMetrics);
+  assert(
+    headerMetrics.sidebarRect?.right <= headerMetrics.brandRect?.left,
+    'sidebar toggle must sit before the AIOps title without colliding',
+    headerMetrics,
+  );
+  assert(
+    headerMetrics.brandRect?.right <= headerMetrics.actionsRect?.left,
+    'AIOps title must leave room for right header controls',
+    headerMetrics,
+  );
+  assert(
+    headerMetrics.statusRect?.top >= headerMetrics.brandRect?.bottom - 1,
+    'status and execution mode row must sit under the header title row',
+    headerMetrics,
+  );
+  assert(
+    headerMetrics.buttonWidths.every((width) => width >= 28 && width <= 44),
+    'header icon buttons must keep balanced control sizes',
+    headerMetrics,
+  );
+  assert(
+    headerMetrics.avatarBackground === 'rgba(0, 0, 0, 0)' ||
+      headerMetrics.avatarBackground === 'transparent',
+    'assistant message icon should not keep an outer filled frame',
+    headerMetrics,
+  );
+  assert(
+    headerMetrics.avatarBorderTopWidth === '0px',
+    'assistant message icon should not keep an outer border',
+    headerMetrics,
+  );
+  const respondingRailMetrics = await evaluate(`(() => {
+    const surface = document.querySelector('.komsco-ai__surface');
+    const header = document.querySelector('.komsco-ai__header');
+    if (!surface || !header) return null;
+    surface.classList.add('komsco-ai__surface--responding');
+    const style = getComputedStyle(header, '::after');
+    return {
+      animationName: style.animationName,
+      backgroundImage: style.backgroundImage,
+      display: style.display,
+      height: style.height,
+      opacity: style.opacity
+    };
+  })()`);
+  assert(
+    respondingRailMetrics?.display === 'block' &&
+      respondingRailMetrics.animationName === 'komsco-ai-header-bottom-scan' &&
+      parseFloat(respondingRailMetrics.height) >= 3,
+    'responding assistant header must animate a visible bottom light rail',
+    respondingRailMetrics,
+  );
+
   await openHistory();
   const historyMetrics = await evaluate(`(() => {
     const sidebar = document.querySelector('.komsco-ai__history-sidebar');
+    const brand = document.querySelector('.komsco-ai__history-brand');
     const refs = Array.from(document.querySelectorAll('.komsco-ai__history-action-ref'));
     const sidebarRect = sidebar?.getBoundingClientRect();
+    const brandStyle = brand ? getComputedStyle(brand) : null;
     return {
       actionRefCount: refs.length,
+      aggregatePanelCount: document.querySelectorAll('.komsco-ai__session-actions').length,
       iconCount: document.querySelectorAll('.komsco-ai__history-action-ref-icon').length,
+      groupedRefs: refs.filter((el) => Boolean(el.closest('.komsco-ai__history-item-row'))).length,
+      logoBoxBackground: brandStyle?.backgroundColor || '',
+      logoBoxShadow: brandStyle?.boxShadow || '',
       overflowingRefs: refs.filter((el) => el.scrollWidth > el.clientWidth + 1).length,
       sidebarWidth: sidebarRect ? Math.round(sidebarRect.width) : 0
     };
@@ -454,7 +618,40 @@ const verifyConsoleAssistant = async () => {
     'history action refs must show lifecycle icons',
     historyMetrics,
   );
+  assert(historyMetrics.aggregatePanelCount === 0, 'history sidebar must not show a top aggregate action panel', historyMetrics);
+  assert(historyMetrics.groupedRefs === historyMetrics.actionRefCount, 'history action refs must be grouped under their conversation', historyMetrics);
+  assert(historyMetrics.sidebarWidth >= 260, 'history sidebar must be slightly wider than the old narrow panel', historyMetrics);
+  assert(
+    historyMetrics.logoBoxBackground !== 'rgba(0, 0, 0, 0)' &&
+      historyMetrics.logoBoxBackground !== 'transparent',
+    'history logo wrapper must keep the product app icon treatment',
+    historyMetrics,
+  );
   assert(historyMetrics.overflowingRefs === 0, 'history action refs must not overflow', historyMetrics);
+
+  const historyOrderBefore = await evaluate(`(() =>
+    Array.from(document.querySelectorAll('.komsco-ai__history-item-row .komsco-ai__history-item span'))
+      .map((el) => el.textContent.trim())
+  )()`);
+  const clickedOlderAction = await evaluate(`(() => {
+    const rows = Array.from(document.querySelectorAll('.komsco-ai__history-item-row'));
+    const target = rows[1]?.querySelector('.komsco-ai__history-action-ref');
+    if (!target) return false;
+    target.click();
+    return true;
+  })()`);
+  assert(clickedOlderAction, 'history fixture must expose a second conversation action ref');
+  await sleep(600);
+  await openHistory();
+  const historyOrderAfter = await evaluate(`(() =>
+    Array.from(document.querySelectorAll('.komsco-ai__history-item-row .komsco-ai__history-item span'))
+      .map((el) => el.textContent.trim())
+  )()`);
+  assert(
+    JSON.stringify(historyOrderAfter) === JSON.stringify(historyOrderBefore),
+    'clicking or expanding a history action must not reorder dated conversation list',
+    { historyOrderBefore, historyOrderAfter },
+  );
 
   await send('Page.captureScreenshot', { format: 'png', fromSurface: true }).then((result) => {
     fs.writeFileSync(path.join(screenshotDir, 'v0281-chatbot-history.png'), Buffer.from(result.data, 'base64'));

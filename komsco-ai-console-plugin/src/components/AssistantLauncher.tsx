@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Card, CardBody } from '@patternfly/react-core';
 import * as ReactDOM from 'react-dom';
-import AssistantAnswerActions, { AssistantRailActionRecords } from './AssistantActionRecords';
+import AssistantAnswerActions from './AssistantActionRecords';
 import AssistantComposer from './AssistantComposer';
 import AssistantCreateActionPlanButtons from './AssistantCreateActionPlanButtons';
 import AssistantEvidenceFooter from './AssistantEvidenceFooter';
@@ -739,26 +739,6 @@ const collapseActionRecordsForDisplay = (
   });
 };
 
-const sessionAiopsActionRecords = (
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-  targetKeys: Set<string>,
-): AiopsRecordView[] => {
-  if (targetKeys.size === 0) {
-    return [];
-  }
-  const records = aiopsStatus?.spec.records;
-  if (!records) {
-    return [];
-  }
-
-  return collapseActionRecordsForDisplay(
-    [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals],
-    aiopsStatus,
-    executionMode,
-  ).filter((record) => targetKeys.has(getRecordTargetLabel(record)));
-};
-
 const latestAnswerActionRecords = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
@@ -872,6 +852,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>(
     readStoredConversationHistory,
   );
+  const suppressNextHistoryAutosaveRef = React.useRef(false);
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
   const [sessionActionTargetKeys, setSessionActionTargetKeys] = React.useState<Set<string>>(
@@ -880,7 +861,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [sessionActionRefs, setSessionActionRefs] = React.useState<ConversationActionRef[]>(
     () => initialActiveConversation?.actionRefs ?? [],
   );
-  const [sidebarActionPanelOpen, setSidebarActionPanelOpen] = React.useState(false);
   const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
   const [uploadedDocumentsError, setUploadedDocumentsError] = React.useState('');
   const [uploadedDocumentsLoading, setUploadedDocumentsLoading] = React.useState(false);
@@ -1376,33 +1356,53 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, []);
 
   const saveCurrentConversation = React.useCallback(
-    (snapshotMessages = messages, snapshotConversationId = conversationId) => {
+    (options: {
+      preserveUpdatedAt?: boolean;
+      promote?: boolean;
+      snapshotConversationId?: string;
+      snapshotMessages?: Message[];
+    } = {}) => {
+      const snapshotMessages = options.snapshotMessages ?? messages;
+      const snapshotConversationId = options.snapshotConversationId ?? conversationId;
+
       if (snapshotMessages.length === 0) {
         return;
       }
 
-      const item: ConversationHistoryItem = {
-        id: activeSessionId,
-        title: getConversationTitle(snapshotMessages, uiLanguage),
-        updatedAt: Date.now(),
-        conversationId: snapshotConversationId,
-        messages: snapshotMessages,
-        actionRefs: sessionActionRefs,
-        actionTargetKeys: Array.from(sessionActionTargetKeys),
-      };
+      setConversationHistory((prev) => {
+        const existing = prev.find((conversation) => conversation.id === activeSessionId);
+        const item: ConversationHistoryItem = {
+          id: activeSessionId,
+          title: getConversationTitle(snapshotMessages, uiLanguage),
+          updatedAt:
+            options.preserveUpdatedAt && existing ? existing.updatedAt : Date.now(),
+          conversationId: snapshotConversationId,
+          messages: snapshotMessages,
+          actionRefs: sessionActionRefs,
+          actionTargetKeys: Array.from(sessionActionTargetKeys),
+        };
 
-      setConversationHistory((prev) =>
-        [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(
+        if (existing && options.promote === false) {
+          return prev.map((conversation) =>
+            conversation.id === activeSessionId ? item : conversation,
+          );
+        }
+
+        return [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(
           0,
           MAX_STORED_CONVERSATIONS,
-        ),
-      );
+        );
+      });
     },
     [activeSessionId, conversationId, messages, sessionActionRefs, sessionActionTargetKeys, uiLanguage],
   );
 
   React.useEffect(() => {
     if (!loading) {
+      if (suppressNextHistoryAutosaveRef.current) {
+        suppressNextHistoryAutosaveRef.current = false;
+        return;
+      }
       saveCurrentConversation();
     }
   }, [loading, saveCurrentConversation]);
@@ -1437,7 +1437,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         return;
       }
 
-      saveCurrentConversation();
+      saveCurrentConversation({ preserveUpdatedAt: true, promote: false });
+      suppressNextHistoryAutosaveRef.current = true;
       setActiveSessionId(conversation.id);
       setConversationId(conversation.conversationId);
       setMessages(conversation.messages);
@@ -1488,20 +1489,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       setOpenHistoryMenuId(null);
       setHistoryPanelView('chats');
-      setSidebarActionPanelOpen(true);
 
       if (conversation.id !== activeSessionId) {
         loadConversation(conversation);
       }
 
-      setSessionActionTargetKeys(
-        new Set([
-          ...(conversation.actionTargetKeys ?? []),
-          ...(conversation.actionRefs ?? []).map((ref) => ref.targetKey),
-          actionRef.targetKey,
-        ]),
-      );
-      setSessionActionRefs(conversation.actionRefs?.length ? conversation.actionRefs : [actionRef]);
       scrollToActionAnchor(actionRef.messageAnchor);
     },
     [activeSessionId, loadConversation, loading, scrollToActionAnchor],
@@ -1817,7 +1809,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               getLatestAssistantMessageAnchor(),
             ),
           );
-          setSidebarActionPanelOpen(true);
         }
 
         if (action.step === 'approve-plan') {
@@ -1933,7 +1924,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               )
             : conversationActionRefFromCandidate(candidate, getLatestAssistantMessageAnchor()),
         );
-        setSidebarActionPanelOpen(true);
         await refreshAiopsRuntimeStatus();
       } catch (error) {
         setAiopsActionError(aiopsActionErrorMessage(error));
@@ -2853,21 +2843,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setOpen(false);
   }, [lockOpen]);
 
-  const aiopsActionHistoryContent = (
-    <AssistantRailActionRecords
-      aiopsStatus={aiopsStatus}
-      busyActionId={aiopsActionBusyId}
-      emptyLabel="아직 만들어진 조치 계획이 없습니다."
-      executionMode={executionMode}
-      onAction={handleAiopsAction}
-      records={sessionAiopsActionRecords(aiopsStatus, executionMode, sessionActionTargetKeys)}
-      resolveAction={getAiopsRecordAction}
-    />
-  );
   const historySidebar = historySidebarOpen ? (
     <AssistantHistoryPanel
       activeSessionId={activeSessionId}
-      aiopsActionHistoryContent={aiopsActionHistoryContent}
       authSubject={authSubject}
       authSubjectError={authSubjectError}
       clusterSummary={clusterSummary}
@@ -2889,15 +2867,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       renameConversation={renameConversation}
       renamingHistoryId={renamingHistoryId}
       renamingHistoryTitle={renamingHistoryTitle}
-      sessionActionTargetKeys={sessionActionTargetKeys}
       setHistoryMenuAnchor={setHistoryMenuAnchor}
       setHistoryPanelView={setHistoryPanelView}
       setOpenHistoryMenuId={setOpenHistoryMenuId}
       setRenamingHistoryId={setRenamingHistoryId}
       setRenamingHistoryTitle={setRenamingHistoryTitle}
-      setSessionActionTargetKeys={setSessionActionTargetKeys}
-      setSidebarActionPanelOpen={setSidebarActionPanelOpen}
-      sidebarActionPanelOpen={sidebarActionPanelOpen}
       startNewConversation={startNewConversation}
       uiLanguage={uiLanguage}
       uploadedDocuments={uploadedDocuments}

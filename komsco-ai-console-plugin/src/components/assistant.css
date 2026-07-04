@@ -4304,7 +4304,7 @@
   --komsco-blue-soft: #eff6ff;
   --komsco-green-soft: #f0fdf4;
   --komsco-amber-soft: #fff7ed;
-  --komsco-history-width: 236px;
+  --komsco-history-width: 268px;
   --komsco-floating-panel-width: 620px;
 
   position: relative;
@@ -4903,9 +4903,9 @@
   position: fixed;
   top: var(--komsco-history-top, 0);
   bottom: auto;
-  left: var(--komsco-history-left, -236px);
+  left: var(--komsco-history-left, -268px);
   z-index: 2147482000;
-  width: var(--komsco-history-width, 236px);
+  width: var(--komsco-history-width, 268px);
   height: var(--komsco-history-height, auto);
   max-height: none;
   border-block-end: 0;
@@ -7021,4 +7021,291 @@
   color: #64748b;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* v0.2.8.1: group history actions under each conversation instead of floating cards. */
+.komsco-ai__history-item-row {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0 5px;
+  overflow: visible;
+  border-radius: 11px;
+}
+
+.komsco-ai__history-item-row--active {
+  background: rgb(255 255 255 / 76%);
+  box-shadow: inset 0 0 0 1px #d7e5f7;
+}
+
+.komsco-ai__history-item-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.komsco-ai__history-list .komsco-ai__history-item,
+.komsco-ai__history-item {
+  min-height: 44px;
+  max-height: none;
+  padding: 8px 10px;
+  background: transparent;
+}
+
+.komsco-ai__history-item-row--active .komsco-ai__history-item,
+.komsco-ai__history-item-row--active .komsco-ai__history-item--active {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.komsco-ai__history-item-menu {
+  justify-content: center;
+}
+
+.komsco-ai__history-action-refs {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 1px 8px 4px 27px;
+  margin: 0 0 0 8px;
+}
+
+.komsco-ai__history-action-refs::before {
+  position: absolute;
+  top: 2px;
+  bottom: 6px;
+  left: 15px;
+  width: 1px;
+  content: '';
+  background: #cbd5e1;
+}
+
+.komsco-ai__history-action-ref {
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 6px;
+  min-height: 29px;
+  padding: 4px 5px;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.komsco-ai__history-action-ref:hover:not(:disabled) {
+  background: #eef6ff;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.komsco-ai__history-action-ref-icon {
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+}
+
+.komsco-ai__history-action-ref-icon svg {
+  width: 10.5px;
+  height: 10.5px;
+}
+
+.komsco-ai__history-action-ref-copy {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.komsco-ai__history-action-ref-stage {
+  font-size: 10px;
+  line-height: 1.18;
+}
+
+.komsco-ai__history-action-ref strong {
+  font-size: 11.5px;
+  line-height: 1.22;
+}
+
+.komsco-ai__history-action-ref small {
+  font-size: 10px;
+  line-height: 1.22;
+}
+
+/* v0.2.8.1: header chrome alignment and message icon scope fix. */
+.komsco-ai__surface .komsco-ai__header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-rows: 30px minmax(30px, auto);
+  column-gap: 8px;
+  row-gap: 5px;
+  align-items: center;
+  min-height: 88px;
+  padding: 10px 12px 8px;
+}
+
+.komsco-ai__surface .komsco-ai__sidebar-toggle {
+  grid-column: 1;
+  grid-row: 1;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  color: #dbeafe;
+  background: rgb(255 255 255 / 5%);
+  border: 1px solid rgb(219 234 254 / 14%);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.komsco-ai__surface .komsco-ai__sidebar-toggle:focus-visible {
+  outline: 2px solid rgb(147 197 253 / 75%);
+  outline-offset: 2px;
+}
+
+.komsco-ai__surface .komsco-ai__brand {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.komsco-ai__surface .komsco-ai__header-actions {
+  grid-column: 3;
+  grid-row: 1;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: max-content;
+  margin-inline-start: 0;
+}
+
+.komsco-ai__surface .komsco-ai__header-actions .komsco-ai__icon-button,
+.komsco-ai__surface .komsco-ai__language-button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  color: #dbeafe;
+  background: rgb(255 255 255 / 5%);
+  border: 1px solid rgb(219 234 254 / 14%);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.komsco-ai__surface .komsco-ai__language-button {
+  width: 44px;
+  min-width: 44px;
+}
+
+.komsco-ai__surface .komsco-ai__header-status {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 30px;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+}
+
+.komsco-ai--portal .komsco-ai__surface .komsco-ai__header {
+  min-height: 88px;
+  padding: 10px 12px 8px;
+  align-content: center;
+}
+
+.komsco-ai--portal .komsco-ai__surface .komsco-ai__header-status {
+  flex: 1 1 auto;
+  order: initial;
+  height: auto;
+  min-height: 30px;
+  padding: 0;
+  overflow: hidden;
+  transform: none;
+}
+
+.komsco-ai__message--assistant .komsco-ai__message-avatar {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.komsco-ai__message--assistant .komsco-ai__message-logo {
+  width: 24px;
+  height: 24px;
+}
+
+.komsco-ai__surface .komsco-ai__empty-mark {
+  width: 58px;
+  height: 58px;
+  margin-block-end: 15px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.komsco-ai__surface .komsco-ai__empty-logo {
+  width: 52px;
+  height: 52px;
+}
+
+/* v0.2.8.1: responding header light rail. */
+.komsco-ai__surface .komsco-ai__header {
+  position: relative;
+  overflow: hidden;
+}
+
+.komsco-ai__surface .komsco-ai__header::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: block;
+  height: 2px;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(90deg, #14b8a6 0%, #38bdf8 48%, #22c55e 100%);
+  opacity: 0.78;
+}
+
+.komsco-ai__surface.komsco-ai__surface--responding .komsco-ai__header::after {
+  height: 3px;
+  background:
+    linear-gradient(
+      90deg,
+      rgb(20 184 166 / 18%) 0%,
+      rgb(56 189 248 / 30%) 22%,
+      rgb(255 255 255 / 94%) 43%,
+      rgb(94 234 212 / 78%) 50%,
+      rgb(59 130 246 / 42%) 62%,
+      rgb(34 197 94 / 20%) 78%,
+      rgb(20 184 166 / 18%) 100%
+    );
+  background-size: 240% 100%;
+  box-shadow:
+    0 0 9px rgb(94 234 212 / 52%),
+    0 0 18px rgb(59 130 246 / 28%);
+  opacity: 1;
+  animation: komsco-ai-header-bottom-scan 1.85s ease-in-out infinite alternate;
+}
+
+@keyframes komsco-ai-header-bottom-scan {
+  from {
+    background-position: 0% 0;
+  }
+
+  to {
+    background-position: 100% 0;
+  }
 }
