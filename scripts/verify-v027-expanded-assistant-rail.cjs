@@ -253,6 +253,20 @@ const main = async () => {
     90000,
   );
 
+  await evaluate(
+    `(() => { document.querySelector('.komsco-ai__sidebar-toggle')?.click(); return true; })()`,
+  );
+  await poll(
+    `(() => ({
+      historyOpen: Boolean(document.querySelector('.komsco-ai__surface--history-open')),
+      history: Boolean(document.querySelector('.komsco-ai__history-sidebar')),
+      panel: Boolean(document.querySelector('.komsco-ai__panel--fullscreen')),
+      rail: Boolean(document.querySelector('.komsco-ai__insight-rail'))
+    }))()`,
+    (value) => value && value.historyOpen && value.history && value.panel && value.rail,
+    'fullscreen history sidebar',
+  );
+
   const metrics = await evaluate(
     `(async () => {
       const rectOf = (el) => {
@@ -276,8 +290,11 @@ const main = async () => {
       const rail = document.querySelector('.komsco-ai__insight-rail');
       const railText = rail?.innerText || '';
       const surface = document.querySelector('.komsco-ai__surface--fullscreen');
+      const history = document.querySelector('.komsco-ai__history-sidebar');
       const workspace = document.querySelector('.komsco-ai__workspace');
       const panel = document.querySelector('.komsco-ai__panel--fullscreen');
+      const header = document.querySelector('.komsco-ai__header');
+      const headerStatus = document.querySelector('.komsco-ai__header-status');
       const requestJson = async (url) => {
         const response = await fetch(url, { headers: { Accept: 'application/json' } });
         if (!response.ok) {
@@ -296,6 +313,17 @@ const main = async () => {
         (records.approvalDecisions?.length || 0) +
         (records.executionRecords?.length || 0);
       const diagnosticRecordCount = records.diagnosticRequests?.length || 0;
+      const surfaceRect = surface?.getBoundingClientRect();
+      const historyRect = history?.getBoundingClientRect();
+      const panelRect = panel?.getBoundingClientRect();
+      const headerRect = header?.getBoundingClientRect();
+      const headerStatusRect = headerStatus?.getBoundingClientRect();
+      const headerLineClearance =
+        headerRect && headerStatusRect ? Math.round(headerRect.bottom - headerStatusRect.bottom) : null;
+      const historyGap =
+        historyRect && panelRect ? Math.round(panelRect.left - historyRect.right) : null;
+      const historyFlushLeft =
+        surfaceRect && historyRect ? Math.abs(Math.round(historyRect.left - surfaceRect.left)) <= 1 : false;
       return {
         url: location.href,
         title: document.title,
@@ -334,9 +362,20 @@ const main = async () => {
         },
         rects: {
           surface: rectOf(surface),
+          history: rectOf(history),
           panel: rectOf(panel),
+          header: rectOf(header),
+          headerStatus: rectOf(headerStatus),
           workspace: rectOf(workspace),
           rail: rectOf(rail)
+        },
+        layoutChecks: {
+          fullscreenHistoryOpen: Boolean(document.querySelector('.komsco-ai__surface--fullscreen.komsco-ai__surface--history-open')),
+          historyFlushLeft,
+          historyTouchesPanel: historyGap !== null && Math.abs(historyGap) <= 1,
+          historyGap,
+          headerLineClearance,
+          headerLineHasRoom: headerLineClearance !== null && headerLineClearance >= 4
         },
         overflow: {
           document: {
@@ -362,9 +401,15 @@ const main = async () => {
 
   const allLiveSignals = Object.values(metrics.liveSignals).every(Boolean);
   const allOverflowOk = Object.values(metrics.overflow).every((value) => value?.ok === true);
+  const allLayoutOk =
+    metrics.layoutChecks.fullscreenHistoryOpen &&
+    metrics.layoutChecks.historyFlushLeft &&
+    metrics.layoutChecks.historyTouchesPanel &&
+    metrics.layoutChecks.headerLineHasRoom;
   if (
     !allLiveSignals ||
     !allOverflowOk ||
+    !allLayoutOk ||
     metrics.oldLabelsPresent ||
     metrics.rawInternalReasonPresent ||
     metrics.hasOverlayFrame
@@ -374,6 +419,7 @@ const main = async () => {
         {
           allLiveSignals,
           allOverflowOk,
+          allLayoutOk,
           hasOverlayFrame: metrics.hasOverlayFrame,
           oldLabelsPresent: metrics.oldLabelsPresent,
           metrics,

@@ -6,7 +6,7 @@ import {
 } from './coolicons';
 import { UI_COPY } from './assistant.copy';
 import type { Message, UiLanguage } from './assistant.types';
-import kIcon from '../assets/k_icon.png';
+import aiopsIcon from '../assets/aiops_icon.svg';
 
 type AssistantMessageHeaderProps = {
   copied: boolean;
@@ -39,7 +39,7 @@ const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
     return <CoolInfoIcon />;
   }
 
-  return <img alt="" className="komsco-ai__message-logo" src={kIcon} />;
+  return <img alt="" className="komsco-ai__message-logo" src={aiopsIcon} />;
 };
 
 const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
