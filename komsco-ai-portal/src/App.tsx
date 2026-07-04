@@ -3,25 +3,28 @@ import {
   Activity,
   AlertTriangle,
   Bell,
-  BookOpen,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
   Cpu,
   FileText,
   GitBranch,
-  LayoutDashboard,
   Network,
   RefreshCw,
   Search,
-  Settings,
   ShieldCheck,
-  Siren,
   Upload,
   X,
 } from 'lucide-react';
 import { fetchAiopsEvents, fetchAiopsStatus, fetchClusterSummary } from './api';
 import aiopsIconUrl from './assets/aiops_icon.svg';
+import {
+  navGroupLabel,
+  navItems,
+  standaloneRouteByView,
+  viewFromLocation,
+} from './portalNavigation';
+import { severityClass, severityLabel, StatusBadge } from './portalBadges';
 import type {
   ActivityItem,
   AiopsEventFeed,
@@ -36,13 +39,6 @@ import type {
   ScopeItem,
   Severity,
 } from './types';
-
-type NavItem = {
-  id: NavView;
-  label: string;
-  group: 'MONITORING' | 'OPERATIONS';
-  icon: React.ReactNode;
-};
 
 type RuntimeState = {
   error: string;
@@ -343,7 +339,7 @@ const sampleKnowledgeDocs: KnowledgeDoc[] = [
     updatedAt: '07. 02. 오후 05:40',
     verifiedAt: '07. 02. 오후 05:40',
     version: 'v2.1',
-    summary: '자동 조치 제안, 승인 봉인, 실행 원장 기록에 필요한 운영 통제 기준입니다.',
+    summary: '자동 조치 제안, 승인 검증, 실행 원장 기록에 필요한 운영 통제 기준입니다.',
     tags: ['Approval', 'Audit', 'Policy'],
     steps: ['읽기/증거 수집 단계와 변경 실행 단계를 분리합니다.', '운영자 승인 없이 클러스터 변경을 실행하지 않습니다.', '모든 실행 결과는 감사 원장에 남깁니다.'],
   },
@@ -554,23 +550,6 @@ const reportSecondarySignal = (
   return `노드 ${summary.nodes.ready}/${summary.nodes.total} · 파드 ${podResource?.score ?? '-'} · 컨트롤러 ${summary.resources?.total ?? 0}`;
 };
 
-const navItems: NavItem[] = [
-  { id: 'dashboard', label: '대시보드', group: 'MONITORING', icon: <LayoutDashboard /> },
-  { id: 'executions', label: '실행 기록', group: 'MONITORING', icon: <ClipboardCheck /> },
-  { id: 'rca', label: 'RCA 센터', group: 'MONITORING', icon: <GitBranch /> },
-  { id: 'service-map', label: '서비스 맵', group: 'MONITORING', icon: <Network /> },
-  { id: 'endpoints', label: '클러스터 리소스', group: 'MONITORING', icon: <Cpu /> },
-  { id: 'alerts', label: '알림 & 이벤트', group: 'MONITORING', icon: <Siren /> },
-  { id: 'wiki', label: '위키 문서 관리', group: 'OPERATIONS', icon: <BookOpen /> },
-  { id: 'reports', label: '보고서', group: 'OPERATIONS', icon: <FileText /> },
-  { id: 'settings', label: '설정', group: 'OPERATIONS', icon: <Settings /> },
-];
-
-const navGroupLabel: Record<NavItem['group'], string> = {
-  MONITORING: '모니터링',
-  OPERATIONS: '운영',
-};
-
 const endpointPageSizeOptions = [10, 25, 50];
 const eventInboxPageSizeOptions = [10, 25, 50];
 
@@ -578,17 +557,6 @@ const aiopsAlarmCount = (events: AiopsEventFeed): number =>
   events.spec.items.filter((item) => item.severity === 'risk' || item.severity === 'warn').length;
 
 const compactCount = (value: number): string => (value > 99 ? '99+' : String(value));
-
-const isNavView = (value: string): value is NavView => navItems.some((item) => item.id === value);
-
-const viewFromLocation = (): NavView => {
-  if (typeof window === 'undefined') {
-    return 'dashboard';
-  }
-
-  const hashView = decodeURIComponent(window.location.hash.replace(/^#\/?/, ''));
-  return isNavView(hashView) ? hashView : 'dashboard';
-};
 
 const formatTime = (value?: string): string => {
   if (!value) {
@@ -721,7 +689,7 @@ const recordKindLabel = (kind?: string): string => {
     AuditRecord: '감사',
     DiagnosticRequestRecord: '진단',
     ExecutionRecord: '실행',
-    SealedActionPlan: '봉인 계획',
+    SealedActionPlan: '승인 필요 계획',
   };
   return kind ? labels[kind] ?? kind : '기록';
 };
@@ -829,7 +797,7 @@ const ledgerPhase = (entry: Pick<LedgerEntry, 'category'>, record: AiopsRecord, 
     ActionProposal: '조치 제안',
     ApprovalDecision: '승인 완료',
     ExecutionRecord: '변경 실행',
-    SealedActionPlan: '승인 봉인',
+    SealedActionPlan: '승인 필요 계획',
   };
   return labels[record.kind ?? ''] ?? recordKindLabel(record.kind);
 };
@@ -908,7 +876,7 @@ const ledgerActionLabel = (value: string): string => {
 const ledgerGateLabel = (value: string): string => {
   const labels: Record<string, string> = {
     Approval: '승인',
-    'Approval Seal': '승인 봉인',
+    'Approval Seal': '승인 검증',
     Diagnostics: '진단',
     Executor: '실행기',
     Gateway: '게이트웨이',
@@ -985,14 +953,6 @@ const mutationStatusLabel = (value: string): string => {
   };
   return labels[value] ?? value;
 };
-
-const severityLabel: Record<Severity, string> = {
-  ok: '정상',
-  warn: '주의',
-  risk: '위험',
-};
-
-const severityClass = (severity: Severity): string => `is-${severity}`;
 
 const clusterLabel = (summary: ClusterSummary): string => {
   if (!summary.apiUrl) {
@@ -2769,10 +2729,6 @@ const MiniTrend: React.FC<{ color: string }> = ({ color }) => (
   </svg>
 );
 
-const StatusBadge: React.FC<{ severity: Severity; label?: string }> = ({ label, severity }) => (
-  <span className={`status-badge ${severityClass(severity)}`}>{label ?? severityLabel[severity]}</span>
-);
-
 const EmptyState: React.FC<{ label: string }> = ({ label }) => (
   <div className="empty-state">{label}</div>
 );
@@ -4369,8 +4325,8 @@ const ControlGatesPanel: React.FC<{
       value: capabilities.mutationsEnabled ? '켜짐' : '꺼짐',
     },
     {
-      detail: entries.some((entry) => entry.category === 'approval') ? '이 실행 흐름에 승인 봉인 상태가 포함되어 있습니다.' : '현재 스트림에 승인 봉인 기록이 없습니다.',
-      label: '승인 봉인',
+      detail: entries.some((entry) => entry.category === 'approval') ? '이 실행 흐름에 승인 검증 기록이 포함되어 있습니다.' : '현재 스트림에 승인 검증 기록이 없습니다.',
+      label: '승인 검증',
       tone: entries.some((entry) => entry.category === 'approval') ? 'ok' : 'warn',
       value: entries.some((entry) => entry.category === 'approval') ? '준비됨' : '없음',
     },
@@ -6584,12 +6540,16 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
     .issue-table tr:last-child td { border-bottom: 0; }
     .sev {
       display: inline-flex;
-      min-width: 46px;
+      align-items: center;
       justify-content: center;
+      min-width: 46px;
+      min-height: 24px;
       padding: 5px 8px;
-      font-size: 11px;
+      font-size: 11.5px;
       font-weight: 950;
+      line-height: 1.2;
       border-radius: 999px;
+      white-space: nowrap;
     }
     .sev.danger { color: #b91c1c; background: #fee2e2; }
     .sev.warn { color: #92400e; background: #fef3c7; }
@@ -7228,9 +7188,9 @@ export const App: React.FC = () => {
     setActiveView((current) => (current === view ? current : view));
     setDrawerItem(null);
 
-    const nextHash = `#${view}`;
-    if (window.location.hash !== nextHash) {
-      window.history.pushState({ view }, '', nextHash);
+    const nextPath = standaloneRouteByView[view] ?? standaloneRouteByView.dashboard;
+    if (window.location.pathname !== nextPath || window.location.hash) {
+      window.history.pushState({ view }, '', nextPath);
     }
   }, [activeView]);
 

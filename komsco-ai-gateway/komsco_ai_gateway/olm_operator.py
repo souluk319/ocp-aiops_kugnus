@@ -726,6 +726,14 @@ def safety_mode_condition(config: Mapping[str, Any], generation: int) -> dict[st
             "mode=execute requires capabilities.mutations=true.",
             generation,
         )
+    if mode == "evidence-check" and mutations_enabled:
+        return condition(
+            "SafetyModeReady",
+            "False",
+            "ReadOnlyCapabilityMismatch",
+            "mode=evidence-check requires capabilities.mutations=false.",
+            generation,
+        )
     if mode == "unrestricted" and (not mutations_enabled or not unrestricted_enabled):
         return condition(
             "SafetyModeReady",

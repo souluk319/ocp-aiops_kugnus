@@ -594,11 +594,16 @@ button:disabled {
 
 .hero-pill {
   position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   top: 10px;
   right: 14px;
+  min-height: 24px;
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 800;
+  line-height: 1.2;
   color: #70ffbd;
   background: rgba(16, 185, 129, 0.16);
   border: 1px solid rgba(16, 185, 129, 0.3);
@@ -929,6 +934,18 @@ button:disabled {
   color: #738196;
 }
 
+.scope-row .status-badge,
+.queue-row .status-badge,
+.action-row .status-badge,
+.alert-row .status-badge,
+.impact-candidate-row .status-badge,
+.impact-stack-row .status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+}
+
 .scope-row b {
   font-size: 13px;
   color: #059669;
@@ -1069,7 +1086,9 @@ button:disabled {
   padding: 0 8px;
   font-size: 11.5px;
   font-weight: 800;
+  line-height: 1.2;
   border-radius: 7px;
+  white-space: nowrap;
 }
 
 .status-badge.is-ok {
@@ -3586,14 +3605,20 @@ button:disabled {
 }
 
 .runbook-gate-list em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
   justify-self: end;
   padding: 4px 7px;
   font-size: 10.5px;
   font-style: normal;
   font-weight: 900;
+  line-height: 1.2;
   color: #b45309;
   background: var(--orange-soft);
   border-radius: 999px;
+  white-space: nowrap;
 }
 
 .runbook-gate-list small {
@@ -3812,11 +3837,17 @@ button:disabled {
 }
 
 .rca-evidence-grid em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
   padding: 4px 7px;
   font-size: 11px;
   font-style: normal;
   font-weight: 900;
+  line-height: 1.2;
   border-radius: 999px;
+  white-space: nowrap;
 }
 
 .rca-evidence-grid em.is-normal {
@@ -4831,14 +4862,17 @@ button:disabled {
 .event-inbox .status-badge,
 .event-ledger .status-badge,
 .issue-correlation-list .status-badge {
+  display: inline-flex;
   align-self: center;
   align-items: center;
-  width: 46px;
-  height: 28px;
+  justify-content: center;
+  width: auto;
   min-width: 46px;
-  padding: 3px 0 0;
+  min-height: 28px;
+  padding: 0 8px;
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.2;
   border-radius: 8px;
 }
 
@@ -5584,6 +5618,14 @@ button:disabled {
   color: var(--blue);
 }
 
+.doc-list .status-badge,
+.wiki-index-compact .status-badge,
+.wiki-search-results .status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .doc-preview {
   padding: 6px;
 }
@@ -5936,12 +5978,11 @@ button:disabled {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: 26px;
-  min-height: 26px;
-  padding: 3px 8px 0;
+  min-height: 28px;
+  padding: 4px 10px;
   font-size: 12px;
   font-weight: 900;
-  line-height: 1;
+  line-height: 1.2;
   text-align: center;
   white-space: nowrap;
 }
@@ -6282,13 +6323,16 @@ button:disabled {
 
 .report-preview-sev {
   display: inline-flex;
-  min-width: 42px;
   align-items: center;
   justify-content: center;
+  min-width: 42px;
+  min-height: 24px;
   padding: 5px 7px;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 950;
+  line-height: 1.2;
   border-radius: 999px;
+  white-space: nowrap;
 }
 
 .report-preview-sev.is-risk {

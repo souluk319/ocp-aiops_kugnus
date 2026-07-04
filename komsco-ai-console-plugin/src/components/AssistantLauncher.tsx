@@ -1,31 +1,20 @@
 import * as React from 'react';
-import { Button, Card, CardBody, Switch, TextArea } from '@patternfly/react-core';
+import { Card, CardBody } from '@patternfly/react-core';
 import * as ReactDOM from 'react-dom';
-import {
-  CoolArrowDownIcon,
-  CoolCaretDownIcon,
-  CoolCheckIcon,
-  CoolCloseIcon,
-  CoolCopyIcon,
-  CoolDesktopTowerIcon,
-  CoolExpandIcon,
-  CoolGlobeIcon,
-  CoolInfoIcon,
-  CoolListChecklistIcon,
-  CoolLockIcon,
-  CoolLockOpenIcon,
-  CoolMenuIcon,
-  CoolPaperclipIcon,
-  CoolPaperPlaneIcon,
-  CoolPlusIcon,
-  CoolShieldCheckIcon,
-  CoolShrinkIcon,
-  CoolStopIcon,
-  CoolTerminalIcon,
-  CoolUserCircleIcon,
-  CoolWarningIcon,
-} from './coolicons';
+import AssistantAnswerActions, { AssistantRailActionRecords } from './AssistantActionRecords';
+import AssistantComposer from './AssistantComposer';
+import AssistantCreateActionPlanButtons from './AssistantCreateActionPlanButtons';
+import AssistantEvidenceFooter from './AssistantEvidenceFooter';
+import AssistantEmptyState from './AssistantEmptyState';
+import AssistantHeader from './AssistantHeader';
 import AssistantHistoryPanel from './AssistantHistoryPanel';
+import AssistantImageLightbox from './AssistantImageLightbox';
+import AssistantInsightRail from './AssistantInsightRail';
+import AssistantMessageHeader from './AssistantMessageHeader';
+import AssistantResizeHandles from './AssistantResizeHandles';
+import AssistantSurfacePortal from './AssistantSurfacePortal';
+import { renderFormattedContent } from './AssistantMessageContent';
+import AssistantToolPlanFooter from './AssistantToolPlanFooter';
 import ProgressTimeline, {
   formatToolTitle,
   normalizeToolName,
@@ -35,7 +24,6 @@ import {
   ACCEPTED_IMAGE_MIME_TYPES,
   ACCEPTED_RAG_DOCUMENT_EXTENSIONS,
   ACCEPTED_RAG_DOCUMENT_MIME_TYPES,
-  ACTION_POLICY_LABELS,
   ANSWER_STREAM_STEP_ID,
   ASSISTANT_TASK_MODES,
   ASSISTANT_TYPEWRITER_CHARS,
@@ -43,7 +31,6 @@ import {
   CLUSTER_SUMMARY_REFRESH_MS,
   DEFAULT_AIOPS_EXECUTION_MODE,
   FAILED_TOOL_STATUSES,
-  FILE_INPUT_ACCEPT,
   GATEWAY_PREP_STEP_ID,
   GATEWAY_PREP_TOOLS,
   HISTORY_DRAWER_WIDTH,
@@ -56,59 +43,78 @@ import {
   MIN_STOP_BUTTON_VISIBLE_MS,
   MULTIPART_RAG_DOCUMENT_EXTENSIONS,
   MULTIPART_RAG_DOCUMENT_MIME_TYPES,
-  QUICK_PROMPTS,
   RCA_CONTEXT_STEP_ID,
   RCA_PLAN_STEP_ID,
   RESPONSE_WAIT_STEP_ID,
-  RISK_LABEL_KO,
   RUN_LOOP_STEP_ID,
   SCROLL_BOTTOM_THRESHOLD_PX,
-  STORED_ACTIVE_CONVERSATION_KEY,
-  STORED_CONVERSATION_HISTORY_KEY,
-  STORED_UI_LANGUAGE_KEY,
-  TASK_MODE_PLACEHOLDERS,
 } from './assistant.constants';
+import { formatFileSize } from './assistant.attachments';
 import { TASK_MODE_EMPTY_COPY, UI_COPY } from './assistant.copy';
 import {
-  cleanMarkdownLabel,
-  collectIndentedBlock,
-  extractRagAppendixRefs,
-  formattedHeadingTone,
-  isCommandLikeLine,
-  parseMarkdownLink,
-  renderCodeBlock,
-  renderInlineText,
+  buildEvidenceCopyText,
+  buildEvidenceFooter,
+} from './assistant.evidence';
+import {
+  ACTION_STAGE_RANK,
+  actionAnchorForMessageIndex,
+  actionRecordCreatedAt,
+  actionRecordDedupeKey,
+  conversationActionRefFromRecord,
+  findPlanByDigest,
+  getActionRecordStage,
+  getActionRecordToolName,
+  getApprovalId,
+  getApprovalPlanDigest,
+  getExecutionOutcomeSummary,
+  getPlanDigest,
+  getRecordName,
+  getRecordTargetLabel,
+} from './assistant.actionRecords';
+import {
+  canUseActionExecution,
+  executionModeAllowsActions,
+  getAiopsRecordAction,
+  getActionExecutionDisabledReason,
+} from './assistant.actionState';
+import { getClusterHost } from './assistant.insightRailHelpers';
+import {
+  createRunId,
+  formatHistoryTime,
+  getConversationTitle,
+  languageLocale,
+  readStoredActiveConversation,
+  readStoredConversationHistory,
+  readStoredUiLanguage,
+  writeStoredActiveConversation,
+  writeStoredConversationHistory,
+  writeStoredUiLanguage,
+} from './assistant.storage';
+import {
+  buildToolPlanFooter,
+} from './assistant.toolPlan';
+import {
   stripDefaultEvidenceAppendix,
-  trimIndentedCodeLine,
 } from './assistant.render';
 import type {
   AiopsExecutionMode,
-  AiopsLifecycleStage,
   AiopsRecordAction,
   AiopsRecordView,
   AssistantLauncherProps,
   AssistantTaskMode,
+  ConversationActionRef,
   ConversationHistoryItem,
   EvidenceFooter,
-  EvidenceFooterMissing,
-  EvidenceFooterQueryStep,
-  EvidenceFooterRef,
-  ExecutionOutcomeSummary,
   HistoryPanelView,
   LightspeedStatusUpdate,
   Message,
   PanelResizeDirection,
-  PlanSummary,
   ProgressStatus,
   ProgressStep,
   RunStatusEvent,
-  StoredActiveConversation,
   ToolPlanFooter,
-  ToolPlanMissingEvidence,
-  ToolPlanStep,
   ToolStreamEvent,
   UiLanguage,
-  UiTone,
 } from './assistant.types';
 import {
   type AiopsActionCandidate,
@@ -116,7 +122,6 @@ import {
   type AuthSubject,
   type ChatContextMessage,
   type ClusterSummary,
-  type EvidenceStatusItem,
   type ImageAttachment,
   type RagUploadedDocument,
   approveActionPlan,
@@ -133,9 +138,8 @@ import {
   uploadRagDocument,
   uploadRagDocumentFile,
 } from '../services/aiGateway';
-import { evidenceCount, redactSensitiveText, safeEvidenceText } from '../utils/evidenceDisplay';
+import { redactSensitiveText } from '../utils/evidenceDisplay';
 import aiopsIcon from '../assets/aiops_icon.svg';
-import kIcon from '../assets/k_icon.png';
 import './assistant.css';
 
 const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecutionMode | null => {
@@ -274,247 +278,6 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
     },
   },
 });
-
-const getMessageLabel = (role: Message['role'], language: UiLanguage): string => {
-  if (role === 'user') {
-    return UI_COPY[language].userLabel;
-  }
-
-  if (role === 'system') {
-    return UI_COPY[language].systemLabel;
-  }
-
-  return 'KOMSCO AI AGENT';
-};
-
-const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
-  if (role === 'user') {
-    return <CoolUserCircleIcon />;
-  }
-
-  if (role === 'system') {
-    return <CoolInfoIcon />;
-  }
-
-  return <img alt="" className="komsco-ai__message-logo" src={kIcon} />;
-};
-
-const formatFileSize = (size: number): string => {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const createRunId = (): string =>
-  `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-
-const getConversationTitle = (messages: Message[], language: UiLanguage): string => {
-  const firstUserMessage = messages.find((message) => message.role === 'user');
-  const content = firstUserMessage?.content.trim();
-
-  if (!content && firstUserMessage?.attachments?.length) {
-    return language === 'ko' ? '이미지 첨부 대화' : 'Image conversation';
-  }
-
-  if (!content) {
-    return language === 'ko' ? '새 대화' : 'New conversation';
-  }
-
-  return content.length > 34 ? `${content.slice(0, 34)}...` : content;
-};
-
-const getAssistantStorage = (): Storage | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-};
-
-const isStorageRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const readStoredJson = (key: string): unknown => {
-  const storage = getAssistantStorage();
-  if (!storage) {
-    return undefined;
-  }
-
-  try {
-    const raw = storage.getItem(key);
-    return raw ? JSON.parse(raw) : undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const writeStoredJson = (key: string, value: unknown): void => {
-  const storage = getAssistantStorage();
-  if (!storage) {
-    return;
-  }
-
-  try {
-    storage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Browser storage is best-effort UI state. Gateway JSONL remains the audit source.
-  }
-};
-
-const sanitizeMessageForStorage = (message: Message): Message => {
-  const { attachments: _attachments, ...storedMessage } = message;
-  return storedMessage;
-};
-
-const normalizeStoredMessage = (value: unknown): Message | undefined => {
-  if (!isStorageRecord(value)) {
-    return undefined;
-  }
-
-  const { role, content } = value;
-  if (
-    (role !== 'user' && role !== 'assistant' && role !== 'system') ||
-    typeof content !== 'string'
-  ) {
-    return undefined;
-  }
-
-  return sanitizeMessageForStorage({
-    ...(value as Message),
-    content,
-    role,
-  });
-};
-
-const normalizeStoredMessages = (value: unknown): Message[] =>
-  Array.isArray(value)
-    ? value.flatMap((message) => {
-        const normalized = normalizeStoredMessage(message);
-        return normalized ? [normalized] : [];
-      })
-    : [];
-
-const normalizeStoredConversation = (value: unknown): ConversationHistoryItem | undefined => {
-  if (!isStorageRecord(value)) {
-    return undefined;
-  }
-
-  const messages = normalizeStoredMessages(value.messages);
-  if (messages.length === 0) {
-    return undefined;
-  }
-
-  const id = typeof value.id === 'string' && value.id ? value.id : createRunId();
-  const title =
-    typeof value.title === 'string' && value.title.trim()
-      ? value.title
-      : getConversationTitle(messages, 'ko');
-  const updatedAt =
-    typeof value.updatedAt === 'number' && Number.isFinite(value.updatedAt)
-      ? value.updatedAt
-      : Date.now();
-  const conversationId =
-    typeof value.conversationId === 'string' && value.conversationId
-      ? value.conversationId
-      : undefined;
-  const actionTargetKeys = Array.isArray(value.actionTargetKeys)
-    ? value.actionTargetKeys.filter((key): key is string => typeof key === 'string')
-    : undefined;
-
-  return {
-    id,
-    title,
-    updatedAt,
-    conversationId,
-    messages,
-    actionTargetKeys,
-  };
-};
-
-const readStoredConversationHistory = (): ConversationHistoryItem[] => {
-  const stored = readStoredJson(STORED_CONVERSATION_HISTORY_KEY);
-  if (!Array.isArray(stored)) {
-    return [];
-  }
-
-  return stored
-    .flatMap((conversation) => {
-      const normalized = normalizeStoredConversation(conversation);
-      return normalized ? [normalized] : [];
-    })
-    .slice(0, MAX_STORED_CONVERSATIONS);
-};
-
-const writeStoredConversationHistory = (conversationHistory: ConversationHistoryItem[]): void => {
-  writeStoredJson(
-    STORED_CONVERSATION_HISTORY_KEY,
-    conversationHistory.slice(0, MAX_STORED_CONVERSATIONS).map((conversation) => ({
-      ...conversation,
-      messages: conversation.messages.map(sanitizeMessageForStorage),
-    })),
-  );
-};
-
-const readStoredActiveConversation = (): StoredActiveConversation | undefined => {
-  const stored = readStoredJson(STORED_ACTIVE_CONVERSATION_KEY);
-  if (!isStorageRecord(stored)) {
-    return undefined;
-  }
-
-  const messages = normalizeStoredMessages(stored.messages);
-  const activeSessionId =
-    typeof stored.activeSessionId === 'string' && stored.activeSessionId
-      ? stored.activeSessionId
-      : createRunId();
-  const conversationId =
-    typeof stored.conversationId === 'string' && stored.conversationId
-      ? stored.conversationId
-      : undefined;
-
-  return {
-    activeSessionId,
-    conversationId,
-    messages,
-  };
-};
-
-const writeStoredActiveConversation = (snapshot: StoredActiveConversation): void => {
-  writeStoredJson(STORED_ACTIVE_CONVERSATION_KEY, {
-    ...snapshot,
-    messages: snapshot.messages.map(sanitizeMessageForStorage),
-  });
-};
-
-const normalizeUiLanguage = (value: unknown): UiLanguage =>
-  value === 'en' || value === 'ko' ? value : 'ko';
-
-const readStoredUiLanguage = (): UiLanguage =>
-  normalizeUiLanguage(readStoredJson(STORED_UI_LANGUAGE_KEY));
-
-const writeStoredUiLanguage = (language: UiLanguage): void => {
-  writeStoredJson(STORED_UI_LANGUAGE_KEY, language);
-};
-
-const languageLocale = (language: UiLanguage): string => (language === 'ko' ? 'ko-KR' : 'en-US');
-
-const formatHistoryTime = (timestamp: number, language: UiLanguage): string =>
-  new Date(timestamp).toLocaleTimeString(languageLocale(language), {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-const getAttachmentPreviewUrl = (attachment: ImageAttachment): string =>
-  `data:${attachment.mimeType};base64,${attachment.data}`;
 
 const RESOURCE_KIND_BY_ROUTE_SEGMENT: Record<string, string> = {
   buildconfigs: 'BuildConfig',
@@ -732,118 +495,6 @@ const setLastAssistantContentIfEmpty = (messages: Message[], content: string): M
   return next;
 };
 
-const asRecord = (value: unknown): Record<string, unknown> =>
-  value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-
-const asRecordArray = (value: unknown): Record<string, unknown>[] =>
-  Array.isArray(value)
-    ? value.filter((item): item is Record<string, unknown> =>
-        Boolean(item && typeof item === 'object' && !Array.isArray(item)),
-      )
-    : [];
-
-const normalizeEvidenceRef = (value: Record<string, unknown>): EvidenceFooterRef => ({
-  contentDigest: safeEvidenceText(value.contentDigest),
-  evidenceId: safeEvidenceText(value.evidenceId),
-  sourceType: safeEvidenceText(value.sourceType),
-  status: safeEvidenceText(value.status),
-  summary: safeEvidenceText(value.summary || value.eventName || 'evidence'),
-  type: safeEvidenceText(value.type, 'evidence'),
-});
-
-const normalizeMissingEvidence = (value: Record<string, unknown>): EvidenceFooterMissing => ({
-  contentDigest: safeEvidenceText(value.contentDigest),
-  evidenceId: safeEvidenceText(value.evidenceId),
-  reason: safeEvidenceText(value.reason || 'additional evidence required'),
-  type: safeEvidenceText(value.type, 'evidence'),
-});
-
-const normalizeEvidenceQueryStep = (value: Record<string, unknown>): EvidenceFooterQueryStep => ({
-  adapter: safeEvidenceText(value.adapter),
-  evidenceType: safeEvidenceText(value.evidenceType || value.evidence_type, 'evidence'),
-  reason: safeEvidenceText(value.reason || '근거 수집 단계'),
-  status: safeEvidenceText(value.status || 'planned'),
-  step: safeEvidenceText(value.step),
-  tool: safeEvidenceText(value.tool || value.official_tool, 'tool'),
-});
-
-const evidenceStatusCounts = (items: EvidenceStatusItem[] | undefined) => ({
-  collected: (items ?? [])
-    .filter((item) => item.status === 'collected')
-    .reduce((total, item) => total + item.count, 0),
-  missing: (items ?? [])
-    .filter((item) => item.status === 'missing')
-    .reduce((total, item) => total + Math.max(item.count, 1), 0),
-});
-
-const buildEvidenceFooter = (
-  context: unknown,
-  evidenceStatus?: EvidenceStatusItem[],
-  status?: string,
-): EvidenceFooter | undefined => {
-  const contextRecord = asRecord(context);
-  if (Object.keys(contextRecord).length === 0) {
-    return undefined;
-  }
-
-  const metadata = asRecord(contextRecord.metadata);
-  const evidence = asRecord(contextRecord.evidence);
-  const summary = asRecord(evidence.summary);
-  const analysisPlan = asRecord(contextRecord.analysisPlan);
-  const answerExperience = asRecord(contextRecord.answerExperience);
-  const collectedRefs = asRecordArray(evidence.collectedRefs).map(normalizeEvidenceRef);
-  const failedRefs = asRecordArray(evidence.failedRefs).map(normalizeEvidenceRef);
-  const missing = asRecordArray(evidence.missing).map(normalizeMissingEvidence);
-  const queryPlanSource = asRecordArray(answerExperience.queryPlan).length
-    ? asRecordArray(answerExperience.queryPlan)
-    : asRecordArray(analysisPlan.queryPlan).length
-      ? asRecordArray(analysisPlan.queryPlan)
-      : asRecordArray(analysisPlan.evidenceCollectionSteps);
-  const queryPlan = queryPlanSource.map(normalizeEvidenceQueryStep);
-  const statusCounts = evidenceStatusCounts(evidenceStatus);
-
-  return {
-    collectedCount: evidenceCount(
-      summary.collectedCount,
-      statusCounts.collected,
-      collectedRefs.length,
-    ),
-    collectedRefs,
-    contextId: safeEvidenceText(metadata.contextId),
-    digest: safeEvidenceText(metadata.digest),
-    failedCount: evidenceCount(summary.failedCount, 0, failedRefs.length),
-    failedRefs,
-    missing,
-    missingCount: evidenceCount(summary.missingCount, statusCounts.missing, missing.length),
-    phase: safeEvidenceText(metadata.phase),
-    queryPlan,
-    status: safeEvidenceText(status),
-  };
-};
-
-const rcaRailEvidenceCounts = (status: AiopsRuntimeStatus | null | undefined) => {
-  const safetyContract = status?.spec.safetyContract;
-  const statusCounts = evidenceStatusCounts(safetyContract?.evidenceStatus);
-  const contextRecord = asRecord(safetyContract?.rcaContextStatus?.latestContext);
-  const evidence = asRecord(contextRecord.evidence);
-  const summary = asRecord(evidence.summary);
-  const collectedRefs = asRecordArray(evidence.collectedRefs);
-  const missing = asRecordArray(evidence.missing);
-
-  return {
-    collected: Math.max(
-      statusCounts.collected,
-      evidenceCount(summary.collectedCount, statusCounts.collected, collectedRefs.length),
-    ),
-    missing: Math.max(
-      statusCounts.missing,
-      evidenceCount(summary.missingCount, statusCounts.missing, missing.length),
-    ),
-  };
-};
-
 const attachEvidenceFooterToLastAssistant = (
   messages: Message[],
   evidenceFooter: EvidenceFooter | undefined,
@@ -864,68 +515,6 @@ const attachEvidenceFooterToLastAssistant = (
   };
 
   return next;
-};
-
-const buildToolPlanFooter = (raw: unknown): ToolPlanFooter | undefined => {
-  if (!raw || typeof raw !== 'object') {
-    return undefined;
-  }
-
-  const plan = raw as Record<string, unknown>;
-  const target = (plan.target && typeof plan.target === 'object' ? plan.target : {}) as Record<
-    string,
-    unknown
-  >;
-  const executionPolicy = (
-    plan.execution_policy && typeof plan.execution_policy === 'object' ? plan.execution_policy : {}
-  ) as Record<string, unknown>;
-  const validation = (
-    plan.validation && typeof plan.validation === 'object' ? plan.validation : {}
-  ) as Record<string, unknown>;
-
-  const isRecord = (value: unknown): value is Record<string, unknown> =>
-    Boolean(value) && typeof value === 'object';
-
-  const rawSteps = Array.isArray(plan.tool_plan) ? plan.tool_plan.filter(isRecord) : [];
-  const steps: ToolPlanStep[] = rawSteps.map((step) => {
-    const stepId =
-      typeof step.step === 'number' || typeof step.step === 'string' ? step.step : undefined;
-    return {
-      adapter: typeof step.adapter === 'string' ? step.adapter : undefined,
-      evidenceType: typeof step.evidence_type === 'string' ? step.evidence_type : undefined,
-      reason: typeof step.reason === 'string' ? step.reason : undefined,
-      step: stepId,
-      tool: typeof step.tool === 'string' ? step.tool : undefined,
-      verb: typeof step.verb === 'string' ? step.verb : undefined,
-    };
-  });
-
-  const rawMissing = Array.isArray(plan.missing_evidence)
-    ? plan.missing_evidence.filter(isRecord)
-    : [];
-  const missingEvidence: ToolPlanMissingEvidence[] = rawMissing.map((item) => ({
-    reason: typeof item.reason === 'string' ? item.reason : undefined,
-    type: typeof item.type === 'string' ? item.type : undefined,
-  }));
-
-  if (steps.length === 0) {
-    return undefined;
-  }
-
-  return {
-    executionPolicyMode:
-      typeof executionPolicy.mode === 'string' ? executionPolicy.mode : undefined,
-    missingEvidence,
-    steps,
-    targetNamespace: typeof target.namespace === 'string' ? target.namespace : undefined,
-    targetResourceKind: typeof target.resourceKind === 'string' ? target.resourceKind : undefined,
-    targetResourceName: typeof target.resourceName === 'string' ? target.resourceName : undefined,
-    taskType: typeof plan.task_type === 'string' ? plan.task_type : undefined,
-    validationOk: typeof validation.ok === 'boolean' ? validation.ok : undefined,
-    validationViolations: Array.isArray(validation.violations)
-      ? validation.violations.filter((item): item is string => typeof item === 'string')
-      : [],
-  };
 };
 
 const attachToolPlanToLastAssistant = (
@@ -1011,1385 +600,6 @@ const formatMessageTime = (timestamp: number | undefined, language: UiLanguage):
   }).format(new Date(timestamp));
 };
 
-const evidenceTypeLabel = (type?: string): string => {
-  const normalized = String(type || '')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'node') {
-    return '노드';
-  }
-  if (normalized === 'alert') {
-    return '경고';
-  }
-  if (normalized === 'metric') {
-    return '메트릭';
-  }
-  if (normalized === 'pod_status' || normalized === 'pod') {
-    return 'Pod';
-  }
-  if (normalized === 'snapshot') {
-    return '스냅샷';
-  }
-  if (normalized === 'event') {
-    return '이벤트';
-  }
-  if (normalized === 'runbook') {
-    return '런북';
-  }
-  if (normalized === 'openshift_api') {
-    return 'OpenShift API';
-  }
-  if (normalized === 'openshift') {
-    return 'OpenShift';
-  }
-  if (!normalized) {
-    return '근거';
-  }
-  return type || '근거';
-};
-
-const evidenceStepStatusLabel = (status?: string): string => {
-  const normalized = String(status || '')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'collected' || normalized === 'success' || normalized === 'succeeded') {
-    return '수집됨';
-  }
-  if (normalized === 'not_attempted' || normalized === 'planned' || normalized === 'pending') {
-    return '대기';
-  }
-  if (normalized === 'failed' || normalized === 'error') {
-    return '확인 필요';
-  }
-  return status || '대기';
-};
-
-const rcaStatusLabel = (status?: string): string => {
-  const normalized = String(status || '')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'available' || normalized === 'success' || normalized === 'ready') {
-    return '연결됨';
-  }
-  if (normalized === 'failed' || normalized === 'error') {
-    return '확인 필요';
-  }
-  return status || '대기';
-};
-
-const compactEvidenceTypeSummary = (refs: EvidenceFooterRef[]): string => {
-  const labels = [...new Set(refs.map((ref) => evidenceTypeLabel(ref.type)).filter(Boolean))];
-  if (labels.length === 0) {
-    return '수집 근거 없음';
-  }
-
-  return labels.slice(0, 4).join(', ');
-};
-
-const renderAttachmentGrid = (
-  attachments: ImageAttachment[] | undefined,
-  keyPrefix: string,
-  onPreview: React.Dispatch<React.SetStateAction<ImageAttachment | null>>,
-): React.ReactNode => {
-  if (!attachments || attachments.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="komsco-ai__attachment-grid" key={`${keyPrefix}-attachments`}>
-      {attachments.map((attachment) => (
-        <button
-          aria-label={`${attachment.name} 크게 보기`}
-          className="komsco-ai__attachment-card"
-          key={attachment.id}
-          onClick={() => onPreview(attachment)}
-          title={`${attachment.name} 크게 보기`}
-          type="button"
-        >
-          <img
-            alt={attachment.name}
-            className="komsco-ai__attachment-image"
-            src={getAttachmentPreviewUrl(attachment)}
-          />
-          <div className="komsco-ai__attachment-meta">
-            <span className="komsco-ai__attachment-name">{attachment.name}</span>
-            <span className="komsco-ai__attachment-size">
-              {attachment.mimeType} · {formatFileSize(attachment.size)}
-            </span>
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-};
-
-type RunbookSectionId =
-  | 'summary'
-  | 'impact'
-  | 'evidence'
-  | 'cause'
-  | 'action'
-  | 'verification'
-  | 'details';
-
-type RunbookSection = {
-  id: RunbookSectionId;
-  lines: string[];
-  title: string;
-};
-
-const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
-  action: 'Action Plan',
-  cause: '원인 후보',
-  details: '근거 상세보기',
-  evidence: '확인한 근거',
-  impact: '영향 범위',
-  summary: '요약',
-  verification: '검증/롤백',
-};
-
-const RUNBOOK_SECTION_META: Record<
-  RunbookSectionId,
-  { badge: string; subtitle: string; tone: 'high' | 'mid' | 'low' | 'neutral' }
-> = {
-  action: {
-    badge: '조치',
-    subtitle: '승인 조건과 실행 전 확인 사항',
-    tone: 'high',
-  },
-  cause: {
-    badge: '가설',
-    subtitle: '증상과 근거로 좁힌 원인 후보',
-    tone: 'mid',
-  },
-  details: {
-    badge: '상세',
-    subtitle: '감사와 재검토를 위한 원문 근거',
-    tone: 'neutral',
-  },
-  evidence: {
-    badge: '근거',
-    subtitle: '클러스터에서 확인한 신호와 조회 결과',
-    tone: 'low',
-  },
-  impact: {
-    badge: '영향',
-    subtitle: '서비스 영향 범위와 우선순위',
-    tone: 'mid',
-  },
-  summary: {
-    badge: '판단',
-    subtitle: '현재 상황과 먼저 볼 항목',
-    tone: 'low',
-  },
-  verification: {
-    badge: '검증',
-    subtitle: '실행 후 확인과 실패 시 되돌림',
-    tone: 'low',
-  },
-};
-
-const normalizeRunbookHeading = (line: string): string =>
-  line
-    .replace(/^#+\s*/, '')
-    .replace(/^\d+[.)]\s*/, '')
-    .replace(/^[-*]\s*/, '')
-    .replace(/[：:]\s*$/, '')
-    .trim();
-
-const runbookSectionId = (line: string): RunbookSectionId | null => {
-  const heading = normalizeRunbookHeading(line);
-  if (/^(요약|현재 판단|결론)$/i.test(heading)) {
-    return 'summary';
-  }
-  if (/^(영향 범위|영향|대상|범위)$/i.test(heading)) {
-    return 'impact';
-  }
-  if (/^(확인한 근거|근거|증거|관측 근거|확인 근거)$/i.test(heading)) {
-    return 'evidence';
-  }
-  if (/^(원인 후보|가능한 원인|원인|가설)$/i.test(heading)) {
-    return 'cause';
-  }
-  if (/^(action plan|조치 계획|실행 계획|권장 조치|조치)$/i.test(heading)) {
-    return 'action';
-  }
-  if (/^(검증\/롤백|검증|롤백|확인 및 롤백)$/i.test(heading)) {
-    return 'verification';
-  }
-  if (/^(근거 상세보기|상세 근거|상세|원문 근거)$/i.test(heading)) {
-    return 'details';
-  }
-  return null;
-};
-
-const parseRunbookSections = (content: string): RunbookSection[] | null => {
-  const lines = stripDefaultEvidenceAppendix(content).split('\n');
-  const intro: string[] = [];
-  const sections: RunbookSection[] = [];
-  let current: RunbookSection | null = null;
-
-  const pushCurrent = () => {
-    if (!current) {
-      return;
-    }
-    current.lines = current.lines.filter((line) => line.trim());
-    if (current.lines.length > 0) {
-      sections.push(current);
-    }
-    current = null;
-  };
-
-  lines.forEach((rawLine) => {
-    const line = rawLine.trim();
-    const sectionId = line ? runbookSectionId(line) : null;
-    if (sectionId) {
-      pushCurrent();
-      current = {
-        id: sectionId,
-        lines: [],
-        title: RUNBOOK_SECTION_TITLES[sectionId],
-      };
-      return;
-    }
-    if (current) {
-      current.lines.push(rawLine);
-      return;
-    }
-    intro.push(rawLine);
-  });
-  pushCurrent();
-
-  const cleanIntro = intro.filter((line) => line.trim());
-  if (cleanIntro.length > 0 && !sections.some((section) => section.id === 'summary')) {
-    sections.unshift({
-      id: 'summary',
-      lines: cleanIntro.slice(0, 4),
-      title: RUNBOOK_SECTION_TITLES.summary,
-    });
-  }
-
-  return sections.length >= 3 ? sections : null;
-};
-
-const renderRunbookLines = (lines: string[], sectionKey: string): React.ReactNode => {
-  const items = lines
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, ''));
-
-  if (items.length === 0) {
-    return <p>표시할 내용이 없습니다.</p>;
-  }
-
-  if (items.every(isCommandLikeLine)) {
-    return renderCodeBlock(items.slice(0, 6), `${sectionKey}-commands`);
-  }
-
-  if (items.length === 1) {
-    if (isCommandLikeLine(items[0])) {
-      return renderCodeBlock([items[0]], `${sectionKey}-command`);
-    }
-
-    return <p>{renderInlineText(items[0], `${sectionKey}-line`)}</p>;
-  }
-
-  return (
-    <ul>
-      {items.slice(0, 6).map((item, index) => (
-        <li
-          className={isCommandLikeLine(item) ? 'is-command' : undefined}
-          key={`${sectionKey}-${index}`}
-        >
-          {isCommandLikeLine(item)
-            ? renderCodeBlock([item], `${sectionKey}-${index}-command`)
-            : renderInlineText(item, `${sectionKey}-${index}`)}
-        </li>
-      ))}
-    </ul>
-  );
-};
-
-const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
-  <div className="komsco-ai__runbook-answer">
-    {sections.map((section, index) => {
-      const meta = RUNBOOK_SECTION_META[section.id];
-      return (
-        <details
-          className={`komsco-ai__runbook-section is-${section.id} tone-${meta.tone}`}
-          key={section.id}
-          open={index === 0}
-        >
-          <summary className="komsco-ai__runbook-section-head">
-            <span className="komsco-ai__runbook-step-index">
-              {String(index + 1).padStart(2, '0')}
-            </span>
-            <span className="komsco-ai__runbook-section-copy">
-              <span className="komsco-ai__runbook-section-title">{section.title}</span>
-              <span className="komsco-ai__runbook-section-subtitle">{meta.subtitle}</span>
-            </span>
-            <span className={`komsco-ai__runbook-badge tone-${meta.tone}`}>{meta.badge}</span>
-            <CoolCaretDownIcon />
-          </summary>
-        <div className="komsco-ai__runbook-section-body">
-          {renderRunbookLines(section.lines, `runbook-${section.id}`)}
-        </div>
-        </details>
-      );
-    })}
-  </div>
-);
-
-const renderFormattedContent = (
-  message: Message,
-  onPreviewAttachment: React.Dispatch<React.SetStateAction<ImageAttachment | null>>,
-): React.ReactNode => {
-  if (message.role === 'user') {
-    return (
-      <div className="komsco-ai__message-text">
-        {message.content && <div>{message.content}</div>}
-        {renderAttachmentGrid(message.attachments, 'message', onPreviewAttachment)}
-      </div>
-    );
-  }
-
-  const runbookSections = parseRunbookSections(message.content);
-  if (runbookSections) {
-    return renderRunbookAnswer(runbookSections);
-  }
-
-  const lines = stripDefaultEvidenceAppendix(message.content).split('\n');
-  const nodes: React.ReactNode[] = [];
-  let bulletItems: string[] = [];
-  let orderedItems: string[] = [];
-  let codeBlockLanguage = '';
-  let codeBlockLines: string[] = [];
-  let inCodeBlock = false;
-  let referenceItems: { href: string; label: string }[] = [];
-
-  const flushBullets = () => {
-    if (bulletItems.length === 0) {
-      return;
-    }
-
-    const listIndex = nodes.length;
-    nodes.push(
-      <ul className="komsco-ai__formatted-list" key={`list-${listIndex}`}>
-        {bulletItems.map((item, index) => (
-          <li className="komsco-ai__formatted-list-item" key={`list-${listIndex}-${index}`}>
-            {renderInlineText(item, `list-${listIndex}-${index}`)}
-          </li>
-        ))}
-      </ul>,
-    );
-    bulletItems = [];
-  };
-
-  const flushOrdered = () => {
-    if (orderedItems.length === 0) {
-      return;
-    }
-
-    const listIndex = nodes.length;
-    nodes.push(
-      <ol
-        className="komsco-ai__formatted-list komsco-ai__formatted-list--ordered"
-        key={`ordered-${listIndex}`}
-      >
-        {orderedItems.map((item, index) => (
-          <li className="komsco-ai__formatted-list-item" key={`ordered-${listIndex}-${index}`}>
-            {renderInlineText(item, `ordered-${listIndex}-${index}`)}
-          </li>
-        ))}
-      </ol>,
-    );
-    orderedItems = [];
-  };
-
-  const flushReferences = () => {
-    if (referenceItems.length === 0) {
-      return;
-    }
-
-    const referenceIndex = nodes.length;
-    nodes.push(
-      <div className="komsco-ai__reference-list" key={`references-${referenceIndex}`}>
-        {referenceItems.map((item, index) => (
-          <a
-            className="komsco-ai__reference-link"
-            href={item.href}
-            key={`references-${referenceIndex}-${index}`}
-            rel="noreferrer"
-            target="_blank"
-            title={item.href}
-          >
-            <span className="komsco-ai__reference-title">{item.label}</span>
-          </a>
-        ))}
-      </div>,
-    );
-    referenceItems = [];
-  };
-
-  const flushCodeBlock = () => {
-    if (!inCodeBlock && codeBlockLines.length === 0) {
-      return;
-    }
-
-    const codeIndex = nodes.length;
-    nodes.push(renderCodeBlock(codeBlockLines, `code-block-${codeIndex}`, codeBlockLanguage));
-    codeBlockLanguage = '';
-    codeBlockLines = [];
-    inCodeBlock = false;
-  };
-
-  const flushLists = () => {
-    flushBullets();
-    flushOrdered();
-  };
-
-  const flushAll = () => {
-    flushCodeBlock();
-    flushLists();
-    flushReferences();
-  };
-
-  const parseTableRow = (line: string): string[] =>
-    line
-      .replace(/^\|/, '')
-      .replace(/\|$/, '')
-      .split('|')
-      .map((cell) => cell.trim());
-
-  const isTableSeparator = (line: string): boolean =>
-    /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line);
-
-  for (let index = 0; index < lines.length; index += 1) {
-    let rawLine = lines[index];
-    let line = rawLine.trim();
-
-    if (line.startsWith('```')) {
-      if (inCodeBlock) {
-        flushCodeBlock();
-        continue;
-      }
-
-      flushAll();
-      inCodeBlock = true;
-      codeBlockLanguage = line.replace(/^```/, '').trim();
-      continue;
-    }
-
-    if (inCodeBlock) {
-      if (line === '`') {
-        flushCodeBlock();
-        continue;
-      }
-
-      codeBlockLines.push(rawLine);
-      continue;
-    }
-
-    if (/^( {4}|\t)/.test(rawLine) && line) {
-      const codeLines = collectIndentedBlock(lines, index);
-      if (codeLines.some(isCommandLikeLine)) {
-        flushAll();
-        nodes.push(renderCodeBlock(codeLines, `indented-code-${index}`));
-        index += codeLines.length - 1;
-        continue;
-      }
-
-      rawLine = trimIndentedCodeLine(rawLine);
-      line = rawLine.trim();
-    }
-
-    if (!line) {
-      flushAll();
-      continue;
-    }
-
-    if (line === '---') {
-      flushAll();
-      nodes.push(<div className="komsco-ai__formatted-divider" key={`divider-${index}`} />);
-      continue;
-    }
-
-    const nextLine = lines[index + 1]?.trim() ?? '';
-    if (line.includes('|') && isTableSeparator(nextLine)) {
-      flushAll();
-      const headers = parseTableRow(line);
-      const rows: string[][] = [];
-      let rowIndex = index + 2;
-
-      while (rowIndex < lines.length) {
-        const rowLine = lines[rowIndex].trim();
-        if (!rowLine || !rowLine.includes('|')) {
-          break;
-        }
-
-        rows.push(parseTableRow(rowLine));
-        rowIndex += 1;
-      }
-
-      nodes.push(
-        <div className="komsco-ai__table-wrap" key={`table-${index}`}>
-          <table className="komsco-ai__table">
-            <thead>
-              <tr>
-                {headers.map((header, headerIndex) => (
-                  <th key={`table-${index}-head-${headerIndex}`}>
-                    {renderInlineText(header, `table-${index}-head-${headerIndex}`)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, tableRowIndex) => (
-                <tr key={`table-${index}-row-${tableRowIndex}`}>
-                  {headers.map((_, cellIndex) => (
-                    <td key={`table-${index}-row-${tableRowIndex}-${cellIndex}`}>
-                      {renderInlineText(
-                        row[cellIndex] ?? '',
-                        `table-${index}-${tableRowIndex}-${cellIndex}`,
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
-      );
-      index = rowIndex - 1;
-      continue;
-    }
-
-    const bullet = line.match(/^[-*]\s+(.+)$/);
-    if (bullet) {
-      flushOrdered();
-      flushReferences();
-      bulletItems.push(bullet[1]);
-      continue;
-    }
-
-    const ordered = line.match(/^\d+\.\s+(.+)$/);
-    if (ordered) {
-      flushBullets();
-      flushReferences();
-      orderedItems.push(ordered[1]);
-      continue;
-    }
-
-    const markdownReference = parseMarkdownLink(line);
-    if (markdownReference) {
-      flushLists();
-      referenceItems.push(markdownReference);
-      continue;
-    }
-
-    const reference = line.match(/^(.{2,120}?):\s+(https?:\/\/\S+)$/);
-    if (reference) {
-      flushLists();
-      referenceItems.push({
-        href: reference[2].replace(/[),.;]+$/, ''),
-        label: cleanMarkdownLabel(reference[1]),
-      });
-      continue;
-    }
-
-    flushAll();
-
-    if (line.startsWith('#')) {
-      const headingText = line.replace(/^#+\s*/, '');
-      const tone = formattedHeadingTone(headingText);
-      nodes.push(
-        <div
-          className={`komsco-ai__formatted-heading${
-            tone ? ` komsco-ai__formatted-heading--${tone}` : ''
-          }`}
-          key={`heading-${index}`}
-        >
-          {renderInlineText(headingText, `heading-${index}`)}
-        </div>,
-      );
-      continue;
-    }
-
-    nodes.push(
-      <div className="komsco-ai__formatted-line" key={`line-${index}`}>
-        {renderInlineText(line, `line-${index}`)}
-      </div>,
-    );
-  }
-
-  flushAll();
-
-  flushCodeBlock();
-
-  return <div className="komsco-ai__formatted">{nodes}</div>;
-};
-
-const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
-  if (!footer) {
-    return '';
-  }
-
-  const lines = [
-    '',
-    '[근거 요약]',
-    `- 수집 근거: ${footer.collectedCount}건`,
-    `- 추가 확인: ${footer.missingCount}건`,
-  ];
-
-  footer.collectedRefs.slice(0, 3).forEach((ref) => {
-    lines.push(`- ${evidenceTypeLabel(ref.type)}: ${ref.summary || '근거 수집 완료'}`);
-  });
-
-  footer.queryPlan.slice(0, 5).forEach((step) => {
-    lines.push(
-      `- 조회 계획: ${evidenceTypeLabel(step.evidenceType || step.tool)} ${step.reason || '근거 수집 단계'}`,
-    );
-  });
-
-  return lines.join('\n');
-};
-
-const renderEvidenceFooter = (
-  footer: EvidenceFooter | undefined,
-  messageContent = '',
-): React.ReactNode => {
-  if (!footer) {
-    return null;
-  }
-
-  const collectedRefs = footer.collectedRefs.slice(0, 3);
-  const missing = footer.missing.slice(0, 3);
-  const queryPlan = footer.queryPlan.slice(0, 6);
-  const ragAppendixRefs = extractRagAppendixRefs(messageContent);
-  const evidenceSummary = compactEvidenceTypeSummary(footer.collectedRefs);
-
-  return (
-    <div
-      className="komsco-ai__evidence-footer"
-      data-evidence-context-id={footer.contextId || ''}
-      data-evidence-digest={footer.digest || ''}
-    >
-      <div className="komsco-ai__evidence-footer-head">
-        <span className="komsco-ai__evidence-title">근거</span>
-        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
-          수집 {footer.collectedCount}건
-        </span>
-        {footer.missingCount > 0 && (
-          <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
-            추가 확인 {footer.missingCount}건
-          </span>
-        )}
-        <span className="komsco-ai__evidence-summary">{evidenceSummary}</span>
-      </div>
-
-      {(collectedRefs.length > 0 ||
-        missing.length > 0 ||
-        queryPlan.length > 0 ||
-        ragAppendixRefs.length > 0) && (
-        <details className="komsco-ai__evidence-detail">
-          <summary>
-            <span>근거 상세보기</span>
-          </summary>
-          {ragAppendixRefs.length > 0 && (
-            <div className="komsco-ai__rag-source-list" aria-label="문서 근거">
-              <strong>문서 근거</strong>
-              {ragAppendixRefs.map((ref, index) => (
-                <div className="komsco-ai__rag-source-item" key={`${ref.title}-${index}`}>
-                  <span>{ref.title}</span>
-                  {ref.sourceUri && <code>{ref.sourceUri}</code>}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {collectedRefs.length > 0 && (
-            <div className="komsco-ai__evidence-list" aria-label="수집된 답변 근거">
-              {collectedRefs.map((ref, index) => (
-                <div
-                  className="komsco-ai__evidence-ref"
-                  key={`${ref.evidenceId || ref.type || 'ref'}-${index}`}
-                >
-                  <strong>{evidenceTypeLabel(ref.type)}</strong>
-                  <span>{ref.summary || ref.sourceType || '근거 수집 완료'}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {missing.length > 0 && (
-            <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
-              {missing.map((item, index) => (
-                <span key={`${item.type || 'missing'}-${index}`}>
-                  {evidenceTypeLabel(item.type)}: {item.reason || '추가 확인 필요'}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <ol className="komsco-ai__evidence-query-plan" aria-label="조회 계획">
-            {queryPlan.map((step, index) => (
-              <li key={`${step.step || index}-${step.tool || 'tool'}`}>
-                <strong>{evidenceTypeLabel(step.evidenceType || step.tool)}</strong>
-                <span>{step.reason || '근거 수집 단계'}</span>
-                <code>{evidenceStepStatusLabel(step.status)}</code>
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-    </div>
-  );
-};
-
-const isReadOnlyExecutionPolicy = (mode?: string): boolean => mode === 'evidence_check';
-
-const executionPolicyLabel = (mode?: string): string => {
-  if (mode === 'evidence_check') {
-    return '조회 전용';
-  }
-  if (mode === 'unrestricted') {
-    return '실행 무제한';
-  }
-  if (mode === 'controlled_execution') {
-    return '승인 후 실행';
-  }
-  return mode || '알 수 없음';
-};
-
-const renderToolPlanFooter = (toolPlan: ToolPlanFooter | undefined): React.ReactNode => {
-  if (!toolPlan || toolPlan.steps.length === 0) {
-    return null;
-  }
-
-  const steps = toolPlan.steps.slice(0, 6);
-  const missingEvidence = toolPlan.missingEvidence.slice(0, 3);
-  const readOnly = isReadOnlyExecutionPolicy(toolPlan.executionPolicyMode);
-  const targetLabel = [toolPlan.targetResourceKind, toolPlan.targetResourceName]
-    .filter(Boolean)
-    .join(' ');
-
-  return (
-    <div className="komsco-ai__toolplan-footer">
-      <div className="komsco-ai__toolplan-footer-head">
-        <span className="komsco-ai__evidence-title">조회 계획</span>
-        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
-          {toolPlan.taskType}
-        </span>
-        <span
-          className={`komsco-ai__evidence-pill ${
-            readOnly
-              ? 'komsco-ai__evidence-pill--collected'
-              : 'komsco-ai__evidence-pill--policy-warning'
-          }`}
-        >
-          {executionPolicyLabel(toolPlan.executionPolicyMode)}
-        </span>
-        {toolPlan.validationOk === false && (
-          <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
-            계획 검증 실패
-          </span>
-        )}
-      </div>
-
-      <details className="komsco-ai__evidence-detail">
-        <summary>
-          <span>조회 계획 상세보기</span>
-        </summary>
-        {targetLabel && (
-          <div className="komsco-ai__toolplan-target">
-            대상: {targetLabel}
-            {toolPlan.targetNamespace ? ` (${toolPlan.targetNamespace})` : ''}
-          </div>
-        )}
-        <ol className="komsco-ai__evidence-query-plan" aria-label="조회 계획 단계">
-          {steps.map((step, index) => (
-            <li key={`${step.step || index}-${step.tool || 'tool'}`}>
-              <strong>{evidenceTypeLabel(step.evidenceType || step.tool)}</strong>
-              <span>{step.reason || '조회 단계'}</span>
-              <code>{step.verb || step.tool}</code>
-            </li>
-          ))}
-        </ol>
-        {missingEvidence.length > 0 && (
-          <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
-            {missingEvidence.map((item, index) => (
-              <span key={`${item.type || 'missing'}-${index}`}>
-                {evidenceTypeLabel(item.type)}: {item.reason || '추가 확인 필요'}
-              </span>
-            ))}
-          </div>
-        )}
-        {toolPlan.validationViolations.length > 0 && (
-          <div className="komsco-ai__toolplan-violations" aria-label="계획 검증 문제">
-            {toolPlan.validationViolations.map((violation, index) => (
-              <span key={`violation-${index}`}>{violation}</span>
-            ))}
-          </div>
-        )}
-      </details>
-    </div>
-  );
-};
-
-const formatSummaryTime = (updatedAt?: string): string => {
-  if (!updatedAt) {
-    return '수집 대기';
-  }
-
-  const date = new Date(updatedAt);
-  if (Number.isNaN(date.getTime())) {
-    return '수집됨';
-  }
-
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-};
-
-const getNodePressureLabel = (node: ClusterSummary['nodes']['items'][number]): string => {
-  const pressures = [];
-  if (node.pressures.disk) {
-    pressures.push('Disk');
-  }
-  if (node.pressures.memory) {
-    pressures.push('Memory');
-  }
-  if (node.pressures.pid) {
-    pressures.push('PID');
-  }
-
-  return pressures.length > 0 ? `${pressures.join('/')} Pressure` : 'Pressure 없음';
-};
-
-const formatCpuUsage = (value?: string): string | null => {
-  if (!value) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
-  if (!match) {
-    return trimmed;
-  }
-
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount)) {
-    return trimmed;
-  }
-
-  const unit = match[2];
-  const cores =
-    unit === 'n'
-      ? amount / 1_000_000_000
-      : unit === 'u'
-        ? amount / 1_000_000
-        : unit === 'm'
-          ? amount / 1_000
-          : amount;
-
-  if (cores >= 1) {
-    return `${cores.toFixed(cores >= 10 ? 0 : 1)} cores`;
-  }
-
-  return `${Math.max(1, Math.round(cores * 1000))} m`;
-};
-
-const formatMemoryUsage = (value?: string): string | null => {
-  if (!value) {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  const match = trimmed.match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
-  if (!match) {
-    return trimmed;
-  }
-
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount)) {
-    return trimmed;
-  }
-
-  const unitMultipliers: Record<string, number> = {
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    K: 1000,
-    M: 1000 ** 2,
-    G: 1000 ** 3,
-    T: 1000 ** 4,
-    '': 1,
-  };
-  const multiplier = unitMultipliers[match[2]];
-  if (!multiplier) {
-    return trimmed;
-  }
-
-  const bytes = amount * multiplier;
-  const gib = bytes / 1024 ** 3;
-  if (gib >= 1) {
-    return `${gib.toFixed(gib >= 10 ? 1 : 2)} GiB`;
-  }
-
-  const mib = bytes / 1024 ** 2;
-  if (mib >= 1) {
-    return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
-  }
-
-  return `${Math.round(bytes / 1024)} KiB`;
-};
-
-const cpuCoresFromUsage = (value?: string): number | null => {
-  if (!value) {
-    return null;
-  }
-
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
-  if (!match) {
-    return null;
-  }
-
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount)) {
-    return null;
-  }
-
-  const unit = match[2];
-  if (unit === 'n') {
-    return amount / 1_000_000_000;
-  }
-  if (unit === 'u') {
-    return amount / 1_000_000;
-  }
-  if (unit === 'm') {
-    return amount / 1_000;
-  }
-
-  return amount;
-};
-
-const memoryBytesFromUsage = (value?: string): number | null => {
-  if (!value) {
-    return null;
-  }
-
-  const match = value.trim().match(/^(\d+(?:\.\d+)?)([a-zA-Z]*)$/);
-  if (!match) {
-    return null;
-  }
-
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount)) {
-    return null;
-  }
-
-  const unitMultipliers: Record<string, number> = {
-    Ki: 1024,
-    Mi: 1024 ** 2,
-    Gi: 1024 ** 3,
-    Ti: 1024 ** 4,
-    K: 1000,
-    M: 1000 ** 2,
-    G: 1000 ** 3,
-    T: 1000 ** 4,
-    '': 1,
-  };
-  const multiplier = unitMultipliers[match[2]];
-
-  return multiplier ? amount * multiplier : null;
-};
-
-const formatCpuCores = (cores: number): string =>
-  cores >= 1
-    ? `${cores.toFixed(cores >= 10 ? 0 : 1)} cores`
-    : `${Math.max(1, Math.round(cores * 1000))} m`;
-
-const formatMemoryBytes = (bytes: number): string => {
-  const gib = bytes / 1024 ** 3;
-  if (gib >= 1) {
-    return `${gib.toFixed(gib >= 10 ? 1 : 2)} GiB`;
-  }
-
-  const mib = bytes / 1024 ** 2;
-  if (mib >= 1) {
-    return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
-  }
-
-  return `${Math.round(bytes / 1024)} KiB`;
-};
-
-const getClusterUsageSummary = (summary: ClusterSummary): string => {
-  const cpuTotal = summary.nodes.items.reduce((total, node) => {
-    const cores = cpuCoresFromUsage(node.usage.cpu);
-    return cores === null ? total : total + cores;
-  }, 0);
-  const memoryTotal = summary.nodes.items.reduce((total, node) => {
-    const bytes = memoryBytesFromUsage(node.usage.memory);
-    return bytes === null ? total : total + bytes;
-  }, 0);
-
-  if (!summary.nodes.metricsAvailable) {
-    return 'Metrics API unavailable';
-  }
-
-  if (cpuTotal <= 0 && memoryTotal <= 0) {
-    return 'Metrics connected, usage pending';
-  }
-
-  return `CPU ${cpuTotal > 0 ? formatCpuCores(cpuTotal) : '-'} · 메모리 ${
-    memoryTotal > 0 ? formatMemoryBytes(memoryTotal) : '-'
-  }`;
-};
-
-const formatNodeUsage = (node: ClusterSummary['nodes']['items'][number]): string => {
-  const cpu = formatCpuUsage(node.usage.cpu);
-  const memory = formatMemoryUsage(node.usage.memory);
-  if (!cpu && !memory) {
-    return getNodePressureLabel(node);
-  }
-
-  return `CPU ${cpu ?? '-'} · 메모리 ${memory ?? '-'}`;
-};
-
-const getClusterFaultCount = (summary: ClusterSummary): number =>
-  summary.operators.degraded + summary.operators.unavailable;
-
-const getHealthTone = (summary: ClusterSummary | null): 'ok' | 'warn' | 'danger' | 'neutral' => {
-  if (!summary) {
-    return 'neutral';
-  }
-
-  if (summary.healthScore < 70 || getClusterFaultCount(summary) > 0 || summary.nodes.notReady > 0) {
-    return 'danger';
-  }
-
-  if (summary.healthScore < 90 || summary.operators.progressing > 0) {
-    return 'warn';
-  }
-
-  return 'ok';
-};
-
-const getOperatorTone = (
-  operator: ClusterSummary['operators']['issues'][number],
-): 'warn' | 'danger' => {
-  if (!operator.available || operator.degraded) {
-    return 'danger';
-  }
-
-  return 'warn';
-};
-
-const getNodeCompactStatus = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  error: string,
-): {
-  label: string;
-  title: string;
-  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
-} => {
-  if (summary) {
-    const label = `Node ${summary.nodes.ready}/${summary.nodes.total}`;
-    if (summary.nodes.notReady > 0) {
-      return {
-        label: `${label} 확인 필요`,
-        title: `${summary.nodes.notReady} node(s) are not ready.`,
-        tone: 'danger',
-      };
-    }
-
-    if (summary.nodes.total > 0 && summary.nodes.ready === summary.nodes.total) {
-      return {
-        label: `${label} · Ready`,
-        title: 'All reported nodes are Ready.',
-        tone: 'ok',
-      };
-    }
-
-    return {
-      label: `${label} 부분 확인`,
-      title: 'Node readiness is partially available.',
-      tone: 'warn',
-    };
-  }
-
-  if (error) {
-    return {
-      label: 'Node 확인 필요',
-      title: error,
-      tone: 'danger',
-    };
-  }
-
-  return {
-    label: loading ? 'Node 수집 중' : 'Node 대기',
-    title: 'Cluster node summary is not available yet.',
-    tone: 'neutral',
-  };
-};
-
-const getOperatorCompactStatus = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  error: string,
-): {
-  label: string;
-  title: string;
-  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
-} => {
-  if (summary) {
-    const faultCount = getClusterFaultCount(summary);
-    if (faultCount > 0) {
-      return {
-        label: `Operator ${faultCount}건 확인`,
-        title: `${faultCount} degraded/unavailable operator issue(s) need attention.`,
-        tone: 'danger',
-      };
-    }
-
-    if (summary.operators.progressing > 0) {
-      return {
-        label: `Operator ${summary.operators.progressing}건 진행`,
-        title: `${summary.operators.progressing} operator(s) are progressing.`,
-        tone: 'warn',
-      };
-    }
-
-    if (summary.operators.total > 0 && summary.operators.available === summary.operators.total) {
-      return {
-        label: `Operator ${summary.operators.available}/${summary.operators.total} 정상`,
-        title: `All ${summary.operators.total} ClusterOperators are available.`,
-        tone: 'ok',
-      };
-    }
-
-    return {
-      label: `Operator ${summary.operators.available}/${summary.operators.total} 확인`,
-      title: 'ClusterOperator summary is partially available.',
-      tone: 'warn',
-    };
-  }
-
-  if (error) {
-    return {
-      label: 'Operator 확인 필요',
-      title: error,
-      tone: 'danger',
-    };
-  }
-
-  return {
-    label: loading ? 'Operator 수집 중' : 'Operator 대기',
-    title: 'ClusterOperator summary is not available yet.',
-    tone: 'neutral',
-  };
-};
-
-const renderStatusTag = (
-  label: string,
-  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral' = 'neutral',
-  title?: string,
-  icon?: React.ReactNode,
-) => (
-  <span className={`komsco-ai__scope-tag komsco-ai__scope-tag--${tone}`} title={title}>
-    {icon && <span className="komsco-ai__scope-tag-icon">{icon}</span>}
-    {label}
-  </span>
-);
-
-const renderHeaderOpsChip = (
-  label: string,
-  tone: 'ok' | 'warn' | 'danger' | 'review' | 'neutral',
-  title: string,
-  icon: React.ReactNode,
-) => (
-  <span className={`komsco-ai__header-op-chip komsco-ai__header-op-chip--${tone}`} title={title}>
-    <span className="komsco-ai__header-op-icon">{icon}</span>
-    <span>{label}</span>
-  </span>
-);
-
-const renderHeaderOpsStatus = (summary: ClusterSummary | null, loading: boolean, error: string) => {
-  const nodeStatus = getNodeCompactStatus(summary, loading, error);
-  const operatorStatus = getOperatorCompactStatus(summary, loading, error);
-
-  const headerNodeLabel = nodeStatus.label
-    .replace(' · Ready', '')
-    .replace(' 부분 확인', '')
-    .replace(' 확인 필요', '');
-  const headerOperatorLabel =
-    summary && getClusterFaultCount(summary) > 0
-      ? `Operator 장애 ${getClusterFaultCount(summary)}`
-      : summary && summary.operators.progressing > 0
-        ? `Operator 진행 ${summary.operators.progressing}`
-        : summary &&
-            summary.operators.total > 0 &&
-            summary.operators.available === summary.operators.total
-          ? 'Operator 정상'
-          : operatorStatus.label.replace(' 확인 필요', ' 확인');
-
-  return (
-    <div className="komsco-ai__header-ops" aria-label="클러스터 운영 상태">
-      {renderHeaderOpsChip(
-        headerNodeLabel,
-        nodeStatus.tone,
-        nodeStatus.title,
-        <CoolDesktopTowerIcon />,
-      )}
-      {renderHeaderOpsChip(
-        headerOperatorLabel,
-        operatorStatus.tone,
-        operatorStatus.title,
-        operatorStatus.tone === 'ok' ? <CoolCheckIcon /> : <CoolListChecklistIcon />,
-      )}
-    </div>
-  );
-};
-
-const renderRailSummaryBadges = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  error: string,
-) => {
-  const nodeStatus = getNodeCompactStatus(summary, loading, error);
-  const operatorStatus = getOperatorCompactStatus(summary, loading, error);
-
-  return (
-    <div className="komsco-ai__rail-status-pair" aria-label="클러스터 핵심 상태">
-      {renderStatusTag(
-        nodeStatus.label,
-        nodeStatus.tone,
-        nodeStatus.title,
-        <CoolDesktopTowerIcon />,
-      )}
-      {renderStatusTag(
-        operatorStatus.label,
-        operatorStatus.tone,
-        operatorStatus.title,
-        <CoolWarningIcon />,
-      )}
-    </div>
-  );
-};
-
-const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolean =>
-  Boolean(
-    status?.spec.capabilities.mutationsEnabled && status.spec.capabilities.actionExecutorConfigured,
-  );
-
-const canUseUnrestrictedCommands = (status: AiopsRuntimeStatus | null): boolean =>
-  Boolean(status?.spec.capabilities.unrestrictedCommandsEnabled);
-
-const getActionExecutionDisabledReason = (status: AiopsRuntimeStatus | null): string => {
-  if (!status) {
-    return 'AIOps runtime status has not been loaded yet.';
-  }
-
-  const reasons = [];
-  if (!status.spec.capabilities.mutationsEnabled) {
-    reasons.push('mutation gate disabled');
-  }
-  if (!status.spec.capabilities.actionExecutorConfigured) {
-    reasons.push('Action Executor URL not configured');
-  }
-
-  return reasons.join('; ');
-};
-
-const getUnrestrictedDisabledReason = (status: AiopsRuntimeStatus | null): string => {
-  if (!status) {
-    return 'AIOps runtime status has not been loaded yet.';
-  }
-
-  return status.spec.capabilities.unrestrictedCommandsEnabled
-    ? ''
-    : 'unrestricted command gate not reported by runtime';
-};
-
-const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
-  mode === 'execute' || mode === 'unrestricted';
-
-const getExecutionModeShortLabel = (mode: AiopsExecutionMode): string => {
-  if (mode === 'unrestricted') {
-    return '무제한';
-  }
-  if (mode === 'execute') {
-    return '실행';
-  }
-  return '읽기';
-};
-
-const getClusterHost = (apiUrl?: string): string => {
-  if (!apiUrl) {
-    return 'cluster pending';
-  }
-
-  try {
-    return new URL(apiUrl).host;
-  } catch {
-    return apiUrl;
-  }
-};
-
-const renderExecutionModeToggle = (
-  executionMode: AiopsExecutionMode,
-  actionExecutionAvailable: boolean,
-  actionExecutionDisabledReason: string,
-  onExecutionModeChange: (mode: AiopsExecutionMode) => void,
-) => (
-  <div className="komsco-ai__mode-toggle" role="group" aria-label="AIOps 실행 모드">
-    <button
-      aria-label="읽기 전용 모드"
-      aria-pressed={executionMode === 'read-only'}
-      className={`komsco-ai__mode-toggle-button${
-        executionMode === 'read-only' ? ' komsco-ai__mode-toggle-button--active' : ''
-      }`}
-      onClick={() => onExecutionModeChange('read-only')}
-      title="조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다."
-      type="button"
-    >
-      <CoolShieldCheckIcon />
-      <span>읽기 전용</span>
-    </button>
-    <button
-      aria-label="승인 후 실행 모드"
-      aria-pressed={executionMode === 'execute'}
-      className={`komsco-ai__mode-toggle-button${
-        executionMode === 'execute' ? ' komsco-ai__mode-toggle-button--active-execute' : ''
-      }`}
-      data-disabled-reason={!actionExecutionAvailable ? actionExecutionDisabledReason : undefined}
-      onClick={() => onExecutionModeChange('execute')}
-      title={
-        actionExecutionAvailable
-          ? '승인 후 실행 모드'
-          : `승인 후 실행 비활성: ${actionExecutionDisabledReason}`
-      }
-      type="button"
-    >
-      <CoolTerminalIcon />
-      <span>실행 가능</span>
-    </button>
-    <button
-      aria-label="실험 무제한 모드"
-      aria-pressed={executionMode === 'unrestricted'}
-      className={`komsco-ai__mode-toggle-button${
-        executionMode === 'unrestricted' ? ' komsco-ai__mode-toggle-button--active-danger' : ''
-      }`}
-      onClick={() => onExecutionModeChange('unrestricted')}
-      title="실험 무제한 모드"
-      type="button"
-    >
-      <CoolInfoIcon />
-      <span>실행 무제한</span>
-    </button>
-  </div>
-);
-
 const getAssistantConnectionState = (
   summary: ClusterSummary | null,
   summaryLoading: boolean,
@@ -2424,695 +634,6 @@ const getAssistantConnectionState = (
   };
 };
 
-const getRecordSpecMap = (record: AiopsRecordView): Record<string, unknown> =>
-  record.spec && typeof record.spec === 'object' ? record.spec : {};
-
-const asObjectMap = (value: unknown): Record<string, unknown> | undefined =>
-  value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
-
-const getRecordName = (record: AiopsRecordView): string => record.metadata?.name ?? '';
-
-const getSealedActionPlan = (record: AiopsRecordView): Record<string, unknown> | undefined =>
-  asObjectMap(getRecordSpecMap(record).sealedActionPlan);
-
-const getPlanSummary = (record: AiopsRecordView): PlanSummary | null => {
-  const plan = getSealedActionPlan(record);
-  if (!plan) {
-    return null;
-  }
-
-  const action = asObjectMap(plan.action);
-  const safety = asObjectMap(plan.safety);
-  const toolName = typeof action?.toolName === 'string' ? action.toolName : '';
-  const risk = typeof safety?.risk === 'string' ? safety.risk : '';
-  const riskInfo = RISK_LABEL_KO[risk] ?? { label: risk || '알 수 없음', tone: 'neutral' as const };
-
-  return {
-    risk,
-    riskLabel: riskInfo.label,
-    riskTone: riskInfo.tone,
-    rollbackDescription:
-      typeof safety?.rollbackDescription === 'string' ? safety.rollbackDescription : '',
-    rollbackPossible: safety?.rollbackPossible === true,
-    toolLabel: ACTION_POLICY_LABELS[toolName] ?? (toolName || '알 수 없는 정책'),
-  };
-};
-
-const getPlanDigest = (record: AiopsRecordView): string => {
-  const plan = getSealedActionPlan(record);
-  const digest = asObjectMap(plan?.digest);
-
-  return typeof digest?.planDigest === 'string' ? digest.planDigest : '';
-};
-
-const getApprovalDecision = (record: AiopsRecordView): Record<string, unknown> | undefined =>
-  asObjectMap(getRecordSpecMap(record).approvalDecision);
-
-const getApprovalId = (record: AiopsRecordView): string => {
-  const decision = getApprovalDecision(record);
-
-  return typeof decision?.approvalId === 'string' ? decision.approvalId : getRecordName(record);
-};
-
-const getApprovalPlanDigest = (record: AiopsRecordView): string => {
-  const decision = getApprovalDecision(record);
-
-  return typeof decision?.planDigest === 'string' ? decision.planDigest : '';
-};
-
-const findPlanByDigest = (
-  plans: AiopsRecordView[],
-  planDigest: string,
-): AiopsRecordView | undefined => plans.find((plan) => getPlanDigest(plan) === planDigest);
-
-const hasApprovalForPlan = (approvals: AiopsRecordView[], planDigest: string): boolean =>
-  approvals.some((record) => {
-    const decision = getApprovalDecision(record);
-    const status = String(decision?.status ?? '');
-
-    return (
-      decision?.planDigest === planDigest && ['approved', 'executed', 'rejected'].includes(status)
-    );
-  });
-
-const hasExecutionForApproval = (executions: AiopsRecordView[], approvalId: string): boolean =>
-  executions.some((record) => getRecordSpecMap(record).approvalId === approvalId);
-
-const findExecutionForApproval = (
-  executions: AiopsRecordView[],
-  approvalId: string,
-): AiopsRecordView | undefined =>
-  executions.find((record) => getRecordSpecMap(record).approvalId === approvalId);
-
-// evict_one_unhealthy_controller_owned_pod verification only checks the
-// target immediately after the mutation call, before the controller has
-// necessarily finished recreating the pod yet — so a fresh "여전히 존재" read
-// is expected transient noise, not a real failure signal, for the first
-// few seconds after execution.
-const REMEDIATION_REASON_LABEL_KO: Record<string, string> = {
-  target_pod_removed: '대상 Pod가 클러스터에서 제거되었습니다.',
-  target_pod_deleting: '대상 Pod가 종료 처리 중입니다. 컨트롤러가 곧 새로 만듭니다.',
-  target_pod_replaced: '컨트롤러가 대상 Pod를 새로 재생성했습니다.',
-  target_pod_still_present:
-    '조치를 실행했지만 대상 Pod가 아직 그대로입니다. 잠시 후 다시 확인해 주세요.',
-  restart_annotation_observed: '배포에 재시작 요청이 반영되었습니다.',
-  restart_annotation_not_observed: '재시작 반영이 아직 확인되지 않았습니다.',
-  scale_spec_matches: '레플리카 수 변경이 반영되었습니다.',
-  scale_spec_mismatch: '레플리카 수 변경이 아직 반영되지 않았습니다.',
-  rollback_template_annotation_observed: '이전 리비전으로 롤백이 반영되었습니다.',
-  rollback_annotation_not_observed: '롤백 반영이 아직 확인되지 않았습니다.',
-  hpa_bounds_match: 'HPA 범위 변경이 반영되었습니다.',
-  hpa_bounds_mismatch: 'HPA 범위 변경이 아직 반영되지 않았습니다.',
-  no_postcondition_for_tool:
-    '조치는 실행되었지만 이 조치 유형은 자동 확인을 지원하지 않습니다. 클러스터에서 직접 확인해 주세요.',
-  target_resource_unavailable: '대상 리소스를 다시 조회하지 못해 결과를 확인하지 못했습니다.',
-};
-
-const getExecutionOutcomeSummary = (
-  record: AiopsRecordView,
-  aiopsStatus: AiopsRuntimeStatus | null,
-): ExecutionOutcomeSummary | null => {
-  const decision = getApprovalDecision(record);
-  if (!decision) {
-    return null;
-  }
-
-  const approvalId = getApprovalId(record);
-  const executions = aiopsStatus?.spec.records.executionRecords ?? [];
-  const execution = findExecutionForApproval(executions, approvalId);
-  if (!execution) {
-    return null;
-  }
-
-  const isAutoPolicy = decision.decidedBy === 'auto-policy';
-  const decisionAction = asObjectMap(decision.action);
-  const toolName = typeof decisionAction?.toolName === 'string' ? decisionAction.toolName : '';
-  const executionSpec = getRecordSpecMap(execution);
-  const mutationOutcome = asObjectMap(executionSpec.mutationOutcome);
-  const remediationOutcome = asObjectMap(executionSpec.remediationOutcome);
-  const mutationStatus = typeof mutationOutcome?.status === 'string' ? mutationOutcome.status : '';
-  const remediationStatus =
-    typeof remediationOutcome?.status === 'string' ? remediationOutcome.status : '';
-  const remediationReason =
-    typeof remediationOutcome?.reason === 'string' ? remediationOutcome.reason : '';
-
-  const title = isAutoPolicy
-    ? toolName
-      ? `자동으로 조치를 실행했습니다 (정책: ${toolName})`
-      : '자동으로 조치를 실행했습니다.'
-    : '조치를 실행했습니다.';
-
-  if (mutationStatus === 'mutation_failed') {
-    return {
-      tone: 'danger',
-      title,
-      detail: '실행 요청이 실패했습니다. 다시 시도하거나 직접 확인해 주세요.',
-    };
-  }
-  if (mutationStatus === 'mutation_disabled') {
-    return {
-      tone: 'warn',
-      title,
-      detail: '실행 기능이 비활성화되어 있어 실제 클러스터에는 반영되지 않았습니다.',
-    };
-  }
-
-  if (remediationStatus === 'verified') {
-    return {
-      tone: 'ok',
-      title,
-      detail: REMEDIATION_REASON_LABEL_KO[remediationReason] || '문제 해결이 확인되었습니다.',
-    };
-  }
-  if (remediationStatus === 'verification_failed') {
-    return {
-      tone: 'warn',
-      title,
-      detail:
-        REMEDIATION_REASON_LABEL_KO[remediationReason] ||
-        '실행은 됐지만 해결 여부가 아직 확인되지 않았습니다.',
-    };
-  }
-
-  return {
-    tone: 'warn',
-    title,
-    detail:
-      REMEDIATION_REASON_LABEL_KO[remediationReason] ||
-      '실행은 됐지만 이 조치 유형은 자동 확인을 지원하지 않습니다. 클러스터에서 직접 확인해 주세요.',
-  };
-};
-
-const getRecordPhase = (record: AiopsRecordView): string => {
-  const spec = getRecordSpecMap(record);
-  const status = spec.status;
-  if (status && typeof status === 'object' && 'phase' in status) {
-    return String((status as Record<string, unknown>).phase ?? 'unknown');
-  }
-  const decision = spec.approvalDecision;
-  if (decision && typeof decision === 'object' && 'status' in decision) {
-    return String((decision as Record<string, unknown>).status ?? 'unknown');
-  }
-  const mutationOutcome = spec.mutationOutcome;
-  if (mutationOutcome && typeof mutationOutcome === 'object' && 'status' in mutationOutcome) {
-    return String((mutationOutcome as Record<string, unknown>).status ?? 'unknown');
-  }
-  return 'recorded';
-};
-
-const getRecordTargetLabel = (record: AiopsRecordView): string => {
-  const spec = getRecordSpecMap(record);
-  const directTarget = spec.target;
-  const candidate = spec.candidate;
-  const candidateActionRequest = spec.candidateActionRequest;
-  const sealedActionPlan = spec.sealedActionPlan;
-  const approvalDecision = spec.approvalDecision;
-  const target =
-    directTarget && typeof directTarget === 'object'
-      ? directTarget
-      : candidate && typeof candidate === 'object'
-        ? (candidate as Record<string, unknown>).targetNode
-        : candidateActionRequest && typeof candidateActionRequest === 'object'
-          ? (candidateActionRequest as Record<string, unknown>).target
-        : sealedActionPlan && typeof sealedActionPlan === 'object'
-          ? (sealedActionPlan as Record<string, unknown>).target
-          : approvalDecision && typeof approvalDecision === 'object'
-            ? (approvalDecision as Record<string, unknown>).target
-            : undefined;
-
-  if (!target || typeof target !== 'object') {
-    return record.metadata?.name ?? 'unknown';
-  }
-
-  const map = target as Record<string, unknown>;
-  const namespace = map.namespace ? `${String(map.namespace)}/` : '';
-  return `${namespace}${String(map.name ?? record.metadata?.name ?? 'unknown')}`;
-};
-
-const getActionRecordToolName = (record: AiopsRecordView): string => {
-  const spec = getRecordSpecMap(record);
-  const candidateActionRequest = asObjectMap(spec.candidateActionRequest);
-  const candidateAction = asObjectMap(candidateActionRequest?.action);
-  const sealedActionPlan = asObjectMap(spec.sealedActionPlan);
-  const sealedAction = asObjectMap(sealedActionPlan?.action);
-  const approvalDecision = asObjectMap(spec.approvalDecision);
-  const approvalAction = asObjectMap(approvalDecision?.action);
-  const toolName =
-    candidateAction?.toolName ??
-    sealedAction?.toolName ??
-    approvalAction?.toolName ??
-    spec.action ??
-    record.kind ??
-    'action';
-
-  return String(toolName || 'action');
-};
-
-const ACTION_STAGE_RANK: Record<AiopsLifecycleStage, number> = {
-  approval: 3,
-  execution: 4,
-  plan: 2,
-  proposal: 1,
-};
-
-const actionRecordCreatedAt = (record: AiopsRecordView): number =>
-  new Date(String(record.metadata?.createdAt ?? 0)).getTime() || 0;
-
-const actionRecordDedupeKey = (record: AiopsRecordView): string =>
-  [
-    getRecordTargetLabel(record).trim().toLowerCase(),
-    getActionRecordToolName(record).trim().toLowerCase(),
-  ].join('|');
-
-const getPhaseTone = (phase: string): 'ok' | 'warn' | 'danger' | 'review' | 'neutral' => {
-  if (/verified|succeeded|completed|executed|approved|submitted/.test(phase)) {
-    return 'ok';
-  }
-  if (/failed|denied|expired|disabled|mismatch|stale/.test(phase)) {
-    return 'danger';
-  }
-  if (/waiting|pending|proposed|sealed|review/.test(phase)) {
-    return 'review';
-  }
-  return 'neutral';
-};
-
-const PHASE_LABEL_KO: Record<string, string> = {
-  approved: '승인됨',
-  completed: '완료',
-  denied: '거부됨',
-  disabled: '비활성',
-  executed: '실행됨',
-  expired: '만료됨',
-  failed: '실패',
-  mismatch: '불일치',
-  pending: '대기 중',
-  proposed: '제안됨',
-  rejected: '거절됨',
-  sealed: '승인 대기',
-  stale: '오래됨',
-  submitted: '제출됨',
-  succeeded: '성공',
-  verified: '확인됨',
-  waiting: '대기 중',
-};
-
-const phaseLabelKo = (phase: string): string => PHASE_LABEL_KO[phase] || phase;
-
-const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleStage => {
-  const spec = getRecordSpecMap(record);
-  const kind = record.kind ?? '';
-  if (kind === 'ExecutionRecord' || spec.mutationOutcome || spec.approvalId) {
-    return 'execution';
-  }
-  if (kind === 'ApprovalDecisionRecord' || spec.approvalDecision) {
-    return 'approval';
-  }
-  if (kind === 'SealedActionPlanRecord' || spec.sealedActionPlan) {
-    return 'plan';
-  }
-  return 'proposal';
-};
-
-const getActionRecordStageLabel = (
-  record: AiopsRecordView,
-  executionMode?: AiopsExecutionMode,
-): string => {
-  const stage = getActionRecordStage(record);
-  if (stage === 'execution') {
-    return '4단계 · 실행 완료';
-  }
-  if (stage === 'approval') {
-    return '3단계 · 실행 대기';
-  }
-  if (stage === 'plan') {
-    if (executionMode === 'unrestricted') {
-      return '2단계 · 실행 가능';
-    }
-    return '2단계 · 승인 필요';
-  }
-  return '1단계 · 후보 접수';
-};
-
-const ACTION_STAGE_ORDER: AiopsLifecycleStage[] = ['proposal', 'plan', 'approval', 'execution'];
-
-const renderActionStageDots = (stage: AiopsLifecycleStage): React.ReactNode => {
-  const currentIndex = ACTION_STAGE_ORDER.indexOf(stage);
-
-  return (
-    <span className="komsco-ai__action-stage-dots" aria-hidden="true">
-      {ACTION_STAGE_ORDER.map((step, index) => (
-        <span
-          className={`komsco-ai__action-stage-dot${
-            index < currentIndex
-              ? ' komsco-ai__action-stage-dot--done'
-              : index === currentIndex
-                ? ' komsco-ai__action-stage-dot--current'
-                : ''
-          }`}
-          key={step}
-        />
-      ))}
-    </span>
-  );
-};
-
-const getActionRecordProof = (
-  record: AiopsRecordView,
-  executionMode?: AiopsExecutionMode,
-): string => {
-  const spec = getRecordSpecMap(record);
-  const planDigest = getPlanDigest(record);
-  const approvalPlanDigest = getApprovalPlanDigest(record);
-
-  if (planDigest) {
-    if (executionMode === 'unrestricted') {
-      return '조치 계획이 만들어졌습니다. 실행하면 자동 승인 후 클러스터에 적용됩니다.';
-    }
-    return '조치 계획이 만들어졌습니다. 승인하면 실행할 수 있습니다.';
-  }
-  if (approvalPlanDigest) {
-    const decision = getApprovalDecision(record);
-    const status = String(decision?.status ?? 'unknown');
-    if (status === 'rejected') {
-      return '이 조치는 거절되었습니다.';
-    }
-    if (status === 'approved') {
-      return '승인이 완료됐습니다. 실행 버튼을 누르면 클러스터에 적용됩니다.';
-    }
-    return `승인 상태: ${status}`;
-  }
-  if (typeof spec.approvalId === 'string') {
-    return '조치가 실행 처리되었습니다.';
-  }
-  return '조치 후보가 접수됐습니다. 계획을 만들면 다음 단계로 진행됩니다.';
-};
-
-const renderPlanSummaryBlock = (
-  record: AiopsRecordView,
-  executionMode?: AiopsExecutionMode,
-): React.ReactNode => {
-  if (getActionRecordStage(record) !== 'plan') {
-    return null;
-  }
-
-  const summary = getPlanSummary(record);
-  if (!summary) {
-    return null;
-  }
-
-  return (
-    <div className="komsco-ai__plan-summary">
-      <span className="komsco-ai__plan-summary-policy">{summary.toolLabel}</span>
-      {renderStatusTag(`위험도 ${summary.riskLabel}`, summary.riskTone)}
-      <span className="komsco-ai__plan-summary-rollback">
-        {summary.rollbackPossible ? '자동 롤백 가능' : '자동 롤백 미지원'}
-      </span>
-      {executionMode !== 'unrestricted' &&
-        (summary.risk === 'medium' || summary.risk === 'high') && (
-          <p className="komsco-ai__plan-summary-note">
-            위험도가 {summary.riskLabel}이라 이 조치를 제안한 본인은 승인할 수 없습니다. 다른
-            담당자의 승인이 필요합니다.
-          </p>
-        )}
-    </div>
-  );
-};
-
-const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
-  const records = status?.spec.records;
-
-  return [
-    {
-      count: records?.actionProposals.length ?? 0,
-      detail: '조치 후보 접수',
-      key: 'proposal',
-      label: '제안',
-    },
-    {
-      count: records?.sealedActionPlans.length ?? 0,
-      detail: '승인 필요 조치 계획',
-      key: 'plan',
-      label: '계획',
-    },
-    {
-      count: records?.approvalDecisions.length ?? 0,
-      detail: '승인 결정',
-      key: 'approval',
-      label: '승인',
-    },
-    {
-      count: records?.executionRecords.length ?? 0,
-      detail: '실행 기록',
-      key: 'execution',
-      label: '실행',
-    },
-  ] as Array<{
-    count: number;
-    detail: string;
-    key: AiopsLifecycleStage;
-    label: string;
-  }>;
-};
-
-const getActionLifecycleSummary = (
-  status: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-) => {
-  if (!status) {
-    return {
-      label: '실행 상태',
-      text: 'AIOps 실행 상태를 불러오는 중입니다. 상태가 확인될 때까지 실행이 비활성화됩니다.',
-      tone: 'neutral' as UiTone,
-      value: '대기 중',
-    };
-  }
-
-  const actionExecutorConfigured = Boolean(status?.spec.capabilities.actionExecutorConfigured);
-  const mutationsEnabled = Boolean(status?.spec.capabilities.mutationsEnabled);
-  const actionsAllowed = canUseActionExecution(status) && executionModeAllowsActions(executionMode);
-  const blockers: string[] = [];
-  if (!actionExecutorConfigured) {
-    blockers.push('Action Executor가 설정되지 않았습니다');
-  }
-  if (!mutationsEnabled) {
-    blockers.push('변경 실행이 비활성화되어 있어 승인된 조치도 실제로 적용되지 않습니다');
-  }
-  if (!executionModeAllowsActions(executionMode)) {
-    blockers.push('현재 모드에서는 제안·승인·실행이 제한됩니다');
-  }
-
-  if (blockers.length === 0 && actionsAllowed) {
-    return {
-      label: '현재 상태',
-      text: '서버 측 검증을 통과하면 계획·승인·실행 요청을 보낼 수 있습니다.',
-      tone: 'review' as UiTone,
-      value: getExecutionModeShortLabel(executionMode),
-    };
-  }
-
-  return {
-    label: '제한 사유',
-    text: blockers.join('; '),
-    tone: 'warn' as UiTone,
-    value: '설정 필요',
-  };
-};
-
-const renderExecutionCapabilityBadges = (
-  status: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-) => {
-  const actionExecutionAvailable = canUseActionExecution(status);
-  const unrestrictedAvailable = canUseUnrestrictedCommands(status);
-  const readOnlyActive = executionMode === 'read-only';
-  const executeActive = executionMode === 'execute';
-  const unrestrictedActive = executionMode === 'unrestricted';
-
-  return (
-    <div className="komsco-ai__scope-list komsco-ai__scope-list--execution">
-      {renderStatusTag(
-        '읽기 전용',
-        readOnlyActive ? 'ok' : 'neutral',
-        '조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.',
-        <CoolShieldCheckIcon />,
-      )}
-      {renderStatusTag(
-        '승인 실행',
-        actionExecutionAvailable ? (executeActive ? 'review' : 'ok') : 'warn',
-        actionExecutionAvailable
-          ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
-          : getActionExecutionDisabledReason(status),
-        <CoolTerminalIcon />,
-      )}
-      {renderStatusTag(
-        '실행 무제한',
-        unrestrictedActive ? 'danger' : unrestrictedAvailable ? 'review' : 'neutral',
-        unrestrictedActive
-          ? unrestrictedAvailable
-            ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
-            : '실행 무제한 모드가 선택되었습니다. Gateway capability가 OFF이면 실행 시 서버가 거절 사유를 반환합니다.'
-          : unrestrictedAvailable
-            ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
-            : getUnrestrictedDisabledReason(status),
-        <CoolInfoIcon />,
-      )}
-    </div>
-  );
-};
-
-const renderActionLifecycle = (
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-) => {
-  const summary = getActionLifecycleSummary(aiopsStatus, executionMode);
-  const actionExecutorState = !aiopsStatus
-    ? 'pending'
-    : aiopsStatus.spec.capabilities.actionExecutorConfigured
-      ? 'configured'
-      : 'not-configured';
-  const mutationFlagState = !aiopsStatus
-    ? 'pending'
-    : aiopsStatus.spec.capabilities.mutationsEnabled
-      ? 'enabled'
-      : 'disabled';
-
-  return (
-    <div
-      className="komsco-ai__action-lifecycle"
-      data-action-executor-state={actionExecutorState}
-      data-execute-guard="sealed-plan-digest active-approval evidence-freshness ssar mutation-flag"
-      data-komsco-action-lifecycle
-      data-mutation-flag-state={mutationFlagState}
-      data-ui-execution-mode={executionMode}
-    >
-      <div className="komsco-ai__action-lifecycle-steps" aria-label="AIOps action lifecycle">
-        {getActionLifecycleSteps(aiopsStatus).map((step) => (
-          <div
-            className={`komsco-ai__action-lifecycle-step${
-              step.count > 0 ? ' komsco-ai__action-lifecycle-step--active' : ''
-            }`}
-            data-action-lifecycle-step={step.key}
-            key={step.key}
-          >
-            <span>{step.label}</span>
-            <strong>{step.count}</strong>
-            <small>{step.detail}</small>
-          </div>
-        ))}
-      </div>
-      <div className="komsco-ai__action-lifecycle-summary">
-        <div className="komsco-ai__action-lifecycle-current">
-          <div>
-            <strong>{summary.label}</strong>
-            <p>{summary.text}</p>
-          </div>
-          {renderStatusTag(summary.value, summary.tone)}
-        </div>
-        <p className="komsco-ai__action-lifecycle-proof">
-          실행 전 안전장치: 계획 다이제스트, 유효한 승인, 근거 최신성, 권한 검증, 변경 실행 설정을
-          확인합니다. 근거가 오래되었거나 만료되면 실행이 막히고 실패 사유로 표시됩니다 — 이 경우 새
-          계획과 승인을 다시 만들어야 합니다.
-        </p>
-      </div>
-    </div>
-  );
-};
-
-const getAiopsRecordAction = (
-  record: AiopsRecordView,
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-): AiopsRecordAction | null => {
-  const spec = getRecordSpecMap(record);
-  const kind = record.kind ?? '';
-  const records = aiopsStatus?.spec.records;
-  const modeDisabledReason = !canUseActionExecution(aiopsStatus)
-    ? 'Gateway 실행 기능 미구성'
-    : !executionModeAllowsActions(executionMode)
-      ? '읽기 전용 모드에서는 승인·실행 불가'
-      : '';
-  const withModeGate = (action: AiopsRecordAction): AiopsRecordAction =>
-    modeDisabledReason
-      ? { ...action, disabledReason: action.disabledReason ?? modeDisabledReason }
-      : action;
-
-  if (kind === 'ActionProposalRecord' || spec.candidateActionRequest) {
-    return withModeGate({ label: '계획', step: 'create-plan' });
-  }
-
-  if (kind === 'SealedActionPlanRecord' || spec.sealedActionPlan) {
-    const planDigest = getPlanDigest(record);
-    if (!planDigest) {
-      return withModeGate({
-        disabledReason: 'plan digest 없음',
-        label: executionMode === 'unrestricted' ? '실행' : '승인',
-        step: executionMode === 'unrestricted' ? 'approve-execute-plan' : 'approve-plan',
-      });
-    }
-    if (hasApprovalForPlan(records?.approvalDecisions ?? [], planDigest)) {
-      return null;
-    }
-
-    if (executionMode === 'unrestricted') {
-      return withModeGate({ label: '실행', step: 'approve-execute-plan' });
-    }
-
-    return withModeGate({ label: '승인', step: 'approve-plan' });
-  }
-
-  if (kind === 'ApprovalDecisionRecord' || spec.approvalDecision) {
-    const decision = getApprovalDecision(record);
-    const status = String(decision?.status ?? '');
-    const approvalId = getApprovalId(record);
-    const plan = findPlanByDigest(records?.sealedActionPlans ?? [], getApprovalPlanDigest(record));
-
-    if (status !== 'approved') {
-      return null;
-    }
-    if (hasExecutionForApproval(records?.executionRecords ?? [], approvalId)) {
-      return null;
-    }
-    if (!plan) {
-      return withModeGate({
-        disabledReason: '연결된 plan 없음',
-        label: '실행',
-        step: 'execute-approval',
-      });
-    }
-
-    return withModeGate({ label: '실행', step: 'execute-approval' });
-  }
-
-  return null;
-};
-
-const renderUploadedDocumentRows = (
-  documents: RagUploadedDocument[],
-  emptyText: string,
-): React.ReactNode => {
-  if (documents.length === 0) {
-    return <div className="komsco-ai__history-empty">{emptyText}</div>;
-  }
-
-  return documents.map((document) => (
-    <div
-      className="komsco-ai__uploaded-doc-item"
-      key={document.documentId}
-      title={document.sourceUri || document.title}
-    >
-      <div className="komsco-ai__uploaded-doc-title">{document.title}</div>
-      <div className="komsco-ai__uploaded-doc-meta">
-        <span>{document.chunkCount ?? 0} chunks</span>
-        <span>{formatFileSize(document.contentBytes ?? 0)}</span>
-      </div>
-      <div className="komsco-ai__uploaded-doc-source">
-        {document.sourceUri || document.documentId}
-      </div>
-    </div>
-  ));
-};
-
 const mergeUploadedDocuments = (
   preferred: RagUploadedDocument[],
   fallback: RagUploadedDocument[],
@@ -3126,102 +647,6 @@ const mergeUploadedDocuments = (
   });
 
   return Array.from(merged.values());
-};
-
-const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
-  if (records.length === 0) {
-    return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
-  }
-
-  return records.slice(0, 4).map((record) => {
-    const phase = getRecordPhase(record);
-    return (
-      <div className="komsco-ai__rail-command" key={record.metadata?.name ?? phase}>
-        <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
-        <p>{getRecordTargetLabel(record)}</p>
-        {renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
-      </div>
-    );
-  });
-};
-
-const renderActionRecordRows = (
-  records: AiopsRecordView[],
-  emptyLabel: string,
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-  busyActionId: string,
-  onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
-) => {
-  if (records.length === 0) {
-    return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
-  }
-
-  return records.slice(0, 6).map((record) => {
-    const phase = getRecordPhase(record);
-    const action = getAiopsRecordAction(record, aiopsStatus, executionMode);
-    const actions =
-      action?.step === 'approve-plan'
-        ? [action, { ...action, label: '거절', step: 'reject-plan' as const }]
-        : action
-          ? [action]
-          : [];
-
-    return (
-      <div
-        className="komsco-ai__rail-command"
-        data-action-lifecycle-stage={getActionRecordStage(record)}
-        key={record.metadata?.name ?? phase}
-      >
-        <div className="komsco-ai__rail-command-head">
-          <div className="komsco-ai__rail-command-title">
-            {renderActionStageDots(getActionRecordStage(record))}
-            <span>{getActionRecordStageLabel(record, executionMode)}</span>
-            <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
-          </div>
-          {phase !== 'sealed' && renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
-        </div>
-        <p>{getRecordTargetLabel(record)}</p>
-        <p className="komsco-ai__rail-action-proof">
-          {getActionRecordProof(record, executionMode)}
-        </p>
-        {renderPlanSummaryBlock(record, executionMode)}
-        {actions.length > 0 && (
-          <div className="komsco-ai__rail-action-row">
-            {actions.map((item) => {
-              const actionId = `${item.step}:${getRecordName(record)}`;
-              const busy = actionId === busyActionId;
-              return (
-                <Button
-                  className="komsco-ai__action-button"
-                  data-answer-action-step={item.step}
-                  isDisabled={busy || Boolean(item.disabledReason)}
-                  isLoading={busy}
-                  key={item.step}
-                  onClick={() => onAction(record, item)}
-                  size="sm"
-                  title={item.disabledReason}
-                  variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
-                >
-                  <span className="komsco-ai__rail-action-icon">
-                    <CoolTerminalIcon />
-                  </span>
-                  {busy ? '처리 중' : item.label}
-                </Button>
-              );
-            })}
-            {action?.disabledReason && (
-              <span className="komsco-ai__rail-action-note">{action.disabledReason}</span>
-            )}
-          </div>
-        )}
-        <details className="komsco-ai__rail-command-detail">
-          <summary>상세보기 (JSON)</summary>
-          <pre>{JSON.stringify(record, null, 2)}</pre>
-        </details>
-      </div>
-    );
-  });
 };
 
 const matchActionCandidatesForMessage = (
@@ -3248,17 +673,30 @@ const matchActionCandidatesForMessage = (
   });
 };
 
-const actionCandidateButtonLabel = (candidate: AiopsActionCandidate): string => {
-  const kind = candidate.target?.kind ? `${candidate.target.kind} ` : '';
-  const name = candidate.target?.name ?? candidate.title;
-  return `조치 계획 생성: ${kind}${name}`;
-};
-
 // Matches the "namespace/name" shape getRecordTargetLabel derives from a
 // record's target, so a candidate's target and a record's target can be
 // compared as the same session-tracked key.
 const targetKeyFromParts = (namespace?: string, name?: string): string =>
   namespace ? `${namespace}/${name ?? ''}` : (name ?? '');
+
+const conversationActionRefFromCandidate = (
+  candidate: AiopsActionCandidate,
+  messageAnchor?: string,
+): ConversationActionRef => {
+  const targetKey = targetKeyFromParts(candidate.target?.namespace, candidate.target?.name);
+  const toolName = candidate.title;
+
+  return {
+    candidateId: candidate.id,
+    id: `candidate|${candidate.id}|${targetKey}|${toolName}`.toLowerCase(),
+    label: '1단계 · 조치 계획 생성',
+    messageAnchor,
+    stage: 'proposal',
+    targetKey: targetKey || candidate.title,
+    toolName,
+    updatedAt: Date.now(),
+  };
+};
 
 const actionRecordDisplayRank = (
   record: AiopsRecordView,
@@ -3324,9 +762,24 @@ const sessionAiopsActionRecords = (
 const latestAnswerActionRecords = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
+  messageContent: string,
+  messageAnchor: string | undefined,
+  actionRefs: ConversationActionRef[],
 ): AiopsRecordView[] => {
   const records = aiopsStatus?.spec.records;
   if (!records) {
+    return [];
+  }
+
+  const anchorRefs = messageAnchor
+    ? actionRefs.filter((ref) => ref.messageAnchor === messageAnchor)
+    : [];
+  const mentionedRecordNames = new Set(
+    Array.from(messageContent.matchAll(/\b(?:proposal|plan|approval|execution)-[a-z0-9-]+/gi))
+      .map((match) => match[0].toLowerCase()),
+  );
+
+  if (anchorRefs.length === 0 && mentionedRecordNames.size === 0) {
     return [];
   }
 
@@ -3334,605 +787,30 @@ const latestAnswerActionRecords = (
     [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals],
     aiopsStatus,
     executionMode,
-  ).slice(0, 3);
-};
+  )
+    .filter((record) => {
+      const recordName = getRecordName(record).toLowerCase();
+      if (mentionedRecordNames.has(recordName)) {
+        return true;
+      }
 
-const renderCreateActionPlanButtons = (
-  candidates: AiopsActionCandidate[],
-  busyCandidateId: string,
-  onCreatePlan: (candidate: AiopsActionCandidate) => void,
-): React.ReactNode => {
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="komsco-ai__create-action-plan">
-      {candidates.map((candidate) => {
-        const busy = candidate.id === busyCandidateId;
+      return anchorRefs.some((ref) => {
+        if (ref.recordName && getRecordName(record) === ref.recordName) {
+          return true;
+        }
+        if (
+          ref.planDigest &&
+          (getPlanDigest(record) === ref.planDigest || getApprovalPlanDigest(record) === ref.planDigest)
+        ) {
+          return true;
+        }
         return (
-          <Button
-            className="komsco-ai__action-button"
-            isDisabled={busy}
-            isLoading={busy}
-            key={candidate.id}
-            onClick={() => onCreatePlan(candidate)}
-            size="sm"
-            variant="secondary"
-          >
-            {busy ? '처리 중' : actionCandidateButtonLabel(candidate)}
-          </Button>
+          ref.targetKey === getRecordTargetLabel(record) &&
+          (!ref.toolName || ref.toolName === getActionRecordToolName(record))
         );
-      })}
-    </div>
-  );
-};
-
-const renderAssistantAnswerActions = (
-  records: AiopsRecordView[],
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-  busyActionId: string,
-  onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
-  aiopsActionError: string,
-  aiopsActionNotice: string,
-) => {
-  if (records.length === 0) {
-    return null;
-  }
-
-  return (
-    <div
-      className="komsco-ai__answer-actions"
-      data-komsco-answer-action-buttons
-      aria-label="챗봇 답변 직접 조치 버튼"
-    >
-      <div className="komsco-ai__answer-actions-head">
-        <strong>바로 해결</strong>
-        <span>검증된 AIOps 기록에서 다음 버튼만 표시합니다.</span>
-      </div>
-      {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
-      {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
-      <div className="komsco-ai__answer-action-list">
-        {records.map((record) => {
-          const action = getAiopsRecordAction(record, aiopsStatus, executionMode);
-          const actions =
-            action?.step === 'approve-plan'
-              ? [action, { ...action, label: '거절', step: 'reject-plan' as const }]
-              : action
-                ? [action]
-                : [];
-
-          const phase = getRecordPhase(record);
-
-          if (actions.length === 0) {
-            const outcome = getExecutionOutcomeSummary(record, aiopsStatus);
-            if (!outcome) {
-              return null;
-            }
-            const outcomeIcon = outcome.tone === 'ok' ? '✓' : outcome.tone === 'warn' ? '!' : '✕';
-
-            return (
-              <div
-                className={`komsco-ai__answer-action-card komsco-ai__answer-action-card--${outcome.tone}`}
-                data-action-lifecycle-stage={getActionRecordStage(record)}
-                key={getRecordName(record) || phase}
-              >
-                <div className="komsco-ai__answer-action-main">
-                  {renderActionStageDots('execution')}
-                  <span>4단계 · 실행 완료</span>
-                  <strong>{getRecordTargetLabel(record)}</strong>
-                </div>
-                <div className="komsco-ai__answer-action-outcome">
-                  <div className="komsco-ai__answer-action-outcome-title">
-                    <span className="komsco-ai__answer-action-outcome-icon">{outcomeIcon}</span>
-                    {outcome.title}
-                  </div>
-                  <div className="komsco-ai__answer-action-outcome-detail">{outcome.detail}</div>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div
-              className="komsco-ai__answer-action-card"
-              data-action-lifecycle-stage={getActionRecordStage(record)}
-              key={getRecordName(record) || phase}
-            >
-              <div className="komsco-ai__answer-action-main">
-                {renderActionStageDots(getActionRecordStage(record))}
-                <span>{getActionRecordStageLabel(record, executionMode)}</span>
-                <strong>{getRecordTargetLabel(record)}</strong>
-                <small>{getActionRecordProof(record, executionMode)}</small>
-              </div>
-              {renderPlanSummaryBlock(record, executionMode)}
-              <div className="komsco-ai__answer-action-controls">
-                {actions.map((item) => {
-                  const actionId = `${item.step}:${getRecordName(record)}`;
-                  const busy = actionId === busyActionId;
-                  return (
-                    <Button
-                      className="komsco-ai__action-button"
-                      data-answer-action-step={item.step}
-                      isDisabled={busy || Boolean(item.disabledReason)}
-                      isLoading={busy}
-                      key={item.step}
-                      onClick={() => onAction(record, item)}
-                      size="sm"
-                      title={item.disabledReason}
-                      variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
-                    >
-                      <span className="komsco-ai__rail-action-icon">
-                        <CoolTerminalIcon />
-                      </span>
-                      {busy ? '처리 중' : item.label}
-                    </Button>
-                  );
-                })}
-              </div>
-              {action?.disabledReason && (
-                <div className="komsco-ai__answer-action-note">{action.disabledReason}</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-const messagePreview = (content: string, limit = 110): string => {
-  const collapsed = content.replace(/\s+/g, ' ').trim();
-  if (!collapsed) {
-    return '내용 없음';
-  }
-
-  return collapsed.length > limit ? `${collapsed.slice(0, limit - 1)}...` : collapsed;
-};
-
-const messageTime = (timestamp: number | undefined, language: UiLanguage): string => {
-  if (!timestamp) {
-    return '시간 대기';
-  }
-
-  return new Date(timestamp).toLocaleTimeString(languageLocale(language), {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
-
-const conversationMessages = (messages: Message[]): Message[] =>
-  messages.filter((message) => message.role === 'user' || message.role === 'assistant');
-
-const latestMessageByRole = (
-  messages: Message[],
-  role: 'user' | 'assistant',
-): Message | undefined =>
-  [...messages].reverse().find((message) => message.role === role && message.content.trim());
-
-const renderConversationSnapshot = (
-  messages: Message[],
-  conversationHistory: ConversationHistoryItem[],
-  language: UiLanguage,
-) => {
-  const visibleMessages = conversationMessages(messages);
-  const latestUser = latestMessageByRole(visibleMessages, 'user');
-  const latestAssistant = latestMessageByRole(visibleMessages, 'assistant');
-  const timeline = visibleMessages.slice(-4);
-
-  return (
-    <>
-      <div className="komsco-ai__rail-section">
-        <div className="komsco-ai__rail-section-head">
-          <strong>대화 요약</strong>
-          <span>{visibleMessages.length}건</span>
-        </div>
-        {latestUser || latestAssistant ? (
-          <>
-            <div className="komsco-ai__rail-command">
-              <code>최근 질문 · {messageTime(latestUser?.timestamp, language)}</code>
-              <p>{latestUser ? messagePreview(latestUser.content) : '아직 질문이 없습니다.'}</p>
-            </div>
-            <div className="komsco-ai__rail-command">
-              <code>최근 답변 · {messageTime(latestAssistant?.timestamp, language)}</code>
-              <p>
-                {latestAssistant
-                  ? messagePreview(latestAssistant.content)
-                  : '아직 답변이 없습니다.'}
-              </p>
-            </div>
-          </>
-        ) : (
-          <div className="komsco-ai__rail-empty">
-            질문을 보내면 요약과 답변 흐름이 여기에 남습니다.
-          </div>
-        )}
-      </div>
-
-      <div className="komsco-ai__rail-section">
-        <div className="komsco-ai__rail-section-head">
-          <strong>질문·답변 타임라인</strong>
-          <span>최신 {timeline.length}건</span>
-        </div>
-        {timeline.length > 0 ? (
-          timeline.map((message, index) => (
-            <div
-              className="komsco-ai__rail-command"
-              data-message-role={message.role}
-              key={`${message.timestamp ?? index}-${message.role}`}
-            >
-              <div className="komsco-ai__rail-command-head">
-                <div className="komsco-ai__rail-command-title">
-                  <span>{message.role === 'user' ? '사용자' : 'KOMSCO AI AGENT'}</span>
-                  <code>{messageTime(message.timestamp, language)}</code>
-                </div>
-                {renderStatusTag(message.role === 'user' ? '질문' : '답변', 'neutral')}
-              </div>
-              <p>{messagePreview(message.content)}</p>
-            </div>
-          ))
-        ) : (
-          <div className="komsco-ai__rail-empty">아직 질문·답변 타임라인이 없습니다.</div>
-        )}
-      </div>
-
-      <div className="komsco-ai__rail-section">
-        <div className="komsco-ai__rail-section-head">
-          <strong>저장된 리포트</strong>
-          <span>{conversationHistory.length}건</span>
-        </div>
-        {conversationHistory.length > 0 ? (
-          conversationHistory.slice(0, 3).map((item) => (
-            <div className="komsco-ai__rail-command" key={item.id}>
-              <code>{formatHistoryTime(item.updatedAt, language)}</code>
-              <p>{item.title}</p>
-            </div>
-          ))
-        ) : (
-          <div className="komsco-ai__rail-empty">
-            저장된 분석 대화가 있으면 이곳에서 다시 확인합니다.
-          </div>
-        )}
-      </div>
-    </>
-  );
-};
-
-const renderInsightRail = (
-  summary: ClusterSummary | null,
-  loading: boolean,
-  error: string,
-  aiopsStatus: AiopsRuntimeStatus | null,
-  aiopsStatusError: string,
-  executionMode: AiopsExecutionMode,
-  aiopsActionBusyId: string,
-  aiopsActionError: string,
-  aiopsActionNotice: string,
-  onAiopsAction: (record: AiopsRecordView, action: AiopsRecordAction) => void,
-  messages: Message[],
-  conversationHistory: ConversationHistoryItem[],
-  language: UiLanguage,
-) => (
-  <aside className="komsco-ai__insight-rail" aria-label="현재 분석 컨텍스트">
-    <h2 className="komsco-ai__rail-title">현재 클러스터 컨텍스트</h2>
-    <div
-      className={`komsco-ai__connection-card${
-        summary
-          ? ' komsco-ai__connection-card--connected'
-          : error || aiopsStatusError
-            ? ' komsco-ai__connection-card--danger'
-            : ''
-      }`}
-    >
-      <div className="komsco-ai__connection-main">
-        <span
-          className={`komsco-ai__connection-dot${
-            summary && aiopsStatus ? ' komsco-ai__connection-dot--connected' : ''
-          }`}
-        />
-        <strong>
-          {summary && aiopsStatus
-            ? '회사 OCP 연결됨'
-            : error || aiopsStatusError
-              ? '연결 확인 필요'
-              : loading
-                ? '연결 확인 중'
-                : '연결 대기'}
-        </strong>
-      </div>
-      <div className="komsco-ai__connection-target">
-        {summary?.apiUrl || 'console proxy / gateway'}
-      </div>
-      <div className="komsco-ai__connection-metrics">
-        {summary
-          ? `${summary.nodes.ready}/${summary.nodes.total} Ready · ${getClusterUsageSummary(summary)}`
-          : error || aiopsStatusError
-            ? error || aiopsStatusError
-            : 'Gateway와 cluster summary를 가져오는 중입니다.'}
-      </div>
-    </div>
-    {renderConversationSnapshot(messages, conversationHistory, language)}
-
-    {renderRailSummaryBadges(summary, loading, error)}
-    <div className={`komsco-ai__health-card komsco-ai__health-card--${getHealthTone(summary)}`}>
-      <div className="komsco-ai__health-head">
-        <span>Cluster health score</span>
-        <span>마지막 갱신 {formatSummaryTime(summary?.updatedAt)}</span>
-      </div>
-      <div className="komsco-ai__health-score">
-        {summary ? summary.healthScore : loading ? '...' : '--'} <small>/ 100</small>
-      </div>
-      <div className={`komsco-ai__health-bar${summary ? '' : ' komsco-ai__health-bar--pending'}`}>
-        {summary ? (
-          <span
-            className={`komsco-ai__health-bar-fill komsco-ai__health-bar-fill--${getHealthTone(
-              summary,
-            )}`}
-            style={{ width: `${summary.healthScore}%` }}
-          />
-        ) : (
-          <span className="komsco-ai__health-bar-placeholder">status pending</span>
-        )}
-      </div>
-    </div>
-
-    {error && (
-      <div className="komsco-ai__rail-error">클러스터 요약을 가져오지 못했습니다. {error}</div>
-    )}
-
-    {aiopsStatusError && (
-      <div className="komsco-ai__rail-error">
-        AIOps 상태를 가져오지 못했습니다. {aiopsStatusError}
-      </div>
-    )}
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>노드 상태</strong>
-        <span>{getNodeCompactStatus(summary, loading, error).label}</span>
-      </div>
-      {(summary?.nodes.items ?? []).slice(0, 5).map((node) => (
-        <div className="komsco-ai__alert-mini" key={node.name}>
-          <span
-            className={`komsco-ai__alert-mini-dot${
-              node.ready && !Object.values(node.pressures).some(Boolean)
-                ? ' komsco-ai__alert-mini-dot--green'
-                : ''
-            }`}
-          />
-          <div>
-            <div className="komsco-ai__alert-mini-title">{node.name}</div>
-            <div className="komsco-ai__alert-mini-sub">
-              {node.roles.join(', ')} · {node.kubeletVersion ?? 'version unknown'}
-            </div>
-            <div className="komsco-ai__alert-mini-sub">{formatNodeUsage(node)}</div>
-          </div>
-          <span
-            className={`komsco-ai__rail-badge${node.ready ? ' komsco-ai__rail-badge--ok' : ''}`}
-          >
-            {node.ready ? 'READY' : 'CHECK'}
-          </span>
-        </div>
-      ))}
-      {summary && summary.nodes.items.length === 0 && (
-        <div className="komsco-ai__rail-empty">조회 가능한 노드가 없습니다.</div>
-      )}
-    </div>
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>클러스터 상태</strong>
-        <span>{summary?.version.version ?? 'version pending'}</span>
-      </div>
-      <div className="komsco-ai__scope-list">
-        {summary
-          ? renderStatusTag(
-              `Available ${summary.operators.available}/${summary.operators.total}`,
-              summary.operators.available === summary.operators.total ? 'ok' : 'warn',
-            )
-          : renderStatusTag('Available 대기')}
-        {summary
-          ? renderStatusTag(
-              `장애 ${getClusterFaultCount(summary)}건`,
-              getClusterFaultCount(summary) > 0 ? 'danger' : 'ok',
-              'Degraded + Unavailable Operator 수',
-            )
-          : renderStatusTag('장애 대기')}
-        {summary
-          ? renderStatusTag(
-              `Progressing ${summary.operators.progressing}건`,
-              summary.operators.progressing > 0 ? 'warn' : 'neutral',
-            )
-          : renderStatusTag('Progressing 대기')}
-        {summary
-          ? renderStatusTag(summary.version.channel ?? 'Channel unknown', 'neutral')
-          : renderStatusTag('Channel 대기')}
-        {summary
-          ? renderStatusTag(
-              summary.version.updateAvailable ? 'Update available' : 'No update signal',
-              summary.version.updateAvailable ? 'review' : 'neutral',
-            )
-          : renderStatusTag('Update signal 대기')}
-        {summary
-          ? renderStatusTag(
-              summary.version.upgradeable === false ? 'Upgrade blocked' : 'Upgradeable',
-              summary.version.upgradeable === false ? 'warn' : 'ok',
-              summary.version.upgradeableMessage,
-            )
-          : renderStatusTag('Upgradeable 대기')}
-        {summary
-          ? renderStatusTag(
-              `Metrics ${summary.nodes.metricsAvailable ? 'available' : 'unavailable'}`,
-              summary.nodes.metricsAvailable ? 'ok' : 'warn',
-            )
-          : renderStatusTag('Metrics 대기')}
-      </div>
-    </div>
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>Operator 이슈</strong>
-        <span>{getOperatorCompactStatus(summary, loading, error).label}</span>
-      </div>
-      {(summary?.operators.issues ?? []).slice(0, 5).map((operator) => (
-        <div
-          className={`komsco-ai__rail-command komsco-ai__rail-command--${getOperatorTone(
-            operator,
-          )}`}
-          key={operator.name}
-        >
-          <code>{operator.name}</code>
-          <p>{operator.reason || operator.message || '상태 확인 필요'}</p>
-        </div>
-      ))}
-      {summary && summary.operators.issues.length === 0 && (
-        <div className="komsco-ai__rail-empty">주요 Operator 이슈가 없습니다.</div>
-      )}
-    </div>
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>AIOps 실행 상태</strong>
-        <span>{aiopsStatus ? '연결됨' : aiopsStatusError ? '확인 필요' : '수집 중'}</span>
-      </div>
-      {renderExecutionCapabilityBadges(aiopsStatus, executionMode)}
-      <div className="komsco-ai__scope-list komsco-ai__scope-list--secondary">
-        {renderStatusTag(
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.diagnosticsEnabled
-              ? 'Diagnostics on'
-              : 'Diagnostics off'
-            : 'Diagnostics pending',
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.diagnosticsEnabled
-              ? 'ok'
-              : 'warn'
-            : 'neutral',
-        )}
-        {renderStatusTag(
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.mutationsEnabled
-              ? 'Mutations on'
-              : 'Mutations off'
-            : 'Mutations pending',
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.mutationsEnabled
-              ? 'review'
-              : 'neutral'
-            : 'neutral',
-        )}
-        {renderStatusTag(
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.recordStoreEnabled
-              ? 'Ledger on'
-              : 'Ledger off'
-            : 'Ledger pending',
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.recordStoreEnabled
-              ? 'ok'
-              : 'warn'
-            : 'neutral',
-        )}
-        {renderStatusTag(
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.rag?.status === 'not_configured'
-              ? 'RAG not configured'
-              : aiopsStatus.spec.capabilities.rag?.status === 'configured_skeleton'
-                ? 'RAG skeleton'
-                : `RAG ${aiopsStatus.spec.capabilities.rag?.status ?? 'unknown'}`
-            : 'RAG pending',
-          aiopsStatus
-            ? aiopsStatus.spec.capabilities.rag?.status === 'not_configured'
-              ? 'warn'
-              : 'neutral'
-            : 'neutral',
-        )}
-      </div>
-      {aiopsStatusError && (
-        <div className="komsco-ai__rail-error">AIOps 상태를 가져오지 못했습니다.</div>
-      )}
-    </div>
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>답변 근거</strong>
-        <span>{rcaStatusLabel(aiopsStatus?.spec.safetyContract?.rcaContextStatus?.status)}</span>
-      </div>
-      <div className="komsco-ai__scope-list">
-        {renderStatusTag(`수집 ${rcaRailEvidenceCounts(aiopsStatus).collected}건`, 'ok')}
-        {renderStatusTag(`추가 확인 ${rcaRailEvidenceCounts(aiopsStatus).missing}건`, 'warn')}
-      </div>
-      <div className="komsco-ai__rail-command">
-        <p>
-          {aiopsStatus?.spec.safetyContract?.rcaContextStatus?.latestContext
-            ? '최근 답변에 사용한 근거가 연결되어 있습니다.'
-            : '질문 실행 후 답변 근거가 연결됩니다.'}
-        </p>
-      </div>
-    </div>
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>최근 진단</strong>
-        <span>
-          {aiopsStatus ? `${aiopsStatus.spec.records.diagnosticRequests.length}건` : '대기'}
-        </span>
-      </div>
-      {renderRecordRows(
-        aiopsStatus?.spec.records.diagnosticRequests ?? [],
-        '최근 진단 요청이 없습니다.',
-      )}
-    </div>
-
-    <div className="komsco-ai__rail-section">
-      <div className="komsco-ai__rail-section-head">
-        <strong>승인·실행</strong>
-        <span>
-          {aiopsStatus
-            ? `${
-                aiopsStatus.spec.records.actionProposals.length +
-                aiopsStatus.spec.records.sealedActionPlans.length +
-                aiopsStatus.spec.records.approvalDecisions.length +
-                aiopsStatus.spec.records.executionRecords.length
-              }건`
-            : '대기'}
-        </span>
-      </div>
-      {renderActionLifecycle(aiopsStatus, executionMode)}
-      {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
-      {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
-      {renderActionRecordRows(
-        [
-          ...(aiopsStatus?.spec.records.actionProposals ?? []),
-          ...(aiopsStatus?.spec.records.sealedActionPlans ?? []),
-          ...(aiopsStatus?.spec.records.approvalDecisions ?? []),
-          ...(aiopsStatus?.spec.records.executionRecords ?? []),
-        ].sort(
-          (a, b) =>
-            new Date(String(b.metadata?.createdAt ?? 0)).getTime() -
-            new Date(String(a.metadata?.createdAt ?? 0)).getTime(),
-        ),
-        '최근 승인 또는 실행 기록이 없습니다.',
-        aiopsStatus,
-        executionMode,
-        aiopsActionBusyId,
-        onAiopsAction,
-      )}
-    </div>
-  </aside>
-);
-
-const AssistantSurfacePortal: React.FC<{
-  active: boolean;
-  children: React.ReactNode;
-  wrapperClassName: string;
-}> = ({ active, children, wrapperClassName }) => {
-  if (active && typeof document !== 'undefined') {
-    return ReactDOM.createPortal(<div className={wrapperClassName}>{children}</div>, document.body);
-  }
-
-  return <>{children}</>;
+      });
+    })
+    .slice(0, 3);
 };
 
 const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
@@ -3997,7 +875,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
   const [sessionActionTargetKeys, setSessionActionTargetKeys] = React.useState<Set<string>>(
-    () => new Set(),
+    () => new Set(initialActiveConversation?.actionTargetKeys ?? []),
+  );
+  const [sessionActionRefs, setSessionActionRefs] = React.useState<ConversationActionRef[]>(
+    () => initialActiveConversation?.actionRefs ?? [],
   );
   const [sidebarActionPanelOpen, setSidebarActionPanelOpen] = React.useState(false);
   const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
@@ -4030,6 +911,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
   const [, setProgressTick] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
+  const fabButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -4039,6 +921,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const historyMenuRef = React.useRef<HTMLDivElement | null>(null);
   const historyMenuPanelRef = React.useRef<HTMLDivElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
+  const messagesRef = React.useRef<Message[]>(messages);
   const assistantTypewriterTimerRef = React.useRef<number | undefined>();
   const assistantTextDrainResolversRef = React.useRef<Array<() => void>>([]);
   const chatAbortControllerRef = React.useRef<AbortController | null>(null);
@@ -4061,13 +944,36 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const emptyStateCopy =
     TASK_MODE_EMPTY_COPY[assistantTaskMode]?.[uiLanguage] ?? TASK_MODE_EMPTY_COPY.ask[uiLanguage];
 
+  const openAssistant = React.useCallback(() => {
+    setOpen(true);
+  }, []);
+
+  React.useEffect(() => {
+    const button = fabButtonRef.current;
+    if (!button || embedded) {
+      return undefined;
+    }
+
+    button.addEventListener('click', openAssistant);
+
+    return () => {
+      button.removeEventListener('click', openAssistant);
+    };
+  }, [embedded, openAssistant]);
+
+  React.useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   React.useEffect(() => {
     writeStoredActiveConversation({
       activeSessionId,
+      actionRefs: sessionActionRefs,
+      actionTargetKeys: Array.from(sessionActionTargetKeys),
       conversationId,
       messages,
     });
-  }, [activeSessionId, conversationId, messages]);
+  }, [activeSessionId, conversationId, messages, sessionActionRefs, sessionActionTargetKeys]);
 
   React.useEffect(
     () => () => {
@@ -4439,6 +1345,36 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setExecutionMode(mode);
   }, []);
 
+  const getLatestAssistantMessageAnchor = React.useCallback((): string | undefined => {
+    const index = findLastAssistantIndex(messagesRef.current);
+    return index >= 0 ? actionAnchorForMessageIndex(index) : undefined;
+  }, []);
+
+  const upsertSessionActionRef = React.useCallback((ref: ConversationActionRef) => {
+    setSessionActionRefs((prev) => {
+      const next = [...prev];
+      const existingIndex = next.findIndex(
+        (item) =>
+          item.id === ref.id ||
+          (item.targetKey === ref.targetKey &&
+            item.toolName === ref.toolName &&
+            (item.planDigest === ref.planDigest || !item.planDigest || !ref.planDigest)),
+      );
+
+      if (existingIndex >= 0) {
+        next[existingIndex] = {
+          ...next[existingIndex],
+          ...ref,
+          messageAnchor: ref.messageAnchor ?? next[existingIndex].messageAnchor,
+          updatedAt: Date.now(),
+        };
+        return next;
+      }
+
+      return [{ ...ref, updatedAt: Date.now() }, ...next].slice(0, 12);
+    });
+  }, []);
+
   const saveCurrentConversation = React.useCallback(
     (snapshotMessages = messages, snapshotConversationId = conversationId) => {
       if (snapshotMessages.length === 0) {
@@ -4451,6 +1387,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         updatedAt: Date.now(),
         conversationId: snapshotConversationId,
         messages: snapshotMessages,
+        actionRefs: sessionActionRefs,
         actionTargetKeys: Array.from(sessionActionTargetKeys),
       };
 
@@ -4461,7 +1398,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         ),
       );
     },
-    [activeSessionId, conversationId, messages, sessionActionTargetKeys, uiLanguage],
+    [activeSessionId, conversationId, messages, sessionActionRefs, sessionActionTargetKeys, uiLanguage],
   );
 
   React.useEffect(() => {
@@ -4484,6 +1421,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setConversationId(undefined);
     setMessages([]);
     setSessionActionTargetKeys(new Set());
+    setSessionActionRefs([]);
     setInput('');
     setPendingAttachments([]);
     setAttachmentError('');
@@ -4503,7 +1441,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setActiveSessionId(conversation.id);
       setConversationId(conversation.conversationId);
       setMessages(conversation.messages);
-      setSessionActionTargetKeys(new Set(conversation.actionTargetKeys ?? []));
+      setSessionActionTargetKeys(
+        new Set([
+          ...(conversation.actionTargetKeys ?? []),
+          ...(conversation.actionRefs ?? []).map((actionRef) => actionRef.targetKey),
+        ]),
+      );
+      setSessionActionRefs(conversation.actionRefs ?? []);
       setInput('');
       setPendingAttachments([]);
       setAttachmentError('');
@@ -4511,6 +1455,56 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setTaskModeMenuOpen(false);
     },
     [loading, saveCurrentConversation],
+  );
+
+  const scrollToActionAnchor = React.useCallback((messageAnchor?: string) => {
+    if (!messageAnchor) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      const surface = surfaceRef.current;
+      const target = Array.from(
+        surface?.querySelectorAll<HTMLElement>('[data-action-anchor]') ?? [],
+      ).find((element) => element.getAttribute('data-action-anchor') === messageAnchor);
+
+      if (!target) {
+        return;
+      }
+
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target.classList.add('komsco-ai__message--action-highlight');
+      window.setTimeout(() => {
+        target.classList.remove('komsco-ai__message--action-highlight');
+      }, 1800);
+    }, 120);
+  }, []);
+
+  const handleHistoryActionRefSelect = React.useCallback(
+    (conversation: ConversationHistoryItem, actionRef: ConversationActionRef) => {
+      if (loading) {
+        return;
+      }
+
+      setOpenHistoryMenuId(null);
+      setHistoryPanelView('chats');
+      setSidebarActionPanelOpen(true);
+
+      if (conversation.id !== activeSessionId) {
+        loadConversation(conversation);
+      }
+
+      setSessionActionTargetKeys(
+        new Set([
+          ...(conversation.actionTargetKeys ?? []),
+          ...(conversation.actionRefs ?? []).map((ref) => ref.targetKey),
+          actionRef.targetKey,
+        ]),
+      );
+      setSessionActionRefs(conversation.actionRefs?.length ? conversation.actionRefs : [actionRef]);
+      scrollToActionAnchor(actionRef.messageAnchor);
+    },
+    [activeSessionId, loadConversation, loading, scrollToActionAnchor],
   );
 
   const deleteConversation = React.useCallback(
@@ -4812,10 +1806,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           if (!proposalId) {
             throw new Error('Action proposal id is missing.');
           }
-          await createActionPlan(proposalId);
+          const plan = await createActionPlan(proposalId);
           setAiopsActionNotice('Action plan을 생성했습니다.');
           const targetKey = getRecordTargetLabel(record);
           setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              plan,
+              executionMode,
+              getLatestAssistantMessageAnchor(),
+            ),
+          );
           setSidebarActionPanelOpen(true);
         }
 
@@ -4825,8 +1826,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           if (!planId || !planDigest) {
             throw new Error('Action plan id 또는 digest가 없습니다.');
           }
-          await approveActionPlan(planId, planDigest);
+          const approval = await approveActionPlan(planId, planDigest);
           setAiopsActionNotice('Action plan을 승인했습니다.');
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              approval,
+              executionMode,
+              getLatestAssistantMessageAnchor(),
+            ),
+          );
         }
 
         if (action.step === 'approve-execute-plan') {
@@ -4840,8 +1848,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           if (!approvalId) {
             throw new Error('자동 승인 id가 없습니다.');
           }
-          await executeApprovedAction(approvalId, planId, planDigest);
+          const execution = await executeApprovedAction(approvalId, planId, planDigest);
           setAiopsActionNotice('실행 무제한 모드로 자동 승인 후 실행했습니다.');
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              execution,
+              executionMode,
+              getLatestAssistantMessageAnchor(),
+            ),
+          );
         }
 
         if (action.step === 'reject-plan') {
@@ -4850,8 +1865,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           if (!planId || !planDigest) {
             throw new Error('Action plan id 또는 digest가 없습니다.');
           }
-          await rejectActionPlan(planId, planDigest);
+          const rejection = await rejectActionPlan(planId, planDigest);
           setAiopsActionNotice('Action plan을 거절 기록했습니다.');
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              rejection,
+              executionMode,
+              getLatestAssistantMessageAnchor(),
+            ),
+          );
         }
 
         if (action.step === 'execute-approval') {
@@ -4865,8 +1887,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           if (!approvalId || !planId || !planDigest) {
             throw new Error('Approval 또는 연결된 action plan 정보가 없습니다.');
           }
-          await executeApprovedAction(approvalId, planId, planDigest);
+          const execution = await executeApprovedAction(approvalId, planId, planDigest);
           setAiopsActionNotice('승인된 조치를 실행했습니다.');
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              execution,
+              executionMode,
+              getLatestAssistantMessageAnchor(),
+            ),
+          );
         }
 
         await refreshAiopsRuntimeStatus();
@@ -4877,7 +1906,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         setAiopsActionBusyId('');
       }
     },
-    [aiopsStatus, executionMode, refreshAiopsRuntimeStatus],
+    [aiopsStatus, executionMode, getLatestAssistantMessageAnchor, refreshAiopsRuntimeStatus, upsertSessionActionRef],
   );
 
   const handleCreateActionPlanFromChat = React.useCallback(
@@ -4891,10 +1920,19 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setAiopsActionNotice('');
 
       try {
-        await createActionCandidatePlan(candidate);
+        const result = await createActionCandidatePlan(candidate);
         setAiopsActionNotice('조치 계획을 생성했습니다.');
         const targetKey = targetKeyFromParts(candidate.target?.namespace, candidate.target?.name);
         setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
+        upsertSessionActionRef(
+          result.spec?.plan
+            ? conversationActionRefFromRecord(
+                result.spec.plan,
+                executionMode,
+                getLatestAssistantMessageAnchor(),
+              )
+            : conversationActionRefFromCandidate(candidate, getLatestAssistantMessageAnchor()),
+        );
         setSidebarActionPanelOpen(true);
         await refreshAiopsRuntimeStatus();
       } catch (error) {
@@ -4904,7 +1942,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         setBusyActionCandidateId('');
       }
     },
-    [refreshAiopsRuntimeStatus],
+    [executionMode, getLatestAssistantMessageAnchor, refreshAiopsRuntimeStatus, upsertSessionActionRef],
   );
 
   const appendAssistantText = React.useCallback((content: string) => {
@@ -5354,7 +2392,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           responseWaitStartedAt = now;
           responseWaitStepId = id;
           upsertProgressStep({
-            detail: 'OpenShift Lightspeed가 답변 생성을 시작하기를 기다리는 중입니다.',
+            detail: 'AIOps가 답변 생성을 시작하기를 기다리는 중입니다.',
             id,
             name: RESPONSE_WAIT_STEP_ID,
             startedAt: now,
@@ -5815,13 +2853,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setOpen(false);
   }, [lockOpen]);
 
-  const aiopsActionHistoryContent = renderActionRecordRows(
-    sessionAiopsActionRecords(aiopsStatus, executionMode, sessionActionTargetKeys),
-    '아직 만들어진 조치 계획이 없습니다.',
-    aiopsStatus,
-    executionMode,
-    aiopsActionBusyId,
-    handleAiopsAction,
+  const aiopsActionHistoryContent = (
+    <AssistantRailActionRecords
+      aiopsStatus={aiopsStatus}
+      busyActionId={aiopsActionBusyId}
+      emptyLabel="아직 만들어진 조치 계획이 없습니다."
+      executionMode={executionMode}
+      onAction={handleAiopsAction}
+      records={sessionAiopsActionRecords(aiopsStatus, executionMode, sessionActionTargetKeys)}
+      resolveAction={getAiopsRecordAction}
+    />
   );
   const historySidebar = historySidebarOpen ? (
     <AssistantHistoryPanel
@@ -5843,11 +2884,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       productIcon={aiopsIcon}
       loadConversation={loadConversation}
       loading={loading}
+      onActionRefSelect={handleHistoryActionRefSelect}
       openHistoryMenuId={openHistoryMenuId}
       renameConversation={renameConversation}
       renamingHistoryId={renamingHistoryId}
       renamingHistoryTitle={renamingHistoryTitle}
-      renderUploadedDocumentRows={renderUploadedDocumentRows}
       sessionActionTargetKeys={sessionActionTargetKeys}
       setHistoryMenuAnchor={setHistoryMenuAnchor}
       setHistoryPanelView={setHistoryPanelView}
@@ -5874,16 +2915,20 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   return (
     <div className={assistantRootClassName} data-ui-language={uiLanguage}>
       {!open && !embedded && (
-        <Button
+        <button
           aria-label="Open Cywell AI"
           className="komsco-ai__fab"
-          onClick={() => setOpen(true)}
+          onMouseDown={openAssistant}
+          onClick={openAssistant}
+          onPointerDown={openAssistant}
+          ref={fabButtonRef}
+          type="button"
         >
           <img alt="" className="komsco-ai__fab-logo" src={aiopsIcon} />
           <span
             className={`komsco-ai__fab-status komsco-ai__fab-status--${assistantConnection.tone}`}
           />
-        </Button>
+        </button>
       )}
 
       {assistantVisible && (
@@ -5907,80 +2952,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             <Card
               className={`komsco-ai__panel${fullScreen ? ' komsco-ai__panel--fullscreen' : ''}`}
             >
-              <div className="komsco-ai__header" onMouseDown={startPanelDrag}>
-                <Button
-                  aria-label={copy.openSidebar}
-                  className="komsco-ai__icon-button komsco-ai__sidebar-toggle"
-                  onClick={() => setHistorySidebarOpen((value) => !value)}
-                  title={copy.openSidebar}
-                  variant="plain"
-                >
-                  <CoolMenuIcon />
-                </Button>
-                <div className="komsco-ai__brand">
-                  <span className="komsco-ai__title">AIOps</span>
-                </div>
-                <div
-                  className="komsco-ai__header-status"
-                  aria-label="클러스터 운영 상태 및 실행 모드"
-                >
-                  {renderHeaderOpsStatus(
-                    clusterSummary,
-                    clusterSummaryLoading,
-                    clusterSummaryError,
-                  )}
-                  <div className="komsco-ai__header-sep" aria-hidden="true" />
-                  {renderExecutionModeToggle(
-                    executionMode,
-                    actionExecutionAvailable,
-                    actionExecutionDisabledReason,
-                    handleExecutionModeChange,
-                  )}
-                </div>
-                <div className="komsco-ai__header-actions">
-                  <Button
-                    aria-label={copy.switchLanguage}
-                    className="komsco-ai__icon-button komsco-ai__language-button"
-                    onClick={() => setUiLanguage((value) => (value === 'ko' ? 'en' : 'ko'))}
-                    title={copy.switchLanguage}
-                    variant="plain"
-                  >
-                    <CoolGlobeIcon />
-                    <span className="komsco-ai__language-code">
-                      {uiLanguage === 'ko' ? 'KR' : 'EN'}
-                    </span>
-                  </Button>
-                  <Button
-                    aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'}
-                    className="komsco-ai__icon-button"
-                    onClick={() => setFullScreen((value) => !value)}
-                    variant="plain"
-                  >
-                    {fullScreen ? <CoolShrinkIcon /> : <CoolExpandIcon />}
-                  </Button>
-                  <Button
-                    aria-label={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
-                    className={`komsco-ai__icon-button${
-                      panelResizeUnlocked ? ' komsco-ai__icon-button--active' : ''
-                    }`}
-                    onClick={togglePanelResizeLock}
-                    title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
-                    variant="plain"
-                  >
-                    {panelResizeUnlocked ? <CoolLockOpenIcon /> : <CoolLockIcon />}
-                  </Button>
-                  {!lockOpen && (
-                    <Button
-                      aria-label="Close Cywell AI"
-                      className="komsco-ai__icon-button"
-                      onClick={closeAssistant}
-                      variant="plain"
-                    >
-                      <CoolCloseIcon />
-                    </Button>
-                  )}
-                </div>
-              </div>
+              <AssistantHeader
+                actionExecutionAvailable={actionExecutionAvailable}
+                actionExecutionDisabledReason={actionExecutionDisabledReason}
+                clusterSummary={clusterSummary}
+                clusterSummaryError={clusterSummaryError}
+                clusterSummaryLoading={clusterSummaryLoading}
+                copy={copy}
+                executionMode={executionMode}
+                fullScreen={fullScreen}
+                lockOpen={lockOpen}
+                onClose={closeAssistant}
+                onExecutionModeChange={handleExecutionModeChange}
+                onMouseDown={startPanelDrag}
+                onToggleFullScreen={() => setFullScreen((value) => !value)}
+                onToggleLanguage={() => setUiLanguage((value) => (value === 'ko' ? 'en' : 'ko'))}
+                onToggleResizeLock={togglePanelResizeLock}
+                onToggleSidebar={() => setHistorySidebarOpen((value) => !value)}
+                panelResizeUnlocked={panelResizeUnlocked}
+                uiLanguage={uiLanguage}
+              />
 
               <div className="komsco-ai__workspace">
                 <div className="komsco-ai__chat-column">
@@ -5992,13 +2983,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                   >
                     <div className="komsco-ai__conversation-inner">
                       {messages.length === 0 && (
-                        <div className="komsco-ai__empty">
-                          <div className="komsco-ai__empty-mark">
-                            <img alt="" className="komsco-ai__empty-logo" src={aiopsIcon} />
-                          </div>
-                          <div className="komsco-ai__empty-title">{emptyStateCopy.title}</div>
-                          <div className="komsco-ai__empty-text">{emptyStateCopy.text}</div>
-                        </div>
+                        <AssistantEmptyState
+                          iconSrc={aiopsIcon}
+                          text={emptyStateCopy.text}
+                          title={emptyStateCopy.title}
+                        />
                       )}
 
                       {messages.map((message, index) => {
@@ -6008,78 +2997,44 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const isLatestAssistantMessage =
                           message.role === 'assistant' &&
                           index === findLastAssistantIndex(messages);
+                        const messageActionAnchor =
+                          message.role === 'assistant' ? actionAnchorForMessageIndex(index) : undefined;
                         const matchedActionCandidates =
                           isLatestAssistantMessage && hasContent
                             ? matchActionCandidatesForMessage(message.content, actionCandidates)
                             : [];
-                        // latestAnswerActionRecords already only returns records with a
-                        // pending action step or a real execution outcome, so it's safe to
-                        // check unconditionally here — isActionAnswerContract used to gate
-                        // this too, but that hid results for plans created via the
-                        // "조치 계획 생성" button under a non-action-classified answer.
                         const answerActionRecords =
                           isLatestAssistantMessage && hasContent
-                            ? latestAnswerActionRecords(aiopsStatus, executionMode)
+                            ? latestAnswerActionRecords(
+                                aiopsStatus,
+                                executionMode,
+                                message.content,
+                                messageActionAnchor,
+                                sessionActionRefs,
+                              )
                             : [];
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
-                        const assistantSourceLabel =
-                          message.role === 'assistant' && hasContent
-                            ? message.fallbackAnswer
-                              ? 'Gateway fallback'
-                              : 'OpenShift Lightspeed (OLS)'
-                            : '';
-                        const assistantSourceTitle = message.fallbackAnswer
-                          ? message.gatewayContextDigest
-                            ? `Gateway context ${message.gatewayContextDigest}`
-                            : 'Gateway fallback answer'
-                          : 'OpenShift Lightspeed (OLS) answer';
-
                         return (
                           <div
                             className={`komsco-ai__message komsco-ai__message--${message.role}`}
+                            data-action-anchor={
+                              messageActionAnchor
+                            }
+                            data-message-index={index}
                             key={`${message.role}-${index}`}
                           >
                             <div className="komsco-ai__message-stack">
-                              <div className="komsco-ai__message-head">
-                                {message.role !== 'user' && (
-                                  <div className="komsco-ai__message-avatar">
-                                    <MessageIcon role={message.role} />
-                                  </div>
-                                )}
-                                <div className="komsco-ai__message-label">
-                                  {getMessageLabel(message.role, uiLanguage)}
-                                </div>
-                                {assistantSourceLabel && (
-                                  <span
-                                    className={`komsco-ai__message-source ${
-                                      message.fallbackAnswer
-                                        ? 'komsco-ai__message-source--fallback'
-                                        : 'komsco-ai__message-source--lightspeed'
-                                    }`}
-                                    title={assistantSourceTitle}
-                                  >
-                                    {assistantSourceLabel}
-                                  </span>
-                                )}
-                                {message.role === 'assistant' && hasContent && (
-                                  <button
-                                    aria-label={copy.answerCopy}
-                                    className="komsco-ai__message-copy"
-                                    onClick={() => copyMessage(message, index)}
-                                    title={copy.answerCopy}
-                                    type="button"
-                                  >
-                                    <CoolCopyIcon />
-                                    <span>
-                                      {copiedMessageIndex === index
-                                        ? copy.answerCopied
-                                        : copy.answerCopy}
-                                    </span>
-                                  </button>
-                                )}
-                              </div>
+                              <AssistantMessageHeader
+                                copied={copiedMessageIndex === index}
+                                copiedLabel={copy.answerCopied}
+                                copyLabel={copy.answerCopy}
+                                hasContent={hasContent}
+                                language={uiLanguage}
+                                message={message}
+                                onCopy={() => copyMessage(message, index)}
+                              />
                               {(hasContent || (!hasProgress && !waitingForContent)) && (
                                 <div className="komsco-ai__message-content">
                                   {renderFormattedContent(message, setPreviewAttachment)}
@@ -6087,27 +3042,37 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               )}
                               {message.role === 'assistant' &&
                                 hasContent &&
-                                renderEvidenceFooter(message.evidenceFooter, message.content)}
-                              {message.role === 'assistant' &&
-                                hasContent &&
-                                renderToolPlanFooter(message.toolPlan)}
-                              {message.role === 'assistant' &&
-                                hasContent &&
-                                renderCreateActionPlanButtons(
-                                  matchedActionCandidates,
-                                  busyActionCandidateId,
-                                  handleCreateActionPlanFromChat,
+                                (
+                                  <AssistantEvidenceFooter
+                                    footer={message.evidenceFooter}
+                                    messageContent={message.content}
+                                  />
                                 )}
                               {message.role === 'assistant' &&
                                 hasContent &&
-                                renderAssistantAnswerActions(
-                                  answerActionRecords,
-                                  aiopsStatus,
-                                  executionMode,
-                                  aiopsActionBusyId,
-                                  handleAiopsAction,
-                                  aiopsActionError,
-                                  aiopsActionNotice,
+                                <AssistantToolPlanFooter toolPlan={message.toolPlan} />}
+                              {message.role === 'assistant' &&
+                                hasContent &&
+                                (
+                                  <AssistantCreateActionPlanButtons
+                                    busyCandidateId={busyActionCandidateId}
+                                    candidates={matchedActionCandidates}
+                                    onCreatePlan={handleCreateActionPlanFromChat}
+                                  />
+                                )}
+                              {message.role === 'assistant' &&
+                                hasContent &&
+                                (
+                                  <AssistantAnswerActions
+                                    aiopsActionError={aiopsActionError}
+                                    aiopsActionNotice={aiopsActionNotice}
+                                    aiopsStatus={aiopsStatus}
+                                    busyActionId={aiopsActionBusyId}
+                                    executionMode={executionMode}
+                                    onAction={handleAiopsAction}
+                                    records={answerActionRecords}
+                                    resolveAction={getAiopsRecordAction}
+                                  />
                                 )}
                               {hasProgress && message.progressSteps && (
                                 <ProgressTimeline
@@ -6126,10 +3091,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     </div>
                   </CardBody>
 
-                  <div
-                    className={`komsco-ai__composer-wrap${
-                      dragActive ? ' komsco-ai__composer-wrap--drag-active' : ''
-                    }`}
+                  <AssistantComposer
+                    assistantTaskMode={assistantTaskMode}
+                    attachmentError={attachmentError}
+                    autoProposeActions={autoProposeActions}
+                    cancelAssistantResponse={cancelAssistantResponse}
+                    copy={copy}
+                    dragActive={dragActive}
+                    executionMode={executionMode}
+                    fileInputRef={fileInputRef}
+                    input={input}
+                    loading={loading}
                     onDragEnter={(event) => {
                       event.preventDefault();
                       setDragActive(true);
@@ -6141,310 +3113,58 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     }}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={handleDrop}
-                  >
-                    {showScrollToBottom && (
-                      <Button
-                        aria-label={copy.scrollToLatest}
-                        className="komsco-ai__scroll-bottom"
-                        onClick={() => {
-                          setStickToBottom(true);
-                          setShowScrollToBottom(false);
-                          scrollToBottom('auto');
-                        }}
-                        variant="secondary"
-                      >
-                        <CoolArrowDownIcon />
-                      </Button>
-                    )}
-                    <div className="komsco-ai__input">
-                      <input
-                        accept={FILE_INPUT_ACCEPT}
-                        aria-label={copy.fileAttach}
-                        className="komsco-ai__file-input"
-                        disabled={loading}
-                        multiple
-                        onChange={handleFileInputChange}
-                        ref={fileInputRef}
-                        type="file"
-                      />
-                      <div className="komsco-ai__composer">
-                        {pendingAttachments.length > 0 && (
-                          <div className="komsco-ai__pending-attachments">
-                            {pendingAttachments.map((attachment) => (
-                              <div className="komsco-ai__pending-attachment" key={attachment.id}>
-                                <button
-                                  aria-label={`${attachment.name} 크게 보기`}
-                                  className="komsco-ai__pending-attachment-preview"
-                                  onClick={() => setPreviewAttachment(attachment)}
-                                  title={`${attachment.name} · ${formatFileSize(attachment.size)}`}
-                                  type="button"
-                                >
-                                  <img
-                                    alt={attachment.name}
-                                    className="komsco-ai__pending-attachment-image"
-                                    src={getAttachmentPreviewUrl(attachment)}
-                                  />
-                                </button>
-                                <Button
-                                  aria-label={`${attachment.name} 첨부 제거`}
-                                  className="komsco-ai__attachment-remove"
-                                  isDisabled={loading}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    removeAttachment(attachment.id);
-                                  }}
-                                  variant="plain"
-                                >
-                                  <CoolCloseIcon />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {attachmentError && (
-                          <div className="komsco-ai__attachment-error">{attachmentError}</div>
-                        )}
-                        <TextArea
-                          aria-label="Question"
-                          autoResize
-                          className="komsco-ai__textarea"
-                          onChange={(_, value) => setInput(value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' && !event.shiftKey) {
-                              event.preventDefault();
-                              send();
-                            }
-                          }}
-                          onPaste={handlePaste}
-                          placeholder={
-                            uiLanguage === 'ko'
-                              ? TASK_MODE_PLACEHOLDERS[assistantTaskMode]
-                              : copy.inputPlaceholder
-                          }
-                          rows={1}
-                          style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
-                          value={input}
-                        />
-                        <div className="komsco-ai__composer-toolbar">
-                          <div className="komsco-ai__composer-tools">
-                            <div className="komsco-ai__quick-menu" ref={quickPromptMenuRef}>
-                              <Button
-                                aria-expanded={quickPromptMenuOpen}
-                                aria-label="자주 쓰는 점검 질문 열기"
-                                aria-haspopup="menu"
-                                className="komsco-ai__tool-button komsco-ai__quick-menu-trigger"
-                                isDisabled={loading}
-                                onClick={() => {
-                                  setQuickPromptMenuOpen((value) => !value);
-                                  setTaskModeMenuOpen(false);
-                                }}
-                                variant="plain"
-                              >
-                                <CoolPlusIcon />
-                              </Button>
-                              {quickPromptMenuOpen && (
-                                <div className="komsco-ai__quick-menu-panel" role="menu">
-                                  {executionMode === 'execute' && (
-                                    <div
-                                      aria-checked={autoProposeActions}
-                                      className="komsco-ai__quick-menu-item komsco-ai__quick-menu-item--toggle"
-                                      role="menuitemcheckbox"
-                                    >
-                                      <span className="komsco-ai__quick-prompt-icon">
-                                        <CoolShieldCheckIcon />
-                                      </span>
-                                      <span className="komsco-ai__quick-menu-copy">
-                                        <strong>조치 계획 기본 제공</strong>
-                                        <small>
-                                          질문마다 조치 계획을 먼저 보여줍니다. 끄면 요청할 때만
-                                          만듭니다.
-                                        </small>
-                                      </span>
-                                      <Switch
-                                        aria-label="답변 후 조치 계획 기본 제공"
-                                        id="komsco-ai-auto-propose-toggle"
-                                        isChecked={autoProposeActions}
-                                        onChange={(_event, checked) =>
-                                          setAutoProposeActions(checked)
-                                        }
-                                      />
-                                    </div>
-                                  )}
-                                  {QUICK_PROMPTS.map((item) => (
-                                    <button
-                                      className="komsco-ai__quick-menu-item"
-                                      key={item.label}
-                                      onClick={() => {
-                                        setQuickPromptMenuOpen(false);
-                                        void send(item.prompt);
-                                      }}
-                                      role="menuitem"
-                                      type="button"
-                                    >
-                                      <span className="komsco-ai__quick-prompt-icon">
-                                        {item.icon}
-                                      </span>
-                                      <span className="komsco-ai__quick-menu-copy">
-                                        <strong>{item.label}</strong>
-                                        <small>{item.prompt}</small>
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                            <Button
-                              aria-label="파일 첨부"
-                              className="komsco-ai__tool-button komsco-ai__attach"
-                              isDisabled={loading}
-                              onClick={() => fileInputRef.current?.click()}
-                              variant="plain"
-                            >
-                              <CoolPaperclipIcon />
-                            </Button>
-                            <div className="komsco-ai__task-mode" ref={taskModeMenuRef}>
-                              <button
-                                aria-expanded={taskModeMenuOpen}
-                                aria-haspopup="listbox"
-                                className="komsco-ai__task-mode-button"
-                                data-assistant-task-mode={assistantTaskMode}
-                                disabled={loading}
-                                onClick={() => {
-                                  setTaskModeMenuOpen((value) => !value);
-                                  setQuickPromptMenuOpen(false);
-                                }}
-                                type="button"
-                              >
-                                <span className="komsco-ai__task-mode-icon">
-                                  {selectedTaskMode.icon}
-                                </span>
-                                <span className="komsco-ai__task-mode-label">
-                                  {selectedTaskMode.label}
-                                </span>
-                                <CoolCaretDownIcon />
-                              </button>
-                              {taskModeMenuOpen && (
-                                <div className="komsco-ai__task-mode-menu" role="listbox">
-                                  {ASSISTANT_TASK_MODES.map((item) => (
-                                    <button
-                                      aria-selected={assistantTaskMode === item.value}
-                                      className="komsco-ai__task-mode-option"
-                                      data-komsco-task-mode={item.value}
-                                      key={item.value}
-                                      onClick={() => {
-                                        setAssistantTaskMode(item.value);
-                                        setTaskModeMenuOpen(false);
-                                      }}
-                                      role="option"
-                                      type="button"
-                                    >
-                                      <span className="komsco-ai__task-mode-icon">{item.icon}</span>
-                                      <span>
-                                        <strong>{item.label}</strong>
-                                        <small>{item.description}</small>
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <Button
-                            aria-label={loading ? '응답 중지' : '질문 전송'}
-                            className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
-                            isDisabled={
-                              !loading && !input.trim() && pendingAttachments.length === 0
-                            }
-                            onClick={() => {
-                              if (loading) {
-                                cancelAssistantResponse();
-                                return;
-                              }
-                              void send();
-                            }}
-                            variant="plain"
-                          >
-                            {loading ? <CoolStopIcon /> : <CoolPaperPlaneIcon />}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    onFileInputChange={handleFileInputChange}
+                    onInputChange={setInput}
+                    onPaste={handlePaste}
+                    onPreviewAttachment={setPreviewAttachment}
+                    onRemoveAttachment={removeAttachment}
+                    onScrollToBottom={() => {
+                      setStickToBottom(true);
+                      setShowScrollToBottom(false);
+                      scrollToBottom('auto');
+                    }}
+                    onSend={send}
+                    pendingAttachments={pendingAttachments}
+                    quickPromptMenuOpen={quickPromptMenuOpen}
+                    quickPromptMenuRef={quickPromptMenuRef}
+                    setAssistantTaskMode={setAssistantTaskMode}
+                    setAutoProposeActions={setAutoProposeActions}
+                    setQuickPromptMenuOpen={setQuickPromptMenuOpen}
+                    setTaskModeMenuOpen={setTaskModeMenuOpen}
+                    showScrollToBottom={showScrollToBottom}
+                    taskModeMenuOpen={taskModeMenuOpen}
+                    taskModeMenuRef={taskModeMenuRef}
+                    uiLanguage={uiLanguage}
+                  />
                 </div>
-                {renderInsightRail(
-                  clusterSummary,
-                  clusterSummaryLoading,
-                  clusterSummaryError,
-                  aiopsStatus,
-                  aiopsStatusError,
-                  executionMode,
-                  aiopsActionBusyId,
-                  aiopsActionError,
-                  aiopsActionNotice,
-                  handleAiopsAction,
-                  messages,
-                  conversationHistory,
-                  uiLanguage,
-                )}
+                <AssistantInsightRail
+                  aiopsActionBusyId={aiopsActionBusyId}
+                  aiopsActionError={aiopsActionError}
+                  aiopsActionNotice={aiopsActionNotice}
+                  aiopsStatus={aiopsStatus}
+                  aiopsStatusError={aiopsStatusError}
+                  conversationHistory={conversationHistory}
+                  error={clusterSummaryError}
+                  executionMode={executionMode}
+                  language={uiLanguage}
+                  loading={clusterSummaryLoading}
+                  messages={messages}
+                  onAiopsAction={handleAiopsAction}
+                  summary={clusterSummary}
+                />
               </div>
             </Card>
             {panelResizeUnlocked && !fullScreen && (
-              <div className="komsco-ai__resize-handles" aria-label="채팅창 크기 조절 핸들">
-                {(['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as PanelResizeDirection[]).map(
-                  (direction) => (
-                    <button
-                      aria-label={`채팅창 ${direction} 방향 크기 조절`}
-                      className={`komsco-ai__resize-handle komsco-ai__resize-handle--${direction}${
-                        direction === 'se' ? ' komsco-ai__resize-grip' : ''
-                      }`}
-                      key={direction}
-                      onMouseDown={(event) => startPanelResize(event, direction)}
-                      type="button"
-                    />
-                  ),
-                )}
-              </div>
+              <AssistantResizeHandles onResizeStart={startPanelResize} />
             )}
           </div>
         </AssistantSurfacePortal>
       )}
       {previewAttachment && (
-        <div
-          aria-label={`${previewAttachment.name} 크게 보기`}
-          aria-modal="true"
-          className="komsco-ai__image-lightbox"
-          onClick={() => setPreviewAttachment(null)}
-          role="dialog"
-        >
-          <div
-            className="komsco-ai__image-lightbox-panel"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="komsco-ai__image-lightbox-head">
-              <div className="komsco-ai__image-lightbox-title">
-                <strong>{previewAttachment.name}</strong>
-                <span>
-                  {previewAttachment.mimeType} · {formatFileSize(previewAttachment.size)}
-                </span>
-              </div>
-              <Button
-                aria-label="이미지 크게 보기 닫기"
-                className="komsco-ai__image-lightbox-close"
-                onClick={() => setPreviewAttachment(null)}
-                variant="plain"
-              >
-                <CoolCloseIcon />
-              </Button>
-            </div>
-            <div className="komsco-ai__image-lightbox-body">
-              <img
-                alt={previewAttachment.name}
-                className="komsco-ai__image-lightbox-image"
-                src={getAttachmentPreviewUrl(previewAttachment)}
-              />
-            </div>
-          </div>
-        </div>
+        <AssistantImageLightbox
+          attachment={previewAttachment}
+          onClose={() => setPreviewAttachment(null)}
+        />
       )}
     </div>
   );

@@ -129,7 +129,7 @@ export const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 export const MAX_RAG_DOCUMENT_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_RECENT_CONTEXT_MESSAGES = 8;
 export const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
-export const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'execute';
+export const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
 export const HISTORY_DRAWER_WIDTH = 236;
 export const MIN_STOP_BUTTON_VISIBLE_MS = 2000;
 export const SCROLL_BOTTOM_THRESHOLD_PX = 80;
@@ -220,11 +220,11 @@ export const PREP_SUBTASKS = [
 
 export const RESPONSE_WAIT_PHASES = [
   {
-    activity: 'Gateway가 OpenShift Lightspeed에 답변 생성을 요청했습니다.',
+    activity: 'Gateway가 AIOps에 답변 생성을 요청했습니다.',
     title: '답변 요청',
   },
   {
-    activity: 'OpenShift Lightspeed가 사용자 권한 범위 안에서 질문을 처리합니다.',
+    activity: 'AIOps가 사용자 권한 범위 안에서 질문을 처리합니다.',
     title: '질문 처리',
   },
   {

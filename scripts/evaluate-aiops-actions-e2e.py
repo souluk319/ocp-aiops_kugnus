@@ -14,7 +14,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import httpx
+try:
+    import httpx
+except ModuleNotFoundError:  # pragma: no cover - CLI dependency diagnostic path
+    httpx = None
 
 
 DEFAULT_NAMESPACE = "komsco-ai-dev"
@@ -57,6 +60,18 @@ def oc_json(args: list[str], *, timeout: int = 60) -> Mapping[str, Any]:
     return payload
 
 
+def oc_check(name: str, args: list[str], *, timeout: int = 60) -> dict[str, Any]:
+    completed = run_oc(args, check=False, timeout=timeout)
+    return {
+        "name": name,
+        "command": "oc " + " ".join(args),
+        "ok": completed.returncode == 0,
+        "returnCode": completed.returncode,
+        "stdout": completed.stdout.strip()[:1000],
+        "stderr": completed.stderr.strip()[:1000],
+    }
+
+
 def oc_apply(items: list[Mapping[str, Any]]) -> None:
     payload = {"apiVersion": "v1", "kind": "List", "items": items}
     run_oc(["apply", "-f", "-"], input_text=json.dumps(payload), timeout=120)
@@ -78,6 +93,38 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def require_httpx():
+    if httpx is None:
+        raise RuntimeError(
+            "Python dependency 'httpx' is required for live action e2e. "
+            "Use komsco-ai-gateway/.venv/bin/python or install the gateway test dependencies."
+        )
+    return httpx
+
+
+def auth_can_i_check(
+    verb: str,
+    resource: str,
+    *,
+    namespace: str | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    args = ["auth", "can-i", verb, resource]
+    if namespace:
+        args.extend(["-n", namespace])
+    completed = run_oc(args, check=False, timeout=timeout)
+    allowed = completed.stdout.strip().lower() == "yes"
+    return {
+        "name": f"can {verb} {resource}" + (f" in {namespace}" if namespace else ""),
+        "command": "oc " + " ".join(args),
+        "ok": completed.returncode == 0 and allowed,
+        "returnCode": completed.returncode,
+        "allowed": allowed,
+        "stdout": completed.stdout.strip()[:300],
+        "stderr": completed.stderr.strip()[:500],
+    }
 
 
 @contextmanager
@@ -121,13 +168,15 @@ def wait_for(
 
 
 def wait_gateway_health(gateway_url: str, proc: subprocess.Popen[str]) -> None:
+    httpx_module = require_httpx()
+
     def check() -> bool:
         if proc.poll() is not None:
             stderr = proc.stderr.read() if proc.stderr else ""
             raise RuntimeError(f"gateway port-forward exited early: {stderr.strip()}")
         try:
-            response = httpx.get(f"{gateway_url}/healthz", verify=False, timeout=5.0)
-        except httpx.HTTPError:
+            response = httpx_module.get(f"{gateway_url}/healthz", verify=False, timeout=5.0)
+        except httpx_module.HTTPError:
             return False
         return response.status_code == 200
 
@@ -264,8 +313,8 @@ def hpa_manifest(namespace: str, prefix: str, name: str, target_name: str) -> di
     }
 
 
-def apply_workloads(namespace: str, prefix: str, image: str) -> dict[str, str]:
-    names = {
+def e2e_resource_names(prefix: str) -> dict[str, str]:
+    return {
         "restart": f"{prefix}-restart",
         "scale": f"{prefix}-scale",
         "rollback": f"{prefix}-rollback",
@@ -273,6 +322,10 @@ def apply_workloads(namespace: str, prefix: str, image: str) -> dict[str, str]:
         "hpaTarget": f"{prefix}-hpa-target",
         "hpa": f"{prefix}-hpa",
     }
+
+
+def apply_workloads(namespace: str, prefix: str, image: str) -> dict[str, str]:
+    names = e2e_resource_names(prefix)
     oc_apply(
         [
             deployment_manifest(namespace, prefix, names["restart"], image),
@@ -522,12 +575,257 @@ def cleanup(namespace: str, prefix: str, diagnostic_request_id: str | None) -> N
         )
 
 
+def plan_only_report(namespace: str, prefix: str, image: str) -> dict[str, Any]:
+    names = e2e_resource_names(prefix)
+    return {
+        "ok": True,
+        "mode": "plan-only",
+        "clusterCallsExecuted": False,
+        "wouldMutateClusterInLiveMode": True,
+        "namespace": namespace,
+        "prefix": prefix,
+        "image": image,
+        "generatedAt": now_rfc3339(),
+        "plannedResources": [
+            {
+                "kind": "ServiceAccount",
+                "namespace": namespace,
+                "name": f"{prefix}-approver",
+                "purpose": "separate approver identity for approval/execution checks",
+            },
+            {
+                "kind": "ClusterRole",
+                "name": f"{prefix}-approver",
+                "purpose": "temporary e2e permissions for deployments, HPA, pods/eviction",
+            },
+            {
+                "kind": "ClusterRoleBinding",
+                "name": f"{prefix}-approver",
+                "purpose": "bind temporary approver ServiceAccount",
+            },
+            {
+                "kind": "Deployment",
+                "namespace": namespace,
+                "name": names["restart"],
+                "purpose": "rollout_restart_deployment target",
+            },
+            {
+                "kind": "Deployment",
+                "namespace": namespace,
+                "name": names["scale"],
+                "purpose": "set_replicas_within_bounds target",
+            },
+            {
+                "kind": "Deployment",
+                "namespace": namespace,
+                "name": names["rollback"],
+                "purpose": "rollback_deployment_to_revision target",
+            },
+            {
+                "kind": "Deployment",
+                "namespace": namespace,
+                "name": names["badpod"],
+                "purpose": "evict_one_unhealthy_controller_owned_pod target with failing readiness probe",
+            },
+            {
+                "kind": "Deployment",
+                "namespace": namespace,
+                "name": names["hpaTarget"],
+                "purpose": "set_hpa_bounds scale target",
+            },
+            {
+                "kind": "HorizontalPodAutoscaler",
+                "namespace": namespace,
+                "name": names["hpa"],
+                "purpose": "set_hpa_bounds target",
+            },
+        ],
+        "plannedActionLifecycle": [
+            {
+                "toolName": "rollout_restart_deployment",
+                "target": f"Deployment/{namespace}/{names['restart']}",
+                "liveEffect": "patch deployment pod template restart annotation",
+            },
+            {
+                "toolName": "set_replicas_within_bounds",
+                "target": f"Deployment/{namespace}/{names['scale']}",
+                "liveEffect": "patch deployment scale subresource to 2 replicas",
+            },
+            {
+                "toolName": "rollback_deployment_to_revision",
+                "target": f"Deployment/{namespace}/{names['rollback']}",
+                "liveEffect": "patch deployment pod template to selected ReplicaSet revision",
+            },
+            {
+                "toolName": "set_hpa_bounds",
+                "target": f"HorizontalPodAutoscaler/{namespace}/{names['hpa']}",
+                "liveEffect": "patch HPA min/max replica bounds",
+            },
+            {
+                "toolName": "evict_one_unhealthy_controller_owned_pod",
+                "target": f"Pod selected by app={names['badpod']}",
+                "liveEffect": "create pods/eviction request for one unready controller-owned pod",
+            },
+            {
+                "toolName": "node_os_readonly_triage",
+                "target": "first available Node",
+                "liveEffect": "create diagnostics request/job for read-only node collector",
+            },
+        ],
+        "plannedOcOperations": [
+            "oc apply temporary RBAC ServiceAccount/ClusterRole/ClusterRoleBinding",
+            "oc apply temporary Deployments and HPA labelled aiops.komsco/e2e-run=<prefix>",
+            "oc rollout status temporary Deployments",
+            "oc set env rollback target deployment to create a second revision",
+            "oc create token temporary approver ServiceAccount",
+            "oc port-forward svc/komsco-ai-gateway 8443",
+            "Gateway /v1/actions proposal -> plan -> approval -> execute for five mutation tools",
+            "Gateway /v1/diagnostics/requests for host diagnostic",
+            "cleanup deletes temporary deployments, HPA, ServiceAccount, ClusterRoleBinding, ClusterRole, diagnostic job",
+        ],
+        "liveModeRequiredGates": [
+            "current oc login must point to the intended test cluster",
+            "namespace must be disposable enough for temporary e2e resources",
+            "gateway capabilities.mutationsEnabled must be true",
+            "gateway capabilities.recordStoreEnabled must be true",
+            "image must be pullable by the namespace",
+            "operator approval separation uses a temporary ServiceAccount token",
+            "operator must pass --confirm-live-mutations after reviewing this plan",
+        ],
+        "recommendedLiveCommand": (
+            "komsco-ai-gateway/.venv/bin/python scripts/evaluate-aiops-actions-e2e.py "
+            f"--namespace {namespace} --report /tmp/komsco-ai-actions-e2e.json --confirm-live-mutations"
+        ),
+    }
+
+
+def preflight_only_report(
+    namespace: str,
+    prefix: str,
+    image: str,
+    *,
+    probe_gateway: bool,
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    checks.append(oc_check("current oc identity", ["whoami"], timeout=30))
+    checks.append(oc_check("current oc server", ["whoami", "--show-server"], timeout=30))
+    checks.append(oc_check("namespace exists", ["get", "namespace", namespace], timeout=30))
+    checks.append(
+        oc_check(
+            "gateway service exists",
+            ["get", "svc", "komsco-ai-gateway", "-n", namespace],
+            timeout=30,
+        )
+    )
+    checks.append(
+        oc_check(
+            "gateway dev imagestream tag exists",
+            ["get", "imagestreamtag", "komsco-ai-gateway:dev", "-n", namespace],
+            timeout=30,
+        )
+    )
+
+    checks.extend(
+        [
+            auth_can_i_check("create", "serviceaccounts", namespace=namespace),
+            auth_can_i_check("create", "deployments.apps", namespace=namespace),
+            auth_can_i_check("patch", "deployments.apps", namespace=namespace),
+            auth_can_i_check("update", "deployments.apps/scale", namespace=namespace),
+            auth_can_i_check("create", "horizontalpodautoscalers.autoscaling", namespace=namespace),
+            auth_can_i_check("patch", "horizontalpodautoscalers.autoscaling", namespace=namespace),
+            auth_can_i_check("create", "pods/eviction", namespace=namespace),
+            auth_can_i_check("create", "clusterroles.rbac.authorization.k8s.io"),
+            auth_can_i_check("create", "clusterrolebindings.rbac.authorization.k8s.io"),
+        ]
+    )
+
+    gateway_probe: dict[str, Any] = {
+        "enabled": probe_gateway,
+        "ok": None,
+        "healthz": None,
+        "capabilities": None,
+        "error": None,
+    }
+    if probe_gateway:
+        try:
+            httpx_module = require_httpx()
+            token_result = run_oc(["whoami", "--show-token"], check=False, timeout=30)
+            if token_result.returncode != 0 or not token_result.stdout.strip():
+                raise RuntimeError(
+                    "oc token unavailable: " + (token_result.stderr.strip() or token_result.stdout.strip())
+                )
+            with port_forward(namespace, "svc/komsco-ai-gateway", 8443) as (gateway_url, proc):
+                wait_gateway_health(gateway_url, proc)
+                with httpx_module.Client(base_url=gateway_url, verify=False, timeout=15.0) as client:
+                    runtime = api_get(client, "/v1/aiops/status", token_result.stdout.strip())
+            capabilities = runtime.get("spec", {}).get("capabilities", {})
+            gateway_probe.update(
+                {
+                    "ok": True,
+                    "healthz": "ok",
+                    "capabilities": {
+                        "mutationsEnabled": capabilities.get("mutationsEnabled"),
+                        "recordStoreEnabled": capabilities.get("recordStoreEnabled"),
+                        "actionExecutorConfigured": capabilities.get("actionExecutorConfigured"),
+                        "diagnosticsEnabled": capabilities.get("diagnosticsEnabled"),
+                    },
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - preflight reports the exact readiness gap.
+            gateway_probe.update({"ok": False, "error": str(exc)[:1000]})
+
+    required_checks_ok = all(check["ok"] for check in checks)
+    gateway_ok = gateway_probe["ok"] is not False
+    return {
+        "ok": required_checks_ok and gateway_ok,
+        "mode": "preflight-only",
+        "clusterCallsExecuted": False,
+        "mutationExecuted": False,
+        "wouldMutateClusterInLiveMode": True,
+        "namespace": namespace,
+        "prefix": prefix,
+        "image": image,
+        "generatedAt": now_rfc3339(),
+        "checks": checks,
+        "gatewayProbe": gateway_probe,
+        "summary": {
+            "passed": sum(1 for check in checks if check["ok"]),
+            "failed": sum(1 for check in checks if not check["ok"]),
+            "gatewayProbeOk": gateway_probe["ok"],
+        },
+        "nextStep": (
+            "If preflight passes and temporary mutations are approved, run --plan-only once more, "
+            "then run live mode with --confirm-live-mutations."
+        ),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--namespace", default=DEFAULT_NAMESPACE)
     parser.add_argument("--report", type=Path, default=DEFAULT_REPORT_PATH)
     parser.add_argument("--image", default="")
     parser.add_argument("--keep-resources", action="store_true")
+    parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help="write the intended live e2e resources/actions without calling oc or the gateway",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="run non-mutating oc/gateway readiness checks for live mutation e2e",
+    )
+    parser.add_argument(
+        "--skip-gateway-probe",
+        action="store_true",
+        help="with --preflight-only, skip gateway port-forward and /v1/aiops/status probe",
+    )
+    parser.add_argument(
+        "--confirm-live-mutations",
+        action="store_true",
+        help="required for live mode; creates temporary resources and runs mutation action e2e",
+    )
     return parser.parse_args()
 
 
@@ -536,6 +834,45 @@ def main() -> int:
     namespace = args.namespace
     prefix = f"aiops-e2e-{int(time.time())}"
     image = args.image or f"image-registry.openshift-image-registry.svc:5000/{namespace}/komsco-ai-gateway:dev"
+    if args.plan_only:
+        report = plan_only_report(namespace, prefix, image)
+        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
+    if args.preflight_only:
+        report = preflight_only_report(
+            namespace,
+            prefix,
+            image,
+            probe_gateway=not args.skip_gateway_probe,
+        )
+        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if report["ok"] else 1
+
+    if not args.confirm_live_mutations:
+        report = {
+            "ok": False,
+            "mode": "live-blocked",
+            "clusterCallsExecuted": False,
+            "mutationExecuted": False,
+            "wouldMutateClusterInLiveMode": True,
+            "namespace": namespace,
+            "prefix": prefix,
+            "image": image,
+            "generatedAt": now_rfc3339(),
+            "error": "live action e2e requires --confirm-live-mutations",
+            "nextStep": (
+                "Run with --plan-only first, review the planned resources/actions, then rerun with "
+                "--confirm-live-mutations only when temporary cluster mutations are approved."
+            ),
+        }
+        args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        return 2
+
+    httpx_module = require_httpx()
     report: dict[str, Any] = {
         "ok": False,
         "namespace": namespace,
@@ -557,7 +894,7 @@ def main() -> int:
         with port_forward(namespace, "svc/komsco-ai-gateway", 8443) as (gateway_url, proc):
             wait_gateway_health(gateway_url, proc)
             report["gatewayUrl"] = gateway_url
-            with httpx.Client(base_url=gateway_url, verify=False, timeout=30.0) as client:
+            with httpx_module.Client(base_url=gateway_url, verify=False, timeout=30.0) as client:
                 runtime_before = api_get(client, "/v1/aiops/status", requester_token)
                 capabilities = runtime_before.get("spec", {}).get("capabilities", {})
                 if capabilities.get("mutationsEnabled") is not True:

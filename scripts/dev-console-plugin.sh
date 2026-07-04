@@ -5,21 +5,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_DIR="${ROOT_DIR}/komsco-ai-console-plugin"
 
-load_env_file() {
-  local file="$1"
-  local normalized_file
-  if [ ! -f "$file" ]; then
-    return
-  fi
-
-  normalized_file="$(mktemp)"
-  tr -d '\r' < "$file" > "$normalized_file"
-  set -a
-  # shellcheck source=/dev/null
-  . "$normalized_file"
-  set +a
-  rm -f "$normalized_file"
-}
+# shellcheck source=lib/safe-env.sh
+. "${ROOT_DIR}/scripts/lib/safe-env.sh"
 
 load_env_files() {
   if [ "${KOMSCO_AIOPS_SKIP_ENV_FILES:-false}" = "true" ]; then
@@ -28,6 +15,7 @@ load_env_files() {
 
   load_env_file "${ROOT_DIR}/.env"
   load_env_file "${ROOT_DIR}/.env.local"
+  unset_placeholder_env_vars OPENSHIFT_API_SERVER OPENSHIFT_SERVER OPENSHIFT_NAMESPACE
   OPENSHIFT_API_SERVER="${OPENSHIFT_API_SERVER:-${OPENSHIFT_SERVER:-}}"
   OPENSHIFT_USERNAME="${OPENSHIFT_USERNAME:-${OPENSHIFT_USER:-}}"
   OPENSHIFT_PASSWORD="${OPENSHIFT_PASSWORD:-${OPENSHIFT_PASS:-}}"
@@ -187,13 +175,13 @@ oc_login_from_credentials() {
     login_args+=(--insecure-skip-tls-verify=true)
   fi
 
-  oc "${login_args[@]}" >/dev/null
+  timeout "${OPENSHIFT_LOGIN_TIMEOUT_SECONDS:-30}s" oc "${login_args[@]}" >/dev/null
 
   if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
-    oc project "$OPENSHIFT_NAMESPACE" >/dev/null
+    oc_quick project "$OPENSHIFT_NAMESPACE" >/dev/null
   fi
 
-  oc whoami >/dev/null
+  oc_quick whoami >/dev/null
 }
 
 run_relogin_command() {
@@ -202,13 +190,13 @@ run_relogin_command() {
   echo "Refreshing oc login: ${reason}"
 
   if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ]; then
-    bash -lc "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null
+    run_shell_with_timeout "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null
 
     if [ -n "${OPENSHIFT_NAMESPACE:-}" ]; then
-      oc project "$OPENSHIFT_NAMESPACE" >/dev/null
+      oc_quick project "$OPENSHIFT_NAMESPACE" >/dev/null
     fi
 
-    oc whoami >/dev/null
+    oc_quick whoami >/dev/null
     return $?
   fi
 
@@ -219,7 +207,7 @@ ensure_oc_login() {
   load_env_files
 
   if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ] || has_relogin_credentials; then
-    if oc whoami >/dev/null 2>&1; then
+    if oc_quick whoami >/dev/null 2>&1; then
       return 0
     fi
 
@@ -230,7 +218,7 @@ ensure_oc_login() {
     return 0
   fi
 
-  oc whoami >/dev/null 2>&1
+  oc_quick whoami >/dev/null 2>&1
 }
 
 current_token_fingerprint() {
@@ -239,7 +227,7 @@ current_token_fingerprint() {
   fi
 
   local token
-  token="$(oc whoami -t 2>/dev/null || true)"
+  token="$(oc_quick whoami -t 2>/dev/null || true)"
   if [ -z "$token" ]; then
     return 1
   fi

@@ -665,7 +665,7 @@ async function gatewayResponseDetail(response: Response): Promise<string> {
         return '승인 실패: 화면의 계획 digest가 현재 sealed plan과 다릅니다. 새로고침 후 다시 확인하세요.';
       }
       if (detail === 'lab-auto-unrestricted approval requires unrestricted command gate') {
-        return '실행 무제한 승인 실패: Gateway의 unrestricted command gate가 꺼져 있습니다.';
+        return '실행 무제한 승인 실패: Gateway가 실행 무제한 capability를 허용하지 않았습니다.';
       }
       return detail.slice(0, 240);
     }

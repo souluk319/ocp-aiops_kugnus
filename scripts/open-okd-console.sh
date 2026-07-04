@@ -5,6 +5,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_DIR="${ROOT_DIR}/komsco-ai-console-plugin"
 
+# shellcheck source=lib/safe-env.sh
+. "${ROOT_DIR}/scripts/lib/safe-env.sh"
+
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 PLUGIN_PORT="${PLUGIN_PORT:-9001}"
 CONSOLE_PORT="${CONSOLE_PORT:-9000}"
@@ -21,22 +24,6 @@ OPENSHIFT_WEB_LOGIN_CALLBACK_PORT="${OPENSHIFT_WEB_LOGIN_CALLBACK_PORT:-8280}"
 OPENSHIFT_WEB_LOGIN_TIMEOUT_SECONDS="${OPENSHIFT_WEB_LOGIN_TIMEOUT_SECONDS:-180}"
 OPENSHIFT_INSECURE_SKIP_TLS_VERIFY="${OPENSHIFT_INSECURE_SKIP_TLS_VERIFY:-false}"
 
-load_env_file() {
-  local file="$1"
-  local normalized_file
-  if [ ! -f "$file" ]; then
-    return
-  fi
-
-  normalized_file="$(mktemp)"
-  tr -d '\r' <"$file" >"$normalized_file"
-  set -a
-  # shellcheck source=/dev/null
-  . "$normalized_file"
-  set +a
-  rm -f "$normalized_file"
-}
-
 load_env_files() {
   if [ "${KOMSCO_AIOPS_SKIP_ENV_FILES:-false}" = "true" ]; then
     return
@@ -44,6 +31,7 @@ load_env_files() {
 
   load_env_file "${ROOT_DIR}/.env"
   load_env_file "${ROOT_DIR}/.env.local"
+  unset_placeholder_env_vars OPENSHIFT_API_SERVER OPENSHIFT_SERVER OPENSHIFT_NAMESPACE
   OPENSHIFT_API_SERVER="${OPENSHIFT_API_SERVER:-${OPENSHIFT_SERVER:-}}"
   OPENSHIFT_USERNAME="${OPENSHIFT_USERNAME:-${OPENSHIFT_USER:-}}"
   OPENSHIFT_PASSWORD="${OPENSHIFT_PASSWORD:-${OPENSHIFT_PASS:-}}"
@@ -140,7 +128,7 @@ oc_login_from_credentials() {
   if is_truthy "$OPENSHIFT_INSECURE_SKIP_TLS_VERIFY"; then
     login_args+=(--insecure-skip-tls-verify=true)
   fi
-  oc "${login_args[@]}" >/dev/null
+  timeout "${OPENSHIFT_LOGIN_TIMEOUT_SECONDS:-30}s" oc "${login_args[@]}" >/dev/null
 }
 
 oc_login_web() {
@@ -151,7 +139,7 @@ oc_login_web() {
   local login_url=""
 
   if [ -z "$server" ]; then
-    server="$(oc whoami --show-server 2>/dev/null || true)"
+    server="$(oc_quick whoami --show-server 2>/dev/null || true)"
   fi
   if [ -z "$server" ]; then
     echo "No OpenShift API server is configured. Run oc login once." >&2
@@ -200,7 +188,7 @@ oc_login_web() {
     if ! kill -0 "$login_pid" >/dev/null 2>&1; then
       wait "$login_pid"
       rm -f "$log_file"
-      oc whoami >/dev/null
+      oc_quick whoami >/dev/null
       return 0
     fi
     sleep 1
@@ -213,15 +201,17 @@ oc_login_web() {
 }
 
 ensure_oc_login() {
-  if oc whoami >/dev/null 2>&1; then
+  if oc_quick whoami >/dev/null 2>&1; then
     return 0
   fi
 
-  if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ] && bash -lc "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null 2>&1 && oc whoami >/dev/null 2>&1; then
+  if [ -n "${OPENSHIFT_RELOGIN_COMMAND:-}" ] &&
+    run_shell_with_timeout "$OPENSHIFT_RELOGIN_COMMAND" >/dev/null 2>&1 &&
+    oc_quick whoami >/dev/null 2>&1; then
     return 0
   fi
 
-  if oc_login_from_credentials >/dev/null 2>&1 && oc whoami >/dev/null 2>&1; then
+  if oc_login_from_credentials >/dev/null 2>&1 && oc_quick whoami >/dev/null 2>&1; then
     return 0
   fi
 
@@ -302,16 +292,16 @@ write_bridge_env() {
     gateway_endpoint="${gateway_endpoint:-http://localhost:${GATEWAY_PORT}}"
   fi
 
-  endpoint="$(oc whoami --show-server)"
-  token="$(oc whoami -t 2>/dev/null || true)"
+  endpoint="$(oc_quick whoami --show-server)"
+  token="$(oc_quick whoami -t 2>/dev/null || true)"
   if [ -z "$token" ]; then
     echo "oc token is empty. Run oc login first; the console bridge reads the current token with: oc whoami -t" >&2
     return 1
   fi
-  prometheus="$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.prometheusPublicURL}' 2>/dev/null || true)"
-  thanos="$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null || true)"
-  alertmanager="$(oc -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.alertmanagerPublicURL}' 2>/dev/null || true)"
-  gitops_hostname="$(oc -n openshift-gitops get route cluster -o jsonpath='{.spec.host}' 2>/dev/null || true)"
+  prometheus="$(oc_quick -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.prometheusPublicURL}' 2>/dev/null || true)"
+  thanos="$(oc_quick -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.thanosPublicURL}' 2>/dev/null || true)"
+  alertmanager="$(oc_quick -n openshift-config-managed get configmap monitoring-shared-config -o jsonpath='{.data.alertmanagerPublicURL}' 2>/dev/null || true)"
+  gitops_hostname="$(oc_quick -n openshift-gitops get route cluster -o jsonpath='{.spec.host}' 2>/dev/null || true)"
 
   {
     echo "BRIDGE_USER_AUTH=disabled"

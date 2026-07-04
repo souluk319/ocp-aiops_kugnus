@@ -13,8 +13,14 @@ import {
   CoolUserCircleIcon,
 } from './coolicons';
 import type { AuthSubject, ClusterSummary, RagUploadedDocument } from '../services/aiGateway';
-import type { ConversationHistoryItem, HistoryPanelView, UiLanguage } from './assistant.types';
+import type {
+  ConversationActionRef,
+  ConversationHistoryItem,
+  HistoryPanelView,
+  UiLanguage,
+} from './assistant.types';
 import type { AssistantCopy } from './assistant.copy';
+import AssistantUploadedDocuments from './AssistantUploadedDocuments';
 
 type HistoryMenuAnchor = {
   right: number;
@@ -40,14 +46,14 @@ type AssistantHistoryPanelProps = {
   productIcon: string;
   loadConversation: (conversation: ConversationHistoryItem) => void;
   loading: boolean;
+  onActionRefSelect: (
+    conversation: ConversationHistoryItem,
+    actionRef: ConversationActionRef,
+  ) => void;
   openHistoryMenuId: string | null;
   renameConversation: (conversationHistoryId: string, title: string) => void;
   renamingHistoryId: string | null;
   renamingHistoryTitle: string;
-  renderUploadedDocumentRows: (
-    documents: RagUploadedDocument[],
-    emptyText: string,
-  ) => React.ReactNode;
   sessionActionTargetKeys: Set<string>;
   setHistoryMenuAnchor: React.Dispatch<React.SetStateAction<HistoryMenuAnchor | null>>;
   setHistoryPanelView: React.Dispatch<React.SetStateAction<HistoryPanelView>>;
@@ -83,11 +89,11 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   productIcon,
   loadConversation,
   loading,
+  onActionRefSelect,
   openHistoryMenuId,
   renameConversation,
   renamingHistoryId,
   renamingHistoryTitle,
-  renderUploadedDocumentRows,
   sessionActionTargetKeys,
   setHistoryMenuAnchor,
   setHistoryPanelView,
@@ -187,7 +193,10 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
             {uploadedDocumentsError}
           </div>
         ) : (
-          renderUploadedDocumentRows(uploadedDocuments, copy.emptyUploadedDocs)
+          <AssistantUploadedDocuments
+            documents={uploadedDocuments}
+            emptyText={copy.emptyUploadedDocs}
+          />
         )}
       </div>
     ) : (
@@ -197,7 +206,12 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
         ) : (
           conversationHistory.map((conversation) => {
             const isRenaming = renamingHistoryId === conversation.id;
-            const hasActions = (conversation.actionTargetKeys?.length ?? 0) > 0;
+            const actionRefs = conversation.actionRefs ?? [];
+            const actionTargetKeys = [
+              ...(conversation.actionTargetKeys ?? []),
+              ...actionRefs.map((actionRef) => actionRef.targetKey),
+            ].filter(Boolean);
+            const hasActions = actionTargetKeys.length > 0;
             const menuOpen = openHistoryMenuId === conversation.id;
 
             return (
@@ -234,6 +248,32 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                     <span>{conversation.title}</span>
                     <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
                   </button>
+                )}
+                {!isRenaming && actionRefs.length > 0 && (
+                  <div
+                    aria-label={`${conversation.title} 조치 목록`}
+                    className="komsco-ai__history-action-refs"
+                  >
+                    {actionRefs.slice(0, 4).map((actionRef) => (
+                      <button
+                        className="komsco-ai__history-action-ref"
+                        data-action-stage={actionRef.stage}
+                        disabled={loading}
+                        key={actionRef.id}
+                        onClick={() => onActionRefSelect(conversation, actionRef)}
+                        title={`${actionRef.label} · ${actionRef.toolName || '조치'} · ${
+                          actionRef.targetKey
+                        }`}
+                        type="button"
+                      >
+                        <span className="komsco-ai__history-action-ref-stage">
+                          {actionRef.label}
+                        </span>
+                        <strong>{actionRef.toolName || '조치'}</strong>
+                        <small>{actionRef.targetKey}</small>
+                      </button>
+                    ))}
+                  </div>
                 )}
                 <div
                   className="komsco-ai__history-item-menu"
@@ -277,7 +317,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                           onClick={() => {
                             setOpenHistoryMenuId(null);
                             setSessionActionTargetKeys(
-                              new Set(conversation.actionTargetKeys ?? []),
+                              new Set(actionTargetKeys),
                             );
                             setSidebarActionPanelOpen(true);
                             setHistoryPanelView('chats');

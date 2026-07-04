@@ -2319,7 +2319,7 @@ const run = async () => {
         state.actionLifecycleStepCount === 4 &&
         state.actionLifecycleStepKeys.join('|') === 'proposal|plan|approval|execution' &&
         state.actionLifecycleStepRects.every((rect) => rect.width > 0 && rect.height > 0) &&
-        ['Proposal', 'Sealed plan', 'Approval', 'Execution'].every((label) =>
+        ['제안', '계획', '승인', '실행'].every((label) =>
           state.actionLifecycleText.includes(label),
         ),
       {
@@ -2331,19 +2331,13 @@ const run = async () => {
       },
     );
     const readOnlyGateVisible =
-      state.actionLifecycleAttrs.actionExecutorState === 'not-configured' &&
-      state.actionLifecycleAttrs.mutationFlagState === 'disabled' &&
-      state.actionLifecycleAttrs.uiExecutionMode === 'evidence-check' &&
-      state.actionLifecycleText.includes('Action Executor URL not configured') &&
-      state.actionLifecycleText.includes('mutation execution disabled') &&
-      state.actionLifecycleText.includes('evidence-check UI blocks proposal, approval, and execution mutations');
+      state.actionLifecycleAttrs.uiExecutionMode === 'read-only' &&
+      state.actionLifecycleText.includes('현재 모드에서는 제안·승인·실행이 제한됩니다');
     const executeGateVisible =
       state.actionLifecycleAttrs.actionExecutorState === 'configured' &&
       state.actionLifecycleAttrs.mutationFlagState === 'enabled' &&
       state.actionLifecycleAttrs.uiExecutionMode === 'execute' &&
-      state.actionLifecycleText.includes(
-        'Plan, approval, and execution requests may be submitted after server-side checks.',
-      );
+      state.actionLifecycleText.includes('서버 측 검증을 통과하면 계획·승인·실행 요청을 보낼 수 있습니다.');
     assertCheck(
       'visible action lifecycle exposes stable local evidence-check or execute gate states',
       readOnlyGateVisible || executeGateVisible,
@@ -2357,11 +2351,11 @@ const run = async () => {
       ['sealed-plan-digest', 'active-approval', 'evidence-freshness', 'ssar', 'mutation-flag'].every(
         (token) => state.actionLifecycleAttrs.executeGuard.includes(token),
       ) &&
-        ['sealed plan digest', 'active approval', 'evidence freshness', 'SSAR', 'mutation flag'].every(
+        ['계획 다이제스트', '유효한 승인', '근거 최신성', '권한 검증', '변경 실행 설정'].every(
           (label) => state.actionLifecycleText.includes(label),
         ) &&
-        state.actionLifecycleText.includes('Expired or stale evidence blocks execution') &&
-        state.actionLifecycleText.includes('create a new plan and approval'),
+        state.actionLifecycleText.includes('근거가 오래되었거나 만료되면 실행이 막히고') &&
+        state.actionLifecycleText.includes('새 계획과 승인을 다시 만들어야 합니다'),
       {
         actionLifecycleAttrs: state.actionLifecycleAttrs,
         actionLifecycleTextPreview: state.actionLifecycleText.slice(0, 720),

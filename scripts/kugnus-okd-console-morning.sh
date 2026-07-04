@@ -7,9 +7,13 @@ CONSOLE_URL="${CONSOLE_URL:-http://localhost:9000/dashboards}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://localhost:9000/api/kubernetes/version}"
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 PLUGIN_MANIFEST_URL="${PLUGIN_MANIFEST_URL:-http://localhost:9001/api/plugins/${PLUGIN_NAME}/plugin-manifest.json}"
-EXPECTED_API_SERVER="${OPENSHIFT_API_SERVER:-https://api.ocp.cywell.server:6443}"
+DEFAULT_API_SERVER="https://api.ocp.cywell.server:6443"
+EXPECTED_API_SERVER="${DEFAULT_API_SERVER}"
 REPAIR="${KUGNUS_OKD_CONSOLE_REPAIR:-true}"
 OPEN_AFTER_REPAIR="${KUGNUS_OKD_CONSOLE_OPEN:-false}"
+
+# shellcheck source=lib/safe-env.sh
+. "${ROOT_DIR}/scripts/lib/safe-env.sh"
 
 section() {
   printf '\n== %s ==\n' "$1"
@@ -33,22 +37,6 @@ tcp_open() {
   timeout 5 bash -lc "</dev/tcp/${host}/${port}" >/dev/null 2>&1
 }
 
-load_env_file() {
-  local file="$1"
-  local normalized_file
-  if [ ! -f "$file" ]; then
-    return
-  fi
-
-  normalized_file="$(mktemp)"
-  tr -d '\r' <"$file" >"$normalized_file"
-  set -a
-  # shellcheck source=/dev/null
-  . "$normalized_file"
-  set +a
-  rm -f "$normalized_file"
-}
-
 load_env_files() {
   if [ "${KOMSCO_AIOPS_SKIP_ENV_FILES:-false}" = "true" ]; then
     return
@@ -56,6 +44,7 @@ load_env_files() {
 
   load_env_file "${ROOT_DIR}/.env"
   load_env_file "${ROOT_DIR}/.env.local"
+  unset_placeholder_env_vars OPENSHIFT_API_SERVER OPENSHIFT_SERVER OPENSHIFT_NAMESPACE
 }
 
 explain_model() {
@@ -98,7 +87,7 @@ check_oc_login() {
   local server
   local user
 
-  server="$(oc whoami --show-server 2>/dev/null || true)"
+  server="$(oc_quick whoami --show-server 2>/dev/null || true)"
   if [ "$server" != "$EXPECTED_API_SERVER" ]; then
     say "[FAIL] oc 서버가 회사 서버가 아닙니다."
     detail "현재: ${server:-비어 있음}"
@@ -107,7 +96,7 @@ check_oc_login() {
     return 1
   fi
 
-  user="$(oc whoami 2>/dev/null || true)"
+  user="$(oc_quick whoami 2>/dev/null || true)"
   if [ -z "$user" ]; then
     say "[FAIL] oc 토큰이 만료되었거나 로그인되어 있지 않습니다."
     detail "다시 로그인: oc login --token=토큰값 --server=${EXPECTED_API_SERVER}"
@@ -197,7 +186,7 @@ final_check() {
 main() {
   cd "$ROOT_DIR"
   load_env_files
-  EXPECTED_API_SERVER="${OPENSHIFT_API_SERVER:-${EXPECTED_API_SERVER}}"
+  EXPECTED_API_SERVER="${OPENSHIFT_API_SERVER:-${OPENSHIFT_SERVER:-${DEFAULT_API_SERVER}}}"
 
   explain_model
   check_company_api

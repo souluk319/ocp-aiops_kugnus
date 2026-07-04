@@ -32,7 +32,17 @@ This lane must not edit:
 ## Verification
 
 - `git diff --check`
+- `python3 -m py_compile scripts/verify-v027-fixed-pdf.py && python3 scripts/verify-v027-fixed-pdf.py`
 - `cd komsco-ai-console-plugin && node .yarn/releases/yarn-4.13.0.cjs typecheck`
 - `cd komsco-ai-console-plugin && node .yarn/releases/yarn-4.13.0.cjs build-dev`
+- `NODE_PATH=/home/kugnus/cywell/ocp-aiops_kugnus/komsco-ai-console-plugin/node_modules node scripts/verify-v027-expanded-assistant-rail.cjs`
+- `NODE_PATH=/home/kugnus/cywell/ocp-aiops_kugnus/komsco-ai-console-plugin/node_modules node scripts/verify-v027-ui-balance.cjs`
+
+`verify-v027-ui-balance.cjs` checks local 9000 dashboard, alerts, reports, Assistant docked, and Assistant fullscreen across desktop/mobile and light/dark theme emulation.
 
 Browser checks should stay local, mainly `http://localhost:9000`.
+
+## Reports
+
+- `chatbot-jk-ui-absorption-plan.md`: JK reference absorption plan.
+- `chatbot-action-ui-test-review-report.md`: v0.2.7 chatbot, Tool Plan, Action lifecycle, badge alignment, and five-review evidence report.

@@ -32,6 +32,10 @@ export type ToolPlanMissingEvidence = {
 export type ToolPlanFooter = {
   executionPolicyMode?: string;
   missingEvidence: ToolPlanMissingEvidence[];
+  plannerLabel?: string;
+  plannerSource?: string;
+  plannerSummary?: string;
+  rawPlanJson?: string;
   steps: ToolPlanStep[];
   targetNamespace?: string;
   targetResourceKind?: string;
@@ -124,12 +128,30 @@ export type ProgressStep = {
   summary?: string;
 };
 
+export type ConversationActionStage = 'proposal' | 'plan' | 'approval' | 'execution';
+
+export type ConversationActionRef = {
+  candidateId?: string;
+  createdAt?: string;
+  id: string;
+  label: string;
+  messageAnchor?: string;
+  planDigest?: string;
+  recordKind?: string;
+  recordName?: string;
+  stage: ConversationActionStage;
+  targetKey: string;
+  toolName?: string;
+  updatedAt: number;
+};
+
 export type ConversationHistoryItem = {
   id: string;
   title: string;
   updatedAt: number;
   conversationId?: string;
   messages: Message[];
+  actionRefs?: ConversationActionRef[];
   actionTargetKeys?: string[];
 };
 
@@ -167,6 +189,8 @@ export type LightspeedStatusUpdate = {
 
 export type StoredActiveConversation = {
   activeSessionId: string;
+  actionRefs?: ConversationActionRef[];
+  actionTargetKeys?: string[];
   conversationId?: string;
   messages: Message[];
 };
@@ -178,7 +202,7 @@ export type AiopsActionStep =
   | 'approve-execute-plan'
   | 'reject-plan'
   | 'execute-approval';
-export type AiopsLifecycleStage = 'proposal' | 'plan' | 'approval' | 'execution';
+export type AiopsLifecycleStage = ConversationActionStage;
 export type UiTone = 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
 
 export type AiopsRecordAction = {
