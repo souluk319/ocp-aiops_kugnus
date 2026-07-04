@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIOps for OCP v0.2.8 - LLM Wiki 전략 보고서</title>
+<style>
+  :root {
+    --ink: #172033;
+    --muted: #667085;
+    --bg: #f5f7fb;
+    --card: #ffffff;
+    --line: #dbe4f0;
+    --navy: #071527;
+    --navy2: #0e2745;
+    --blue: #2563eb;
+    --cyan: #06b6d4;
+    --green: #16a34a;
+    --amber: #d97706;
+    --red: #dc2626;
+    --violet: #7c3aed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.58;
+  }
+  header {
+    background:
+      radial-gradient(circle at 78% 18%, rgba(6,182,212,.28), transparent 28%),
+      linear-gradient(135deg, var(--navy), var(--navy2));
+    color: white;
+    padding: 42px 52px 36px;
+  }
+  .eyebrow {
+    color: #8ee9ff;
+    font-size: 12px;
+    letter-spacing: 2.8px;
+    text-transform: uppercase;
+    font-weight: 800;
+  }
+  h1 {
+    margin: 12px 0 10px;
+    font-size: 34px;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+  }
+  header p {
+    max-width: 980px;
+    margin: 0;
+    color: rgba(255,255,255,.78);
+    font-size: 16px;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .meta span {
+    border: 1px solid rgba(255,255,255,.2);
+    background: rgba(255,255,255,.08);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    color: rgba(255,255,255,.9);
+  }
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 30px 24px 70px;
+  }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    margin-bottom: 20px;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, .05);
+  }
+  .section-head {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    background: #fbfdff;
+    border-bottom: 1px solid var(--line);
+    padding: 18px 22px;
+  }
+  .num {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: #e0f2fe;
+    color: #075985;
+    font-weight: 900;
+    font-size: 13px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 19px;
+    letter-spacing: -0.01em;
+  }
+  .body {
+    padding: 22px;
+  }
+  .lead {
+    font-size: 17px;
+    font-weight: 700;
+    color: #111827;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    background: #fff;
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+  }
+  .card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 800;
+    border: 1px solid var(--line);
+    margin-bottom: 8px;
+  }
+  .tag.blue { color: var(--blue); background: #eff6ff; border-color: #bfdbfe; }
+  .tag.green { color: var(--green); background: #ecfdf5; border-color: #bbf7d0; }
+  .tag.amber { color: var(--amber); background: #fffbeb; border-color: #fde68a; }
+  .tag.red { color: var(--red); background: #fef2f2; border-color: #fecaca; }
+  .tag.violet { color: var(--violet); background: #f5f3ff; border-color: #ddd6fe; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-top: 14px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f8fafc;
+    color: #334155;
+    font-weight: 800;
+  }
+  code, pre {
+    font-family: "Cascadia Mono", "Consolas", monospace;
+  }
+  pre {
+    background: #0b1220;
+    color: #d8e9ff;
+    padding: 16px;
+    border-radius: 12px;
+    overflow-x: auto;
+    font-size: 13px;
+  }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+    margin: 16px 0;
+  }
+  .flow div {
+    min-height: 70px;
+    border-radius: 12px;
+    padding: 12px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    font-size: 13px;
+    font-weight: 800;
+    color: #1e3a8a;
+  }
+  .note {
+    border-left: 4px solid var(--cyan);
+    background: #ecfeff;
+    padding: 14px 16px;
+    border-radius: 10px;
+    color: #164e63;
+    font-size: 14px;
+  }
+  .warning {
+    border-left: 4px solid var(--amber);
+    background: #fffbeb;
+    padding: 14px 16px;
+    border-radius: 10px;
+    color: #7c2d12;
+    font-size: 14px;
+  }
+  ul { padding-left: 20px; }
+  li { margin: 6px 0; }
+  a { color: #1d4ed8; }
+  footer {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 18px 0;
+  }
+  @media (max-width: 820px) {
+    header { padding: 30px 22px; }
+    h1 { font-size: 26px; }
+    .grid, .grid.two, .flow { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="eyebrow">AIOps for OCP · Ver.0.2.8 Strategy</div>
+  <h1>LLM Wiki는 문서함이 아니라 운영 지식 그래프가 되어야 한다</h1>
+  <p>Palantir의 Ontology 원리와 Obsidian의 네트워크 지식 원리를 AIOps for OCP에 맞게 합쳐, 문서·클러스터 객체·RCA 근거·Action Plan·실행 감사가 하나의 추론 가능한 Wiki가 되는 설계를 고정한다.</p>
+  <div class="meta">
+    <span>Branch: feature/v0.2.8-llm-wiki-design</span>
+    <span>Base: 4777496</span>
+    <span>Date: 2026-07-04</span>
+    <span>Scope: Design only, no deploy</span>
+  </div>
+</header>
+<main>
+  <section>
+    <div class="section-head"><span class="num">1</span><h2>현재 판단</h2></div>
+    <div class="body">
+      <p class="lead">지금 Wiki는 "RAG 문서 관리"로는 출발했지만, AIOps 제품의 중심 기능이 되려면 "운영 세계를 설명하고 행동으로 연결하는 지식 시스템"이 되어야 한다.</p>
+      <div class="grid">
+        <div class="card"><span class="tag blue">현재 있음</span><h3>Wiki 메뉴와 문서 UI</h3><p>OKD embedded와 standalone portal 모두 `위키 문서 관리` 메뉴를 가진다.</p></div>
+        <div class="card"><span class="tag green">현재 있음</span><h3>RAG 업로드/검색</h3><p>Gateway에는 `/v1/rag/uploads`, `/v1/rag/search`, ACL, pgvector 기반이 있다.</p></div>
+        <div class="card"><span class="tag amber">부족함</span><h3>운영 객체 그래프</h3><p>문서가 어떤 Pod, Alert, RCA, ActionPlan과 연결되는지 정식 edge로 고정되어 있지 않다.</p></div>
+      </div>
+      <div class="warning" style="margin-top:16px;">현재 Wiki UI는 `sampleKnowledgeDocs`와 local upload state 성격이 강하다. v0.2.8 이후 구현에서는 Gateway Wiki/RAG API를 실제로 호출해야 하며, sample data만으로 운영 화면처럼 보이면 실패다.</div>
+      <div class="note" style="margin-top:16px;">결론: v0.2.8은 UI부터 갈아엎는 버전이 아니라, Wiki를 LLM과 Action Plan이 신뢰할 수 있는 지식 그래프로 만드는 계약을 잠그는 버전이다.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">2</span><h2>Palantir에서 흡수할 원리</h2></div>
+    <div class="body">
+      <p>Palantir Ontology의 핵심은 데이터를 단순히 모으는 것이 아니라, 조직의 운영 세계를 객체, 관계, 액션, 권한으로 모델링하는 것이다. AIP는 이 Ontology 위에서 AI workflow와 agent를 운영 데이터와 실행 체계에 연결한다.</p>
+      <table>
+        <thead><tr><th>Palantir 개념</th><th>AIOps 적용</th><th>제품 의미</th></tr></thead>
+        <tbody>
+          <tr><td>Object type</td><td>Cluster, Namespace, Node, Operator, Pod, Alert, Runbook, ActionPlan</td><td>LLM이 말하는 대상이 실제 운영 객체와 일치한다.</td></tr>
+          <tr><td>Link type</td><td>affected_by, remediated_by, verified_by, executed_from</td><td>문서와 사건과 조치의 연결 이유가 남는다.</td></tr>
+          <tr><td>Action type</td><td>restart, scale, rollback, evict, patch</td><td>Wiki는 실행 조건을 제공하고 실행은 Gateway 정책을 탄다.</td></tr>
+          <tr><td>Role/permission</td><td>OCP RBAC + RAG ACL + 실행 mode</td><td>볼 수 없는 문서나 객체는 LLM 근거가 될 수 없다.</td></tr>
+          <tr><td>Function</td><td>stale check, risk score, approval condition, rollback condition</td><td>문서가 운영 의사결정에 들어가기 전 검증된다.</td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:16px;">Palantir식으로 해석하면 Wiki의 기본 단위는 파일이 아니라 운영 객체다. 문서는 `MemoryCard`로 변환되고, 그 카드는 OCP 객체와 RCA 근거와 Action Plan을 잇는 traceable object가 된다.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">3</span><h2>Obsidian에서 흡수할 원리</h2></div>
+    <div class="body">
+      <p>Obsidian의 강점은 사람이 직접 쓰는 Markdown 지식이 내부 링크, 백링크, 그래프, 속성으로 살아 움직이는 것이다. 이 원리는 AIOps Wiki에서도 중요하다. 운영자가 직접 문서를 읽고 고칠 수 있어야 하고, 시스템은 그 문서의 링크와 속성을 해석할 수 있어야 한다.</p>
+      <div class="grid two">
+        <div class="card"><span class="tag green">사람용</span><h3>Git/Markdown Vault</h3><p>운영 지식의 원본은 업로드 blob이 아니라 `source_path`, `git_sha`, `frontmatter`, `content_hash`가 남는 Markdown vault여야 한다.</p></div>
+        <div class="card"><span class="tag blue">시스템용</span><h3>YAML Properties</h3><p>문서 type, owner, 대상 kind, actionTypes, approval, freshness를 machine-readable하게 둔다.</p></div>
+        <div class="card"><span class="tag violet">탐색용</span><h3>Backlink와 Graph</h3><p>이 문서가 어떤 장애, 어떤 객체, 어떤 조치에서 참조되었는지 거꾸로 볼 수 있다.</p></div>
+        <div class="card"><span class="tag amber">근거용</span><h3>Heading/Block Link</h3><p>챗봇 답변은 chunk id가 아니라 `source_path#heading^block_id`를 citation으로 보여준다.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">4</span><h2>목표 아키텍처</h2></div>
+    <div class="body">
+      <div class="flow">
+        <div>문서 업로드<br>Markdown/PDF/DOCX</div>
+        <div>속성/링크 파싱<br>properties, wikilinks</div>
+        <div>Wiki-OCP Graph<br>object, edge, action</div>
+        <div>Graph-aware Retrieval<br>vector + graph + live state</div>
+        <div>Runbook 답변<br>citation, evidence</div>
+        <div>Action Plan<br>approval, execution, audit</div>
+      </div>
+      <pre>질문
+  -> OCP 객체/장애 의도 추출
+  -> RAG chunk 검색
+  -> MemoryCard 생성/조회
+  -> Wiki graph 이웃 확장
+  -> live cluster snapshot 결합
+  -> 권한/freshness/action relevance로 재랭킹
+  -> 근거 있는 답변과 승인 가능한 Action Plan 생성</pre>
+      <table>
+        <thead><tr><th>Graph mode</th><th>내용</th><th>먼저 구현할 이유</th></tr></thead>
+        <tbody>
+          <tr><td>Doc Graph</td><td>document -> heading -> block -> backlink</td><td>Obsidian/Foam식 문서 탐색과 citation 정확도를 만든다.</td></tr>
+          <tr><td>Ops Graph</td><td>OCP object -> alert -> incident -> runbook -> action plan -> execution</td><td>Palantir식 운영 객체와 action trace를 만든다.</td></tr>
+          <tr><td>GraphRAG</td><td>entity/relationship/community 기반 retrieval 강화</td><td>typed edge가 충분히 쌓인 뒤 붙인다. v0.2.8의 출발점은 아니다.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">5</span><h2>사용자 경험</h2></div>
+    <div class="body">
+      <table>
+        <thead><tr><th>화면</th><th>v0.2.8 목표</th><th>왜 필요한가</th></tr></thead>
+        <tbody>
+          <tr><td>Wiki Landing</td><td>운영 지식 건강도, 문서/Runbook/객체 링크/gap KPI</td><td>문서함이 아니라 운영 지식 상태판이 된다.</td></tr>
+          <tr><td>Document Detail</td><td>본문 + properties + backlinks + 연결 객체 + ActionPlan 기록</td><td>문서가 실제 운영에서 어떻게 쓰이는지 보인다.</td></tr>
+          <tr><td>Wiki Graph</td><td>Document, Runbook, OCP Object, Alert, Incident, ActionPlan, ExecutionRecord</td><td>문제와 지식과 조치의 경로를 한눈에 본다.</td></tr>
+          <tr><td>Assistant</td><td>답변 카드에 Wiki 문서/block citation 표시</td><td>LLM 답변이 근거 없는 말처럼 보이지 않는다.</td></tr>
+          <tr><td>RCA/Action</td><td>Runbook support, approval condition, verification, rollback 연결</td><td>실제 조치까지 안전하게 이어진다.</td></tr>
+        </tbody>
+      </table>
+      <h3>문서 lifecycle</h3>
+      <table>
+        <thead><tr><th>상태</th><th>의미</th><th>Action Plan 근거 사용</th></tr></thead>
+        <tbody>
+          <tr><td>draft</td><td>업로드됐지만 검토 전</td><td>불가</td></tr>
+          <tr><td>reviewed</td><td>사람 reviewer가 확인</td><td>후보 가능</td></tr>
+          <tr><td>active</td><td>기본 운영 지식</td><td>가능</td></tr>
+          <tr><td>stale</td><td>현재 클러스터/실행 결과와 어긋남</td><td>불가</td></tr>
+          <tr><td>retired</td><td>퇴역 문서</td><td>불가, 감사에서만 조회</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">6</span><h2>병렬 풀스택 에이전트 팀</h2></div>
+    <div class="body">
+      <div class="grid">
+        <div class="card"><span class="tag blue">Agent A</span><h3>Product/Ontology Architect</h3><p>객체·링크·액션 vocabulary와 acceptance criteria를 소유한다.</p></div>
+        <div class="card"><span class="tag green">Agent B</span><h3>Gateway/API Developer</h3><p>`/v1/wiki/*` API, graph response, stale/gap skeleton을 맡는다.</p></div>
+        <div class="card"><span class="tag violet">Agent C</span><h3>Frontend/Portal Developer</h3><p>Wiki workbench, graph, document detail, gap queue UI를 구현한다.</p></div>
+        <div class="card"><span class="tag amber">Agent D</span><h3>Assistant/RCA Integration</h3><p>답변 citation, RCA runbook gate, ActionPlan trace를 연결한다.</p></div>
+        <div class="card"><span class="tag blue">Agent E</span><h3>Ingestion/RAG Developer</h3><p>Markdown properties, wikilink, object reference, edge suggestion을 만든다.</p></div>
+        <div class="card"><span class="tag red">Agent F</span><h3>Security/Governance Reviewer</h3><p>ACL/RBAC, suggested edge 안전성, audit trail을 검수한다.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">7</span><h2>구현 로드맵</h2></div>
+    <div class="body">
+      <table>
+        <thead><tr><th>버전</th><th>목표</th><th>완료 기준</th></tr></thead>
+        <tbody>
+          <tr><td>v0.2.8</td><td>LLM Wiki 계약 고정</td><td>MD/HTML 설계, ontology/API/AC 명시</td></tr>
+          <tr><td>v0.2.9</td><td>Read-only Wiki API</td><td>`/v1/wiki/summary`, documents, graph</td></tr>
+          <tr><td>v0.3.0</td><td>Wiki Workbench UI</td><td>문서 상세, graph, gap queue</td></tr>
+          <tr><td>v0.3.1</td><td>Assistant/RCA/Action 연결</td><td>Wiki citation, action support trace</td></tr>
+          <tr><td>v0.3.2</td><td>Governance/Evaluation</td><td>RBAC leakage, stale doc, graph retrieval 평가</td></tr>
+        </tbody>
+      </table>
+      <div class="warning" style="margin-top:16px;">중요: Wiki가 suggested edge를 생성하더라도 승인 전에는 실행 근거로 쓰면 안 된다. 자동 링크 추천과 운영 실행 근거는 반드시 분리한다.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">8</span><h2>Acceptance Criteria</h2></div>
+    <div class="body">
+      <table>
+        <thead><tr><th>ID</th><th>Pass/Fail 기준</th><th>Evidence</th><th>현재 Gap</th></tr></thead>
+        <tbody>
+          <tr><td>V028-01</td><td>Wiki가 운영 지식 workbench로 정의된다.</td><td>MD + HTML</td><td>이번 문서에서 고정</td></tr>
+          <tr><td>V028-02</td><td>Object/link/action ontology가 명시된다.</td><td>계약 table</td><td>이번 문서에서 고정</td></tr>
+          <tr><td>V028-03</td><td>문서와 OCP 객체가 edge로 연결된다.</td><td>`/v1/wiki/graph`</td><td>후속 구현</td></tr>
+          <tr><td>V028-04</td><td>Markdown properties와 backlink가 수집된다.</td><td>parser test</td><td>후속 구현</td></tr>
+          <tr><td>V028-05</td><td>Assistant 답변이 Wiki block citation을 보여준다.</td><td>browser screenshot</td><td>후속 구현</td></tr>
+          <tr><td>V028-06</td><td>Action Plan이 Runbook/block 근거를 추적한다.</td><td>plan detail</td><td>후속 구현</td></tr>
+          <tr><td>V028-07</td><td>suggested edge는 승인 전 실행 근거가 아니다.</td><td>policy test</td><td>후속 구현</td></tr>
+          <tr><td>V028-08</td><td>답변마다 source document → chunk → MemoryCard → RCA evidence → action proposal trace가 남는다.</td><td>traceId event chain</td><td>후속 구현</td></tr>
+          <tr><td>V028-09</td><td>Wiki UI가 sample data만으로 운영 화면처럼 보이지 않고 Gateway API를 호출한다.</td><td>network/browser evidence</td><td>후속 구현</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="num">9</span><h2>참고 소스</h2></div>
+    <div class="body">
+      <ul>
+        <li><a href="https://www.palantir.com/docs/foundry/ontology/overview/">Palantir Ontology overview</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/ontology/core-concepts">Palantir Ontology core concepts</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/action-types/overview/">Palantir Action types</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/aip/overview/">Palantir AIP overview</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/object-permissioning/overview">Palantir object permissioning</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/data-lineage/overview">Palantir data lineage</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/workflow-lineage/overview">Palantir workflow lineage</a></li>
+        <li><a href="https://www.palantir.com/docs/foundry/architecture-center/aip-architecture">Palantir AIP architecture</a></li>
+        <li><a href="https://help.obsidian.md/links">Obsidian internal links</a></li>
+        <li><a href="https://obsidian.md/help/plugins/backlinks">Obsidian backlinks</a></li>
+        <li><a href="https://obsidian.md/help/plugins/graph">Obsidian graph view</a></li>
+        <li><a href="https://help.obsidian.md/properties">Obsidian properties</a></li>
+        <li><a href="https://github.com/foambubble/foam">Foam GitHub</a></li>
+        <li><a href="https://github.com/logseq/logseq">Logseq GitHub</a></li>
+        <li><a href="https://github.com/logseq/graph-validator">Logseq graph-validator</a></li>
+        <li><a href="https://wiki.dendron.so/">Dendron documentation</a></li>
+        <li><a href="https://microsoft.github.io/graphrag/">Microsoft GraphRAG documentation</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    Protected artifacts were used as style/reference only and were not modified. This document intentionally avoids company-server deployment steps.
+  </footer>
+</main>
+</body>
+</html>
