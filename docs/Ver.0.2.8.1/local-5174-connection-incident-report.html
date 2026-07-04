@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v0.2.8.1 5174 연결 실패 원인 보고서</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --ink: #132033;
+      --muted: #617084;
+      --line: #d7e0ec;
+      --navy: #0b1930;
+      --blue: #1f6feb;
+      --green: #14855a;
+      --amber: #b7791f;
+      --red: #b42318;
+      --shadow: 0 18px 42px rgba(19, 32, 51, 0.10);
+      font-family: Inter, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 34px 22px 56px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero {
+      padding: 28px;
+      margin-bottom: 18px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 4vw, 38px);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 900px;
+      margin: 12px 0 0;
+      color: var(--muted);
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 16px 0 22px;
+    }
+
+    .status {
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface);
+    }
+
+    .status span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .status strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .status.is-good strong { color: var(--green); }
+    .status.is-risk strong { color: var(--red); }
+    .status.is-warn strong { color: var(--amber); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.82fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .panel {
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .panel h3 {
+      margin: 18px 0 8px;
+      font-size: 16px;
+    }
+
+    .summary-box {
+      border-left: 4px solid var(--red);
+      background: #fff7ed;
+      border-radius: 8px;
+      padding: 13px 14px;
+      color: #60330f;
+      font-weight: 800;
+    }
+
+    .fixed-box {
+      border-left: 4px solid var(--green);
+      background: #ecfdf3;
+      border-radius: 8px;
+      padding: 13px 14px;
+      color: #0f4d35;
+      font-weight: 800;
+    }
+
+    .steps {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 10px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface-soft);
+    }
+
+    .step-num {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      background: var(--navy);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .step strong { display: block; }
+    .step p {
+      margin: 3px 0 0;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #edf3fa;
+      color: #27415f;
+      font-size: 13px;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    code,
+    pre {
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #edf3fa;
+      color: #17324f;
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      padding: 13px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: var(--navy);
+      color: #dbeafe;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      margin: 2px 4px 2px 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #c7d5e6;
+      background: #f8fafc;
+      color: #29415f;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .tag.good {
+      border-color: #b7e3c9;
+      background: #ecfdf3;
+      color: #0f6848;
+    }
+
+    .tag.bad {
+      border-color: #fecaca;
+      background: #fff1f2;
+      color: #9f1239;
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .btn.primary {
+      background: var(--navy);
+      border-color: var(--navy);
+      color: #fff;
+    }
+
+    .checklist {
+      margin: 0;
+      padding-left: 20px;
+      color: #31455e;
+    }
+
+    .checklist li { margin: 5px 0; }
+
+    @media (max-width: 920px) {
+      .status-strip,
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">v0.2.8.1 Local Test Incident Report</p>
+      <h1>5174 연결 실패는 회사 서버 문제가 아니라, 로컬 테스트 경로가 둘로 갈라진 문제였다.</h1>
+      <p>
+        이 문서는 “자동 테스트는 통과했는데 사용자가 5174를 열면 왜 또 연결 끊김이 나왔는가”를 남기는 원인 보고서이다.
+        결론부터 말하면, WSL 내부 검증과 Windows 브라우저 검증을 같은 것으로 착각한 것이 1차 실패였다.
+      </p>
+      <div class="nav">
+        <a class="btn primary" href="http://localhost:5174/dashboards/aiops" target="_blank" rel="noreferrer">5174 포털 열기</a>
+        <a class="btn" href="http://localhost:5174/healthz" target="_blank" rel="noreferrer">5174 healthz 확인</a>
+        <a class="btn" href="./local-aiops-scenario-test-runner.html">시나리오 HTML</a>
+        <a class="btn" href="./local-aiops-manual-test-guide.md">수동 테스트 가이드</a>
+      </div>
+    </section>
+
+    <section class="status-strip" aria-label="최종 상태">
+      <div class="status is-good"><span>최종 브라우저 상태</span><strong>연결됨</strong></div>
+      <div class="status is-good"><span>표시 API</span><strong>api.local-aiops.invalid</strong></div>
+      <div class="status is-good"><span>건강도</span><strong>92%</strong></div>
+      <div class="status is-good"><span>회사 OKD 변경</span><strong>0건</strong></div>
+    </section>
+
+    <div class="grid">
+      <section>
+        <article class="panel">
+          <h2>현재 결론</h2>
+          <div class="summary-box">
+            자동 verifier는 CDP network intercept로 통과했지만, 사용자가 직접 여는 5174 포털은 Vite proxy와 Gateway 포트 상태에 의존하고 있었다.
+            그래서 “자동 테스트 통과”가 “수동 테스트 가능”을 보장하지 못했다.
+          </div>
+          <h3>최종 수정</h3>
+          <div class="fixed-box">
+            5174 하나에서 정적 포털 화면과 local fixture `/v1/*` API를 같이 서빙하도록 바꿨다.
+            이제 `http://localhost:5174/dashboards/aiops`는 별도 18080 Gateway나 Vite proxy 없이 로컬 테스트 화면과 API를 함께 제공한다.
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>문제 계층</h2>
+          <ol class="steps">
+            <li class="step">
+              <span class="step-num">01</span>
+              <div>
+                <strong>5174 웹 서버와 Gateway API는 같은 것이 아니었다.</strong>
+                <p>`/dashboards/aiops`가 200이어도 `/v1/cluster/summary`가 500이면 포털은 “게이트웨이 연결 확인 필요”로 보인다.</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step-num">02</span>
+              <div>
+                <strong>기존 portal dev server는 `/v1/*`를 18080으로 proxy한다.</strong>
+                <p>`komsco-ai-portal/vite.config.ts`의 기본값은 `http://127.0.0.1:18080`이었다. 18080이 없으면 5174는 화면만 뜨고 API는 실패한다.</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step-num">03</span>
+              <div>
+                <strong>WSL 내부 성공과 Windows 브라우저 성공은 다르다.</strong>
+                <p>WSL 안에서 `curl`이 성공해도, Windows 브라우저가 여는 `localhost:5174`가 같은 프로세스를 본다는 보장은 없었다.</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step-num">04</span>
+              <div>
+                <strong>Vite 재시작은 Node 버전 때문에 실패했다.</strong>
+                <p>WSL 기본 Node는 `v18.19.1`이었고, portal의 Vite는 Node 20.19+를 요구했다. 로그에는 `crypto.hash is not a function`이 남았다.</p>
+              </div>
+            </li>
+            <li class="step">
+              <span class="step-num">05</span>
+              <div>
+                <strong>최종 해결은 “서버 둘”이 아니라 “5174 단일 서버”였다.</strong>
+                <p>정적 포털과 fixture API를 한 프로세스에서 서빙해서 proxy, Node/Vite dev runtime, WSL/Windows port forwarding 변수를 줄였다.</p>
+              </div>
+            </li>
+          </ol>
+        </article>
+
+        <article class="panel">
+          <h2>내가 잘못 판단한 지점</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>잘못된 판단</th>
+                <th>왜 문제였나</th>
+                <th>앞으로의 기준</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>WSL `curl 200`이면 사용자도 된다고 판단</td>
+                <td>사용자는 Windows 브라우저에서 `localhost`를 연다. 네트워크 경로가 달랐다.</td>
+                <td>로컬 UI는 반드시 Windows `curl.exe`와 실제 브라우저 DOM까지 확인한다.</td>
+              </tr>
+              <tr>
+                <td>`5174` 페이지 200만 확인</td>
+                <td>페이지는 떠도 `/v1/*` API가 500이면 포털은 연결 실패 상태다.</td>
+                <td>`/healthz`, `/v1/cluster/summary`, `/dashboards/aiops` 세 개를 같이 본다.</td>
+              </tr>
+              <tr>
+                <td>Vite dev server를 계속 재시작하려 함</td>
+                <td>Node 18/Vite 7 런타임 mismatch 때문에 재시작 자체가 실패했다.</td>
+                <td>수동 테스트용은 dev server보다 단일 fixture server를 우선한다.</td>
+              </tr>
+              <tr>
+                <td>자동 테스트 통과를 수동 테스트 준비 완료로 표현</td>
+                <td>자동 테스트는 CDP intercept 환경이라 사용자의 수동 브라우저와 조건이 달랐다.</td>
+                <td>자동 테스트 통과와 수동 테스트 가능은 별도 acceptance criteria로 둔다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      <aside>
+        <article class="panel">
+          <h2>증거 요약</h2>
+          <p>
+            아래 항목은 이번 원인 분석에서 실제로 확인한 신호이다.
+          </p>
+          <p>
+            <span class="tag bad">초기: 5174 API 500</span>
+            <span class="tag bad">초기: 18080 미기동</span>
+            <span class="tag bad">Node 18/Vite 실패</span>
+            <span class="tag good">최종: Windows 5174 200</span>
+            <span class="tag good">최종: 브라우저 연결됨</span>
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>확인</th>
+                <th>결과</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>`5174/dashboards/aiops`</td>
+                <td>200이었지만 이것만으로는 부족했다.</td>
+              </tr>
+              <tr>
+                <td>`5174/v1/cluster/summary`</td>
+                <td>초기 500. Gateway proxy 실패.</td>
+              </tr>
+              <tr>
+                <td>`127.0.0.1:18080`</td>
+                <td>초기 연결 거부. fixture Gateway 부재.</td>
+              </tr>
+              <tr>
+                <td>Vite log</td>
+                <td>`crypto.hash is not a function`, Node 20.19+ 필요.</td>
+              </tr>
+              <tr>
+                <td>최종 브라우저 DOM</td>
+                <td>`게이트웨이 연결됨`, `api.local-aiops.invalid`, `92%`, 500 없음.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h2>현재 시작 명령</h2>
+          <p>5174 수동 테스트는 아래 단일 서버 방식으로 띄운다.</p>
+          <pre>cd /home/kugnus/cywell/ocp-aiops_kugnus
+AIOPS_LOCAL_FIXTURE_HOST=0.0.0.0 \
+AIOPS_LOCAL_FIXTURE_PORT=5174 \
+AIOPS_LOCAL_SERVE_PORTAL=1 \
+node scripts/serve-v0281-local-aiops-gateway.cjs</pre>
+          <h3>확인해야 하는 URL</h3>
+          <ul class="checklist">
+            <li><a href="http://localhost:5174/healthz" target="_blank" rel="noreferrer">http://localhost:5174/healthz</a></li>
+            <li><a href="http://localhost:5174/v1/cluster/summary" target="_blank" rel="noreferrer">http://localhost:5174/v1/cluster/summary</a></li>
+            <li><a href="http://localhost:5174/dashboards/aiops" target="_blank" rel="noreferrer">http://localhost:5174/dashboards/aiops</a></li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <h2>다음부터 완료 조건</h2>
+          <ul class="checklist">
+            <li>WSL curl만으로 완료 처리하지 않는다.</li>
+            <li>Windows `curl.exe`에서 5174 health/API/HTML 모두 200이어야 한다.</li>
+            <li>브라우저 DOM에서 `게이트웨이 연결됨`, `92%`, `api.local-aiops.invalid`를 확인한다.</li>
+            <li>자동 verifier 통과와 수동 테스트 가능 여부를 분리해 보고한다.</li>
+            <li>회사 OKD mutation은 report와 화면에서 계속 0건으로 확인한다.</li>
+          </ul>
+        </article>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

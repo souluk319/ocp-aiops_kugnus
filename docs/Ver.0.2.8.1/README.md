@@ -18,6 +18,7 @@ v0.2.8.1의 목표는 챗봇 답변 형식과 좌측 패널의 조치 목록 경
 - [local-aiops-scenario-test-plan.md](./local-aiops-scenario-test-plan.md)
 - [local-aiops-manual-test-guide.md](./local-aiops-manual-test-guide.md)
 - [local-aiops-scenario-test-runner.html](./local-aiops-scenario-test-runner.html)
+- [local-5174-connection-incident-report.html](./local-5174-connection-incident-report.html)
 - [local-aiops-scenario-test-report.json](./local-aiops-scenario-test-report.json)
 
 ## Scope

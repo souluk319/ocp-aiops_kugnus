@@ -10,6 +10,7 @@ const port = Number(process.env.AIOPS_LOCAL_FIXTURE_PORT || 18080);
 const servePortal = process.env.AIOPS_LOCAL_SERVE_PORTAL === '1';
 const repoRoot = path.resolve(__dirname, '..');
 const portalDist = path.join(repoRoot, 'komsco-ai-portal', 'dist');
+const docsRoot = path.join(repoRoot, 'docs', 'Ver.0.2.8.1');
 
 const nowIso = () => new Date().toISOString();
 
@@ -29,10 +30,50 @@ const contentTypeFor = (filePath) => {
   if (filePath.endsWith('.html')) return 'text/html; charset=utf-8';
   if (filePath.endsWith('.js')) return 'text/javascript; charset=utf-8';
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (filePath.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (filePath.endsWith('.md')) return 'text/markdown; charset=utf-8';
   if (filePath.endsWith('.svg')) return 'image/svg+xml';
   if (filePath.endsWith('.woff2')) return 'font/woff2';
   if (filePath.endsWith('.png')) return 'image/png';
   return 'application/octet-stream';
+};
+
+const serveDocsArtifact = (url, res) => {
+  if (!servePortal) {
+    return false;
+  }
+
+  const allowedPrefixes = [
+    '/local-',
+    '/local-aiops-screenshots/',
+  ];
+  if (!allowedPrefixes.some((prefix) => url.pathname.startsWith(prefix))) {
+    return false;
+  }
+
+  const requestPath = decodeURIComponent(url.pathname);
+  const candidate = path.normalize(path.join(docsRoot, requestPath));
+  const safeRoot = docsRoot + path.sep;
+  if (!candidate.startsWith(safeRoot) || !fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) {
+    return false;
+  }
+
+  fs.readFile(candidate, (error, data) => {
+    if (error) {
+      json(res, 500, {
+        error: 'docs artifact unavailable',
+        detail: error.message,
+        expected: docsRoot,
+      });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': contentTypeFor(candidate),
+      'Cache-Control': 'no-store',
+    });
+    res.end(data);
+  });
+  return true;
 };
 
 const serveStaticPortal = (url, res) => {
@@ -298,6 +339,9 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/v1/aiops/events') {
     json(res, 200, eventFeed());
+    return;
+  }
+  if (serveDocsArtifact(url, res)) {
     return;
   }
   if (serveStaticPortal && serveStaticPortal(url, res)) {
