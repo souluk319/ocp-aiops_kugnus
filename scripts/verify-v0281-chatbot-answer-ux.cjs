@@ -21,6 +21,7 @@ const consoleUrl =
   process.env.AIOPS_CONSOLE_URL || 'http://localhost:9000/dashboards/aiops?codex_v=0281';
 const portalUrl =
   process.env.AIOPS_PORTAL_URL || 'http://localhost:5174/dashboards/aiops?codex_v=0281';
+const localGatewayUrl = process.env.AIOPS_LOCAL_GATEWAY_URL || 'http://127.0.0.1:5174';
 const screenshotDir = process.env.AIOPS_SCREENSHOT_DIR || '/tmp';
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiops-v0281-'));
 
@@ -233,6 +234,130 @@ const poll = async (expression, predicate, label, timeoutMs = 60000) => {
     await sleep(500);
   }
   throw new Error(`Timed out waiting for ${label}. Last=${JSON.stringify(last)}`);
+};
+
+const parseSseEvents = (raw) =>
+  raw
+    .split(/\n\n+/)
+    .map((block) => block.split(/\n/).find((line) => line.startsWith('data: ')))
+    .filter(Boolean)
+    .map((line) => line.replace(/^data:\s*/, '').trim())
+    .filter((data) => data && data !== '[DONE]')
+    .map((data) => {
+      try {
+        return JSON.parse(data);
+      } catch (_error) {
+        return { type: 'parse_error', raw: data };
+      }
+    });
+
+const verifyModeAnswerContracts = async () => {
+  const question = [
+    '다음 네임스페이스들이 실제 사용 중인지, 오래된 테스트인지 판단하고 싶어.',
+    'aiops-demo',
+    'cywell-aiops',
+    'gpu-test-kugnus',
+    'komsco-ai',
+    'komsco-ai-dev',
+    'komsco-aiops-lab',
+    '각 네임스페이스별 판단 기준과 read-only oc 확인 명령을 정리하고,',
+    '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
+  ].join('\n');
+
+  const runMode = async (mode) => {
+    const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
+      body: JSON.stringify({
+        conversationId: `v0281-mode-contract-${mode}`,
+        message: question,
+        pageContext: {
+          aiopsExecutionMode: mode,
+          route: '/dashboards/aiops',
+        },
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    const raw = await response.text();
+    const events = parseSseEvents(raw);
+    const answerText = events
+      .filter((event) => event.type === 'text')
+      .map((event) => event.content || '')
+      .join('\n');
+    const toolPlan = events.find((event) => event.type === 'tool_plan')?.plan || {};
+    const toolPlanJson = JSON.stringify(toolPlan);
+    const eventJson = JSON.stringify(events);
+    return {
+      answerPreview: answerText.slice(0, 900),
+      eventTypes: events.map((event) => event.type),
+      hasActionCandidateReady: toolPlanJson.includes('action_candidate_ready'),
+      hasCandidateTool: toolPlanJson.includes('create_namespace_cleanup_action_candidate'),
+      hasDone: raw.includes('[DONE]'),
+      hasInternalLeak: /5174|local fixture|시나리오 처리 범위/.test(answerText),
+      hasNaturalActionExecute: eventJson.includes('natural_action_execute'),
+      mode,
+      mutationsEnabled: toolPlan?.execution_policy?.mutations_enabled,
+      ok: response.ok,
+      status: response.status,
+      textHash: `${answerText.length}:${answerText.slice(0, 80)}`,
+      textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(answerText),
+      textIncludesReadOnlyCommand:
+        answerText.includes('oc get namespaces') &&
+        answerText.includes('oc get all,pvc,route,event'),
+      textIncludesReadOnlyMode: answerText.includes('읽기 전용 모드'),
+      textIncludesExecuteMode: answerText.includes('실행 가능 모드'),
+      textIncludesUnrestrictedMode: answerText.includes('실행 무제한 모드'),
+      toolPlanMode: toolPlan?.execution_policy?.mode || '',
+      validationStatus: toolPlan?.validation?.status || '',
+    };
+  };
+
+  const readOnly = await runMode('read-only');
+  const execute = await runMode('execute');
+  const unrestricted = await runMode('unrestricted');
+  const metrics = {
+    distinct:
+      readOnly.textHash !== execute.textHash &&
+      execute.textHash !== unrestricted.textHash &&
+      readOnly.toolPlanMode !== execute.toolPlanMode &&
+      execute.toolPlanMode !== unrestricted.toolPlanMode,
+    execute,
+    readOnly,
+    unrestricted,
+  };
+
+  assert(
+    metrics.readOnly.ok &&
+      metrics.execute.ok &&
+      metrics.unrestricted.ok &&
+      metrics.readOnly.hasDone &&
+      metrics.execute.hasDone &&
+      metrics.unrestricted.hasDone &&
+      metrics.readOnly.textIncludesReadOnlyMode &&
+      metrics.readOnly.textIncludesReadOnlyCommand &&
+      metrics.readOnly.toolPlanMode === 'read_only_review' &&
+      metrics.readOnly.mutationsEnabled === false &&
+      !metrics.readOnly.hasCandidateTool &&
+      !metrics.readOnly.textIncludesActionPlanCandidate &&
+      metrics.execute.textIncludesExecuteMode &&
+      metrics.execute.toolPlanMode === 'controlled_execution' &&
+      metrics.execute.mutationsEnabled === true &&
+      metrics.execute.hasCandidateTool &&
+      metrics.execute.hasActionCandidateReady &&
+      metrics.execute.textIncludesActionPlanCandidate &&
+      metrics.unrestricted.textIncludesUnrestrictedMode &&
+      metrics.unrestricted.toolPlanMode === 'unrestricted_pending_approval' &&
+      metrics.unrestricted.mutationsEnabled === true &&
+      metrics.unrestricted.hasCandidateTool &&
+      !metrics.unrestricted.hasNaturalActionExecute &&
+      metrics.distinct &&
+      !metrics.readOnly.hasInternalLeak &&
+      !metrics.execute.hasInternalLeak &&
+      !metrics.unrestricted.hasInternalLeak,
+    'same namespace cleanup question must produce distinct safe answers and Action Plan capability by execution mode',
+    metrics,
+  );
+
+  return metrics;
 };
 
 const setupBrowser = async () => {
@@ -1216,6 +1341,7 @@ const verifyStandalonePortal = async () => {
 
 const main = async () => {
   sourceReview();
+  const modeContracts = await verifyModeAnswerContracts();
   const chromeVersion = await setupBrowser();
   const consoleResult = await verifyConsoleAssistant();
   const portalResult = await verifyStandalonePortal();
@@ -1226,6 +1352,7 @@ const main = async () => {
   const output = {
     chrome: chromeVersion,
     consoleResult,
+    modeContracts,
     passed: true,
     portalResult,
     screenshots: [path.join(screenshotDir, 'v0281-chatbot-history.png')],
