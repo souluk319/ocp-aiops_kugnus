@@ -251,18 +251,20 @@ const parseSseEvents = (raw) =>
       }
     });
 
+const NAMESPACE_CLEANUP_QUESTION = [
+  '다음 네임스페이스들이 실제 사용 중인지, 오래된 테스트인지 판단하고 싶어.',
+  'aiops-demo',
+  'cywell-aiops',
+  'gpu-test-kugnus',
+  'komsco-ai',
+  'komsco-ai-dev',
+  'komsco-aiops-lab',
+  '각 네임스페이스별 판단 기준과 read-only oc 확인 명령을 정리하고,',
+  '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
+].join('\n');
+
 const verifyModeAnswerContracts = async () => {
-  const question = [
-    '다음 네임스페이스들이 실제 사용 중인지, 오래된 테스트인지 판단하고 싶어.',
-    'aiops-demo',
-    'cywell-aiops',
-    'gpu-test-kugnus',
-    'komsco-ai',
-    'komsco-ai-dev',
-    'komsco-aiops-lab',
-    '각 네임스페이스별 판단 기준과 read-only oc 확인 명령을 정리하고,',
-    '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
-  ].join('\n');
+  const question = NAMESPACE_CLEANUP_QUESTION;
 
   const runMode = async (mode) => {
     const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
@@ -603,6 +605,213 @@ const openAssistant = async () => {
     'assistant surface open',
     60000,
   );
+};
+
+const closeAndReopenEmptyAssistant = async () => {
+  const surfaceOpen = await evaluate(`Boolean(document.querySelector('.komsco-ai__surface'))`);
+  if (surfaceOpen) {
+    await evaluate(`document.querySelector('[aria-label="Close AIOps Copilot"]')?.click(); true;`);
+    await poll(
+      `(() => ({
+        fabVisible: Boolean(document.querySelector('.komsco-ai__fab')),
+        surfaceOpen: Boolean(document.querySelector('.komsco-ai__surface'))
+      }))()`,
+      (value) => value?.fabVisible && !value?.surfaceOpen,
+      'assistant closed before live mode test',
+      10000,
+    );
+  }
+
+  await openAssistant();
+  return poll(
+    `(() => ({
+      assistantMessages: document.querySelectorAll('.komsco-ai__message--assistant').length,
+      userMessages: document.querySelectorAll('.komsco-ai__message--user').length
+    }))()`,
+    (value) => value?.assistantMessages === 0 && value?.userMessages === 0,
+    'assistant reopened with empty current chat before live mode test',
+    10000,
+  );
+};
+
+const setExecutionModeInUi = async (mode) => {
+  const labelByMode = {
+    execute: '승인 후 실행 모드',
+    'read-only': '읽기 전용 모드',
+    unrestricted: '실행 무제한 모드',
+  };
+  const ariaLabel = labelByMode[mode];
+  const clicked = await evaluate(`(() => {
+    const button = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button'))
+      .find((el) => el.getAttribute('aria-label') === ${JSON.stringify(ariaLabel)});
+    if (!button) {
+      return {
+        ok: false,
+        labels: Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button'))
+          .map((el) => el.getAttribute('aria-label') || el.textContent.trim())
+      };
+    }
+    button.click();
+    return { ok: true, label: button.getAttribute('aria-label') };
+  })()`);
+  assert(clicked?.ok, `execution mode ${mode} must be selectable in the real UI`, clicked);
+  return poll(
+    `(() => {
+      const button = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button'))
+        .find((el) => el.getAttribute('aria-label') === ${JSON.stringify(ariaLabel)});
+      return {
+        label: button?.getAttribute('aria-label') || '',
+        pressed: button?.getAttribute('aria-pressed') || 'false',
+        text: button?.textContent.trim() || ''
+      };
+    })()`,
+    (value) => value?.pressed === 'true',
+    `execution mode ${mode} selected in UI`,
+    10000,
+  );
+};
+
+const setComposerValue = async (question) => {
+  const changed = await evaluate(`(() => {
+    const textarea = document.querySelector('.komsco-ai__composer textarea');
+    if (!textarea) return { ok: false, reason: 'missing textarea' };
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(textarea, ${JSON.stringify(question)});
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+    return { ok: true, value: textarea.value };
+  })()`);
+  assert(changed?.ok && changed.value === question, 'composer textarea must accept the live test question', changed);
+  return poll(
+    `(() => {
+      const button = document.querySelector('.komsco-ai__send');
+      const textarea = document.querySelector('.komsco-ai__composer textarea');
+      return {
+        disabled: Boolean(button?.disabled),
+        label: button?.getAttribute('aria-label') || '',
+        textareaValue: textarea?.value || ''
+      };
+    })()`,
+    (value) =>
+      value?.textareaValue === question &&
+      value?.label === '질문 전송' &&
+      value?.disabled === false,
+    'composer send button enabled for live mode test',
+    10000,
+  );
+};
+
+const sendLiveModeQuestion = async (mode) => {
+  await closeAndReopenEmptyAssistant();
+  await setExecutionModeInUi(mode);
+  await setComposerValue(NAMESPACE_CLEANUP_QUESTION);
+  await evaluate(`document.querySelector('.komsco-ai__send')?.click(); true;`);
+
+  return poll(
+    `(() => {
+      const assistantMessages = Array.from(document.querySelectorAll('.komsco-ai__message--assistant'));
+      const userMessages = Array.from(document.querySelectorAll('.komsco-ai__message--user'));
+      const latest = assistantMessages[assistantMessages.length - 1];
+      const content = latest?.querySelector('.komsco-ai__message-content');
+      const text = content?.textContent || '';
+      const source = latest?.querySelector('.komsco-ai__message-source')?.textContent.trim() || '';
+      const sourceTitle = latest?.querySelector('.komsco-ai__message-source')?.getAttribute('title') || '';
+      const actionPlanButtons = Array.from(
+        document.querySelectorAll('.komsco-ai__create-action-plan-button')
+      ).map((el) => el.textContent.trim());
+      const answerActionButtons = Array.from(
+        document.querySelectorAll('.komsco-ai__answer-action-controls .komsco-ai__action-button')
+      ).map((el) => el.textContent.trim());
+      const loading =
+        Boolean(document.querySelector('.komsco-ai__surface--responding')) ||
+        document.querySelector('.komsco-ai__send')?.getAttribute('aria-label') === '응답 중지';
+      const rawTerms = ['5174', 'local fixture', '시나리오 처리 범위']
+        .filter((term) => text.includes(term));
+      return {
+        actionPlanButtons,
+        answerActionButtons,
+        assistantMessages: assistantMessages.length,
+        hasGatewayFallback: source.includes('fallback'),
+        hasGatewayDirect: source.includes('Gateway 실조회'),
+        hasInternalLeak: rawTerms.length > 0,
+        loading,
+        mode: ${JSON.stringify(mode)},
+        preview: text.slice(0, 900),
+        source,
+        sourceTitle,
+        textHash: text.length + ':' + text.slice(0, 80),
+        textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(text),
+        textIncludesExecuteMode: text.includes('실행 가능 모드'),
+        textIncludesReadOnlyCommand:
+          text.includes('oc get namespaces') &&
+          text.includes('oc get all,pvc,route,event'),
+        textIncludesReadOnlyMode: text.includes('읽기 전용 모드'),
+        textIncludesUnrestrictedMode: text.includes('실행 무제한 모드'),
+        userMessages: userMessages.length
+      };
+    })()`,
+    (value) =>
+      value?.assistantMessages === 1 &&
+      value?.userMessages === 1 &&
+      !value?.loading &&
+      value?.preview?.length > 160,
+    `live UI mode answer completed for ${mode}`,
+    90000,
+  );
+};
+
+const verifyLiveModeRenderedAnswers = async () => {
+  const readOnly = await sendLiveModeQuestion('read-only');
+  const execute = await sendLiveModeQuestion('execute');
+  const unrestricted = await sendLiveModeQuestion('unrestricted');
+  const metrics = {
+    distinct:
+      readOnly.textHash !== execute.textHash &&
+      execute.textHash !== unrestricted.textHash &&
+      readOnly.textHash !== unrestricted.textHash,
+    execute,
+    readOnly,
+    unrestricted,
+  };
+
+  assert(
+    readOnly.textIncludesReadOnlyMode &&
+      readOnly.textIncludesReadOnlyCommand &&
+      readOnly.actionPlanButtons.length === 0 &&
+      !readOnly.textIncludesActionPlanCandidate &&
+      readOnly.hasGatewayDirect &&
+      !readOnly.hasGatewayFallback &&
+      !readOnly.hasInternalLeak,
+    'read-only live UI answer must stay query-only and must not expose Action Plan creation CTA',
+    metrics,
+  );
+  assert(
+    execute.textIncludesExecuteMode &&
+      execute.textIncludesActionPlanCandidate &&
+      execute.actionPlanButtons.includes('Action Plan 생성') &&
+      execute.hasGatewayDirect &&
+      !execute.hasGatewayFallback &&
+      !execute.hasInternalLeak,
+    'execute live UI answer must render a distinct approval-gated Action Plan CTA',
+    metrics,
+  );
+  assert(
+    unrestricted.textIncludesUnrestrictedMode &&
+      unrestricted.textIncludesActionPlanCandidate &&
+      unrestricted.actionPlanButtons.includes('Action Plan 생성') &&
+      unrestricted.hasGatewayDirect &&
+      !unrestricted.hasGatewayFallback &&
+      !unrestricted.hasInternalLeak,
+    'unrestricted live UI answer must still render approval-gated Action Plan CTA without auto mutation',
+    metrics,
+  );
+  assert(
+    metrics.distinct,
+    'same namespace cleanup question must render distinct live UI answers by execution mode',
+    metrics,
+  );
+
+  return metrics;
 };
 
 const openHistory = async () => {
@@ -1305,7 +1514,9 @@ const verifyConsoleAssistant = async () => {
     fs.writeFileSync(path.join(screenshotDir, 'v0281-chatbot-history.png'), Buffer.from(result.data, 'base64'));
   });
 
-  return { feedbackGateway, feedbackStored, fixture, historyMetrics, metrics };
+  const liveModeRenderedAnswers = await verifyLiveModeRenderedAnswers();
+
+  return { feedbackGateway, feedbackStored, fixture, historyMetrics, liveModeRenderedAnswers, metrics };
 };
 
 const verifyStandalonePortal = async () => {
