@@ -1458,7 +1458,7 @@ const streamLocalChat = async (req, res) => {
       type: 'tool_call',
       id: 'test-pod-create-preflight-local',
       name: 'oc_test_pod_create_preflight',
-      summary: 'namespace and server preflight',
+      summary: '대상 네임스페이스 및 서버 확인',
     });
     const preflight = await buildTestPodCreatePreflight(testPodCreateRequest);
     const answer = testPodCreateAnswer(testPodCreateRequest, preflight, executionMode);
@@ -1469,7 +1469,7 @@ const streamLocalChat = async (req, res) => {
       name: 'oc_test_pod_create_preflight',
       status: preflight.ok ? 'success' : 'failed',
       summary: preflight.ok
-        ? `${LOCAL_TEST_POD_TARGET.namespace} namespace 확인`
+        ? `${LOCAL_TEST_POD_TARGET.namespace} 네임스페이스 확인`
         : `테스트 Pod 생성 사전 확인 실패: ${preflight.status}`,
       result: preflight,
     });

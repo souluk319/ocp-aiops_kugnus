@@ -106,6 +106,11 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     return `Checked ${namespaceCountMatch[1]} namespaces`;
   }
 
+  const namespaceCheckMatch = text.match(/^(.+?)\s+네임스페이스\s+확인$/);
+  if (namespaceCheckMatch) {
+    return `Checked ${namespaceCheckMatch[1]} namespace`;
+  }
+
   const ragCountMatch = text.match(/^문서 근거\s+(\d+)건 확인$/);
   if (ragCountMatch) {
     return `Checked ${ragCountMatch[1]} document sources`;
@@ -122,6 +127,9 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/네임스페이스 사용 여부 확인/g, 'Namespace usage check')
     .replace(/네임스페이스 사용 여부 조회/g, 'Namespace usage lookup')
     .replace(/네임스페이스 조회 완료/g, 'Namespace check complete')
+    .replace(/대상 네임스페이스 및 서버 확인/g, 'Target namespace and server check')
+    .replace(/테스트 Pod 생성 사전 확인/g, 'Test Pod creation preflight')
+    .replace(/테스트 Pod 생성 Action Plan 사전 확인/g, 'Test Pod Action Plan preflight')
     .replace(/요청 해석 확인/g, 'Request interpretation')
     .replace(/요청 해석 완료/g, 'Request interpreted')
     .replace(/요청 확인 중/g, 'Checking request')
@@ -210,6 +218,9 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
   if (text === 'oc read-only namespace inventory') {
     return translateProductProgressText('네임스페이스 사용 여부 조회', language);
   }
+  if (text === 'namespace and server preflight') {
+    return translateProductProgressText('대상 네임스페이스 및 서버 확인', language);
+  }
   if (/^namespace\s+\d+개\s+read-only\s+조회$/i.test(text)) {
     const count = text.match(/^namespace\s+(\d+)개/i)?.[1] ?? '';
     return translateProductProgressText(
@@ -242,6 +253,8 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
     .replace(/Active Alert RCA 증거 수집 완료/g, '경고 근거 수집 완료')
     .replace(/Restart metric RCA 증거 수집 완료/g, '재시작 지표 수집 완료')
     .replace(/oc read-only namespace inventory/gi, '네임스페이스 사용 여부 조회')
+    .replace(/oc_test_pod_create_preflight/gi, '테스트 Pod 생성 사전 확인')
+    .replace(/namespace and server preflight/gi, '대상 네임스페이스 및 서버 확인')
     .replace(/request intent classifier/gi, '요청 해석 확인')
     .replace(/Node Status Evidence 시작/g, '노드 상태 근거 확인 시작')
     .replace(/Active Alerts Evidence 시작/g, '경고 근거 확인 시작')

@@ -44,11 +44,13 @@ const assert = (condition, message, evidence = undefined) => {
 
 const sourceReview = () => {
   const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
+  const assistantConstants = readFile('komsco-ai-console-plugin/src/components/assistant.constants.tsx');
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
   const insightRailHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.insightRailHelpers.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
   const messageHeader = readFile('komsco-ai-console-plugin/src/components/AssistantMessageHeader.tsx');
   const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
+  const progressTimeline = readFile('komsco-ai-console-plugin/src/components/AssistantProgressTimeline.tsx');
   const gatewayService = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
   const localGateway = readFile('scripts/serve-v0281-local-aiops-gateway.cjs');
   const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
@@ -107,6 +109,12 @@ const sourceReview = () => {
     messageContent.includes("terminal: '터미널 확인 명령'") &&
       messageContent.includes('터미널에서 안전하게 확인할 read-only 명령'),
     'runbook answer must render terminal command sections instead of truncating them under Action Plan',
+  );
+  assert(
+    progressTimeline.includes('Test Pod creation preflight') &&
+      progressTimeline.includes('Target namespace and server check') &&
+      assistantConstants.includes("oc_test_pod_create_preflight: '테스트 Pod 생성 사전 확인'"),
+    'progress timeline must translate test Pod preflight tool names into product labels',
   );
   assert(
     css.includes('v0.2.8.1: Action Plan-first chatbot answer UX'),
@@ -903,7 +911,10 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         .filter((term) => text.includes(term));
       const rawProgressTerms = [
         'Oc Namespace Inventory',
+        'Oc Test Pod Create Preflight',
         'oc read-only namespace inventory',
+        'oc_test_pod_create_preflight',
+        'namespace and server preflight',
         'request_intent_classifier',
         'Request Intent Classifier',
         'unclear_or_out_of_scope',
@@ -953,6 +964,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
           (
             progressText.includes('요청 해석 확인') ||
             progressText.includes('네임스페이스 사용 여부 확인') ||
+            progressText.includes('테스트 Pod 생성 사전 확인') ||
             progressText.includes('증거 수집 계획')
           ),
         progressUsesEnglishOperatorLabels:
@@ -962,6 +974,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
           (
             progressText.includes('Request interpretation') ||
             progressText.includes('Namespace usage check') ||
+            progressText.includes('Test Pod creation preflight') ||
             progressText.includes('Evidence plan')
           ),
         progressHasKorean:

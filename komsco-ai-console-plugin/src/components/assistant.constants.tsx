@@ -184,6 +184,7 @@ export const TOOL_LABELS: Record<string, string> = {
   natural_action_plan: '자연어 조치 계획 생성',
   natural_action_unresolved: '조치 대상 확인',
   oc_namespace_inventory: '네임스페이스 사용 여부 확인',
+  oc_test_pod_create_preflight: '테스트 Pod 생성 사전 확인',
   pod_count_deployment_lookup: 'Deployment 조회',
   pod_count_investigation: 'Pod 개수 결과',
   pod_count_pod_lookup: 'Pod 목록 조회',
