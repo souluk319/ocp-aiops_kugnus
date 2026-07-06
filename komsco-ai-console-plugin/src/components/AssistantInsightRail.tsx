@@ -76,6 +76,25 @@ const feedbackRatingLabel = (rating: string, language: UiLanguage): string => {
   return text(language, '평가 대기', 'Pending');
 };
 
+const feedbackExportRecord = (record: FeedbackRecord) => {
+  const spec = record.spec ?? {};
+  return {
+    answerContract: feedbackSpecText(record, 'answerContract'),
+    answerSource: feedbackSpecText(record, 'answerSource'),
+    conversationId: feedbackSpecText(record, 'conversationId'),
+    createdAt: record.metadata?.createdAt ?? '',
+    feedbackId: record.metadata?.name ?? feedbackSpecText(record, 'feedbackId'),
+    intent: feedbackSpecText(record, 'intent'),
+    messageId: feedbackSpecText(record, 'messageId'),
+    mode: feedbackSpecText(record, 'mode'),
+    optionalComment: feedbackSpecText(record, 'optionalComment'),
+    rating: feedbackSpecText(record, 'rating'),
+    route: feedbackSpecText(record, 'route'),
+    source: feedbackSpecText(record, 'source'),
+    timestamp: typeof spec.timestamp === 'string' ? spec.timestamp : feedbackSpecText(record, 'submittedAt'),
+  };
+};
+
 const copyText = async (value: string): Promise<boolean> => {
   if (!value) {
     return false;
@@ -128,8 +147,8 @@ const FeedbackRail: React.FC<{ language: UiLanguage; records: FeedbackRecord[] }
         good: goodCount,
         needsWork: needsWorkCount,
       },
-      latest: latest ?? null,
-      records: sortedRecords,
+      latest: latest ? feedbackExportRecord(latest) : null,
+      records: sortedRecords.map(feedbackExportRecord),
     },
     null,
     2,

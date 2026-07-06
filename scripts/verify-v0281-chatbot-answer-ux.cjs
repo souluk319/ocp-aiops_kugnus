@@ -1544,7 +1544,10 @@ const verifyLiveEnglishProgressLabels = async () => {
         afterLabel === 'Feedback JSON copied' &&
         Boolean(parsed) &&
         parsed.summary?.total >= 1 &&
-        Array.isArray(parsed.records)
+        Array.isArray(parsed.records) &&
+        !copied.includes('"subject"') &&
+        !copied.includes('"groups"') &&
+        !copied.includes('"uid"')
     };
   })()`);
   metrics.englishFeedbackCopy = englishFeedbackCopy;
@@ -1957,12 +1960,15 @@ const verifyConsoleAssistant = async () => {
       ok: Boolean(parsed) &&
         parsed.summary?.total >= 1 &&
         parsed.summary?.needsWork >= 1 &&
-        copied.includes(${JSON.stringify(feedbackComment)})
+        copied.includes(${JSON.stringify(feedbackComment)}) &&
+        !copied.includes('"subject"') &&
+        !copied.includes('"groups"') &&
+        !copied.includes('"uid"')
     };
   })()`);
   assert(
     feedbackCopy.ok,
-    'feedback rail copy button must copy reviewable JSON with latest tester comment',
+    'feedback rail copy button must copy reviewable JSON with latest tester comment and no subject identity block',
     feedbackCopy,
   );
 
