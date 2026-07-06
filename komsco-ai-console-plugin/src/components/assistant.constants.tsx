@@ -14,42 +14,56 @@ export const QUICK_PROMPTS = [
   {
     icon: <CoolDesktopTowerIcon />,
     label: 'Node 상태',
+    labelEn: 'Node status',
     prompt: '현재 클러스터 노드 상태를 요약하고 이상 징후가 있으면 알려줘.',
+    promptEn: 'Summarize current cluster node status and call out any abnormal signals.',
   },
   {
     icon: <CoolWarningIcon />,
     label: '최근 경고',
+    labelEn: 'Recent alerts',
     prompt:
       '최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.',
+    promptEn:
+      'Separate recent OpenShift alerts into confirmed evidence and items that still need verification.',
   },
   {
     icon: <CoolTerminalIcon />,
     label: '화면 진단',
+    labelEn: 'Screen diagnosis',
     prompt:
       '현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 증적과 원인 후보, 승인 가능한 조치 후보를 정리해줘.',
+    promptEn:
+      'Run safe checks for the current resource and summarize evidence, likely causes, and approval-ready actions.',
   },
   {
     icon: <CoolShieldCheckIcon />,
     label: '조치 후보 검토',
+    labelEn: 'Action review',
     prompt:
       '현재 화면의 대상에 대해 가능한 AIOps 조치 후보, 승인 필요 여부, 실행 전 검증 조건을 정리해줘.',
+    promptEn:
+      'Review AIOps action candidates, approval requirements, and pre-execution verification checks for this target.',
   },
 ];
 
 export const ASSISTANT_TASK_MODES: Array<{
   description: string;
+  descriptionEn: string;
   icon: React.ReactNode;
   label: string;
   value: AssistantTaskMode;
 }> = [
   {
     description: '일반 질문과 상태 확인',
+    descriptionEn: 'General questions and status checks',
     icon: <CoolChatDotsIcon />,
     label: 'Ask',
     value: 'ask',
   },
   {
     description: '원인 분석과 점검 절차',
+    descriptionEn: 'Root-cause analysis and checks',
     icon: <CoolSettingsIcon />,
     label: 'Troubleshooting',
     value: 'troubleshooting',
@@ -240,4 +254,5 @@ export const RESPONSE_WAIT_PHASES = [
 export const STORED_CONVERSATION_HISTORY_KEY = 'komsco-ai.assistant.conversation-history.v1';
 export const STORED_ACTIVE_CONVERSATION_KEY = 'komsco-ai.assistant.active-conversation.v1';
 export const STORED_UI_LANGUAGE_KEY = 'komsco-ai.assistant.ui-language.v1';
+export const STORED_MESSAGE_FEEDBACK_KEY = 'komsco-ai.assistant.message-feedback.v1';
 export const MAX_STORED_CONVERSATIONS = 12;

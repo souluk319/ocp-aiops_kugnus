@@ -9,6 +9,7 @@ import {
   CoolTerminalIcon,
 } from './coolicons';
 import {
+  asObjectMap,
   getActionRecordProof,
   getActionRecordStage,
   getActionRecordStageLabel,
@@ -17,6 +18,7 @@ import {
   getPlanSummary,
   getRecordName,
   getRecordPhase,
+  getRecordSpecMap,
   getRecordTargetLabel,
   phaseLabelKo,
 } from './assistant.actionRecords';
@@ -105,7 +107,40 @@ const actionCardMetaLabel = (stage: AiopsLifecycleStage): string => {
   return '실행 결과';
 };
 
-const actionCardTargetDisplayLabel = (stage: AiopsLifecycleStage): string => {
+const getActionCardTargetKind = (record: AiopsRecordView): string => {
+  const spec = getRecordSpecMap(record);
+  const candidate = asObjectMap(spec.candidate);
+  const candidateActionRequest = asObjectMap(spec.candidateActionRequest);
+  const sealedActionPlan = asObjectMap(spec.sealedActionPlan);
+  const approvalDecision = asObjectMap(spec.approvalDecision);
+  const target =
+    asObjectMap(spec.target) ??
+    asObjectMap(candidate?.targetNode) ??
+    asObjectMap(candidateActionRequest?.target) ??
+    asObjectMap(sealedActionPlan?.target) ??
+    asObjectMap(approvalDecision?.target);
+
+  return typeof target?.kind === 'string' ? target.kind : '';
+};
+
+const actionCardTargetDisplayLabel = (
+  stage: AiopsLifecycleStage,
+  record?: AiopsRecordView,
+): string => {
+  const targetKind = record ? getActionCardTargetKind(record) : '';
+  if (targetKind === 'Namespace') {
+    if (stage === 'proposal') {
+      return '검토 네임스페이스';
+    }
+    if (stage === 'plan') {
+      return '대상 네임스페이스';
+    }
+    if (stage === 'approval') {
+      return '승인 네임스페이스';
+    }
+    return '실행 네임스페이스';
+  }
+
   if (stage === 'proposal') {
     return '검토 대상';
   }
@@ -311,7 +346,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
             ? '좌측 조치 목록에 연결된 계획 흐름입니다. record 연결 후 승인 버튼을 표시합니다.'
             : readOnlyBlocked
             ? '읽기 전용 모드입니다. 버튼은 유지하고 클릭 시 실행 제한 사유를 표시합니다.'
-            : '승인 가능한 조치 흐름만 카드로 표시합니다.'}
+            : '승인 전 검증과 승인 상태를 표시합니다.'}
         </span>
       </div>
       {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
@@ -347,7 +382,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                   <div className="komsco-ai__answer-action-main">
                     <span>{actionCardMetaLabel('execution')}</span>
                     <strong title={getRecordTargetLabel(record)}>
-                      {actionCardTargetDisplayLabel('execution')}
+                      {actionCardTargetDisplayLabel('execution', record)}
                     </strong>
                     <small>4단계 · 실행 완료</small>
                   </div>
@@ -374,7 +409,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                 <div className="komsco-ai__answer-action-main">
                   <span>{actionCardMetaLabel(stage)}</span>
                   <strong title={getRecordTargetLabel(record)}>
-                    {actionCardTargetDisplayLabel(stage)}
+                    {actionCardTargetDisplayLabel(stage, record)}
                   </strong>
                   <small>{getActionRecordStageLabel(record, executionMode)}</small>
                 </div>

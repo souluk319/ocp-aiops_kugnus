@@ -2,10 +2,12 @@ import * as React from 'react';
 import { Button } from '@patternfly/react-core';
 
 import type { AiopsActionCandidate } from '../services/aiGateway';
+import type { UiLanguage } from './assistant.types';
 
 type AssistantCreateActionPlanButtonsProps = {
   busyCandidateId: string;
   candidates: AiopsActionCandidate[];
+  language: UiLanguage;
   onCreatePlan: (candidate: AiopsActionCandidate) => void;
 };
 
@@ -28,6 +30,7 @@ const actionCandidateStateLabel = (candidate: AiopsActionCandidate): string => {
 const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButtonsProps> = ({
   busyCandidateId,
   candidates,
+  language,
   onCreatePlan,
 }) => {
   if (candidates.length === 0) {
@@ -38,15 +41,19 @@ const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButton
     <div className="komsco-ai__create-action-plan">
       {candidates.map((candidate) => {
         const busy = candidate.id === busyCandidateId;
+        const isKo = language === 'ko';
         return (
           <div className="komsco-ai__create-action-plan-row" key={candidate.id}>
             <span className="komsco-ai__create-action-plan-meta">
-              <span className="komsco-ai__create-action-plan-eyebrow">AI Plan 준비됨</span>
+              <span className="komsco-ai__create-action-plan-eyebrow">Action Plan</span>
               <span className="komsco-ai__create-action-plan-target">
-                {actionCandidateSummaryLabel(candidate)}
+                {isKo ? actionCandidateSummaryLabel(candidate) : 'Approval-gated action candidate'}
               </span>
               <span className="komsco-ai__create-action-plan-state">
-                {actionCandidateStateLabel(candidate)}
+                {isKo ? actionCandidateStateLabel(candidate) : 'Approval required'}
+              </span>
+              <span className="komsco-ai__create-action-plan-note">
+                {isKo ? '승인 전 실행 없음' : 'No change before approval'}
               </span>
             </span>
             <Button
@@ -58,7 +65,7 @@ const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButton
               variant="secondary"
               aria-label="Action Plan 생성"
             >
-              {busy ? '생성 중' : '계획 생성'}
+              {busy ? (isKo ? '생성 중' : 'Creating') : isKo ? 'Action Plan 생성' : 'Create Action Plan'}
             </Button>
           </div>
         );

@@ -276,6 +276,24 @@ export const CoolPencilIcon: React.FC<CoolIconProps> = (props) => (
   </CoolIcon>
 );
 
+export const CoolThumbsUpIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path
+      d="M7 10V21M7 10L11.7 3.95C12.35 3.11 13.66 3.57 13.66 4.63V8H18.72C20.08 8 21.04 9.33 20.61 10.62L18.28 17.62C18.01 18.44 17.24 19 16.37 19H9.4C8.85 19 8.31 18.85 7.84 18.57L7 18.07M3 10H7V21H3C1.9 21 1 20.1 1 19V12C1 10.9 1.9 10 3 10Z"
+      {...strokeProps}
+    />
+  </CoolIcon>
+);
+
+export const CoolThumbsDownIcon: React.FC<CoolIconProps> = (props) => (
+  <CoolIcon {...props}>
+    <path
+      d="M17 14V3M17 14L12.3 20.05C11.65 20.89 10.34 20.43 10.34 19.37V16H5.28C3.92 16 2.96 14.67 3.39 13.38L5.72 6.38C5.99 5.56 6.76 5 7.63 5H14.6C15.15 5 15.69 5.15 16.16 5.43L17 5.93M21 14H17V3H21C22.1 3 23 3.9 23 5V12C23 13.1 22.1 14 21 14Z"
+      {...strokeProps}
+    />
+  </CoolIcon>
+);
+
 export const CoolTrashIcon: React.FC<CoolIconProps> = (props) => (
   <CoolIcon {...props}>
     <path

@@ -28,6 +28,7 @@ from komsco_ai_gateway.main import (
     BREAK_GLASS_PROFILE_DIGEST,
     BREAK_GLASS_PROFILES,
     BREAK_GLASS_REQUESTS,
+    CHAT_FEEDBACK,
     EXECUTION_RECORDS,
     PREAPPROVED_PATCH_REQUESTS,
     RUNBOOK_PLANS,
@@ -6773,6 +6774,90 @@ def test_workflow_and_metrics_endpoints_expose_non_secret_runtime_state() -> Non
         assert "Bearer" not in metrics_response.text
 
     asyncio.run(run())
+
+
+def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypatch) -> None:
+    previous_feedback = dict(CHAT_FEEDBACK)
+    previous_metric = METRICS.get("aiops_chat_feedback_total", 0)
+    CHAT_FEEDBACK.clear()
+    METRICS["aiops_chat_feedback_total"] = 0
+
+    subject = {"username": "tester@example.com", "uid": "uid-tester", "groups": ["ops"]}
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return subject
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {"allowed": True}
+
+    async def fake_persist_record_store(_store_name: str) -> None:
+        return None
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "persist_record_store", fake_persist_record_store)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/feedback",
+                headers=headers,
+                json={
+                    "answerContract": "v0281-fixture",
+                    "answerSource": "gateway_direct",
+                    "conversationId": "conversation-feedback-test",
+                    "feedbackId": "feedback-contract-test",
+                    "intent": "namespace_cleanup",
+                    "messageId": "message-feedback-test",
+                    "mode": "execute",
+                    "optionalComment": (
+                        "답변은 좋지 않았고 Authorization: Bearer secret-token-value-1234567890 "
+                        "token=raw-secret 이 노출되면 안 됩니다."
+                    ),
+                    "rating": "down",
+                    "route": "/dashboards/aiops",
+                    "timestamp": "2026-07-06T09:00:00Z",
+                },
+            )
+            status_response = await client.get("/v1/aiops/status", headers=headers)
+            metrics_response = await client.get("/metrics")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["kind"] == "ChatFeedback"
+        assert payload["metadata"]["name"] == "feedback-contract-test"
+        spec = payload["spec"]
+        assert spec["rating"] == "down"
+        assert spec["mode"] == "execute"
+        assert spec["intent"] == "namespace_cleanup"
+        assert spec["optionalComment"].count("[REDACTED]") >= 2
+        assert "secret-token-value" not in spec["optionalComment"]
+        assert "raw-secret" not in spec["optionalComment"]
+
+        stored = CHAT_FEEDBACK["feedback-contract-test"]
+        assert stored["spec"] == spec
+        assert stored["subject"]["username"] == "tester@example.com"
+
+        assert status_response.status_code == 200
+        status_payload = status_response.json()
+        feedback_records = status_payload["spec"]["records"]["chatFeedback"]
+        assert len(feedback_records) == 1
+        assert feedback_records[0]["metadata"]["name"] == "feedback-contract-test"
+        assert feedback_records[0]["spec"]["optionalComment"] == spec["optionalComment"]
+
+        assert metrics_response.status_code == 200
+        assert "aiops_chat_feedback_total 1" in metrics_response.text
+        assert "aiops_chat_feedback_records 1" in metrics_response.text
+        assert "secret-token-value" not in metrics_response.text
+
+    try:
+        asyncio.run(run())
+    finally:
+        CHAT_FEEDBACK.clear()
+        CHAT_FEEDBACK.update(previous_feedback)
+        METRICS["aiops_chat_feedback_total"] = previous_metric
 
 
 def test_aiops_status_api_exposes_runtime_capabilities_and_recent_records() -> None:

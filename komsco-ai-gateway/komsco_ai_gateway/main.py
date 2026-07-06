@@ -254,6 +254,7 @@ AUDIT_MAX_RECORDS = int(os.getenv("KOMSCO_AI_AUDIT_MAX_RECORDS", "1000"))
 EVIDENCE_MAX_RECORDS = int(os.getenv("KOMSCO_AI_EVIDENCE_MAX_RECORDS", "1000"))
 WORKFLOW_MAX_RECORDS = int(os.getenv("KOMSCO_AI_WORKFLOW_MAX_RECORDS", "1000"))
 CHAT_TRANSCRIPT_MAX_RECORDS = int(os.getenv("KOMSCO_AI_CHAT_TRANSCRIPT_MAX_RECORDS", "200"))
+CHAT_FEEDBACK_MAX_RECORDS = int(os.getenv("KOMSCO_AI_CHAT_FEEDBACK_MAX_RECORDS", "1000"))
 CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS = int(os.getenv("KOMSCO_AI_CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS", "8000"))
 CHAT_TRANSCRIPT_MAX_ANSWER_CHARS = int(os.getenv("KOMSCO_AI_CHAT_TRANSCRIPT_MAX_ANSWER_CHARS", "24000"))
 CHAT_TRANSCRIPT_JSONL_PATH = os.getenv(
@@ -619,11 +620,13 @@ METRICS: dict[str, int] = {
     "aiops_record_store_failures_total": 0,
     "aiops_chat_transcripts_total": 0,
     "aiops_chat_transcript_jsonl_write_failures_total": 0,
+    "aiops_chat_feedback_total": 0,
 }
 AUDIT_RECORDS: dict[str, dict[str, Any]] = {}
 EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
 WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
 CHAT_TRANSCRIPTS: dict[str, dict[str, Any]] = {}
+CHAT_FEEDBACK: dict[str, dict[str, Any]] = {}
 DIAGNOSTIC_REQUESTS: dict[str, dict[str, Any]] = {}
 ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
 SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
@@ -986,6 +989,7 @@ def record_store_auth_header() -> str:
 
 RECORD_STORES: dict[str, tuple[dict[str, dict[str, Any]], int, str]] = {
     "chatTranscripts": (CHAT_TRANSCRIPTS, CHAT_TRANSCRIPT_MAX_RECORDS, "chatTranscripts.json"),
+    "chatFeedback": (CHAT_FEEDBACK, CHAT_FEEDBACK_MAX_RECORDS, "chatFeedback.json"),
     "diagnosticRequests": (DIAGNOSTIC_REQUESTS, DIAGNOSTIC_MAX_RECORDS, "diagnosticRequests.json"),
     "actionProposals": (ACTION_PROPOSALS, ACTION_MAX_RECORDS, "actionProposals.json"),
     "sealedActionPlans": (SEALED_ACTION_PLANS, ACTION_MAX_RECORDS, "sealedActionPlans.json"),
@@ -2395,6 +2399,20 @@ class ChatRequest(BaseModel):
     runId: str | None = None
     recentMessages: list[ChatContextMessage] = Field(default_factory=list, max_length=8)
     attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
+
+
+class ChatFeedbackCreate(BaseModel):
+    answerContract: str | None = Field(default=None, max_length=160)
+    answerSource: str | None = Field(default=None, max_length=80)
+    conversationId: str | None = Field(default=None, max_length=160)
+    feedbackId: str | None = Field(default=None, max_length=180)
+    intent: str | None = Field(default=None, max_length=120)
+    messageId: str = Field(min_length=1, max_length=220)
+    mode: str = Field(min_length=1, max_length=60)
+    optionalComment: str | None = Field(default=None, max_length=1000)
+    rating: str = Field(min_length=1, max_length=16)
+    route: str | None = Field(default=None, max_length=240)
+    timestamp: str | None = Field(default=None, max_length=80)
 
 
 class StrictBaseModel(BaseModel):
@@ -9770,7 +9788,7 @@ def build_aiops_answer_contract_text(
     missing = evidence_summary.get("missingCount", 0) if isinstance(evidence_summary, Mapping) else 0
     task_type = str(runtime_tool_plan.get("task_type") or "unknown")
     decision = str(policy.get("decision") or "unknown")
-    if decision != "action_proposal_only":
+    if decision != "action_proposal_only" and task_type not in {"pod_restart_rca"}:
         return ""
 
     return "\n".join(
@@ -13432,6 +13450,11 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
                     subject,
                     product_access_allowed=product_access_allowed,
                 ),
+                "chatFeedback": latest_readable_records(
+                    CHAT_FEEDBACK,
+                    subject,
+                    product_access_allowed=product_access_allowed,
+                ),
                 "diagnosticRequests": latest_readable_records(
                     DIAGNOSTIC_REQUESTS,
                     subject,
@@ -14298,6 +14321,8 @@ async def metrics() -> str:
     lines.append(f"aiops_workflow_records {len(WORKFLOW_RECORDS)}")
     lines.append("# TYPE aiops_chat_transcript_records gauge")
     lines.append(f"aiops_chat_transcript_records {len(CHAT_TRANSCRIPTS)}")
+    lines.append("# TYPE aiops_chat_feedback_records gauge")
+    lines.append(f"aiops_chat_feedback_records {len(CHAT_FEEDBACK)}")
     lines.append("# TYPE aiops_diagnostic_request_records gauge")
     lines.append(f"aiops_diagnostic_request_records {len(DIAGNOSTIC_REQUESTS)}")
     lines.append("# TYPE aiops_action_proposal_records gauge")
@@ -14315,6 +14340,60 @@ async def metrics() -> str:
     lines.append("# TYPE aiops_break_glass_request_records gauge")
     lines.append(f"aiops_break_glass_request_records {len(BREAK_GLASS_REQUESTS)}")
     return "\n".join(lines) + "\n"
+
+
+@app.post("/v1/chat/feedback")
+async def create_chat_feedback(
+    req: ChatFeedbackCreate,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    user_auth_header = verify_bearer_header(authorization)
+    subject = await fetch_self_subject_review(user_auth_header)
+    rating = req.rating.strip().lower()
+    if rating not in {"up", "down"}:
+        raise HTTPException(status_code=400, detail="rating must be up or down")
+
+    created_at = now_rfc3339()
+    submitted_at = req.timestamp or created_at
+    projection = {
+        "conversationId": req.conversationId or "",
+        "messageId": req.messageId,
+        "mode": req.mode,
+        "rating": rating,
+        "timestamp": submitted_at,
+    }
+    feedback_id = req.feedbackId or (
+        f"chat-feedback-{canonical_digest(redact_sensitive(projection)).removeprefix('sha256:')[:16]}"
+    )
+    record = {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ChatFeedbackRecord",
+        "metadata": {
+            "createdAt": created_at,
+            "name": feedback_id,
+        },
+        "spec": {
+            "answerContract": req.answerContract or "",
+            "answerSource": req.answerSource or "",
+            "conversationId": req.conversationId or "",
+            "intent": req.intent or "",
+            "messageId": req.messageId,
+            "mode": req.mode,
+            "optionalComment": redact_sensitive(req.optionalComment or ""),
+            "rating": rating,
+            "route": req.route or "",
+            "submittedAt": submitted_at,
+        },
+        "subject": redact_sensitive(dict(subject)),
+    }
+    await bounded_put_record("chatFeedback", feedback_id, record)
+    increment_metric("aiops_chat_feedback_total")
+    return {
+        "apiVersion": "aiops.komsco/v1",
+        "kind": "ChatFeedback",
+        "metadata": record["metadata"],
+        "spec": record["spec"],
+    }
 
 
 @app.post("/v1/chat/stream")

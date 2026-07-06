@@ -21,6 +21,12 @@ import ProgressTimeline, {
   rcaContextPhaseLabel,
 } from './AssistantProgressTimeline';
 import {
+  CoolCopyIcon,
+  CoolPencilIcon,
+  CoolThumbsDownIcon,
+  CoolThumbsUpIcon,
+} from './coolicons';
+import {
   ACCEPTED_IMAGE_MIME_TYPES,
   ACCEPTED_RAG_DOCUMENT_EXTENSIONS,
   ACCEPTED_RAG_DOCUMENT_MIME_TYPES,
@@ -48,6 +54,7 @@ import {
   RESPONSE_WAIT_STEP_ID,
   RUN_LOOP_STEP_ID,
   SCROLL_BOTTOM_THRESHOLD_PX,
+  STORED_MESSAGE_FEEDBACK_KEY,
 } from './assistant.constants';
 import { formatFileSize } from './assistant.attachments';
 import { TASK_MODE_EMPTY_COPY, UI_COPY } from './assistant.copy';
@@ -112,6 +119,7 @@ import type {
   ProgressStatus,
   ProgressStep,
   RunStatusEvent,
+  StoredActiveConversation,
   ToolPlanFooter,
   ToolStreamEvent,
   UiLanguage,
@@ -121,6 +129,7 @@ import {
   type AiopsRuntimeStatus,
   type AuthSubject,
   type ChatContextMessage,
+  type ChatFeedbackPayload,
   type ClusterSummary,
   type ImageAttachment,
   type RagUploadedDocument,
@@ -134,6 +143,7 @@ import {
   fetchConsoleUserSubject,
   fetchUploadedRagDocuments,
   rejectActionPlan,
+  submitChatFeedback,
   streamChat,
   uploadRagDocument,
   uploadRagDocumentFile,
@@ -814,6 +824,267 @@ const latestAnswerActionRecords = (
     .slice(0, 3);
 };
 
+type MessageFeedbackChoice = 'up' | 'down';
+
+type MessageActionFooterProps = {
+  copied: boolean;
+  copiedLabel: string;
+  copyLabel: string;
+  feedback?: MessageFeedbackChoice;
+  language: UiLanguage;
+  onCopy: () => void;
+  onEditForResend?: () => void;
+  onFeedback?: (feedback: MessageFeedbackChoice) => void;
+  role: Message['role'];
+};
+
+const messageActionLabels = (language: UiLanguage) =>
+  language === 'en'
+    ? {
+        copy: 'Copy',
+        copied: 'Copied',
+        dislike: 'Bad response',
+        edit: 'Edit and resend',
+        feedbackCommentPlaceholder: 'Add a short note for the test log',
+        feedbackCommentSaved: 'Saved',
+        feedbackCommentSubmit: 'Save',
+        like: 'Good response',
+      }
+    : {
+        copy: '복사',
+        copied: '복사됨',
+        dislike: '좋지 않은 답변',
+        edit: '수정해서 다시 보내기',
+        feedbackCommentPlaceholder: '테스트 기록에 남길 의견을 짧게 입력',
+        feedbackCommentSaved: '저장됨',
+        feedbackCommentSubmit: '저장',
+        like: '좋은 답변',
+      };
+
+const readStoredMessageFeedback = (): ChatFeedbackPayload[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STORED_MESSAGE_FEEDBACK_KEY) || '[]');
+    return Array.isArray(parsed) ? (parsed as ChatFeedbackPayload[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredMessageFeedback = (payload: ChatFeedbackPayload): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const existing = readStoredMessageFeedback();
+  const next = [
+    payload,
+    ...existing.filter((item) => item.messageId !== payload.messageId),
+  ].slice(0, 200);
+  window.localStorage.setItem(STORED_MESSAGE_FEEDBACK_KEY, JSON.stringify(next));
+};
+
+const removeStoredMessageFeedback = (messageId: string): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const next = readStoredMessageFeedback().filter((item) => item.messageId !== messageId);
+  window.localStorage.setItem(STORED_MESSAGE_FEEDBACK_KEY, JSON.stringify(next));
+};
+
+const MessageActionButton: React.FC<{
+  active?: boolean;
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+}> = ({ active = false, children, label, onClick, pressed }) => (
+  <button
+    aria-label={label}
+    aria-pressed={pressed}
+    className="komsco-ai__message-action-button"
+    data-active={active ? 'true' : undefined}
+    onClick={onClick}
+    title={label}
+    type="button"
+  >
+    {children}
+  </button>
+);
+
+const MessageActionFooter: React.FC<MessageActionFooterProps> = ({
+  copied,
+  copiedLabel,
+  copyLabel,
+  feedback,
+  language,
+  onCopy,
+  onEditForResend,
+  onFeedback,
+  role,
+}) => {
+  const labels = messageActionLabels(language);
+  const copyButtonLabel = copied ? copiedLabel || labels.copied : copyLabel || labels.copy;
+
+  if (role === 'user') {
+    return (
+      <div className="komsco-ai__message-actions" data-message-actions="user">
+        {onEditForResend && (
+          <MessageActionButton label={labels.edit} onClick={onEditForResend}>
+            <CoolPencilIcon />
+          </MessageActionButton>
+        )}
+        <MessageActionButton active={copied} label={copyButtonLabel} onClick={onCopy}>
+          <CoolCopyIcon />
+        </MessageActionButton>
+      </div>
+    );
+  }
+
+  if (role !== 'assistant') {
+    return null;
+  }
+
+  return (
+    <div className="komsco-ai__message-actions" data-message-actions="assistant">
+      <MessageActionButton active={copied} label={copyButtonLabel} onClick={onCopy}>
+        <CoolCopyIcon />
+      </MessageActionButton>
+      {onFeedback && (
+        <>
+          <MessageActionButton
+            active={feedback === 'up'}
+            label={labels.like}
+            onClick={() => onFeedback('up')}
+            pressed={feedback === 'up'}
+          >
+            <CoolThumbsUpIcon />
+          </MessageActionButton>
+          <MessageActionButton
+            active={feedback === 'down'}
+            label={labels.dislike}
+            onClick={() => onFeedback('down')}
+            pressed={feedback === 'down'}
+          >
+            <CoolThumbsDownIcon />
+          </MessageActionButton>
+        </>
+      )}
+    </div>
+  );
+};
+
+const MessageFeedbackComment: React.FC<{
+  comment?: string;
+  feedback: MessageFeedbackChoice;
+  language: UiLanguage;
+  onSubmit: (comment: string) => void;
+}> = ({ comment = '', feedback, language, onSubmit }) => {
+  const labels = messageActionLabels(language);
+  const [draft, setDraft] = React.useState(comment);
+
+  React.useEffect(() => {
+    setDraft(comment);
+  }, [comment, feedback]);
+
+  const trimmedDraft = draft.trim();
+  const savedComment = comment.trim();
+  const dirty = trimmedDraft !== savedComment;
+  const prompt =
+    language === 'en'
+      ? feedback === 'down'
+        ? 'What should be improved?'
+        : 'What worked well?'
+      : feedback === 'down'
+        ? '무엇을 개선할까요?'
+        : '무엇이 좋았나요?';
+
+  return (
+    <form
+      className="komsco-ai__feedback-comment"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!dirty) {
+          return;
+        }
+        onSubmit(trimmedDraft);
+      }}
+    >
+      <label>
+        <span>{prompt}</span>
+        <input
+          maxLength={1000}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder={labels.feedbackCommentPlaceholder}
+          value={draft}
+        />
+      </label>
+      <button disabled={!dirty} type="submit">
+        {dirty ? labels.feedbackCommentSubmit : labels.feedbackCommentSaved}
+      </button>
+    </form>
+  );
+};
+
+const writeClipboardText = async (text: string): Promise<boolean> => {
+  if (!text) {
+    return false;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the textarea copy path for local console/browser contexts.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.inset = '0 auto auto 0';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    return document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
+};
+
+const mergeStoredActiveConversationIntoHistory = (
+  history: ConversationHistoryItem[],
+  activeConversation: StoredActiveConversation | undefined,
+  language: UiLanguage,
+): ConversationHistoryItem[] => {
+  if (!activeConversation?.messages.length) {
+    return history;
+  }
+
+  const existing = history.find((conversation) => conversation.id === activeConversation.activeSessionId);
+  const activeHistoryItem: ConversationHistoryItem = {
+    id: activeConversation.activeSessionId,
+    title: existing?.title || getConversationTitle(activeConversation.messages, language),
+    updatedAt: Date.now(),
+    conversationId: activeConversation.conversationId,
+    messages: activeConversation.messages,
+    actionRefs: activeConversation.actionRefs,
+    actionTargetKeys: activeConversation.actionTargetKeys,
+  };
+
+  return [
+    activeHistoryItem,
+    ...history.filter((conversation) => conversation.id !== activeConversation.activeSessionId),
+  ].slice(0, MAX_STORED_CONVERSATIONS);
+};
+
 const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   defaultOpen = false,
   draftPrompt,
@@ -861,27 +1132,29 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, [executionMode, autoProposeActions]);
   const [dragActive, setDragActive] = React.useState(false);
   const initialActiveConversation = React.useMemo(readStoredActiveConversation, []);
-  const [messages, setMessages] = React.useState<Message[]>(
-    () => initialActiveConversation?.messages ?? [],
+  const initialUiLanguage = React.useMemo(readStoredUiLanguage, []);
+  const initialConversationHistory = React.useMemo(
+    () =>
+      mergeStoredActiveConversationIntoHistory(
+        readStoredConversationHistory(),
+        initialActiveConversation,
+        initialUiLanguage,
+      ),
+    [initialActiveConversation, initialUiLanguage],
   );
-  const [conversationId, setConversationId] = React.useState<string | undefined>(
-    () => initialActiveConversation?.conversationId,
-  );
-  const [activeSessionId, setActiveSessionId] = React.useState(
-    () => initialActiveConversation?.activeSessionId ?? createRunId(),
-  );
+  const [messages, setMessages] = React.useState<Message[]>([]);
+  const [conversationId, setConversationId] = React.useState<string | undefined>(undefined);
+  const [activeSessionId, setActiveSessionId] = React.useState(createRunId);
   const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>(
-    readStoredConversationHistory,
+    initialConversationHistory,
   );
   const suppressNextHistoryAutosaveRef = React.useRef(false);
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
   const [sessionActionTargetKeys, setSessionActionTargetKeys] = React.useState<Set<string>>(
-    () => new Set(initialActiveConversation?.actionTargetKeys ?? []),
+    () => new Set(),
   );
-  const [sessionActionRefs, setSessionActionRefs] = React.useState<ConversationActionRef[]>(
-    () => initialActiveConversation?.actionRefs ?? [],
-  );
+  const [sessionActionRefs, setSessionActionRefs] = React.useState<ConversationActionRef[]>([]);
   const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
   const [uploadedDocumentsError, setUploadedDocumentsError] = React.useState('');
   const [uploadedDocumentsLoading, setUploadedDocumentsLoading] = React.useState(false);
@@ -906,7 +1179,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }>({});
   const [stickToBottom, setStickToBottom] = React.useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
-  const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>(() => readStoredUiLanguage());
+  const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>(initialUiLanguage);
   const [loading, setLoading] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
@@ -1232,47 +1505,93 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       const parentRect = surface.parentElement?.getBoundingClientRect();
       const startX = event.clientX;
       const startY = event.clientY;
+      const startOffset = panelOffset;
       const minHeight = 420;
-      const maxHeight = Math.max(minHeight, window.innerHeight - 32);
+      const viewportPadding = 8;
+      const maxHeight = Math.max(minHeight, window.innerHeight - viewportPadding * 2);
       const minWidth = Math.min(460, Math.max(320, window.innerWidth - 32));
       const maxWidth = Math.max(
         minWidth,
         embedded
           ? Math.min(parentRect?.width || window.innerWidth - 32, window.innerWidth - 32)
-          : window.innerWidth - 32,
+          : window.innerWidth - viewportPadding * 2,
       );
       const clamp = (value: number, min: number, max: number) =>
         Math.min(Math.max(value, min), max);
+      const previousUserSelect = document.body.style.userSelect;
+      const previousCursor = document.body.style.cursor;
+      const resizeCursor = direction.includes('n') && direction.includes('e')
+        ? 'nesw-resize'
+        : direction.includes('s') && direction.includes('w')
+          ? 'nesw-resize'
+          : direction.includes('n') && direction.includes('w')
+            ? 'nwse-resize'
+            : direction.includes('s') && direction.includes('e')
+              ? 'nwse-resize'
+              : direction.includes('n') || direction.includes('s')
+                ? 'ns-resize'
+                : 'ew-resize';
+
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = resizeCursor;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
         const deltaX = moveEvent.clientX - startX;
         const deltaY = moveEvent.clientY - startY;
+        const widthMaxForDirection = direction.includes('e')
+          ? Math.min(maxWidth, window.innerWidth - initialRect.left - viewportPadding)
+          : direction.includes('w')
+            ? Math.min(maxWidth, initialRect.right - viewportPadding)
+            : maxWidth;
+        const heightMaxForDirection = direction.includes('s')
+          ? Math.min(maxHeight, window.innerHeight - initialRect.top - viewportPadding)
+          : direction.includes('n')
+            ? Math.min(maxHeight, initialRect.bottom - viewportPadding)
+            : maxHeight;
         const nextHeight = direction.includes('n')
-          ? clamp(initialRect.height - deltaY, minHeight, maxHeight)
+          ? clamp(initialRect.height - deltaY, minHeight, heightMaxForDirection)
           : direction.includes('s')
-            ? clamp(initialRect.height + deltaY, minHeight, maxHeight)
+            ? clamp(initialRect.height + deltaY, minHeight, heightMaxForDirection)
             : initialRect.height;
         const nextWidth = direction.includes('w')
-          ? clamp(initialRect.width - deltaX, minWidth, maxWidth)
+          ? clamp(initialRect.width - deltaX, minWidth, widthMaxForDirection)
           : direction.includes('e')
-            ? clamp(initialRect.width + deltaX, minWidth, maxWidth)
+            ? clamp(initialRect.width + deltaX, minWidth, widthMaxForDirection)
             : initialRect.width;
+        const nextOffset = {
+          x:
+            !embedded && direction.includes('e')
+              ? startOffset.x + nextWidth - initialRect.width
+              : startOffset.x,
+          y:
+            !embedded && direction.includes('s')
+              ? startOffset.y + nextHeight - initialRect.height
+              : startOffset.y,
+        };
 
         setPanelSize({
           height: Math.round(nextHeight),
           width: Math.round(nextWidth),
         });
+        if (!embedded && (direction.includes('e') || direction.includes('s'))) {
+          setPanelOffset({
+            x: Number(nextOffset.x.toFixed(1)),
+            y: Number(nextOffset.y.toFixed(1)),
+          });
+        }
       };
 
       const stopPanelResize = () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', stopPanelResize);
+        document.body.style.userSelect = previousUserSelect;
+        document.body.style.cursor = previousCursor;
       };
 
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', stopPanelResize);
     },
-    [embedded, fullScreen, panelResizeUnlocked],
+    [embedded, fullScreen, panelOffset, panelResizeUnlocked],
   );
 
   React.useLayoutEffect(() => {
@@ -2061,17 +2380,142 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       stripDefaultEvidenceAppendix(message.content).trim(),
     );
     const text = `${redactedContent}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
-    if (!text || !navigator.clipboard) {
+    if (!text) {
       return;
     }
 
-    void navigator.clipboard.writeText(text).then(() => {
+    void writeClipboardText(text).then((copied) => {
+      if (!copied) {
+        return;
+      }
       setCopiedMessageIndex(index);
       window.setTimeout(() => {
         setCopiedMessageIndex((current) => (current === index ? null : current));
       }, 1400);
     });
   }, []);
+
+  const editMessageForResend = React.useCallback((message: Message) => {
+    const draft = stripDefaultEvidenceAppendix(message.content).trim();
+    if (!draft) {
+      return;
+    }
+    setInput(draft);
+    setPendingAttachments(message.attachments ?? []);
+    window.setTimeout(() => {
+      surfaceRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    }, 0);
+  }, []);
+
+  const persistMessageFeedback = React.useCallback(
+    (
+      index: number,
+      message: Message,
+      feedback: MessageFeedbackChoice,
+      optionalComment?: string,
+    ) => {
+      const messageId = `${activeSessionId}:${index}:${message.timestamp ?? 'pending'}`;
+      const submittedAt = new Date().toISOString();
+      const payload: ChatFeedbackPayload = {
+        answerContract: message.answerContract,
+        answerSource: message.answerSource,
+        conversationId: conversationId ?? activeSessionId,
+        feedbackId: `feedback-${messageId.replace(/[^a-zA-Z0-9-]+/g, '-')}`,
+        intent: message.toolPlan?.taskType,
+        messageId,
+        mode: executionMode,
+        optionalComment: optionalComment?.trim() || undefined,
+        rating: feedback,
+        route: window.location.pathname,
+        timestamp: submittedAt,
+      };
+
+      writeStoredMessageFeedback(payload);
+      void submitChatFeedback(payload).catch((error) => {
+        // Feedback is already kept locally; gateway persistence is best-effort during local tests.
+        // eslint-disable-next-line no-console
+        console.warn('AIOps feedback persistence failed', error);
+      });
+    },
+    [activeSessionId, conversationId, executionMode],
+  );
+
+  const toggleMessageFeedback = React.useCallback(
+    (index: number, feedback: MessageFeedbackChoice) => {
+      const currentMessage = messagesRef.current[index];
+      const messageId = `${activeSessionId}:${index}:${currentMessage?.timestamp ?? 'pending'}`;
+      const clearingFeedback =
+        currentMessage?.role === 'assistant' && currentMessage.feedback === feedback;
+
+      setMessages((prev) => {
+        const message = prev[index];
+        if (!message || message.role !== 'assistant') {
+          return prev;
+        }
+        const next = [...prev];
+        const nextMessage = { ...message };
+        if (nextMessage.feedback === feedback) {
+          delete nextMessage.feedback;
+          delete nextMessage.feedbackAt;
+          delete nextMessage.feedbackComment;
+        } else {
+          const previousFeedback = nextMessage.feedback;
+          nextMessage.feedback = feedback;
+          nextMessage.feedbackAt = Date.now();
+          if (previousFeedback && previousFeedback !== feedback) {
+            delete nextMessage.feedbackComment;
+          }
+        }
+        next[index] = nextMessage;
+        return next;
+      });
+
+      if (!currentMessage || currentMessage.role !== 'assistant') {
+        return;
+      }
+
+      if (clearingFeedback) {
+        removeStoredMessageFeedback(messageId);
+        return;
+      }
+
+      persistMessageFeedback(
+        index,
+        currentMessage,
+        feedback,
+        currentMessage.feedback && currentMessage.feedback !== feedback
+          ? undefined
+          : currentMessage.feedbackComment,
+      );
+    },
+    [activeSessionId, persistMessageFeedback],
+  );
+
+  const submitMessageFeedbackComment = React.useCallback(
+    (index: number, comment: string) => {
+      const currentMessage = messagesRef.current[index];
+      if (!currentMessage || currentMessage.role !== 'assistant' || !currentMessage.feedback) {
+        return;
+      }
+
+      const normalizedComment = comment.trim();
+      setMessages((prev) => {
+        const message = prev[index];
+        if (!message || message.role !== 'assistant') {
+          return prev;
+        }
+        const next = [...prev];
+        next[index] = {
+          ...message,
+          feedbackComment: normalizedComment || undefined,
+        };
+        return next;
+      });
+
+      persistMessageFeedback(index, currentMessage, currentMessage.feedback, normalizedComment);
+    },
+    [persistMessageFeedback],
+  );
 
   const upsertProgressStep = React.useCallback((step: ProgressStep) => {
     setMessages((prev) => {
@@ -2372,6 +2816,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         let runLoopStartedAt: number | undefined;
         let runCompleted = false;
         let fallbackAnswerSeen = false;
+        let clarificationAnswerSeen = false;
         let lightspeedStageSeen = false;
         let stepSequence = 0;
 
@@ -2590,7 +3035,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               });
               setMessages((prev) => markLastAssistantSource(prev, 'ols', event.gatewayContextDigest));
             }
-            if (event.stage === 'completed' && !lightspeedStageSeen && !fallbackAnswerSeen) {
+            if (
+              event.stage === 'completed' &&
+              !lightspeedStageSeen &&
+              !fallbackAnswerSeen &&
+              !clarificationAnswerSeen
+            ) {
               updateLightspeedStatus({
                 fallbackActive: false,
                 lastStatus: 'gateway_direct',
@@ -2712,6 +3162,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 lastStatus: event.streamProbe ?? 'failed',
                 streamProbe: event.streamProbe ?? 'failed',
               });
+            } else if (event.source === 'copilot_clarification') {
+              clarificationAnswerSeen = true;
+              setMessages((prev) =>
+                markLastAssistantSource(prev, 'copilot_clarification', event.gatewayContextDigest),
+              );
             } else {
               setMessages((prev) =>
                 markLastAssistantSource(
@@ -2873,10 +3328,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       return;
     }
 
+    startNewConversation();
     setHistorySidebarOpen(false);
     setHistoryDrawerBounds({});
+    setPanelResizeUnlocked(false);
+    setPanelSize({});
+    setPanelOffset({ x: 0, y: 0 });
+    setPanelDragActive(false);
+    setFullScreen(false);
     setOpen(false);
-  }, [lockOpen]);
+  }, [lockOpen, startNewConversation]);
 
   const historySidebar = historySidebarOpen ? (
     <AssistantHistoryPanel
@@ -3009,7 +3470,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const messageActionAnchor =
                           message.role === 'assistant' ? actionAnchorForMessageIndex(index) : undefined;
                         const matchedActionCandidates =
-                          isLatestAssistantMessage && hasContent
+                          isLatestAssistantMessage &&
+                          hasContent &&
+                          executionModeAllowsActions(executionMode)
                             ? matchActionCandidatesForMessage(message.content, actionCandidates)
                             : [];
                         const answerActionRecords =
@@ -3042,13 +3505,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           >
                             <div className="komsco-ai__message-stack">
                               <AssistantMessageHeader
-                                copied={copiedMessageIndex === index}
-                                copiedLabel={copy.answerCopied}
-                                copyLabel={copy.answerCopy}
                                 hasContent={hasContent}
                                 language={uiLanguage}
                                 message={message}
-                                onCopy={() => copyMessage(message, index)}
                               />
                               {(hasContent || (!hasProgress && !waitingForContent)) && (
                                 <div className="komsco-ai__message-content">
@@ -3070,10 +3529,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 hasContent &&
                                 (
                                   <AssistantCreateActionPlanButtons
-                                    busyCandidateId={busyActionCandidateId}
-                                    candidates={matchedActionCandidates}
-                                    onCreatePlan={handleCreateActionPlanFromChat}
-                                  />
+	                                    busyCandidateId={busyActionCandidateId}
+	                                    candidates={matchedActionCandidates}
+	                                    language={uiLanguage}
+	                                    onCreatePlan={handleCreateActionPlanFromChat}
+	                                  />
                                 )}
                               {message.role === 'assistant' &&
                                 hasContent &&
@@ -3098,6 +3558,36 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               )}
                               {messageTime && (
                                 <div className="komsco-ai__message-time">{messageTime}</div>
+                              )}
+                              {hasContent &&
+                                (message.role === 'assistant' || message.role === 'user') && (
+                                  <MessageActionFooter
+                                    copied={copiedMessageIndex === index}
+                                    copiedLabel={copy.answerCopied}
+                                    copyLabel={copy.answerCopy}
+                                    feedback={message.feedback}
+                                    language={uiLanguage}
+                                    onCopy={() => copyMessage(message, index)}
+                                    onEditForResend={
+                                      message.role === 'user'
+                                        ? () => editMessageForResend(message)
+                                        : undefined
+                                    }
+                                    onFeedback={
+                                      message.role === 'assistant'
+                                        ? (feedback) => toggleMessageFeedback(index, feedback)
+                                        : undefined
+                                    }
+                                    role={message.role}
+                                  />
+                                )}
+                              {hasContent && message.role === 'assistant' && message.feedback && (
+                                <MessageFeedbackComment
+                                  comment={message.feedbackComment}
+                                  feedback={message.feedback}
+                                  language={uiLanguage}
+                                  onSubmit={(comment) => submitMessageFeedbackComment(index, comment)}
+                                />
                               )}
                             </div>
                           </div>

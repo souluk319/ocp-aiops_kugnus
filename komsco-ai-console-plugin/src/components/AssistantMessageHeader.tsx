@@ -1,6 +1,5 @@
 import * as React from 'react';
 import {
-  CoolCopyIcon,
   CoolInfoIcon,
   CoolUserCircleIcon,
 } from './coolicons';
@@ -9,13 +8,9 @@ import type { Message, UiLanguage } from './assistant.types';
 import aiopsIcon from '../assets/aiops_icon.svg';
 
 type AssistantMessageHeaderProps = {
-  copied: boolean;
-  copyLabel: string;
-  copiedLabel: string;
   hasContent: boolean;
   language: UiLanguage;
   message: Message;
-  onCopy: () => void;
 };
 
 const getMessageLabel = (role: Message['role'], language: UiLanguage): string => {
@@ -50,7 +45,10 @@ const assistantSourceLabel = (message: Message): string => {
     return 'OLS 연결';
   }
   if (message.answerSource === 'gateway_direct') {
-    return 'Gateway 직접조회';
+    return 'Gateway 실조회';
+  }
+  if (message.answerSource === 'copilot_clarification') {
+    return '요청 확인';
   }
   return '응답 경로 확인 중';
 };
@@ -61,6 +59,9 @@ const assistantSourceClass = (message: Message): string => {
   }
   if (message.answerSource === 'ols') {
     return 'komsco-ai__message-source--ols';
+  }
+  if (message.answerSource === 'copilot_clarification') {
+    return 'komsco-ai__message-source--clarification';
   }
   return 'komsco-ai__message-source--aiops';
 };
@@ -78,20 +79,19 @@ const assistantSourceTitle = (message: Message): string => {
   }
   if (message.answerSource === 'gateway_direct') {
     return message.gatewayContextDigest
-      ? `Gateway direct evidence response · ${message.gatewayContextDigest}`
-      : 'Gateway direct evidence response';
+      ? `Gateway 실조회 · 결정형 조회라 Lightspeed를 호출하지 않았습니다 · ${message.gatewayContextDigest}`
+      : 'Gateway 실조회 · 결정형 조회라 Lightspeed를 호출하지 않았습니다';
+  }
+  if (message.answerSource === 'copilot_clarification') {
+    return '요청 대상과 작업 목적을 더 확인해야 합니다.';
   }
   return 'Answer source is still being resolved';
 };
 
 const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
-  copied,
-  copiedLabel,
-  copyLabel,
   hasContent,
   language,
   message,
-  onCopy,
 }) => {
   const sourceLabel =
     message.role === 'assistant' && hasContent ? assistantSourceLabel(message) : '';
@@ -111,18 +111,6 @@ const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
         >
           {sourceLabel}
         </span>
-      )}
-      {message.role === 'assistant' && hasContent && (
-        <button
-          aria-label={copyLabel}
-          className="komsco-ai__message-copy"
-          onClick={onCopy}
-          title={copyLabel}
-          type="button"
-        >
-          <CoolCopyIcon />
-          <span>{copied ? copiedLabel : copyLabel}</span>
-        </button>
       )}
     </div>
   );

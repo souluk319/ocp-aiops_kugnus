@@ -4,9 +4,17 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const WebSocket = require('ws');
 
 const root = path.resolve(__dirname, '..');
+const requireFromPlugin = require('module').createRequire(
+  path.join(root, 'komsco-ai-console-plugin', 'package.json'),
+);
+let WebSocket;
+try {
+  WebSocket = require('ws');
+} catch (_error) {
+  WebSocket = requireFromPlugin('ws');
+}
 const chrome = process.env.AIOPS_CHROME_BIN || '/home/kugnus/.local/bin/google-chrome';
 const port = Number(process.env.AIOPS_CHROME_DEBUG_PORT || '9361');
 const consoleUrl =
@@ -38,13 +46,17 @@ const sourceReview = () => {
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
   const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
+  const gatewayService = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
+  const localGateway = readFile('scripts/serve-v0281-local-aiops-gateway.cjs');
   const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
   const portal = readFile('komsco-ai-portal/src/App.tsx');
 
   assert(actionRecords.includes('ActionStageIcon'), 'Action Plan cards must expose lifecycle icons');
   assert(
-    /readOnlyBlocked\s*\?\s*\[\]/.test(actionRecords),
-    'read-only mode must hide repeated action buttons',
+    actionRecords.includes("const readOnlyBlocked = executionMode === 'read-only'") &&
+      actionRecords.includes('읽기 전용 모드입니다. 버튼은 유지하고 클릭 시 실행 제한 사유를 표시합니다.') &&
+      actionRecords.includes('읽기 전용 모드에서는 승인·실행 요청을 보내지 않습니다.'),
+    'read-only mode must keep Action Plan CTAs visible but show execution-limit reasons',
   );
   assert(
     actionRecords.includes("strong>Action Plan</strong"),
@@ -91,6 +103,31 @@ const sourceReview = () => {
       css.includes('background: transparent') &&
       css.includes('border: 0'),
     'only assistant message avatar should lose its outer frame',
+  );
+  assert(
+    launcher.includes('data-message-actions="user"') &&
+      launcher.includes('data-message-actions="assistant"') &&
+      launcher.includes('수정해서 다시 보내기') &&
+      launcher.includes('좋은 답변') &&
+      launcher.includes('좋지 않은 답변'),
+    'message-level actions must preserve user edit/copy and assistant copy/rating controls',
+  );
+  assert(
+    launcher.includes('komsco-ai__feedback-comment') &&
+      launcher.includes('feedbackCommentPlaceholder') &&
+      launcher.includes('submitMessageFeedbackComment') &&
+      launcher.includes('optionalComment'),
+    'assistant feedback must support an inline tester comment, not only a local icon state',
+  );
+  assert(
+    gatewayService.includes('optionalComment?: string') &&
+      gatewayService.includes('/v1/chat/feedback'),
+    'console gateway service must include deployable chat feedback payload contract',
+  );
+  assert(
+    localGateway.includes('optionalComment: body.optionalComment') &&
+      localGateway.includes('LOCAL_CHAT_FEEDBACK.set'),
+    'local fixture gateway must persist feedback comments for browser acceptance tests',
   );
   assert(
     /\.komsco-ai__surface \.komsco-ai__empty-mark\s*\{[\s\S]*background: transparent;[\s\S]*border: 0;[\s\S]*box-shadow: none;[\s\S]*\}/.test(css) &&
@@ -244,6 +281,7 @@ const installAssistantFixture = async () =>
     const historyKey = 'komsco-ai.assistant.conversation-history.v1';
     const activeKey = 'komsco-ai.assistant.active-conversation.v1';
     const languageKey = 'komsco-ai.assistant.ui-language.v1';
+    const feedbackKey = 'komsco-ai.assistant.message-feedback.v1';
     const messageAnchor = 'assistant-message-1';
 
     const asObject = (value) => value && typeof value === 'object' ? value : {};
@@ -409,6 +447,7 @@ const installAssistantFixture = async () =>
     localStorage.setItem(activeKey, JSON.stringify(snapshot));
     localStorage.setItem(historyKey, JSON.stringify(history));
     localStorage.setItem(languageKey, JSON.stringify('ko'));
+    localStorage.setItem(feedbackKey, JSON.stringify([]));
     return { refsCount: refs.length, statusLoaded: Boolean(status) };
   })()`);
 
@@ -433,7 +472,7 @@ const openHistory = async () => {
     const sidebar = document.querySelector('.komsco-ai__history-sidebar');
     const rect = sidebar?.getBoundingClientRect();
     return {
-      isOpen: Boolean(rect && rect.width > 160 && document.querySelectorAll('.komsco-ai__history-action-ref').length > 0)
+      isOpen: Boolean(rect && rect.width > 160)
     };
   })()`);
   if (!before?.isOpen) {
@@ -443,10 +482,73 @@ const openHistory = async () => {
     `(() => {
       const sidebar = document.querySelector('.komsco-ai__history-sidebar');
       const rect = sidebar?.getBoundingClientRect();
-      return Boolean(rect && rect.width > 160 && document.querySelectorAll('.komsco-ai__history-action-ref').length > 0);
+      return Boolean(rect && rect.width > 160);
     })()`,
     Boolean,
     'history sidebar open',
+    60000,
+  );
+};
+
+const openHistoryActionList = async (rowIndex = 0) => {
+  await openHistory();
+  const openedMenu = await evaluate(`(() => {
+    const rows = Array.from(document.querySelectorAll('.komsco-ai__history-item-row'));
+    const row = rows[${rowIndex}];
+    const trigger = row?.querySelector('.komsco-ai__history-item-menu-trigger');
+    if (!trigger) return { ok: false, reason: 'missing trigger', rowCount: rows.length };
+    trigger.click();
+    return { ok: true, rowCount: rows.length };
+  })()`);
+  assert(openedMenu?.ok, 'history row menu must be openable', openedMenu);
+  await poll(
+    `Boolean(document.querySelector('.komsco-ai__history-item-menu-panel'))`,
+    Boolean,
+    'history row menu panel',
+    10000,
+  );
+  const clickedActionHistory = await evaluate(`(() => {
+    const items = Array.from(document.querySelectorAll('.komsco-ai__history-item-menu-panel [role="menuitem"]'));
+    const actionItem = items.find((item) => item.textContent.includes('조치내역'));
+    if (!actionItem) {
+      return { ok: false, labels: items.map((item) => item.textContent.trim()) };
+    }
+    actionItem.click();
+    return { ok: true, labels: items.map((item) => item.textContent.trim()) };
+  })()`);
+  assert(clickedActionHistory?.ok, 'history row menu must expose 조치내역', clickedActionHistory);
+  await poll(
+    `(() => {
+      const rows = Array.from(document.querySelectorAll('.komsco-ai__history-item-row'));
+      const row = rows[${rowIndex}];
+      return Boolean(row?.querySelector('.komsco-ai__history-action-refs'));
+    })()`,
+    Boolean,
+    'history action list expanded',
+    10000,
+  );
+};
+
+const ensureFixtureConversationLoaded = async () => {
+  const hasAssistantMessage = await evaluate(
+    `Boolean(document.querySelector('.komsco-ai__message--assistant .komsco-ai__message-content'))`,
+  );
+  if (hasAssistantMessage) {
+    return;
+  }
+
+  await openHistory();
+  const clickedConversation = await evaluate(`(() => {
+    const item = document.querySelector('.komsco-ai__history-item-row .komsco-ai__history-item');
+    if (!item) return false;
+    item.click();
+    return true;
+  })()`);
+  assert(clickedConversation, 'history fixture conversation must be loadable from the sidebar');
+  await poll(
+    `Boolean(document.querySelector('.komsco-ai__message--assistant .komsco-ai__message-content'))`,
+    Boolean,
+    'fixture conversation loaded from history',
     60000,
   );
 };
@@ -462,6 +564,16 @@ const verifyConsoleAssistant = async () => {
     90000,
   );
   await openAssistant();
+  const emptyAfterReload = await evaluate(`(() => ({
+    assistantMessages: document.querySelectorAll('.komsco-ai__message--assistant').length,
+    userMessages: document.querySelectorAll('.komsco-ai__message--user').length
+  }))()`);
+  assert(
+    emptyAfterReload.assistantMessages === 0 && emptyAfterReload.userMessages === 0,
+    'refresh/reopen must start with an empty current chat; prior conversations stay in history',
+    emptyAfterReload,
+  );
+  await ensureFixtureConversationLoaded();
 
   const metrics = await evaluate(`(() => {
     const content = document.querySelector('.komsco-ai__message--assistant .komsco-ai__message-content');
@@ -492,8 +604,132 @@ const verifyConsoleAssistant = async () => {
     'Action Plan cards must show lifecycle icons',
     metrics,
   );
-  assert(metrics.disabledActionButtons === 0, 'read-only mode must not show repeated disabled action buttons', metrics);
+  assert(metrics.disabledActionButtons === 0, 'read-only mode must not render inert disabled action buttons', metrics);
   assert(metrics.rawTerms.length === 0, 'default assistant answer must not expose raw internal terms', metrics);
+
+  const actionMetrics = await evaluate(`(() => {
+    const labelOf = (el) => el.getAttribute('aria-label') || el.textContent.trim();
+    const userActions = Array.from(
+      document.querySelectorAll('.komsco-ai__message--user [data-message-actions="user"] button')
+    ).map(labelOf);
+    const assistantActions = Array.from(
+      document.querySelectorAll('.komsco-ai__message--assistant [data-message-actions="assistant"] button')
+    ).map(labelOf);
+    const allMessageActions = Array.from(document.querySelectorAll('.komsco-ai__message-actions button')).map(labelOf);
+    return {
+      assistantActions,
+      hiddenFullscreenInMessageActions: allMessageActions.some((label) => /full screen|fullscreen|전체.?화면/i.test(label)),
+      userActions
+    };
+  })()`);
+  assert(
+    JSON.stringify(actionMetrics.userActions) === JSON.stringify(['수정해서 다시 보내기', '복사']),
+    'user message footer must expose edit-resend and copy only',
+    actionMetrics,
+  );
+  assert(
+    JSON.stringify(actionMetrics.assistantActions) ===
+      JSON.stringify(['복사', '좋은 답변', '좋지 않은 답변']),
+    'assistant message footer must expose copy, good response, and bad response only',
+    actionMetrics,
+  );
+  assert(
+    !actionMetrics.hiddenFullscreenInMessageActions,
+    'message footer must not contain a fullscreen action',
+    actionMetrics,
+  );
+
+  const editResendMetrics = await evaluate(`(() => {
+    const edit = document.querySelector('.komsco-ai__message--user [aria-label="수정해서 다시 보내기"]');
+    const textarea = document.querySelector('.komsco-ai__composer textarea');
+    edit?.click();
+    return {
+      textareaValue: textarea?.value || '',
+      userText: document.querySelector('.komsco-ai__message--user .komsco-ai__message-content')?.textContent.trim() || ''
+    };
+  })()`);
+  assert(
+    editResendMetrics.textareaValue === editResendMetrics.userText,
+    'edit-resend must move the exact user message back into the composer',
+    editResendMetrics,
+  );
+
+  const feedbackComment = '검증 스크립트: 답변 예시는 더 짧게 유지';
+  const feedbackClickMetrics = await evaluate(`(() => {
+    const down = document.querySelector('.komsco-ai__message--assistant [aria-label="좋지 않은 답변"]');
+    down?.click();
+    const form = document.querySelector('.komsco-ai__feedback-comment');
+    const input = form?.querySelector('input');
+    return {
+      formTextBeforeSubmit: form?.textContent.trim() || '',
+      inputValue: input?.value || '',
+      pressed: down?.getAttribute('aria-pressed') || ''
+    };
+  })()`);
+  assert(
+    feedbackClickMetrics.pressed === 'true' &&
+      feedbackClickMetrics.formTextBeforeSubmit.includes('무엇을 개선할까요?') &&
+      feedbackClickMetrics.inputValue === '',
+    'thumbs-down feedback must open an editable tester comment rail',
+    feedbackClickMetrics,
+  );
+  await evaluate(`(() => {
+    const input = document.querySelector('.komsco-ai__feedback-comment input');
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, ${JSON.stringify(feedbackComment)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  const feedbackDraftMetrics = await poll(
+    `(() => {
+      const form = document.querySelector('.komsco-ai__feedback-comment');
+      const input = form?.querySelector('input');
+      const submit = form?.querySelector('button');
+      return {
+        buttonDisabledBeforeSubmit: Boolean(submit?.disabled),
+        buttonTextBeforeSubmit: submit?.textContent.trim() || '',
+        inputValue: input?.value || '',
+        ok: input?.value === ${JSON.stringify(feedbackComment)} &&
+          submit?.textContent.trim() === '저장' &&
+          !submit?.disabled
+      };
+    })()`,
+    (value) => value?.ok,
+    'editable feedback comment dirty state',
+    10000,
+  );
+  await evaluate(`document.querySelector('.komsco-ai__feedback-comment button')?.click(); true;`);
+  const feedbackStored = await poll(
+    `(() => {
+      const feedbackKey = 'komsco-ai.assistant.message-feedback.v1';
+      const records = JSON.parse(localStorage.getItem(feedbackKey) || '[]');
+      const latest = records[records.length - 1] || {};
+      return {
+        latest,
+        ok: latest.rating === 'down' && latest.optionalComment === ${JSON.stringify(feedbackComment)}
+      };
+    })()`,
+    (value) => value?.ok,
+    'local feedback payload with optional comment',
+    10000,
+  );
+  const feedbackGateway = await poll(
+    `(async () => {
+      const response = await fetch('/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status');
+      if (!response.ok) return { ok: false, status: response.status };
+      const payload = await response.json();
+      const records = payload?.spec?.records?.chatFeedback || [];
+      const latest = records[records.length - 1] || {};
+      return {
+        latest,
+        ok: latest?.spec?.rating === 'down' && latest?.spec?.optionalComment === ${JSON.stringify(feedbackComment)}
+      };
+    })()`,
+    (value) => value?.ok,
+    'gateway feedback record with optional comment',
+    30000,
+  );
 
   const headerMetrics = await evaluate(`(() => {
     const header = document.querySelector('.komsco-ai__header');
@@ -591,7 +827,7 @@ const verifyConsoleAssistant = async () => {
     respondingRailMetrics,
   );
 
-  await openHistory();
+  await openHistoryActionList(0);
   const historyMetrics = await evaluate(`(() => {
     const sidebar = document.querySelector('.komsco-ai__history-sidebar');
     const brand = document.querySelector('.komsco-ai__history-brand');
@@ -633,6 +869,7 @@ const verifyConsoleAssistant = async () => {
     Array.from(document.querySelectorAll('.komsco-ai__history-item-row .komsco-ai__history-item span'))
       .map((el) => el.textContent.trim())
   )()`);
+  await openHistoryActionList(1);
   const clickedOlderAction = await evaluate(`(() => {
     const rows = Array.from(document.querySelectorAll('.komsco-ai__history-item-row'));
     const target = rows[1]?.querySelector('.komsco-ai__history-action-ref');
@@ -657,7 +894,7 @@ const verifyConsoleAssistant = async () => {
     fs.writeFileSync(path.join(screenshotDir, 'v0281-chatbot-history.png'), Buffer.from(result.data, 'base64'));
   });
 
-  return { fixture, historyMetrics, metrics };
+  return { feedbackGateway, feedbackStored, fixture, historyMetrics, metrics };
 };
 
 const verifyStandalonePortal = async () => {

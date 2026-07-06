@@ -13,6 +13,30 @@ type StreamChatOptions = {
   signal?: AbortSignal;
 };
 
+export type ChatFeedbackPayload = {
+  answerContract?: string;
+  answerSource?: string;
+  conversationId?: string;
+  feedbackId?: string;
+  intent?: string;
+  messageId: string;
+  mode: string;
+  optionalComment?: string;
+  rating: 'up' | 'down';
+  route?: string;
+  timestamp: string;
+};
+
+export type ChatFeedbackResult = {
+  apiVersion?: string;
+  kind?: 'ChatFeedback' | string;
+  metadata?: {
+    createdAt?: string;
+    name?: string;
+  };
+  spec?: Record<string, unknown>;
+};
+
 export type ImageAttachment = {
   data: string;
   id: string;
@@ -543,6 +567,7 @@ export type AiopsRuntimeStatus = {
       actionProposals: AiopsRecord[];
       auditRecords?: AiopsRecord[];
       approvalDecisions: AiopsRecord[];
+      chatFeedback?: AiopsRecord[];
       chatTranscripts?: AiopsRecord[];
       diagnosticRequests: AiopsRecord[];
       executionRecords: AiopsRecord[];
@@ -605,6 +630,8 @@ type StreamEvent =
 
 const GATEWAY_STREAM_URL =
   '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/chat/stream';
+const GATEWAY_CHAT_FEEDBACK_URL =
+  '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/chat/feedback';
 const GATEWAY_CLUSTER_SUMMARY_URL =
   '/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/cluster/summary';
 const GATEWAY_AIOPS_OVERVIEW_URL =
@@ -740,6 +767,29 @@ export async function fetchAiopsOverview(): Promise<AiopsOverview> {
   }
 
   return (await response.json()) as AiopsOverview;
+}
+
+export async function submitChatFeedback(
+  payload: ChatFeedbackPayload,
+): Promise<ChatFeedbackResult> {
+  const response = await consoleFetch(
+    GATEWAY_CHAT_FEEDBACK_URL,
+    {
+      body: JSON.stringify(payload),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    },
+    30 * 1000,
+  );
+
+  if (!response.ok) {
+    throw new Error(await gatewayErrorMessage(response, 'Chat feedback request failed', true));
+  }
+
+  return (await response.json()) as ChatFeedbackResult;
 }
 
 export async function fetchActionCandidates(): Promise<AiopsActionCandidateSummary> {
@@ -951,7 +1001,9 @@ export async function createActionCandidatePlan(
     target: {
       apiVersion:
         target.apiVersion ??
-        (target.kind === 'Pod'
+        (target.kind === 'Namespace'
+          ? 'v1'
+          : target.kind === 'Pod'
           ? 'v1'
           : target.kind === 'HorizontalPodAutoscaler'
             ? 'autoscaling/v2'

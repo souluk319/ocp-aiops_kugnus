@@ -444,21 +444,26 @@
 }
 .v2-topbar__bell {
   position: relative;
+  overflow: hidden;
 }
 .v2-topbar__bell-count {
   position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  top: 2px;
+  right: 2px;
+  min-width: 13px;
+  max-width: 18px;
+  height: 13px;
+  padding: 0 3px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  box-sizing: border-box;
+  border-radius: 999px;
   background: var(--v2-risk);
   color: #fff;
-  font-size: 9.5px;
+  font-size: 8px;
   font-weight: 800;
+  line-height: 1;
+  overflow: hidden;
 }
 
 .v2-live-pill {

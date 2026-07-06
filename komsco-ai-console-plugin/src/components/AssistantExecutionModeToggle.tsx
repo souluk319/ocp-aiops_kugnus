@@ -40,8 +40,8 @@ const AssistantExecutionModeToggle: React.FC<AssistantExecutionModeToggleProps> 
         ? `승인 후 실행 비활성: ${actionExecutionDisabledReason}`
         : `Execution disabled: ${actionExecutionDisabledReason}`,
     unrestrictedLabel: isKo ? '실행 무제한' : 'Unrestricted',
-    unrestrictedAria: isKo ? '실험 무제한 모드' : 'Unrestricted lab mode',
-    unrestrictedTitle: isKo ? '실험 무제한 모드' : 'Unrestricted lab mode',
+    unrestrictedAria: isKo ? '실행 무제한 모드' : 'Unrestricted execution mode',
+    unrestrictedTitle: isKo ? '실행 무제한 모드' : 'Unrestricted execution mode',
   };
 
   return (

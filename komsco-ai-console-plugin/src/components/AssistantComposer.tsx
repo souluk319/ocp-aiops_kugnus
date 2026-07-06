@@ -216,15 +216,19 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
                         className="komsco-ai__quick-menu-item komsco-ai__quick-menu-item--toggle"
                         role="menuitemcheckbox"
                       >
-                        <span className="komsco-ai__quick-prompt-icon">
-                          <CoolShieldCheckIcon />
-                        </span>
-                        <span className="komsco-ai__quick-menu-copy">
-                          <strong>조치 계획 기본 제공</strong>
-                          <small>
-                            질문마다 조치 계획을 먼저 보여줍니다. 끄면 요청할 때만 만듭니다.
-                          </small>
-                        </span>
+	                        <span className="komsco-ai__quick-prompt-icon">
+	                          <CoolShieldCheckIcon />
+	                        </span>
+	                        <span className="komsco-ai__quick-menu-copy">
+	                          <strong>
+	                            {uiLanguage === 'ko' ? '조치 계획 기본 제공' : 'Show action plans'}
+	                          </strong>
+	                          <small>
+	                            {uiLanguage === 'ko'
+	                              ? '질문마다 조치 계획을 먼저 보여줍니다. 끄면 요청할 때만 만듭니다.'
+	                              : 'Show an action plan after each eligible answer. Turn off to create only when requested.'}
+	                          </small>
+	                        </span>
                         <Switch
                           aria-label="답변 후 조치 계획 기본 제공"
                           id="komsco-ai-auto-propose-toggle"
@@ -233,24 +237,28 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
                         />
                       </div>
                     )}
-                    {QUICK_PROMPTS.map((item) => (
-                      <button
-                        className="komsco-ai__quick-menu-item"
-                        key={item.label}
-                        onClick={() => {
-                          setQuickPromptMenuOpen(false);
-                          void onSend(item.prompt);
-                        }}
-                        role="menuitem"
-                        type="button"
-                      >
-                        <span className="komsco-ai__quick-prompt-icon">{item.icon}</span>
-                        <span className="komsco-ai__quick-menu-copy">
-                          <strong>{item.label}</strong>
-                          <small>{item.prompt}</small>
-                        </span>
-                      </button>
-                    ))}
+	                    {QUICK_PROMPTS.map((item) => {
+	                      const label = uiLanguage === 'ko' ? item.label : item.labelEn;
+	                      const prompt = uiLanguage === 'ko' ? item.prompt : item.promptEn;
+	                      return (
+	                        <button
+	                          className="komsco-ai__quick-menu-item"
+	                          key={item.label}
+	                          onClick={() => {
+	                            setQuickPromptMenuOpen(false);
+	                            void onSend(prompt);
+	                          }}
+	                          role="menuitem"
+	                          type="button"
+	                        >
+	                          <span className="komsco-ai__quick-prompt-icon">{item.icon}</span>
+	                          <span className="komsco-ai__quick-menu-copy">
+	                            <strong>{label}</strong>
+	                            <small>{prompt}</small>
+	                          </span>
+	                        </button>
+	                      );
+	                    })}
                   </div>
                 )}
               </div>
@@ -299,10 +307,12 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
                         type="button"
                       >
                         <span className="komsco-ai__task-mode-icon">{item.icon}</span>
-                        <span>
-                          <strong>{item.label}</strong>
-                          <small>{item.description}</small>
-                        </span>
+	                        <span>
+	                          <strong>{item.label}</strong>
+	                          <small>
+	                            {uiLanguage === 'ko' ? item.description : item.descriptionEn}
+	                          </small>
+	                        </span>
                       </button>
                     ))}
                   </div>

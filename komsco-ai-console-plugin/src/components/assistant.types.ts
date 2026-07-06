@@ -5,11 +5,14 @@ export type HistoryPanelView = 'chats' | 'uploads';
 export type Message = {
   role: 'user' | 'assistant' | 'system';
   answerContract?: string;
-  answerSource?: 'ols' | 'gateway_direct' | 'gateway_fallback';
+  answerSource?: 'ols' | 'gateway_direct' | 'gateway_fallback' | 'copilot_clarification';
   attachments?: ImageAttachment[];
   content: string;
   evidenceFooter?: EvidenceFooter;
   fallbackAnswer?: boolean;
+  feedback?: 'up' | 'down';
+  feedbackAt?: number;
+  feedbackComment?: string;
   gatewayContextDigest?: string;
   progressSteps?: ProgressStep[];
   timestamp?: number;

@@ -44,6 +44,13 @@ const LOCAL_TEST_POD_IMAGE =
 const LOCAL_TEST_POD_NAME_PREFIX =
   process.env.AIOPS_LOCAL_TEST_POD_NAME_PREFIX || 'aiops-test-pod';
 const LOCAL_TEST_POD_PLAN_DIGEST = 'sha256:local-create-test-pods-plan-v1';
+const LOCAL_NAMESPACE_CLEANUP_TARGET = {
+  apiVersion: 'v1',
+  kind: 'Namespace',
+  name: process.env.AIOPS_LOCAL_NAMESPACE_CLEANUP_TARGET || 'komsco-aiops-lab',
+  uid: 'local-namespace-komsco-aiops-lab',
+};
+const LOCAL_NAMESPACE_CLEANUP_PLAN_DIGEST = 'sha256:local-namespace-cleanup-plan-v1';
 const LOCAL_ACTION_REGISTRY_DIGEST = 'sha256:local-action-registry-v1';
 const LOCAL_POLICY_DIGEST = 'sha256:local-policy-v1';
 const LOCAL_ACTION_PROPOSALS = new Map();
@@ -80,9 +87,13 @@ const LOCAL_EXECUTIONS = new Map([
     },
   ],
 ]);
+const LOCAL_CHAT_FEEDBACK = new Map();
 
 const actionTypeFromCandidateId = (candidateId = '') => {
   const value = String(candidateId || '');
+  if (value.includes('namespace-cleanup')) {
+    return 'namespace-cleanup';
+  }
   if (value.includes('create-test-pods')) {
     return 'test-pods';
   }
@@ -94,6 +105,9 @@ const actionTypeFromCandidateId = (candidateId = '') => {
 
 const actionTypeFromProposalId = (proposalId = '') => {
   const value = String(proposalId || '');
+  if (value.includes('namespace-cleanup')) {
+    return 'namespace-cleanup';
+  }
   if (value.includes('test-pods')) {
     return 'test-pods';
   }
@@ -105,6 +119,9 @@ const actionTypeFromProposalId = (proposalId = '') => {
 
 const actionTypeFromPlanId = (planId = '') => {
   const value = String(planId || '');
+  if (value.includes('namespace-cleanup')) {
+    return 'namespace-cleanup';
+  }
   if (value.includes('test-pods')) {
     return 'test-pods';
   }
@@ -115,6 +132,9 @@ const actionTypeFromPlanId = (planId = '') => {
 };
 
 const actionTypeFromPlanDigest = (planDigest = '') => {
+  if (planDigest === LOCAL_NAMESPACE_CLEANUP_PLAN_DIGEST) {
+    return 'namespace-cleanup';
+  }
   if (planDigest === LOCAL_TEST_POD_PLAN_DIGEST) {
     return 'test-pods';
   }
@@ -124,24 +144,68 @@ const actionTypeFromPlanDigest = (planDigest = '') => {
   return '';
 };
 
+const localPlanDigests = () => [
+  LOCAL_PLAN_DIGEST,
+  LOCAL_TEST_POD_PLAN_DIGEST,
+  LOCAL_NAMESPACE_CLEANUP_PLAN_DIGEST,
+];
+
 const planDigestForAction = (actionType = 'crashloop') =>
-  actionType === 'test-pods' ? LOCAL_TEST_POD_PLAN_DIGEST : LOCAL_PLAN_DIGEST;
+  actionType === 'namespace-cleanup'
+    ? LOCAL_NAMESPACE_CLEANUP_PLAN_DIGEST
+    : actionType === 'test-pods'
+      ? LOCAL_TEST_POD_PLAN_DIGEST
+      : LOCAL_PLAN_DIGEST;
 
 const targetForAction = (actionType = 'crashloop') =>
-  actionType === 'test-pods' ? LOCAL_TEST_POD_TARGET : LOCAL_TARGET;
+  actionType === 'namespace-cleanup'
+    ? LOCAL_NAMESPACE_CLEANUP_TARGET
+    : actionType === 'test-pods'
+      ? LOCAL_TEST_POD_TARGET
+      : LOCAL_TARGET;
 
 const planIdForAction = (actionType = 'crashloop') =>
-  actionType === 'test-pods' ? 'plan-local-test-pods' : 'plan-local-crashloop';
+  actionType === 'namespace-cleanup'
+    ? 'plan-local-namespace-cleanup'
+    : actionType === 'test-pods'
+      ? 'plan-local-test-pods'
+      : 'plan-local-crashloop';
 
 const proposalIdForAction = (actionType = 'crashloop') =>
-  actionType === 'test-pods' ? 'proposal-local-test-pods' : 'proposal-local-crashloop';
+  actionType === 'namespace-cleanup'
+    ? 'proposal-local-namespace-cleanup'
+    : actionType === 'test-pods'
+      ? 'proposal-local-test-pods'
+      : 'proposal-local-crashloop';
 
 const actionTitleForAction = (actionType = 'crashloop') =>
-  actionType === 'test-pods'
+  actionType === 'namespace-cleanup'
+    ? '미사용 namespace 정리'
+    : actionType === 'test-pods'
     ? '테스트 Pod 3개 생성'
     : 'CrashLoopBackOff 복구 조치 후보';
 
 const localAction = (actionType = 'crashloop') => {
+  if (actionType === 'namespace-cleanup') {
+    return {
+      toolName: 'delete_namespace_after_approval',
+      toolVersion: 'v1',
+      normalizedParameters: {
+        name: LOCAL_NAMESPACE_CLEANUP_TARGET.name,
+      },
+      actionRegistry: {
+        version: 'local-fixture',
+        digest: LOCAL_ACTION_REGISTRY_DIGEST,
+      },
+      authorization: {
+        apiGroup: '',
+        resource: 'namespaces',
+        subresource: '',
+        verb: 'delete',
+      },
+    };
+  }
+
   if (actionType === 'test-pods') {
     return {
       toolName: 'create_test_pods',
@@ -187,6 +251,7 @@ const localAction = (actionType = 'crashloop') => {
 
 const localProposalRecord = (actionType = 'crashloop') => {
   const isTestPods = actionType === 'test-pods';
+  const isNamespaceCleanup = actionType === 'namespace-cleanup';
   const target = targetForAction(actionType);
   return {
   schemaVersion: 'v1',
@@ -206,14 +271,24 @@ const localProposalRecord = (actionType = 'crashloop') => {
         policyDecisionDigest: LOCAL_POLICY_DIGEST,
       },
     },
-    candidateRequestDigest: isTestPods
+    candidateRequestDigest: isNamespaceCleanup
+      ? 'sha256:local-namespace-cleanup-candidate-request-v1'
+      : isTestPods
       ? 'sha256:local-test-pods-candidate-request-v1'
       : 'sha256:local-candidate-request-v1',
     digestSchema: {
       name: 'candidate-action-request-digest-v1',
       canonicalization: 'stable-json-sort-keys',
     },
-    evidenceRefs: isTestPods
+    evidenceRefs: isNamespaceCleanup
+      ? [
+          {
+            id: 'ev-local-namespace-cleanup-komsco-aiops-lab',
+            kind: 'NamespaceInventory',
+            source: 'oc',
+          },
+        ]
+      : isTestPods
       ? [
           {
             id: 'ev-local-user-request-test-pods',
@@ -228,12 +303,22 @@ const localProposalRecord = (actionType = 'crashloop') => {
             source: 'local-fixture',
           },
         ],
-    incidentId: isTestPods ? 'inc-local-test-pods' : 'inc-local-crashloop',
+    incidentId: isNamespaceCleanup
+      ? 'inc-local-namespace-cleanup'
+      : isTestPods
+        ? 'inc-local-test-pods'
+        : 'inc-local-crashloop',
     runId: 'run-local-fixture',
     runbookRefs: [
       {
-        title: isTestPods ? 'Test Pod creation runbook' : 'Deployment restart runbook',
-        uri: isTestPods
+        title: isNamespaceCleanup
+          ? 'Namespace cleanup approval runbook'
+          : isTestPods
+            ? 'Test Pod creation runbook'
+            : 'Deployment restart runbook',
+        uri: isNamespaceCleanup
+          ? 'local-fixture://runbooks/namespace-cleanup'
+          : isTestPods
           ? 'local-fixture://runbooks/create-test-pods'
           : 'local-fixture://runbooks/deployment-restart',
       },
@@ -248,6 +333,7 @@ const localProposalRecord = (actionType = 'crashloop') => {
 const localSealedPlanRecord = (actionType = 'crashloop') => {
   const createdAt = nowIso();
   const isTestPods = actionType === 'test-pods';
+  const isNamespaceCleanup = actionType === 'namespace-cleanup';
   const target = targetForAction(actionType);
   const planDigest = planDigestForAction(actionType);
   const plan = {
@@ -255,9 +341,17 @@ const localSealedPlanRecord = (actionType = 'crashloop') => {
     clusterId: 'local-aiops-fixture',
     metadata: {
       planId: planIdForAction(actionType),
-      incidentId: isTestPods ? 'inc-local-test-pods' : 'inc-local-crashloop',
+      incidentId: isNamespaceCleanup
+        ? 'inc-local-namespace-cleanup'
+        : isTestPods
+          ? 'inc-local-test-pods'
+          : 'inc-local-crashloop',
       requester: LOCAL_SUBJECT,
-      idempotencyKey: isTestPods ? 'idem-local-test-pods' : 'idem-local-crashloop',
+      idempotencyKey: isNamespaceCleanup
+        ? 'idem-local-namespace-cleanup'
+        : isTestPods
+          ? 'idem-local-test-pods'
+          : 'idem-local-crashloop',
       createdAt,
       apiCallTimeout: '30s',
       verificationDeadline: '10m',
@@ -267,7 +361,7 @@ const localSealedPlanRecord = (actionType = 'crashloop') => {
     target,
     action: localAction(actionType),
     safety: {
-      risk: 'low',
+      risk: isNamespaceCleanup ? 'medium' : 'low',
       policy: {
         mode: 'local-only',
         policyBundleHash: LOCAL_POLICY_DIGEST,
@@ -278,26 +372,48 @@ const localSealedPlanRecord = (actionType = 'crashloop') => {
         requestDigest: 'sha256:local-dry-run-v1',
       },
       preconditions: [
-        { type: isTestPods ? 'TargetNamespaceSpecified' : 'TargetExists', value: true },
-        { type: isTestPods ? 'CompanyServerMutationGuard' : 'LocalFixtureOnly', value: true },
+        {
+          type: isNamespaceCleanup
+            ? 'NamespaceInventoryEmpty'
+            : isTestPods
+              ? 'TargetNamespaceSpecified'
+              : 'TargetExists',
+          value: true,
+        },
+        {
+          type: isNamespaceCleanup
+            ? 'HumanApprovalRequired'
+            : isTestPods
+              ? 'CompanyServerMutationGuard'
+              : 'LocalFixtureOnly',
+          value: true,
+        },
       ],
       hardPostconditions: [{ type: 'ExecutionRecordTerminalState', value: true }],
-      observationalPostconditions: isTestPods
+      observationalPostconditions: isNamespaceCleanup
+        ? [{ type: 'NamespaceAbsentOrDeletionTimestampObserved', value: target.name }]
+        : isTestPods
         ? [{ type: 'TestPodsCreated', value: `${LOCAL_TEST_POD_COUNT} pods` }]
         : [{ type: 'DeploymentRestartObserved', value: LOCAL_TARGET.name }],
-      rollbackDescription: isTestPods
+      rollbackDescription: isNamespaceCleanup
+        ? 'Namespace 삭제는 일반적으로 즉시 되돌릴 수 없으므로 승인 전 백업/소유자 확인이 필수입니다.'
+        : isTestPods
         ? `테스트 후 label app=${LOCAL_TEST_POD_NAME_PREFIX} 기준으로 생성 Pod를 삭제합니다.`
         : '필요 시 직전 ReplicaSet으로 rollout undo를 수행합니다.',
       rollbackRequiresApproval: true,
-      rollbackPossible: true,
+      rollbackPossible: !isNamespaceCleanup,
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     },
     approvalPresentation: {
       impact: {
-        affectedWorkloads: isTestPods ? 0 : 1,
-        affectedPods: isTestPods ? LOCAL_TEST_POD_COUNT : 1,
+        affectedWorkloads: isNamespaceCleanup ? 0 : isTestPods ? 0 : 1,
+        affectedPods: isNamespaceCleanup ? 0 : isTestPods ? LOCAL_TEST_POD_COUNT : 1,
         availabilityRisk: 'low',
-        summaryDigest: isTestPods ? 'sha256:local-test-pods-impact-v1' : 'sha256:local-impact-v1',
+        summaryDigest: isNamespaceCleanup
+          ? 'sha256:local-namespace-cleanup-impact-v1'
+          : isTestPods
+            ? 'sha256:local-test-pods-impact-v1'
+            : 'sha256:local-impact-v1',
       },
       dryRun: {
         decision: 'local_fixture_validated',
@@ -305,12 +421,22 @@ const localSealedPlanRecord = (actionType = 'crashloop') => {
       },
       evidenceRefs: [
         {
-          id: isTestPods ? 'ev-local-user-request-test-pods' : 'ev-local-alert-notready',
-          source: isTestPods ? 'chat' : 'local-fixture',
+          id: isNamespaceCleanup
+            ? 'ev-local-namespace-cleanup-komsco-aiops-lab'
+            : isTestPods
+              ? 'ev-local-user-request-test-pods'
+              : 'ev-local-alert-notready',
+          source: isNamespaceCleanup ? 'oc' : isTestPods ? 'chat' : 'local-fixture',
         },
       ],
       runbookRefs: [
-        { title: isTestPods ? 'Test Pod creation runbook' : 'Deployment restart runbook' },
+        {
+          title: isNamespaceCleanup
+            ? 'Namespace cleanup approval runbook'
+            : isTestPods
+              ? 'Test Pod creation runbook'
+              : 'Deployment restart runbook',
+        },
       ],
     },
     digest: {
@@ -365,7 +491,18 @@ const readJsonBody = (req) =>
   });
 
 const sse = (res, payload) => {
+  if (payload === '[DONE]') {
+    res.write('data: [DONE]\n\n');
+    return;
+  }
+
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
+};
+
+const endChatStream = (res, conversationId = `local-fixture-${Date.now()}`) => {
+  sse(res, { type: 'end', conversationId });
+  sse(res, '[DONE]');
+  res.end();
 };
 
 const latestUserMessageFromBody = (body) => {
@@ -459,6 +596,99 @@ const parseTestPodCreateRequest = (message) => {
     count: requestedPodCount(text),
     namespace,
     supported: namespace === LOCAL_TEST_POD_TARGET.namespace,
+  };
+};
+
+const normalizedChatText = (message) => String(message || '').replace(/\s+/g, ' ').trim();
+
+const actionCapableExecutionMode = (executionMode) =>
+  executionMode === 'execute' || executionMode === 'unrestricted';
+
+const executionModeSentence = (executionMode) => {
+  if (executionMode === 'unrestricted') {
+    return '실행 무제한 모드: 조회와 계획 생성은 가능하지만, 위험 조치는 승인 게이트를 먼저 통과해야 합니다.';
+  }
+  if (executionMode === 'execute') {
+    return '실행 가능 모드: 조회 후 승인 가능한 Action Plan 후보를 만들 수 있습니다. 승인 전 변경은 실행하지 않습니다.';
+  }
+  return '읽기 전용 모드: 조회와 근거 수집만 수행하고 변경 작업은 만들지 않습니다.';
+};
+
+const actionPolicyModeForExecutionMode = (executionMode, canProposeAction) => {
+  if (!canProposeAction) {
+    return 'read_only_review';
+  }
+  return executionMode === 'unrestricted'
+    ? 'unrestricted_pending_approval'
+    : 'controlled_execution';
+};
+
+const classifyLocalChatIntent = (message) => {
+  const text = normalizedChatText(message);
+  if (!text) {
+    return {
+      confidence: 'low',
+      intent: 'unclear_or_out_of_scope',
+      reason: 'empty_message',
+    };
+  }
+
+  const compact = text.replace(/[^\p{L}\p{N}]+/gu, '');
+  const mentionsOpenShiftDomain =
+    /(openshift|오픈시프트|ocp|kubernetes|쿠버네티스|cluster|클러스터|namespace|네임스페이스|node|노드|operator|pod|파드|deployment|deploy|배포|event|이벤트|alert|경고|action plan|조치|승인|실행|터미널|명령|oc\b)/i.test(
+      text,
+    );
+  const asksOperationalQuestion =
+    /(확인|점검|분석|정리|삭제|생성|만들|알려|조회|진단|원인|복구|검증|롤백|계획|실행|create|delete|cleanup|diagnos|troubleshoot|restart|rollback|get|list)/i.test(
+      text,
+    );
+
+  if (parseTestPodCreateRequest(text)) {
+    return {
+      confidence: 'high',
+      intent: 'execution_request',
+      reason: 'test_pod_create_request',
+    };
+  }
+  if (isNamespaceCleanupQuestion(text)) {
+    return {
+      confidence: 'high',
+      intent: 'namespace_cleanup',
+      reason: 'namespace_cleanup_review',
+    };
+  }
+  if (isCrashloopDemoQuestion(text)) {
+    return {
+      confidence: 'high',
+      intent: 'action_plan_request',
+      reason: 'crashloop_action_plan_review',
+    };
+  }
+  if (isOpenShiftSignalQuestion(text)) {
+    return {
+      confidence: 'medium',
+      intent: 'openshift_diagnosis',
+      reason: 'openshift_signal_review',
+    };
+  }
+  if (mentionsOpenShiftDomain && asksOperationalQuestion) {
+    return {
+      confidence: 'medium',
+      intent: 'openshift_diagnosis',
+      reason: 'general_openshift_review',
+    };
+  }
+  if (compact.length <= 8 || !mentionsOpenShiftDomain) {
+    return {
+      confidence: 'low',
+      intent: 'unclear_or_out_of_scope',
+      reason: 'insufficient_operational_context',
+    };
+  }
+  return {
+    confidence: 'low',
+    intent: 'general_chat',
+    reason: 'not_an_operational_request',
   };
 };
 const activeWorkloadKinds = new Set([
@@ -691,7 +921,40 @@ const buildNamespaceInventory = async (message) => {
 
 const tableCell = (value) => String(value ?? '').replace(/\|/g, '/');
 
-const namespaceInventoryAnswer = (inventory) => {
+const executionModeFromRequestBody = (body) => {
+  const mode = String(body?.pageContext?.aiopsExecutionMode || '').trim().toLowerCase();
+  if (['execute', 'execution', 'execution-enabled', 'enabled'].includes(mode)) {
+    return 'execute';
+  }
+  if (['unrestricted', 'dev-unrestricted', 'experimental'].includes(mode)) {
+    return 'unrestricted';
+  }
+  return 'read-only';
+};
+
+const namespaceCleanupCandidates = (inventory) =>
+  inventory.ok
+    ? inventory.inspected.filter((item) => item.ok && item.decision?.label === '정리 검토 가능')
+    : [];
+
+const namespaceReviewCommandBlock = (inventory) => {
+  const namespaces = inventory.ok
+    ? inventory.inspected.map((item) => item.namespace)
+    : [LOCAL_NAMESPACE_CLEANUP_TARGET.name];
+  const lines = [
+    '```bash',
+    'oc whoami --show-server',
+    'oc get namespaces',
+  ];
+  for (const namespace of namespaces) {
+    lines.push(`oc get all,pvc,route,event -n ${namespace} --ignore-not-found`);
+    lines.push(`oc get namespace ${namespace} -o yaml`);
+  }
+  lines.push('```');
+  return lines.join('\n');
+};
+
+const namespaceInventoryAnswer = (inventory, executionMode = 'read-only') => {
   if (!inventory.ok) {
     return [
       '## 현재 상태',
@@ -706,9 +969,16 @@ const namespaceInventoryAnswer = (inventory) => {
     ].join('\n');
   }
 
+  const cleanupCandidates = namespaceCleanupCandidates(inventory);
+  const actionCapableMode = actionCapableExecutionMode(executionMode);
+  const modeLine = actionCapableMode
+    ? cleanupCandidates.length
+      ? `${executionModeSentence(executionMode)} 정리 후보가 있어 Action Plan 후보를 만들 수 있습니다. 실제 삭제는 승인 전 실행하지 않습니다.`
+      : `${executionModeSentence(executionMode)} 승인 가능한 정리 후보가 없어 Action Plan을 만들지 않습니다.`
+    : executionModeSentence(executionMode);
   const lines = [
     '## 현재 판단',
-    '실제 `oc` 읽기 전용 조회 결과로만 분류했습니다. 삭제나 변경은 실행하지 않았습니다.',
+    modeLine,
     '',
     '## 조회 근거',
     `- API 서버: ${inventory.server}`,
@@ -732,9 +1002,16 @@ const namespaceInventoryAnswer = (inventory) => {
   lines.push(
     '',
     '## Action Plan',
+    actionCapableMode && cleanupCandidates.length
+      ? `- 승인 필요 후보: ${cleanupCandidates.map((item) => `\`${item.namespace}\``).join(', ')}`
+      : '- 읽기 전용 모드에서는 Action Plan 버튼을 만들지 않습니다.',
     '- `정리 검토 가능`만 삭제 계획 후보로 올립니다.',
     '- `사용 중`, `삭제 보류`, `보호`는 삭제 계획을 만들지 않습니다.',
     '- 삭제 전 승인 조건: 소유자 확인, PVC/Route 잔존 여부 확인, 백업 필요 여부 확인.',
+    '- 실제 삭제 실행 명령은 승인 전에는 절대 생성하거나 실행하지 않습니다.',
+    '',
+    '## 터미널 확인 명령',
+    namespaceReviewCommandBlock(inventory),
   );
   return lines.join('\n');
 };
@@ -940,24 +1217,28 @@ const buildTestPodCreatePreflight = async (request) => {
   };
 };
 
-const testPodCreateAnswer = (request, preflight) => {
+const testPodCreateAnswer = (request, preflight, executionMode = 'read-only') => {
   const targetLabel = `${LOCAL_TEST_POD_TARGET.namespace}/${LOCAL_TEST_POD_TARGET.name}`;
+  const actionCapableMode = actionCapableExecutionMode(executionMode);
   if (!request.supported) {
     return [
       '## 현재 판단',
-      '이 로컬 실행 fixture는 현재 테스트 Pod 생성 대상을 `gpu-test-kugnus`로 제한합니다.',
+      '테스트 Pod 생성 요청으로 해석했지만, 현재 안전 범위 밖의 네임스페이스입니다.',
       '',
       '## 요청한 대상',
       `- namespace: \`${request.namespace}\``,
       '',
       '## 다음 조치',
-      '- 다른 namespace까지 허용하려면 fixture 안전 범위를 먼저 넓혀야 합니다.',
+      '- 대상 namespace가 맞는지 확인한 뒤 다시 요청하세요.',
+      '- 허용 범위를 넓히기 전에는 생성 계획이나 실행을 만들지 않습니다.',
     ].join('\n');
   }
 
   const lines = [
     '## 현재 판단',
-    '요청은 실행 가능한 Action Plan 대상으로 처리했습니다. 답변 단계에서는 바로 변경하지 않고, 승인 후 실행합니다.',
+    actionCapableMode
+      ? `${executionModeSentence(executionMode)} 테스트 Pod 생성은 승인 가능한 Action Plan 후보로 올릴 수 있습니다.`
+      : `${executionModeSentence(executionMode)} 테스트 Pod 생성 요청은 해석했지만 Action Plan 버튼은 만들지 않습니다.`,
     '',
     '## 대상',
     `- namespace: \`${LOCAL_TEST_POD_TARGET.namespace}\``,
@@ -976,11 +1257,14 @@ const testPodCreateAnswer = (request, preflight) => {
   lines.push(
     '',
     '## Action Plan',
-    `- 조치: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${LOCAL_TEST_POD_COUNT}\` 테스트 Pod 생성`,
+    actionCapableMode
+      ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
+      : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
+    `- 조치 후보: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${LOCAL_TEST_POD_COUNT}\` 테스트 Pod 생성`,
     `- 이미지: \`${LOCAL_TEST_POD_IMAGE}\``,
-    '- 실행: 승인 후 `oc run`으로 Pod 오브젝트를 생성',
+    '- 실행 조건: 운영자 승인 후 Pod 오브젝트 생성',
     '- 검증: 생성된 Pod 오브젝트 3개가 조회되는지 확인',
-    '- 정리: 테스트 완료 후 `app=aiops-test-pod` label 기준 삭제 가능',
+    '- 정리: 테스트 완료 후 label 기준 삭제 계획을 별도로 승인',
   );
 
   return lines.join('\n');
@@ -1082,17 +1366,22 @@ const executeTestPodCreatePlan = async () => {
   };
 };
 
-const unsupportedLocalQuestionAnswer = () => [
-  '## 현재 상태',
-  '이 질문은 5174 local fixture의 실행 가능한 시나리오로 처리하지 않았습니다.',
+const unsupportedLocalQuestionAnswer = (intent, executionMode) => [
+  '## 요청 확인',
+  'OpenShift 운영 작업으로 바로 실행할 만큼 대상과 목적이 충분하지 않습니다.',
   '',
-  '## 실행한 조회',
-  '- 없음',
+  '## 필요한 정보',
+  '- 확인할 대상: namespace, pod, deployment, node, operator 중 하나',
+  '- 원하는 작업: 상태 조회, 원인 분석, Action Plan 생성, 승인 후 실행 중 하나',
   '',
-  '## 가능한 요청',
-  '- 최근 OpenShift 경고와 Action Plan 테스트',
-  '- 특정 네임스페이스의 사용 여부 read-only 조회',
-  '- gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성',
+  '## 지금 가능한 요청 예시',
+  '- 최근 OpenShift 경고를 실제 근거와 추가 확인 항목으로 나눠줘.',
+  '- 다음 네임스페이스가 실제 사용 중인지 read-only 명령까지 정리해줘.',
+  '- gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성 계획을 만들어줘.',
+  '',
+  '## 현재 모드',
+  `- ${executionModeSentence(executionMode)}`,
+  `- 요청 해석: ${intent.intent} / ${intent.reason} / confidence ${intent.confidence}`,
 ].join('\n');
 
 const streamLocalChat = async (req, res) => {
@@ -1114,14 +1403,20 @@ const streamLocalChat = async (req, res) => {
 
   const runId = `run-local-${Date.now()}`;
   const userMessage = latestUserMessageFromBody(requestBody);
-  const testPodCreateRequest = parseTestPodCreateRequest(userMessage);
+  const executionMode = executionModeFromRequestBody(requestBody);
+  const intent = classifyLocalChatIntent(userMessage);
+  const testPodCreateRequest =
+    intent.intent === 'execution_request' ? parseTestPodCreateRequest(userMessage) : null;
 
   if (testPodCreateRequest) {
+    const actionCapableMode = actionCapableExecutionMode(executionMode);
     sse(res, {
       type: 'run_status',
       runId,
       stage: 'started',
-      message: '테스트 Pod 생성 Action Plan 사전 확인을 시작했습니다.',
+      message: actionCapableMode
+        ? '테스트 Pod 생성 Action Plan 사전 확인을 시작했습니다.'
+        : '테스트 Pod 생성 요청을 읽기 전용으로 확인합니다.',
     });
     sse(res, {
       type: 'tool_call',
@@ -1130,7 +1425,8 @@ const streamLocalChat = async (req, res) => {
       summary: 'namespace and server preflight',
     });
     const preflight = await buildTestPodCreatePreflight(testPodCreateRequest);
-    const answer = testPodCreateAnswer(testPodCreateRequest, preflight);
+    const answer = testPodCreateAnswer(testPodCreateRequest, preflight, executionMode);
+    const canProposeTestPods = actionCapableMode && preflight.ok;
     sse(res, {
       type: 'tool_result',
       id: 'test-pod-create-preflight-local',
@@ -1148,8 +1444,8 @@ const streamLocalChat = async (req, res) => {
         task_type: 'test_pod_create',
         target: LOCAL_TEST_POD_TARGET,
         execution_policy: {
-          mode: 'controlled_execution',
-          mutations_enabled: true,
+          mode: actionPolicyModeForExecutionMode(executionMode, canProposeTestPods),
+          mutations_enabled: canProposeTestPods,
           local_fixture_only: false,
         },
         tool_plan: [
@@ -1160,24 +1456,32 @@ const streamLocalChat = async (req, res) => {
             verb: 'get',
             purpose: '대상 namespace 존재 확인',
           },
-          {
-            step: 2,
-            adapter: 'oc',
-            tool: 'oc_run_test_pods',
-            verb: 'create',
-            purpose: '승인 후 테스트 Pod 3개 생성',
-          },
-          {
-            step: 3,
-            adapter: 'oc',
-            tool: 'oc_get_created_pods',
-            verb: 'get',
-            purpose: '생성된 Pod 오브젝트 확인',
-          },
+          ...(canProposeTestPods
+            ? [
+                {
+                  step: 2,
+                  adapter: 'aiops-gateway',
+                  tool: 'create_test_pod_action_candidate',
+                  verb: 'propose',
+                  purpose: '승인 필요 테스트 Pod 생성 Action Plan 후보 생성',
+                },
+                {
+                  step: 3,
+                  adapter: 'oc',
+                  tool: 'oc_get_created_pods',
+                  verb: 'get',
+                  purpose: '승인 후 생성된 Pod 오브젝트 확인',
+                },
+              ]
+            : []),
         ],
         validation: {
           ok: preflight.ok,
-          status: preflight.status,
+          status: canProposeTestPods
+            ? 'action_candidate_ready'
+            : preflight.ok
+              ? 'read_only_preflight_collected'
+              : preflight.status,
         },
       },
       status: preflight.ok ? 'success' : 'failed',
@@ -1193,20 +1497,24 @@ const streamLocalChat = async (req, res) => {
       runId,
       stage: preflight.ok ? 'completed' : 'failed',
       message: preflight.ok
-        ? '테스트 Pod 생성 Action Plan 사전 확인을 완료했습니다.'
+        ? actionCapableMode
+          ? '테스트 Pod 생성 Action Plan 사전 확인을 완료했습니다.'
+          : '테스트 Pod 생성 요청을 읽기 전용으로 확인했습니다.'
         : '테스트 Pod 생성 사전 확인에 실패했습니다.',
     });
-    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
-    res.end();
+    endChatStream(res);
     return;
   }
 
-  if (isNamespaceCleanupQuestion(userMessage)) {
+  if (intent.intent === 'namespace_cleanup') {
+    const actionCapableMode = actionCapableExecutionMode(executionMode);
     sse(res, {
       type: 'run_status',
       runId,
       stage: 'started',
-      message: '네임스페이스 read-only 조회를 시작했습니다.',
+      message: actionCapableMode
+        ? '네임스페이스 실조회와 Action Plan 후보 평가를 시작했습니다.'
+        : '네임스페이스 read-only 조회를 시작했습니다.',
     });
     sse(res, {
       type: 'tool_call',
@@ -1215,7 +1523,9 @@ const streamLocalChat = async (req, res) => {
       summary: 'oc read-only namespace inventory',
     });
     const inventory = await buildNamespaceInventory(userMessage);
-    const answer = namespaceInventoryAnswer(inventory);
+    const cleanupCandidates = namespaceCleanupCandidates(inventory);
+    const canProposeCleanup = inventory.ok && actionCapableMode && cleanupCandidates.length > 0;
+    const answer = namespaceInventoryAnswer(inventory, executionMode);
     sse(res, {
       type: 'tool_result',
       id: 'namespace-inventory-local',
@@ -1232,8 +1542,8 @@ const streamLocalChat = async (req, res) => {
       plan: {
         task_type: 'namespace_cleanup_review',
         execution_policy: {
-          mode: 'read_only_review',
-          mutations_enabled: false,
+          mode: actionPolicyModeForExecutionMode(executionMode, canProposeCleanup),
+          mutations_enabled: canProposeCleanup,
           local_fixture_only: false,
         },
         tool_plan: [
@@ -1251,10 +1561,25 @@ const streamLocalChat = async (req, res) => {
             verb: 'get',
             purpose: 'workload, PVC, Route, Event 잔존 확인',
           },
+          ...(canProposeCleanup
+            ? [
+                {
+                  step: 3,
+                  adapter: 'aiops-gateway',
+                  tool: 'create_namespace_cleanup_action_candidate',
+                  verb: 'propose',
+                  purpose: '승인 필요 Namespace 정리 Action Plan 후보 생성',
+                },
+              ]
+            : []),
         ],
         validation: {
           ok: inventory.ok,
-          status: inventory.ok ? 'read_only_inventory_collected' : inventory.status,
+          status: canProposeCleanup
+            ? 'action_candidate_ready'
+            : inventory.ok
+              ? 'read_only_inventory_collected'
+              : inventory.status,
         },
       },
       status: inventory.ok ? 'success' : 'failed',
@@ -1262,7 +1587,7 @@ const streamLocalChat = async (req, res) => {
     sse(res, {
       type: 'text',
       content: answer,
-      source: inventory.ok ? 'oc_read_only_inventory' : 'oc_read_failed',
+      source: inventory.ok ? 'gateway_direct' : 'oc_read_failed',
       streamProbe: inventory.ok ? 'ok' : 'failed',
     });
     sse(res, {
@@ -1271,12 +1596,11 @@ const streamLocalChat = async (req, res) => {
       stage: inventory.ok ? 'completed' : 'failed',
       message: inventory.ok ? '네임스페이스 read-only 조회를 완료했습니다.' : '네임스페이스 조회에 실패했습니다.',
     });
-    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
-    res.end();
+    endChatStream(res);
     return;
   }
 
-  if (isOpenShiftSignalQuestion(userMessage)) {
+  if (intent.intent === 'openshift_diagnosis') {
     sse(res, {
       type: 'run_status',
       runId,
@@ -1313,36 +1637,73 @@ const streamLocalChat = async (req, res) => {
       stage: inventory.ok ? 'completed' : 'failed',
       message: inventory.ok ? 'OpenShift read-only 신호 조회를 완료했습니다.' : 'OpenShift 신호 조회에 실패했습니다.',
     });
-    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
-    res.end();
+    endChatStream(res);
     return;
   }
 
-  if (!isCrashloopDemoQuestion(userMessage)) {
+  if (intent.intent === 'unclear_or_out_of_scope' || intent.intent === 'general_chat') {
     sse(res, {
       type: 'run_status',
       runId,
-      stage: 'skipped',
-      message: 'local fixture 처리 범위 밖의 질문입니다.',
+      stage: 'started',
+      message: '요청 의도를 확인했습니다.',
+    });
+    sse(res, {
+      type: 'tool_call',
+      id: 'request-intent-local',
+      name: 'request_intent_classifier',
+      summary: '질문 의도와 OpenShift 운영 대상 확인',
+    });
+    sse(res, {
+      type: 'tool_result',
+      id: 'request-intent-local',
+      name: 'request_intent_classifier',
+      status: 'success',
+      summary: `intent ${intent.intent}, confidence ${intent.confidence}`,
+      result: intent,
     });
     sse(res, {
       type: 'text',
-      content: unsupportedLocalQuestionAnswer(),
-      source: 'local_fixture_guard',
+      content: unsupportedLocalQuestionAnswer(intent, executionMode),
+      source: 'copilot_clarification',
       streamProbe: 'not_used',
     });
-    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
-    res.end();
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: 'completed',
+      message: '추가 확인이 필요한 요청으로 정리했습니다.',
+    });
+    endChatStream(res);
+    return;
+  }
+
+  if (intent.intent !== 'action_plan_request') {
+    sse(res, {
+      type: 'text',
+      content: unsupportedLocalQuestionAnswer(
+        {
+          confidence: 'low',
+          intent: 'unclear_or_out_of_scope',
+          reason: 'no_matching_operational_route',
+        },
+        executionMode,
+      ),
+      source: 'copilot_clarification',
+      streamProbe: 'not_used',
+    });
+    endChatStream(res);
     return;
   }
 
   const contextDigest = 'sha256:local-rca-context-v1';
+  const crashloopActionCapableMode = actionCapableExecutionMode(executionMode);
   const toolPlan = {
     task_type: 'pod_restart_rca',
     target: LOCAL_TARGET,
     execution_policy: {
-      mode: 'controlled_execution',
-      mutations_enabled: true,
+      mode: actionPolicyModeForExecutionMode(executionMode, crashloopActionCapableMode),
+      mutations_enabled: crashloopActionCapableMode,
       local_fixture_only: true,
     },
     tool_plan: [
@@ -1360,13 +1721,17 @@ const streamLocalChat = async (req, res) => {
         verb: 'get',
         purpose: '대상 Deployment 상태 확인',
       },
-      {
-        step: 3,
-        adapter: 'AI Gateway',
-        tool: 'gateway_pending_action_plan_lookup',
-        verb: 'get',
-        purpose: '승인 가능한 Action Plan 확인',
-      },
+      ...(crashloopActionCapableMode
+        ? [
+            {
+              step: 3,
+              adapter: 'AI Gateway',
+              tool: 'gateway_pending_action_plan_lookup',
+              verb: 'get',
+              purpose: '승인 가능한 Action Plan 확인',
+            },
+          ]
+        : []),
     ],
     validation: { ok: true, status: 'local_fixture_validated' },
   };
@@ -1390,28 +1755,36 @@ const streamLocalChat = async (req, res) => {
   const evidenceStatus = [
     { label: '수집 근거', status: 'ok', value: '2' },
     { label: '추가 확인', status: 'warn', value: '1' },
-    { label: 'Action Plan', status: 'ok', value: '가능' },
+    {
+      label: 'Action Plan',
+      status: crashloopActionCapableMode ? 'ok' : 'warn',
+      value: crashloopActionCapableMode ? '가능' : '읽기 전용',
+    },
   ];
   const answer = [
-    '## 요약',
-    '`로컬 시뮬레이션 응답`입니다.',
-    '실제 OLS/클러스터 분석 결과가 아니라 5174 fixture의 고정 테스트 데이터입니다.',
-    '테스트 대상: CrashLoopBackOff 복구 fixture',
-    '현재 상태: 로컬 fixture에 CrashLoopBackOff가 주입되어 있습니다.',
-    '대기 중인 계획: `plan-local-crashloop` Action Plan',
+    '## 현재 판단',
+    crashloopActionCapableMode
+      ? `${executionModeSentence(executionMode)} CrashLoopBackOff 복구 조치는 승인 가능한 Action Plan 후보로 정리할 수 있습니다.`
+      : `${executionModeSentence(executionMode)} CrashLoopBackOff 복구 조치는 조회와 근거 정리까지만 표시합니다.`,
+    '',
+    '## 영향 범위',
+    '- 대상: Deployment 1개',
+    '- 현재 상태: ready replica 0/1',
+    '- 사용자 영향: 해당 Deployment가 제공하는 기능 일부 중단 가능',
     '',
     '## 확인한 근거',
     '- `KubePodNotReady` 경고가 firing 상태입니다.',
     '- 대상 Deployment 1개가 `0/1 ready` 상태입니다.',
-    '- Gateway 상태는 local-only fixture, mutation simulator enabled입니다.',
     '',
     '## 추가 확인',
     '- 실제 운영 판단에서는 Pod 로그와 이벤트가 필요합니다.',
     '- 최근 배포 변경 이력을 확인해야 원인을 확정할 수 있습니다.',
-    '- 실행 전 local-only 시뮬레이션인지 다시 확인해야 합니다.',
+    '- 실행 전 대상 Deployment와 namespace가 최신인지 다시 확인해야 합니다.',
     '',
     '## Action Plan',
-    '- 승인 계획: `plan-local-crashloop`',
+    crashloopActionCapableMode
+      ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
+      : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
     '- 조치: Deployment rollout restart',
     '- 검증: 재시작 후 ready replica가 `1/1`로 회복되는지 확인',
     '- 롤백: 필요 시 직전 ReplicaSet으로 rollout undo',
@@ -1421,7 +1794,9 @@ const streamLocalChat = async (req, res) => {
     type: 'run_status',
     runId,
     stage: 'started',
-    message: '로컬 fixture 응답 렌더링을 시작했습니다.',
+    message: crashloopActionCapableMode
+      ? 'CrashLoopBackOff 근거와 Action Plan 후보 확인을 시작했습니다.'
+      : 'CrashLoopBackOff 근거를 읽기 전용으로 확인합니다.',
   });
   sse(res, {
     type: 'tool_call',
@@ -1446,20 +1821,22 @@ const streamLocalChat = async (req, res) => {
     context: rcaContext,
     evidenceStatus,
   });
-  sse(res, {
-    type: 'tool_call',
-    id: 'pending-action-local',
-    name: 'gateway_pending_action_plan_lookup',
-    summary: '승인 대기 Action Plan 확인',
-  });
-  sse(res, {
-    type: 'tool_result',
-    id: 'pending-action-local',
-    name: 'gateway_pending_action_plan_lookup',
-    status: 'success',
-    summary: 'plan-local-crashloop 승인 대기',
-    result: { planId: 'plan-local-crashloop', planDigest: LOCAL_PLAN_DIGEST },
-  });
+  if (crashloopActionCapableMode) {
+    sse(res, {
+      type: 'tool_call',
+      id: 'pending-action-local',
+      name: 'gateway_pending_action_plan_lookup',
+      summary: '승인 대기 Action Plan 확인',
+    });
+    sse(res, {
+      type: 'tool_result',
+      id: 'pending-action-local',
+      name: 'gateway_pending_action_plan_lookup',
+      status: 'success',
+      summary: 'plan-local-crashloop 승인 대기',
+      result: { planId: 'plan-local-crashloop', planDigest: LOCAL_PLAN_DIGEST },
+    });
+  }
   sse(res, {
     type: 'text',
     content: answer,
@@ -1479,10 +1856,9 @@ const streamLocalChat = async (req, res) => {
     type: 'run_status',
     runId,
     stage: 'completed',
-    message: '로컬 fixture 응답, 근거 연결, Action Plan 확인을 완료했습니다.',
+    message: 'CrashLoopBackOff 근거 연결과 조치 가능성 확인을 완료했습니다.',
   });
-  sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
-  res.end();
+  endChatStream(res);
 };
 
 const json = (res, statusCode, payload) => {
@@ -1730,6 +2106,7 @@ const aiopsStatus = () => ({
       auditRecords: [localAuditRecord()],
       diagnosticRequests: [],
       chatTranscripts: [],
+      chatFeedback: Array.from(LOCAL_CHAT_FEEDBACK.values()),
     },
   },
 });
@@ -1769,6 +2146,37 @@ const actionCandidates = () => ({
           proposalOnly: false,
         },
         evidenceRefs: [{ id: 'ev-local-alert-notready', source: 'local-fixture' }],
+      },
+      {
+        id: 'candidate-local-namespace-cleanup-komsco-aiops-lab',
+        title: '미사용 namespace 정리',
+        severity: 'review',
+        confidence: 'medium',
+        riskLevel: 'medium',
+        riskLabel: '중간',
+        statusLabel: '승인 필요',
+        sourceType: 'oc-read-only-inventory',
+        sourceFindingId: 'ev-local-namespace-cleanup-komsco-aiops-lab',
+        target: LOCAL_NAMESPACE_CLEANUP_TARGET,
+        evidence:
+          'komsco-aiops-lab namespace에서 workload/PVC/route가 없고 정리 검토 가능 상태로 분류되었습니다.',
+        expectedImpact:
+          '승인 후 komsco-aiops-lab namespace 삭제를 시뮬레이션합니다. 승인 전에는 삭제하지 않습니다.',
+        recommendationSteps: [
+          '소유자와 데이터 보존 필요 여부 확인',
+          'PVC/Route/Workload 잔존 여부 재확인',
+          'Namespace 삭제 계획 승인',
+        ],
+        verificationChecks: ['Namespace가 삭제되었거나 deletionTimestamp가 설정되었는지 확인'],
+        prerequisiteChecks: ['소유자 확인', '백업 필요 없음 확인', 'PVC/Route 잔존 없음 확인'],
+        executable: true,
+        approvalRequired: true,
+        executionPolicy: {
+          executionEnabled: true,
+          mode: 'controlled-execution',
+          proposalOnly: false,
+        },
+        evidenceRefs: [{ id: 'ev-local-namespace-cleanup-komsco-aiops-lab', source: 'oc' }],
       },
       {
         id: 'candidate-local-create-test-pods-gpu-test-kugnus',
@@ -1870,6 +2278,7 @@ const makeExecutionRecord = async (approvalId, actionType = 'crashloop') => {
   const executionId = `execution-local-${Date.now()}`;
   const createdAt = nowIso();
   const isTestPods = actionType === 'test-pods';
+  const isNamespaceCleanup = actionType === 'namespace-cleanup';
   const executionResult = isTestPods ? await executeTestPodCreatePlan() : null;
   const target = targetForAction(actionType);
   const planId = planIdForAction(actionType);
@@ -1891,11 +2300,17 @@ const makeExecutionRecord = async (approvalId, actionType = 'crashloop') => {
       },
       mutationOutcome: {
         status: isTestPods ? executionResult.status : 'mutation_succeeded',
-        reason: isTestPods ? executionResult.reason : 'local simulator accepted rollout restart',
+        reason: isTestPods
+          ? executionResult.reason
+          : isNamespaceCleanup
+            ? 'local simulator accepted namespace cleanup after approval'
+            : 'local simulator accepted rollout restart',
       },
       remediationOutcome: {
         status: isTestPods && !executionResult.ok ? 'verification_failed' : 'verified',
-        reason: isTestPods
+        reason: isNamespaceCleanup
+          ? `${target.name} namespace cleanup simulated`
+          : isTestPods
           ? `observed ${executionResult.observedPods || 0}/${LOCAL_TEST_POD_COUNT} created pods`
           : 'restart_annotation_observed',
       },
@@ -1988,6 +2403,39 @@ const server = http.createServer(async (req, res) => {
     await streamLocalChat(req, res);
     return;
   }
+  if (url.pathname === '/v1/chat/feedback' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    const submittedAt = nowIso();
+    const feedbackId =
+      String(body.feedbackId || '').trim() ||
+      `feedback-local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const record = {
+      apiVersion: 'aiops.komsco/v1',
+      kind: 'ChatFeedbackRecord',
+      metadata: { name: feedbackId, createdAt: submittedAt },
+      spec: {
+        answerContract: body.answerContract || '',
+        answerSource: body.answerSource || '',
+        conversationId: body.conversationId || '',
+        messageId: body.messageId || '',
+        mode: body.mode || '',
+        optionalComment: body.optionalComment ? String(body.optionalComment).slice(0, 1000) : '',
+        rating: body.rating === 'down' ? 'down' : 'up',
+        route: body.route || '',
+        intent: body.intent || '',
+        submittedAt,
+      },
+      subject: LOCAL_SUBJECT,
+    };
+    LOCAL_CHAT_FEEDBACK.set(feedbackId, record);
+    json(res, 200, {
+      apiVersion: 'aiops.komsco/v1',
+      kind: 'ChatFeedback',
+      metadata: record.metadata,
+      spec: record.spec,
+    });
+    return;
+  }
   if (url.pathname === '/v1/cluster/summary') {
     json(res, 200, clusterSummary());
     return;
@@ -2017,7 +2465,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const actionType = actionTypeFromProposalId(body.proposalId) || 'crashloop';
     const record = localSealedPlanRecord(actionType);
-    if (actionType === 'test-pods') {
+    if (actionType === 'test-pods' || actionType === 'namespace-cleanup') {
       LOCAL_ACTION_PROPOSALS.set(proposalIdForAction(actionType), localProposalRecord(actionType));
       LOCAL_SEALED_PLANS.set(record.metadata.name, record);
     }
@@ -2034,7 +2482,7 @@ const server = http.createServer(async (req, res) => {
     const actionType = actionTypeFromCandidateId(body.candidateId) || 'crashloop';
     const proposal = localProposalRecord(actionType);
     const plan = localSealedPlanRecord(actionType);
-    if (actionType === 'test-pods') {
+    if (actionType === 'test-pods' || actionType === 'namespace-cleanup') {
       LOCAL_ACTION_PROPOSALS.set(proposal.metadata.name, proposal);
       LOCAL_SEALED_PLANS.set(plan.metadata.name, plan);
     }
@@ -2043,7 +2491,9 @@ const server = http.createServer(async (req, res) => {
       kind: 'ActionCandidatePlan',
       metadata: {
         name:
-          actionType === 'test-pods'
+          actionType === 'namespace-cleanup'
+            ? 'candidate-plan-local-namespace-cleanup'
+            : actionType === 'test-pods'
             ? 'candidate-plan-local-test-pods'
             : 'candidate-plan-local-crashloop',
         createdAt: nowIso(),
@@ -2051,7 +2501,9 @@ const server = http.createServer(async (req, res) => {
       spec: {
         candidateId:
           body.candidateId ||
-          (actionType === 'test-pods'
+          (actionType === 'namespace-cleanup'
+            ? 'candidate-local-namespace-cleanup-komsco-aiops-lab'
+            : actionType === 'test-pods'
             ? 'candidate-local-create-test-pods-gpu-test-kugnus'
             : 'candidate-local-crashloop-restart'),
         plan: {
@@ -2082,7 +2534,7 @@ const server = http.createServer(async (req, res) => {
       actionTypeFromPlanDigest(body.expectedPlanDigest) || actionTypeFromPlanId(body.planId) || 'crashloop';
     if (
       body.expectedPlanDigest &&
-      ![LOCAL_PLAN_DIGEST, LOCAL_TEST_POD_PLAN_DIGEST].includes(body.expectedPlanDigest)
+      !localPlanDigests().includes(body.expectedPlanDigest)
     ) {
       json(res, 409, { detail: 'expectedPlanDigest does not match the sealed plan' });
       return;
@@ -2102,7 +2554,7 @@ const server = http.createServer(async (req, res) => {
       actionTypeFromPlanDigest(body.expectedPlanDigest) || actionTypeFromPlanId(body.planId) || 'crashloop';
     if (
       body.expectedPlanDigest &&
-      ![LOCAL_PLAN_DIGEST, LOCAL_TEST_POD_PLAN_DIGEST].includes(body.expectedPlanDigest)
+      !localPlanDigests().includes(body.expectedPlanDigest)
     ) {
       json(res, 409, { detail: 'expectedPlanDigest does not match the sealed plan' });
       return;
@@ -2142,7 +2594,7 @@ const server = http.createServer(async (req, res) => {
       actionTypeFromPlanDigest(body.expectedPlanDigest) || actionTypeFromPlanId(body.planId) || 'crashloop';
     if (
       body.expectedPlanDigest &&
-      ![LOCAL_PLAN_DIGEST, LOCAL_TEST_POD_PLAN_DIGEST].includes(body.expectedPlanDigest)
+      !localPlanDigests().includes(body.expectedPlanDigest)
     ) {
       json(res, 409, { detail: 'Execution request is stale for this sealed plan' });
       return;
