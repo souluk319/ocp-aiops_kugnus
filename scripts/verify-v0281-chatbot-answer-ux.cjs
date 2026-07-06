@@ -204,9 +204,10 @@ const sourceReview = () => {
       insightRail.includes("'피드백 JSON 복사'") &&
       insightRail.includes("'Copy feedback JSON'") &&
       insightRail.includes('komsco-ai__rail-feedback-copy') &&
+      insightRail.includes('latestByRating') &&
       insightRail.includes('chatFeedback') &&
       css.includes('.komsco-ai__rail-feedback-copy'),
-    'insight rail must expose separate good and needs-work feedback notes for tester review',
+    'insight rail must expose separate good and needs-work feedback notes and export them for tester review',
   );
   assert(
     launcher.includes('.then(() => refreshAiopsRuntimeStatus())'),
@@ -1965,6 +1966,8 @@ const verifyConsoleAssistant = async () => {
       ok: Boolean(parsed) &&
         parsed.summary?.total >= 1 &&
         parsed.summary?.needsWork >= 1 &&
+        parsed.latestByRating?.needsWork?.rating === 'down' &&
+        parsed.latestByRating?.needsWork?.optionalComment === ${JSON.stringify(feedbackComment)} &&
         copied.includes(${JSON.stringify(feedbackComment)}) &&
         !copied.includes('"subject"') &&
         !copied.includes('"groups"') &&
@@ -2072,6 +2075,42 @@ const verifyConsoleAssistant = async () => {
     (value) => value?.ok,
     'insight rail answer feedback summary with separate good and needs-work comments',
     30000,
+  );
+  const combinedFeedbackCopy = await evaluate(`(async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value) => {
+          window.__copiedCombinedFeedbackJson = value;
+        }
+      }
+    });
+    const button = document.querySelector('.komsco-ai__rail-feedback-copy');
+    button?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const copied = window.__copiedCombinedFeedbackJson || '';
+    let parsed = null;
+    try {
+      parsed = JSON.parse(copied);
+    } catch {
+      parsed = null;
+    }
+    return {
+      copiedLength: copied.length,
+      ok: Boolean(parsed) &&
+        parsed.latestByRating?.needsWork?.rating === 'down' &&
+        parsed.latestByRating?.needsWork?.optionalComment === ${JSON.stringify(feedbackComment)} &&
+        parsed.latestByRating?.good?.rating === 'up' &&
+        parsed.latestByRating?.good?.optionalComment === ${JSON.stringify(positiveFeedbackComment)} &&
+        !copied.includes('"subject"') &&
+        !copied.includes('"groups"') &&
+        !copied.includes('"uid"')
+    };
+  })()`);
+  assert(
+    combinedFeedbackCopy.ok,
+    'feedback JSON copy must expose latest good and needs-work notes without subject identity block',
+    combinedFeedbackCopy,
   );
 
   const headerMetrics = await evaluate(`(() => {

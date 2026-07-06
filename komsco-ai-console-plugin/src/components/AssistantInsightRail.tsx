@@ -134,18 +134,22 @@ const FeedbackRail: React.FC<{ language: UiLanguage; records: FeedbackRecord[] }
   const needsWorkCount = records.filter(
     (record) => feedbackSpecText(record, 'rating') === 'down',
   ).length;
-  const latestNeedsWorkComment = feedbackSpecText(
-    sortedRecords.find(
-      (record) =>
-        feedbackSpecText(record, 'rating') === 'down' &&
-        feedbackSpecText(record, 'optionalComment').trim(),
-    ),
-    'optionalComment',
+  const latestGoodRecord = sortedRecords.find((record) => feedbackSpecText(record, 'rating') === 'up');
+  const latestNeedsWorkRecord = sortedRecords.find(
+    (record) => feedbackSpecText(record, 'rating') === 'down',
   );
   const latestGoodComment = feedbackSpecText(
     sortedRecords.find(
       (record) =>
         feedbackSpecText(record, 'rating') === 'up' &&
+        feedbackSpecText(record, 'optionalComment').trim(),
+    ),
+    'optionalComment',
+  );
+  const latestNeedsWorkComment = feedbackSpecText(
+    sortedRecords.find(
+      (record) =>
+        feedbackSpecText(record, 'rating') === 'down' &&
         feedbackSpecText(record, 'optionalComment').trim(),
     ),
     'optionalComment',
@@ -163,6 +167,10 @@ const FeedbackRail: React.FC<{ language: UiLanguage; records: FeedbackRecord[] }
         needsWork: needsWorkCount,
       },
       latest: latest ? feedbackExportRecord(latest) : null,
+      latestByRating: {
+        good: latestGoodRecord ? feedbackExportRecord(latestGoodRecord) : null,
+        needsWork: latestNeedsWorkRecord ? feedbackExportRecord(latestNeedsWorkRecord) : null,
+      },
       records: sortedRecords.map(feedbackExportRecord),
     },
     null,
