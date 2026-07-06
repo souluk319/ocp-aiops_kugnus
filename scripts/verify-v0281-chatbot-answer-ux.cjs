@@ -638,14 +638,15 @@ const closeAndReopenEmptyAssistant = async () => {
 
 const setExecutionModeInUi = async (mode) => {
   const labelByMode = {
-    execute: '승인 후 실행 모드',
-    'read-only': '읽기 전용 모드',
-    unrestricted: '실행 무제한 모드',
+    execute: ['승인 후 실행 모드', 'Approval-gated execution mode'],
+    'read-only': ['읽기 전용 모드', 'Read-only mode'],
+    unrestricted: ['실행 무제한 모드', 'Unrestricted execution mode'],
   };
-  const ariaLabel = labelByMode[mode];
+  const ariaLabels = labelByMode[mode];
   const clicked = await evaluate(`(() => {
+    const labels = ${JSON.stringify(ariaLabels)};
     const button = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button'))
-      .find((el) => el.getAttribute('aria-label') === ${JSON.stringify(ariaLabel)});
+      .find((el) => labels.includes(el.getAttribute('aria-label') || ''));
     if (!button) {
       return {
         ok: false,
@@ -659,8 +660,9 @@ const setExecutionModeInUi = async (mode) => {
   assert(clicked?.ok, `execution mode ${mode} must be selectable in the real UI`, clicked);
   return poll(
     `(() => {
+      const labels = ${JSON.stringify(ariaLabels)};
       const button = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button'))
-        .find((el) => el.getAttribute('aria-label') === ${JSON.stringify(ariaLabel)});
+        .find((el) => labels.includes(el.getAttribute('aria-label') || ''));
       return {
         label: button?.getAttribute('aria-label') || '',
         pressed: button?.getAttribute('aria-pressed') || 'false',
@@ -669,6 +671,23 @@ const setExecutionModeInUi = async (mode) => {
     })()`,
     (value) => value?.pressed === 'true',
     `execution mode ${mode} selected in UI`,
+    10000,
+  );
+};
+
+const setUiLanguageInUi = async (language) => {
+  const expectedCode = language === 'en' ? 'EN' : 'KR';
+  const currentCode = await evaluate(
+    `document.querySelector('.komsco-ai__language-code')?.textContent.trim() || ''`,
+  );
+  if (currentCode !== expectedCode) {
+    await evaluate(`document.querySelector('.komsco-ai__language-button')?.click(); true;`);
+  }
+
+  return poll(
+    `document.querySelector('.komsco-ai__language-code')?.textContent.trim() || ''`,
+    (value) => value === expectedCode,
+    `${expectedCode} UI language selected`,
     10000,
   );
 };
@@ -703,8 +722,9 @@ const setComposerValue = async (question) => {
   );
 };
 
-const sendLiveQuestion = async ({ label, mode, question }) => {
+const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
   await closeAndReopenEmptyAssistant();
+  await setUiLanguageInUi(language);
   await setExecutionModeInUi(mode);
   await setComposerValue(question);
   await evaluate(`document.querySelector('.komsco-ai__send')?.click(); true;`);
@@ -793,6 +813,17 @@ const sendLiveQuestion = async ({ label, mode, question }) => {
             progressText.includes('네임스페이스 사용 여부 확인') ||
             progressText.includes('증거 수집 계획')
           ),
+        progressUsesEnglishOperatorLabels:
+          progressText.length > 0 &&
+          !rawProgressTerms.length &&
+          !/[가-힣]/.test(progressText) &&
+          (
+            progressText.includes('Request interpretation') ||
+            progressText.includes('Namespace usage check') ||
+            progressText.includes('Evidence plan')
+          ),
+        progressHasKorean:
+          /[가-힣]/.test(progressText),
         textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(text),
         textIncludesExecuteMode: text.includes('실행 가능 모드'),
         textIncludesReadOnlyCommand:
@@ -907,6 +938,35 @@ const verifyLiveClarificationAnswers = async () => {
     );
   }
 
+  return metrics;
+};
+
+const verifyLiveEnglishProgressLabels = async () => {
+  const unclear = await sendLiveQuestion({
+    label: 'English UI unclear Korean input',
+    language: 'en',
+    mode: 'read-only',
+    question: UNCLEAR_CHAT_QUESTIONS[0],
+  });
+  const namespace = await sendLiveQuestion({
+    label: 'English UI namespace progress',
+    language: 'en',
+    mode: 'execute',
+    question: NAMESPACE_CLEANUP_QUESTION,
+  });
+  const metrics = { namespace, unclear };
+
+  for (const item of [unclear, namespace]) {
+    assert(
+      item.progressUsesEnglishOperatorLabels &&
+        !item.progressHasKorean &&
+        !item.rawProgressTerms.length,
+      'English UI progress labels must stay English and hide raw operator names',
+      metrics,
+    );
+  }
+
+  await setUiLanguageInUi('ko');
   return metrics;
 };
 
@@ -1612,6 +1672,7 @@ const verifyConsoleAssistant = async () => {
 
   const liveModeRenderedAnswers = await verifyLiveModeRenderedAnswers();
   const liveClarificationAnswers = await verifyLiveClarificationAnswers();
+  const liveEnglishProgressLabels = await verifyLiveEnglishProgressLabels();
 
   return {
     feedbackGateway,
@@ -1619,6 +1680,7 @@ const verifyConsoleAssistant = async () => {
     fixture,
     historyMetrics,
     liveClarificationAnswers,
+    liveEnglishProgressLabels,
     liveModeRenderedAnswers,
     metrics,
   };

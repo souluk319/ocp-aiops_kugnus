@@ -9,7 +9,7 @@ import {
   RUN_LOOP_STEP_ID,
   TOOL_LABELS,
 } from './assistant.constants';
-import type { ProgressStep } from './assistant.types';
+import type { ProgressStep, UiLanguage } from './assistant.types';
 
 export const normalizeToolName = (name: string): string =>
   name
@@ -31,7 +31,7 @@ export const formatToolTitle = (name: string): string => {
     .join(' ');
 };
 
-const formatDuration = (milliseconds: number): string => {
+const formatDuration = (milliseconds: number, language: UiLanguage): string => {
   const safeMilliseconds = Math.max(0, milliseconds);
 
   if (safeMilliseconds < 1000) {
@@ -42,6 +42,14 @@ const formatDuration = (milliseconds: number): string => {
 
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+
+  if (language === 'en') {
+    if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    }
+
+    return `${seconds}s`;
+  }
 
   if (minutes > 0) {
     return `${minutes}분 ${seconds}초`;
@@ -88,7 +96,79 @@ export const rcaContextPhaseLabel = (phase?: string): string => {
   return '답변 근거 연결 완료';
 };
 
-const productProgressText = (value?: string): string => {
+const translateProductProgressText = (text: string, language: UiLanguage): string => {
+  if (language !== 'en') {
+    return text;
+  }
+
+  const namespaceCountMatch = text.match(/^네임스페이스\s+(\d+)개\s+조회 완료$/);
+  if (namespaceCountMatch) {
+    return `Checked ${namespaceCountMatch[1]} namespaces`;
+  }
+
+  const ragCountMatch = text.match(/^문서 근거\s+(\d+)건 확인$/);
+  if (ragCountMatch) {
+    return `Checked ${ragCountMatch[1]} document sources`;
+  }
+
+  return text
+    .replace(/요청 준비 완료/g, 'Request ready')
+    .replace(/요청 준비/g, 'Request setup')
+    .replace(/사용자 권한 및 요청 확인/g, 'Access and request check')
+    .replace(/사용자 권한과 요청 본문을 확인합니다\./g, 'Checking access and request body.')
+    .replace(/접근 권한 확인/g, 'Access check')
+    .replace(/이미지 첨부 확인/g, 'Attachment check')
+    .replace(/모델 응답 대기/g, 'Waiting for model response')
+    .replace(/네임스페이스 사용 여부 확인/g, 'Namespace usage check')
+    .replace(/네임스페이스 사용 여부 조회/g, 'Namespace usage lookup')
+    .replace(/네임스페이스 조회 완료/g, 'Namespace check complete')
+    .replace(/요청 해석 확인/g, 'Request interpretation')
+    .replace(/요청 해석 완료/g, 'Request interpreted')
+    .replace(/요청 확인 중/g, 'Checking request')
+    .replace(/첨부 확인 중/g, 'Checking attachments')
+    .replace(/AI 응답 대기/g, 'Waiting for AI response')
+    .replace(/답변 요청 중/g, 'Requesting answer')
+    .replace(/질문 처리 중/g, 'Processing question')
+    .replace(/답변 준비 중/g, 'Preparing answer')
+    .replace(/화면 표시 준비 중/g, 'Preparing display')
+    .replace(/답변 표시 시작/g, 'Answer display started')
+    .replace(/답변 표시 중/g, 'Displaying answer')
+    .replace(/답변 표시 완료/g, 'Answer displayed')
+    .replace(/답변 표시/g, 'Answer display')
+    .replace(/답변을 화면에 표시하는 중입니다\./g, 'Displaying the answer.')
+    .replace(/증거 수집 계획 생성/g, 'Evidence plan created')
+    .replace(/증거 수집 계획 실패/g, 'Evidence plan failed')
+    .replace(/증거 수집 계획/g, 'Evidence plan')
+    .replace(/답변 근거 연결 완료/g, 'Answer evidence linked')
+    .replace(/답변 근거 준비 완료/g, 'Answer evidence prepared')
+    .replace(/답변 근거 연결 실패/g, 'Answer evidence link failed')
+    .replace(/답변 근거/g, 'Answer evidence')
+    .replace(/근거 기록 완료/g, 'Evidence recorded')
+    .replace(/근거 기록 시작/g, 'Recording evidence')
+    .replace(/근거 기록/g, 'Evidence record')
+    .replace(/문서 근거 확인 시작/g, 'Checking document evidence')
+    .replace(/문서 근거/g, 'Document evidence')
+    .replace(/경고 근거 확인 시작/g, 'Checking alert evidence')
+    .replace(/경고 근거 수집 완료/g, 'Alert evidence collected')
+    .replace(/경고 근거/g, 'Alert evidence')
+    .replace(/노드 상태 근거 확인 시작/g, 'Checking node evidence')
+    .replace(/노드 상태 근거 수집 완료/g, 'Node evidence collected')
+    .replace(/노드 상태 근거/g, 'Node evidence')
+    .replace(/재시작 지표 확인 시작/g, 'Checking restart metrics')
+    .replace(/재시작 지표 수집 완료/g, 'Restart metrics collected')
+    .replace(/재시작 지표 근거/g, 'Restart metric evidence')
+    .replace(/오류 확인 필요/g, 'Needs error review')
+    .replace(/오류 응답 수신/g, 'Error response received')
+    .replace(/장기 실행 루프 유지 중/g, 'Keeping the run loop alive')
+    .replace(/실행 루프 완료/g, 'Run loop complete')
+    .replace(/실행 루프/g, 'Run loop')
+    .replace(/스트림 종료/g, 'Stream ended')
+    .replace(/도구 응답을 기다리는 중입니다\./g, 'Waiting for tool response.')
+    .replace(/시작/g, 'Started')
+    .replace(/완료/g, 'Complete');
+};
+
+const productProgressText = (value?: string, language: UiLanguage = 'ko'): string => {
   const text = String(value || '').trim();
   if (!text) {
     return '';
@@ -96,61 +176,68 @@ const productProgressText = (value?: string): string => {
 
   const phaseMatch = text.match(/^RCA\s*문맥\s*연결\s*:\s*([a-z_]+)/i);
   if (phaseMatch) {
-    return rcaContextPhaseLabel(phaseMatch[1]);
+    return translateProductProgressText(rcaContextPhaseLabel(phaseMatch[1]), language);
   }
   if (/^RCA\s*문맥\s*연결$/i.test(text)) {
-    return '답변 근거';
+    return translateProductProgressText('답변 근거', language);
   }
   if (text === 'RCA 문맥 연결 실패') {
-    return '답변 근거 연결 실패';
+    return translateProductProgressText('답변 근거 연결 실패', language);
   }
   const legacyRcaDigestText = ['RCA Context', 'digest와', ['evidence', 'refs'].join(' ')].join(' ');
   if (text.includes(legacyRcaDigestText)) {
-    return '최종 답변에 사용한 근거를 연결했습니다.';
+    return language === 'en'
+      ? 'Linked the evidence used in the final answer.'
+      : '최종 답변에 사용한 근거를 연결했습니다.';
   }
   if (text.includes('수집/누락/실패 근거를 RCA Context로 연결')) {
-    return '답변 전에 수집 근거와 추가 확인 항목을 정리했습니다.';
+    return language === 'en'
+      ? 'Prepared collected evidence and follow-up checks before answering.'
+      : '답변 전에 수집 근거와 추가 확인 항목을 정리했습니다.';
   }
   if (/^ev-[a-z0-9-]+\s+기록$/i.test(text)) {
-    return '근거 기록 완료';
+    return translateProductProgressText('근거 기록 완료', language);
   }
   if (text === '증거 참조 기록 시작') {
-    return '근거 기록 시작';
+    return translateProductProgressText('근거 기록 시작', language);
   }
   if (text === '증거 참조 기록') {
-    return '근거 기록';
+    return translateProductProgressText('근거 기록', language);
   }
   if (text === 'Rag Context Evidence') {
-    return '문서 근거';
+    return translateProductProgressText('문서 근거', language);
   }
   if (text === 'oc read-only namespace inventory') {
-    return '네임스페이스 사용 여부 조회';
+    return translateProductProgressText('네임스페이스 사용 여부 조회', language);
   }
   if (/^namespace\s+\d+개\s+read-only\s+조회$/i.test(text)) {
     const count = text.match(/^namespace\s+(\d+)개/i)?.[1] ?? '';
-    return count ? `네임스페이스 ${count}개 조회 완료` : '네임스페이스 조회 완료';
+    return translateProductProgressText(
+      count ? `네임스페이스 ${count}개 조회 완료` : '네임스페이스 조회 완료',
+      language,
+    );
   }
   if (/^intent\s+/i.test(text)) {
-    return '요청 해석 완료';
+    return translateProductProgressText('요청 해석 완료', language);
   }
   if (text === 'RCA Context' || text === 'RCA Evidence Context' || text === 'RCA 근거 문맥') {
-    return '답변 근거';
+    return translateProductProgressText('답변 근거', language);
   }
   if (text === 'Active Alerts Evidence') {
-    return '경고 근거';
+    return translateProductProgressText('경고 근거', language);
   }
   if (text === 'Node Status Evidence') {
-    return '노드 상태 근거';
+    return translateProductProgressText('노드 상태 근거', language);
   }
   if (text === 'Restart Metric Evidence') {
-    return '재시작 지표 근거';
+    return translateProductProgressText('재시작 지표 근거', language);
   }
   const ragSearchMatch = text.match(/^RAG 근거\s+(\d+)건\s+검색$/);
   if (ragSearchMatch) {
-    return `문서 근거 ${ragSearchMatch[1]}건 확인`;
+    return translateProductProgressText(`문서 근거 ${ragSearchMatch[1]}건 확인`, language);
   }
 
-  return text
+  const normalized = text
     .replace(/Node 상태 RCA 증거 수집 완료/g, '노드 상태 근거 수집 완료')
     .replace(/Active Alert RCA 증거 수집 완료/g, '경고 근거 수집 완료')
     .replace(/Restart metric RCA 증거 수집 완료/g, '재시작 지표 수집 완료')
@@ -183,18 +270,20 @@ const productProgressText = (value?: string): string => {
     .replace(/post_answer/g, '답변 완료 후')
     .replace(/pre_answer/g, '답변 전')
     .replace(/plan_ready/g, '답변 준비');
+
+  return translateProductProgressText(normalized, language);
 };
 
-const getStepActivity = (step: ProgressStep): string => {
-  const summary = productProgressText(step.summary);
+const getStepActivity = (step: ProgressStep, language: UiLanguage): string => {
+  const summary = productProgressText(step.summary, language);
 
   if (step.status === 'failed') {
-    return '오류 확인 필요';
+    return productProgressText('오류 확인 필요', language);
   }
 
   if (step.id === GATEWAY_PREP_STEP_ID) {
     if (step.status === 'completed') {
-      return '요청 준비 완료';
+      return productProgressText('요청 준비 완료', language);
     }
 
     const completedCount = PREP_SUBTASKS.filter((item) =>
@@ -202,29 +291,37 @@ const getStepActivity = (step: ProgressStep): string => {
     ).length;
     const currentTask = PREP_SUBTASKS[Math.min(completedCount, PREP_SUBTASKS.length - 1)];
 
-    return `${currentTask.label} 중`;
+    return productProgressText(`${currentTask.label} 중`, language);
   }
 
   if (isResponseWaitStep(step) && step.status === 'running') {
-    return getResponseWaitMessage(step.startedAt);
+    return productProgressText(getResponseWaitMessage(step.startedAt), language);
   }
 
   if (step.name === RUN_LOOP_STEP_ID) {
-    return step.status === 'running' ? summary || '장기 실행 루프 유지 중' : '실행 루프 완료';
+    return step.status === 'running'
+      ? summary || productProgressText('장기 실행 루프 유지 중', language)
+      : productProgressText('실행 루프 완료', language);
   }
 
   if (isAnswerStreamStep(step)) {
-    return step.status === 'running' ? '답변을 화면에 표시하는 중입니다.' : '답변 표시 완료';
+    return step.status === 'running'
+      ? productProgressText('답변을 화면에 표시하는 중입니다.', language)
+      : productProgressText('답변 표시 완료', language);
   }
 
   if (step.status === 'running') {
-    return summary || '도구 응답을 기다리는 중입니다.';
+    return summary || productProgressText('도구 응답을 기다리는 중입니다.', language);
   }
 
-  return summary || '완료';
+  return summary || productProgressText('완료', language);
 };
 
-const getProgressSummary = (steps: ProgressStep[], active: boolean): string => {
+const getProgressSummary = (
+  steps: ProgressStep[],
+  active: boolean,
+  language: UiLanguage,
+): string => {
   const firstStartedAt = steps[0]?.startedAt ?? Date.now();
   const lastEndedAt = steps.reduce(
     (latest, step) => Math.max(latest, step.endedAt ?? step.startedAt),
@@ -232,15 +329,17 @@ const getProgressSummary = (steps: ProgressStep[], active: boolean): string => {
   );
   const elapsedMs = (active ? Date.now() : lastEndedAt) - firstStartedAt;
   const runningStep = steps.find((step) => step.status === 'running');
+  const duration = formatDuration(elapsedMs, language);
 
   if (active && runningStep) {
-    return `${formatDuration(elapsedMs)} 동안 작업 중`;
+    return language === 'en' ? `Working for ${duration}` : `${duration} 동안 작업 중`;
   }
 
-  return `${formatDuration(elapsedMs)} 동안 작업 완료`;
+  return language === 'en' ? `Completed in ${duration}` : `${duration} 동안 작업 완료`;
 };
 
-const getStepElapsed = (step: ProgressStep): string => formatDuration(getElapsedMs(step));
+const getStepElapsed = (step: ProgressStep, language: UiLanguage): string =>
+  formatDuration(getElapsedMs(step), language);
 
 const expandProgressStep = (step: ProgressStep): ProgressStep[] => {
   return [step];
@@ -258,8 +357,13 @@ const getDisplaySteps = (steps: ProgressStep[]): ProgressStep[] =>
 const getCurrentProgressStep = (steps: ProgressStep[]): ProgressStep =>
   steps.find((step) => step.status === 'running') ?? steps[steps.length - 1];
 
-const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = ({
+const ProgressTimeline: React.FC<{
+  active: boolean;
+  language: UiLanguage;
+  steps: ProgressStep[];
+}> = ({
   active,
+  language,
   steps,
 }) => {
   const displaySteps = getDisplaySteps(steps);
@@ -278,9 +382,11 @@ const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = (
             className={`komsco-ai__flow-pulse komsco-ai__flow-pulse--${currentStep.status}`}
             aria-hidden="true"
           />
-          <span className="komsco-ai__progress-activity">{getStepActivity(currentStep)}</span>
+          <span className="komsco-ai__progress-activity">
+            {getStepActivity(currentStep, language)}
+          </span>
           <span className="komsco-ai__progress-title">
-            {getProgressSummary(displaySteps, active)}
+            {getProgressSummary(displaySteps, active, language)}
           </span>
         </summary>
         <div className="komsco-ai__progress-list">
@@ -296,14 +402,18 @@ const ProgressTimeline: React.FC<{ active: boolean; steps: ProgressStep[] }> = (
                 />
                 <span className="komsco-ai__progress-step-copy">
                   <span className="komsco-ai__progress-step-title">
-                    {productProgressText(step.title)}
+                    {productProgressText(step.title, language)}
                   </span>
                   <span className="komsco-ai__progress-step-separator" aria-hidden="true">
                     ·
                   </span>
-                  <span className="komsco-ai__progress-step-activity">{getStepActivity(step)}</span>
+                  <span className="komsco-ai__progress-step-activity">
+                    {getStepActivity(step, language)}
+                  </span>
                 </span>
-                <span className="komsco-ai__progress-step-meta">{getStepElapsed(step)}</span>
+                <span className="komsco-ai__progress-step-meta">
+                  {getStepElapsed(step, language)}
+                </span>
               </div>
             );
           })}

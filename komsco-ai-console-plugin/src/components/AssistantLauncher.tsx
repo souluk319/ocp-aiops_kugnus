@@ -3553,6 +3553,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               {hasProgress && message.progressSteps && (
                                 <ProgressTimeline
                                   active={activeMessage}
+                                  language={uiLanguage}
                                   steps={message.progressSteps}
                                 />
                               )}
