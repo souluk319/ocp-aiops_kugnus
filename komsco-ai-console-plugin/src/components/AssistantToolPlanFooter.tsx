@@ -8,17 +8,22 @@ import {
   toolPlanPlannerLabel,
   toolPlanPlannerSummary,
 } from './assistant.toolPlan';
-import type { ToolPlanFooter } from './assistant.types';
+import type { ToolPlanFooter, UiLanguage } from './assistant.types';
 
 type AssistantToolPlanFooterProps = {
+  language: UiLanguage;
   toolPlan?: ToolPlanFooter;
 };
 
-const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({ toolPlan }) => {
+const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
+  language,
+  toolPlan,
+}) => {
   if (!toolPlan || toolPlan.steps.length === 0) {
     return null;
   }
 
+  const isKo = language === 'ko';
   const steps = toolPlan.steps.slice(0, 6);
   const missingEvidence = toolPlan.missingEvidence.slice(0, 3);
   const readOnly = isReadOnlyExecutionPolicy(toolPlan.executionPolicyMode);
@@ -29,7 +34,7 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({ toolP
   return (
     <div className="komsco-ai__toolplan-footer">
       <div className="komsco-ai__toolplan-footer-head">
-        <span className="komsco-ai__evidence-title">조회 계획</span>
+        <span className="komsco-ai__evidence-title">{isKo ? '조회 계획' : 'Query plan'}</span>
         <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
           {toolPlan.taskType}
         </span>
@@ -40,49 +45,63 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({ toolP
               : 'komsco-ai__evidence-pill--policy-warning'
           }`}
         >
-          {executionPolicyLabel(toolPlan.executionPolicyMode)}
+          {executionPolicyLabel(toolPlan.executionPolicyMode, language)}
         </span>
         {toolPlan.validationOk === false && (
           <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
-            계획 검증 실패
+            {isKo ? '계획 검증 실패' : 'Plan validation failed'}
           </span>
         )}
       </div>
 
       <details className="komsco-ai__evidence-detail">
         <summary>
-          <span>조회 계획 상세보기</span>
+          <span>{isKo ? '조회 계획 상세보기' : 'Query plan details'}</span>
         </summary>
         <div className="komsco-ai__toolplan-source">
-          <strong>{toolPlan.plannerLabel || toolPlanPlannerLabel(toolPlan.plannerSource)}</strong>
-          <span>{toolPlan.plannerSummary || toolPlanPlannerSummary(toolPlan.plannerSource)}</span>
+          <strong>
+            {toolPlan.plannerLabel || toolPlanPlannerLabel(toolPlan.plannerSource, language)}
+          </strong>
+          <span>
+            {toolPlan.plannerSummary || toolPlanPlannerSummary(toolPlan.plannerSource, language)}
+          </span>
         </div>
         {targetLabel && (
           <div className="komsco-ai__toolplan-target">
-            대상: {targetLabel}
+            {isKo ? '대상' : 'Target'}: {targetLabel}
             {toolPlan.targetNamespace ? ` (${toolPlan.targetNamespace})` : ''}
           </div>
         )}
-        <ol className="komsco-ai__evidence-query-plan" aria-label="조회 계획 단계">
+        <ol
+          className="komsco-ai__evidence-query-plan"
+          aria-label={isKo ? '조회 계획 단계' : 'Query plan steps'}
+        >
           {steps.map((step, index) => (
             <li key={`${step.step || index}-${step.tool || 'tool'}`}>
-              <strong>{evidenceTypeLabel(step.evidenceType || step.tool)}</strong>
-              <span>{step.reason || '조회 단계'}</span>
+              <strong>{evidenceTypeLabel(step.evidenceType || step.tool, language)}</strong>
+              <span>{step.reason || (isKo ? '조회 단계' : 'Query step')}</span>
               <code>{step.verb || step.tool}</code>
             </li>
           ))}
         </ol>
         {missingEvidence.length > 0 && (
-          <div className="komsco-ai__evidence-missing" aria-label="추가 확인 필요 근거">
+          <div
+            className="komsco-ai__evidence-missing"
+            aria-label={isKo ? '추가 확인 필요 근거' : 'Evidence still needed'}
+          >
             {missingEvidence.map((item, index) => (
               <span key={`${item.type || 'missing'}-${index}`}>
-                {evidenceTypeLabel(item.type)}: {item.reason || '추가 확인 필요'}
+                {evidenceTypeLabel(item.type, language)}:{' '}
+                {item.reason || (isKo ? '추가 확인 필요' : 'Needs more evidence')}
               </span>
             ))}
           </div>
         )}
         {toolPlan.validationViolations.length > 0 && (
-          <div className="komsco-ai__toolplan-violations" aria-label="계획 검증 문제">
+          <div
+            className="komsco-ai__toolplan-violations"
+            aria-label={isKo ? '계획 검증 문제' : 'Plan validation issues'}
+          >
             {toolPlan.validationViolations.map((violation, index) => (
               <span key={`violation-${index}`}>{violation}</span>
             ))}
@@ -91,12 +110,12 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({ toolP
         {toolPlan.rawPlanJson && (
           <details className="komsco-ai__toolplan-json">
             <summary>
-              <span>감사용 JSON</span>
+              <span>{isKo ? '감사용 JSON' : 'Audit JSON'}</span>
             </summary>
             <div className="komsco-ai__toolplan-json-head">
               <span>redacted tool plan</span>
               <button
-                aria-label="Tool Plan JSON 복사"
+                aria-label={isKo ? 'Tool Plan JSON 복사' : 'Copy Tool Plan JSON'}
                 onClick={() => {
                   if (navigator.clipboard) {
                     void navigator.clipboard.writeText(toolPlan.rawPlanJson || '');
@@ -105,7 +124,7 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({ toolP
                 type="button"
               >
                 <CoolCopyIcon />
-                복사
+                {isKo ? '복사' : 'Copy'}
               </button>
             </div>
             <pre>{toolPlan.rawPlanJson}</pre>

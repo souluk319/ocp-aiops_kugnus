@@ -48,9 +48,12 @@ const sourceReview = () => {
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
   const insightRailHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.insightRailHelpers.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
+  const evidenceFooter = readFile('komsco-ai-console-plugin/src/components/AssistantEvidenceFooter.tsx');
+  const imageLightbox = readFile('komsco-ai-console-plugin/src/components/AssistantImageLightbox.tsx');
   const messageHeader = readFile('komsco-ai-console-plugin/src/components/AssistantMessageHeader.tsx');
   const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
   const progressTimeline = readFile('komsco-ai-console-plugin/src/components/AssistantProgressTimeline.tsx');
+  const toolPlanFooter = readFile('komsco-ai-console-plugin/src/components/AssistantToolPlanFooter.tsx');
   const gatewayService = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
   const localGateway = readFile('scripts/serve-v0281-local-aiops-gateway.cjs');
   const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
@@ -126,6 +129,23 @@ const sourceReview = () => {
         "showWrapped: 'Wrap lines'",
       ),
     'assistant formatted content controls must localize code and attachment actions in English mode',
+  );
+  assert(
+    launcher.includes('buildEvidenceCopyText(') &&
+      launcher.includes('uiLanguage') &&
+      launcher.includes('language={uiLanguage}') &&
+      evidenceFooter.includes("isKo ? '근거' : 'Evidence'") &&
+      evidenceFooter.includes("isKo ? '근거 상세보기' : 'Evidence details'") &&
+      toolPlanFooter.includes("isKo ? '조회 계획' : 'Query plan'") &&
+      toolPlanFooter.includes("isKo ? '조회 계획 상세보기' : 'Query plan details'"),
+    'assistant evidence and tool-plan footers must localize visible details in English mode',
+  );
+  assert(
+    launcher.includes('<AssistantImageLightbox') &&
+      launcher.includes('language={uiLanguage}') &&
+      imageLightbox.includes("language === 'en' ? `Preview ${attachment.name}`") &&
+      imageLightbox.includes("language === 'en' ? 'Close image preview'"),
+    'assistant image preview dialog must localize close and preview labels in English mode',
   );
   assert(
     progressTimeline.includes('Test Pod creation preflight') &&
@@ -1069,6 +1089,22 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
           ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '')).trim()
         )
         .filter(Boolean);
+      const detailChromeLabels = Array.from(
+        latest?.querySelectorAll(
+          '.komsco-ai__evidence-footer summary, .komsco-ai__toolplan-footer summary, .komsco-ai__evidence-title, .komsco-ai__evidence-query-plan, .komsco-ai__evidence-list, .komsco-ai__evidence-missing, .komsco-ai__toolplan-violations, .komsco-ai__toolplan-json button'
+        ) || []
+      )
+        .map((el) =>
+          [
+            el.textContent || '',
+            el.getAttribute('aria-label') || '',
+            el.getAttribute('title') || '',
+          ]
+            .join(' ')
+            .replace(/\\s+/g, ' ')
+            .trim()
+        )
+        .filter(Boolean);
       const actionPlanButtons = Array.from(
         document.querySelectorAll('.komsco-ai__create-action-plan-button')
       ).map((el) => el.textContent.trim());
@@ -1132,6 +1168,8 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         decisionTableText,
         codeActionLabels,
         codeActionLabelsHaveKorean: codeActionLabels.some((label) => /[가-힣]/.test(label)),
+        detailChromeLabels,
+        detailChromeLabelsHaveKorean: detailChromeLabels.some((label) => /[가-힣]/.test(label)),
         sectionHeaders,
         source,
         sourceHasKorean:
@@ -1413,8 +1451,10 @@ const verifyLiveEnglishProgressLabels = async () => {
       namespace.decisionTableCount >= 1 &&
       namespace.decisionTableHasExpectedColumns &&
       namespace.codeActionLabels.length > 0 &&
-      !namespace.codeActionLabelsHaveKorean,
-    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, and code action labels',
+      !namespace.codeActionLabelsHaveKorean &&
+      namespace.detailChromeLabels.length > 0 &&
+      !namespace.detailChromeLabelsHaveKorean,
+    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, code action labels, and footer details',
     metrics,
   );
 

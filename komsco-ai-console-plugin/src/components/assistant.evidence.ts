@@ -5,6 +5,7 @@ import type {
   EvidenceFooterMissing,
   EvidenceFooterQueryStep,
   EvidenceFooterRef,
+  UiLanguage,
 } from './assistant.types';
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -100,25 +101,43 @@ export const buildEvidenceFooter = (
   };
 };
 
-export const buildEvidenceCopyText = (footer: EvidenceFooter | undefined): string => {
+export const buildEvidenceCopyText = (
+  footer: EvidenceFooter | undefined,
+  language: UiLanguage = 'ko',
+): string => {
   if (!footer) {
     return '';
   }
 
+  const isKo = language === 'ko';
   const lines = [
     '',
-    '[근거 요약]',
-    `- 수집 근거: ${footer.collectedCount}건`,
-    `- 추가 확인: ${footer.missingCount}건`,
+    isKo ? '[근거 요약]' : '[Evidence Summary]',
+    isKo
+      ? `- 수집 근거: ${footer.collectedCount}건`
+      : `- Collected evidence: ${footer.collectedCount}`,
+    isKo
+      ? `- 추가 확인: ${footer.missingCount}건`
+      : `- Missing evidence: ${footer.missingCount}`,
   ];
 
   footer.collectedRefs.slice(0, 3).forEach((ref) => {
-    lines.push(`- ${evidenceTypeLabel(ref.type)}: ${ref.summary || '근거 수집 완료'}`);
+    lines.push(
+      `- ${evidenceTypeLabel(ref.type, language)}: ${
+        ref.summary || (isKo ? '근거 수집 완료' : 'Evidence collected')
+      }`,
+    );
   });
 
   footer.queryPlan.slice(0, 5).forEach((step) => {
     lines.push(
-      `- 조회 계획: ${evidenceTypeLabel(step.evidenceType || step.tool)} ${step.reason || '근거 수집 단계'}`,
+      isKo
+        ? `- 조회 계획: ${evidenceTypeLabel(step.evidenceType || step.tool, language)} ${
+            step.reason || '근거 수집 단계'
+          }`
+        : `- Query plan: ${evidenceTypeLabel(step.evidenceType || step.tool, language)} ${
+            step.reason || 'Evidence collection step'
+          }`,
     );
   });
 
@@ -146,30 +165,31 @@ export const rcaRailEvidenceCounts = (status: AiopsRuntimeStatus | null | undefi
   };
 };
 
-export const evidenceTypeLabel = (type?: string): string => {
+export const evidenceTypeLabel = (type?: string, language: UiLanguage = 'ko'): string => {
   const normalized = String(type || '')
     .trim()
     .toLowerCase();
+  const isKo = language === 'ko';
   if (normalized === 'node') {
-    return '노드';
+    return isKo ? '노드' : 'Node';
   }
   if (normalized === 'alert') {
-    return '경고';
+    return isKo ? '경고' : 'Alert';
   }
   if (normalized === 'metric') {
-    return '메트릭';
+    return isKo ? '메트릭' : 'Metric';
   }
   if (normalized === 'pod_status' || normalized === 'pod') {
     return 'Pod';
   }
   if (normalized === 'snapshot') {
-    return '스냅샷';
+    return isKo ? '스냅샷' : 'Snapshot';
   }
   if (normalized === 'event') {
-    return '이벤트';
+    return isKo ? '이벤트' : 'Event';
   }
   if (normalized === 'runbook') {
-    return '런북';
+    return isKo ? '런북' : 'Runbook';
   }
   if (normalized === 'openshift_api') {
     return 'OpenShift API';
@@ -178,25 +198,29 @@ export const evidenceTypeLabel = (type?: string): string => {
     return 'OpenShift';
   }
   if (!normalized) {
-    return '근거';
+    return isKo ? '근거' : 'Evidence';
   }
-  return type || '근거';
+  return type || (isKo ? '근거' : 'Evidence');
 };
 
-export const evidenceStepStatusLabel = (status?: string): string => {
+export const evidenceStepStatusLabel = (
+  status?: string,
+  language: UiLanguage = 'ko',
+): string => {
   const normalized = String(status || '')
     .trim()
     .toLowerCase();
+  const isKo = language === 'ko';
   if (normalized === 'collected' || normalized === 'success' || normalized === 'succeeded') {
-    return '수집됨';
+    return isKo ? '수집됨' : 'Collected';
   }
   if (normalized === 'not_attempted' || normalized === 'planned' || normalized === 'pending') {
-    return '대기';
+    return isKo ? '대기' : 'Pending';
   }
   if (normalized === 'failed' || normalized === 'error') {
-    return '확인 필요';
+    return isKo ? '확인 필요' : 'Needs check';
   }
-  return status || '대기';
+  return status || (isKo ? '대기' : 'Pending');
 };
 
 export const rcaStatusLabel = (status?: string): string => {
@@ -212,10 +236,15 @@ export const rcaStatusLabel = (status?: string): string => {
   return status || '대기';
 };
 
-export const compactEvidenceTypeSummary = (refs: EvidenceFooterRef[]): string => {
-  const labels = [...new Set(refs.map((ref) => evidenceTypeLabel(ref.type)).filter(Boolean))];
+export const compactEvidenceTypeSummary = (
+  refs: EvidenceFooterRef[],
+  language: UiLanguage = 'ko',
+): string => {
+  const labels = [
+    ...new Set(refs.map((ref) => evidenceTypeLabel(ref.type, language)).filter(Boolean)),
+  ];
   if (labels.length === 0) {
-    return '수집 근거 없음';
+    return language === 'ko' ? '수집 근거 없음' : 'No collected evidence';
   }
 
   return labels.slice(0, 4).join(', ');

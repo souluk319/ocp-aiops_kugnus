@@ -2375,25 +2375,31 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [clearAssistantTypewriterTimer],
   );
 
-  const copyMessage = React.useCallback((message: Message, index: number) => {
-    const redactedContent = redactSensitiveText(
-      stripDefaultEvidenceAppendix(message.content).trim(),
-    );
-    const text = `${redactedContent}${buildEvidenceCopyText(message.evidenceFooter)}`.trim();
-    if (!text) {
-      return;
-    }
-
-    void writeClipboardText(text).then((copied) => {
-      if (!copied) {
+  const copyMessage = React.useCallback(
+    (message: Message, index: number) => {
+      const redactedContent = redactSensitiveText(
+        stripDefaultEvidenceAppendix(message.content).trim(),
+      );
+      const text = `${redactedContent}${buildEvidenceCopyText(
+        message.evidenceFooter,
+        uiLanguage,
+      )}`.trim();
+      if (!text) {
         return;
       }
-      setCopiedMessageIndex(index);
-      window.setTimeout(() => {
-        setCopiedMessageIndex((current) => (current === index ? null : current));
-      }, 1400);
-    });
-  }, []);
+
+      void writeClipboardText(text).then((copied) => {
+        if (!copied) {
+          return;
+        }
+        setCopiedMessageIndex(index);
+        window.setTimeout(() => {
+          setCopiedMessageIndex((current) => (current === index ? null : current));
+        }, 1400);
+      });
+    },
+    [uiLanguage],
+  );
 
   const editMessageForResend = React.useCallback((message: Message) => {
     const draft = stripDefaultEvidenceAppendix(message.content).trim();
@@ -3532,12 +3538,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 (
                                   <AssistantEvidenceFooter
                                     footer={message.evidenceFooter}
+                                    language={uiLanguage}
                                     messageContent={message.content}
                                   />
                                 )}
                               {message.role === 'assistant' &&
                                 hasContent &&
-                                <AssistantToolPlanFooter toolPlan={message.toolPlan} />}
+                                <AssistantToolPlanFooter
+                                  language={uiLanguage}
+                                  toolPlan={message.toolPlan}
+                                />}
                               {message.role === 'assistant' &&
                                 hasContent &&
                                 (
@@ -3683,6 +3693,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       {previewAttachment && (
         <AssistantImageLightbox
           attachment={previewAttachment}
+          language={uiLanguage}
           onClose={() => setPreviewAttachment(null)}
         />
       )}

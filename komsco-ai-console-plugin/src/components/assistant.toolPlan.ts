@@ -1,4 +1,5 @@
 import type { ToolPlanFooter, ToolPlanMissingEvidence, ToolPlanStep } from './assistant.types';
+import type { UiLanguage } from './assistant.types';
 import { redactSensitiveText } from '../utils/evidenceDisplay';
 
 export const buildToolPlanFooter = (raw: unknown): ToolPlanFooter | undefined => {
@@ -71,35 +72,47 @@ export const buildToolPlanFooter = (raw: unknown): ToolPlanFooter | undefined =>
 
 export const isReadOnlyExecutionPolicy = (mode?: string): boolean => mode === 'evidence_check';
 
-export const executionPolicyLabel = (mode?: string): string => {
+export const executionPolicyLabel = (mode?: string, language: UiLanguage = 'ko'): string => {
+  const isKo = language === 'ko';
   if (mode === 'evidence_check') {
-    return '조회 전용';
+    return isKo ? '조회 전용' : 'Read-only evidence check';
   }
   if (mode === 'unrestricted') {
-    return '실행 무제한';
+    return isKo ? '실행 무제한' : 'Unrestricted execution';
   }
   if (mode === 'controlled_execution') {
-    return '승인 후 실행';
+    return isKo ? '승인 후 실행' : 'Approval-gated execution';
   }
-  return mode || '알 수 없음';
+  return mode || (isKo ? '알 수 없음' : 'Unknown');
 };
 
-export const toolPlanPlannerLabel = (source?: string): string => {
+export const toolPlanPlannerLabel = (source?: string, language: UiLanguage = 'ko'): string => {
+  const isKo = language === 'ko';
   if (source === 'deterministic_gateway_planner') {
-    return 'Gateway 안전 플래너';
+    return isKo ? 'Gateway 안전 플래너' : 'Gateway safety planner';
   }
   if (source === 'model_generated') {
-    return 'AIOps 모델 플래너';
+    return isKo ? 'AIOps 모델 플래너' : 'AIOps model planner';
   }
-  return source ? source.replace(/[_-]+/g, ' ') : 'Tool Plan 플래너';
+  return source ? source.replace(/[_-]+/g, ' ') : isKo ? 'Tool Plan 플래너' : 'Tool Plan planner';
 };
 
-export const toolPlanPlannerSummary = (source?: string): string => {
+export const toolPlanPlannerSummary = (
+  source?: string,
+  language: UiLanguage = 'ko',
+): string => {
+  const isKo = language === 'ko';
   if (source === 'deterministic_gateway_planner' || !source) {
-    return 'Gateway가 정책과 근거 수집 계약으로 만든 결정형 조회 계획입니다.';
+    return isKo
+      ? 'Gateway가 정책과 근거 수집 계약으로 만든 결정형 조회 계획입니다.'
+      : 'Deterministic query plan created by the Gateway policy and evidence contract.';
   }
   if (source === 'model_generated') {
-    return '모델이 제안한 계획이며 Gateway 검증을 통과한 항목만 표시합니다.';
+    return isKo
+      ? '모델이 제안한 계획이며 Gateway 검증을 통과한 항목만 표시합니다.'
+      : 'Model-proposed plan; only Gateway-validated steps are shown.';
   }
-  return 'Gateway 검증을 거친 조회 계획입니다.';
+  return isKo
+    ? 'Gateway 검증을 거친 조회 계획입니다.'
+    : 'Query plan validated by the Gateway.';
 };
