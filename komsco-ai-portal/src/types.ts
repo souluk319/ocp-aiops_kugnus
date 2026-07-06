@@ -7,7 +7,8 @@ export type NavView =
   | 'alerts'
   | 'wiki'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'v2';
 
 export type Severity = 'ok' | 'warn' | 'risk';
 

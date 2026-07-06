@@ -40,6 +40,8 @@ import type {
   Severity,
 } from './types';
 
+const V2App = React.lazy(() => import('./v2/V2App'));
+
 type RuntimeState = {
   error: string;
   events: AiopsEventFeed;
@@ -7233,6 +7235,14 @@ export const App: React.FC = () => {
       window.removeEventListener('hashchange', handleHistoryChange);
     };
   }, []);
+
+  if (activeView === 'v2') {
+    return (
+      <React.Suspense fallback={null}>
+        <V2App clock={clock} onExitToV1={navigateToView} runtime={runtime} />
+      </React.Suspense>
+    );
+  }
 
   return (
     <div className="portal-shell">

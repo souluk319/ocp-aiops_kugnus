@@ -9,7 +9,6 @@ import { renderHeaderOpsStatus } from './assistant.insightRailHelpers';
 import {
   CoolCloseIcon,
   CoolExpandIcon,
-  CoolGlobeIcon,
   CoolLockIcon,
   CoolLockOpenIcon,
   CoolMenuIcon,
@@ -68,16 +67,20 @@ const AssistantHeader: React.FC<AssistantHeaderProps> = ({
       <CoolMenuIcon />
     </Button>
     <div className="komsco-ai__brand">
-      <span className="komsco-ai__title">AIOps</span>
+      <span className="komsco-ai__title">AIOps Copilot</span>
     </div>
-    <div className="komsco-ai__header-status" aria-label="클러스터 운영 상태 및 실행 모드">
-      {renderHeaderOpsStatus(clusterSummary, clusterSummaryLoading, clusterSummaryError)}
+    <div
+      className="komsco-ai__header-status"
+      aria-label={uiLanguage === 'ko' ? '클러스터 운영 상태 및 실행 모드' : 'Cluster status and execution mode'}
+    >
+      {renderHeaderOpsStatus(clusterSummary, clusterSummaryLoading, clusterSummaryError, uiLanguage)}
       <div className="komsco-ai__header-sep" aria-hidden="true" />
       <AssistantExecutionModeToggle
         actionExecutionAvailable={actionExecutionAvailable}
         actionExecutionDisabledReason={actionExecutionDisabledReason}
         executionMode={executionMode}
         onExecutionModeChange={onExecutionModeChange}
+        uiLanguage={uiLanguage}
       />
     </div>
     <div className="komsco-ai__header-actions">
@@ -88,7 +91,6 @@ const AssistantHeader: React.FC<AssistantHeaderProps> = ({
         title={copy.switchLanguage}
         variant="plain"
       >
-        <CoolGlobeIcon />
         <span className="komsco-ai__language-code">{uiLanguage === 'ko' ? 'KR' : 'EN'}</span>
       </Button>
       <Button
@@ -112,7 +114,7 @@ const AssistantHeader: React.FC<AssistantHeaderProps> = ({
       </Button>
       {!lockOpen && (
         <Button
-          aria-label="Close Cywell AI"
+          aria-label="Close AIOps Copilot"
           className="komsco-ai__icon-button"
           onClick={onClose}
           variant="plain"

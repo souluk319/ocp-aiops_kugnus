@@ -3515,14 +3515,20 @@
 }
 
 .komsco-ai__language-button {
-  gap: 2px;
-  width: 40px;
+  gap: 0;
+  width: 32px;
+  justify-content: center;
+  overflow: hidden;
+  padding-inline: 0;
 }
 
 .komsco-ai__language-code {
-  font-size: 8px;
+  display: block;
+  min-width: 0;
+  font-size: 10px;
   font-weight: 760;
   line-height: 1;
+  text-align: center;
 }
 
 .komsco-ai__icon-button {
@@ -5792,8 +5798,8 @@
 }
 
 .komsco-ai__surface .komsco-ai__header-actions .komsco-ai__language-button {
-  width: 44px;
-  min-width: 44px;
+  width: 28px;
+  min-width: 28px;
 }
 
 /* ── Header brand — plain wordmark, no icon frame ──────────────── */
@@ -6046,7 +6052,10 @@
 .komsco-ai__surface .komsco-ai__language-code {
   color: #e0f2fe;
   font-size: 10px;
-  font-weight: 760;
+  font-weight: 820;
+  letter-spacing: 0;
+  line-height: 1;
+  text-align: center;
 }
 
 .komsco-ai__surface .komsco-ai__header-status {
@@ -7133,6 +7142,32 @@
   line-height: 1.22;
 }
 
+.komsco-ai__history-item-row--actions-open {
+  background: rgb(255 255 255 / 68%);
+  box-shadow: inset 0 0 0 1px #d7e5f7;
+}
+
+.komsco-ai__history-action-refs--empty::before {
+  bottom: 10px;
+}
+
+.komsco-ai__history-action-empty {
+  min-height: 30px;
+  padding: 6px 8px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+}
+
+.komsco-ai__history-action-ref-icon.is-proposal {
+  color: #2563eb;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
 /* v0.2.8.1: header chrome alignment and message icon scope fix. */
 .komsco-ai__surface .komsco-ai__header {
   display: grid;
@@ -7195,8 +7230,8 @@
 }
 
 .komsco-ai__surface .komsco-ai__language-button {
-  width: 44px;
-  min-width: 44px;
+  width: 28px;
+  min-width: 28px;
 }
 
 .komsco-ai__surface .komsco-ai__header-status {

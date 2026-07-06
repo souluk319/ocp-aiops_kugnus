@@ -85,6 +85,19 @@ const HistoryActionStageIcon: React.FC<{ stage: ConversationActionRef['stage'] }
 
 const compactActionLabel = (label: string): string => label.replace(/^\d+단계\s*·\s*/, '');
 
+const actionStageLabel = (stage: ConversationActionRef['stage']): string => {
+  if (stage === 'plan') {
+    return 'Action Plan';
+  }
+  if (stage === 'approval') {
+    return '승인';
+  }
+  if (stage === 'execution') {
+    return '실행';
+  }
+  return '조치 후보';
+};
+
 const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   activeSessionId,
   authSubject,
@@ -118,7 +131,10 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   uploadedDocuments,
   uploadedDocumentsError,
   uploadedDocumentsLoading,
-}) => (
+}) => {
+  const [openActionHistoryId, setOpenActionHistoryId] = React.useState<string | null>(null);
+
+  return (
   <aside
     className="komsco-ai__history-sidebar"
     aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
@@ -129,7 +145,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
       aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
     >
       <div className="komsco-ai__history-brand">
-        <img alt="AIOps" className="komsco-ai__history-logo" src={productIcon} />
+        <img alt="AIOps Copilot" className="komsco-ai__history-logo" src={productIcon} />
       </div>
       <div className="komsco-ai__history-actions-right">
         <button
@@ -199,13 +215,14 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
           conversationHistory.map((conversation) => {
             const isRenaming = renamingHistoryId === conversation.id;
             const actionRefs = conversation.actionRefs ?? [];
+            const actionHistoryOpen = openActionHistoryId === conversation.id;
             const menuOpen = openHistoryMenuId === conversation.id;
 
             return (
               <div
                 className={`komsco-ai__history-item-row${
                   conversation.id === activeSessionId ? ' komsco-ai__history-item-row--active' : ''
-                }`}
+                }${actionHistoryOpen ? ' komsco-ai__history-item-row--actions-open' : ''}`}
                 key={conversation.id}
               >
                 <div className="komsco-ai__history-item-main">
@@ -267,33 +284,45 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                     </button>
                   </div>
                 </div>
-                {!isRenaming && actionRefs.length > 0 && (
+                {!isRenaming && actionHistoryOpen && (
                   <div
-                    aria-label={`${conversation.title} 조치 목록`}
-                    className="komsco-ai__history-action-refs"
+                    aria-label={`${conversation.title} 조치내역`}
+                    className={`komsco-ai__history-action-refs${
+                      actionRefs.length === 0 ? ' komsco-ai__history-action-refs--empty' : ''
+                    }`}
                   >
-                    {actionRefs.slice(0, 4).map((actionRef) => (
-                      <button
-                        className="komsco-ai__history-action-ref"
-                        data-action-stage={actionRef.stage}
-                        disabled={loading}
-                        key={actionRef.id}
-                        onClick={() => onActionRefSelect(conversation, actionRef)}
-                        title={`${actionRef.label} · ${actionRef.toolName || '조치'} · ${
-                          actionRef.targetKey
-                        }`}
-                        type="button"
-                      >
-                        <HistoryActionStageIcon stage={actionRef.stage} />
-                        <span className="komsco-ai__history-action-ref-copy">
-                          <span className="komsco-ai__history-action-ref-stage">
-                            {compactActionLabel(actionRef.label)}
+                    {actionRefs.length === 0 ? (
+                      <div className="komsco-ai__history-action-empty">
+                        저장된 조치내역이 없습니다.
+                      </div>
+                    ) : (
+                      actionRefs.map((actionRef) => (
+                        <button
+                          className="komsco-ai__history-action-ref"
+                          data-action-stage={actionRef.stage}
+                          disabled={loading}
+                          key={actionRef.id}
+                          onClick={() => onActionRefSelect(conversation, actionRef)}
+                          title={`${actionStageLabel(actionRef.stage)} · ${actionRef.label} · ${
+                            actionRef.toolName || '조치'
+                          } · ${actionRef.targetKey}`}
+                          type="button"
+                        >
+                          <HistoryActionStageIcon stage={actionRef.stage} />
+                          <span className="komsco-ai__history-action-ref-copy">
+                            <span className="komsco-ai__history-action-ref-stage">
+                              {actionStageLabel(actionRef.stage)}
+                            </span>
+                            <strong>{compactActionLabel(actionRef.label)}</strong>
+                            <small>
+                              {actionRef.toolName
+                                ? `${actionRef.toolName} · ${actionRef.targetKey}`
+                                : actionRef.targetKey}
+                            </small>
                           </span>
-                          <strong>{actionRef.toolName || '조치'}</strong>
-                          <small>{actionRef.targetKey}</small>
-                        </span>
-                      </button>
-                    ))}
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
                 {menuOpen &&
@@ -323,9 +352,26 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                         이름 변경
                       </button>
                       <button
+                        className="komsco-ai__history-item-menu-item"
+                        onClick={() => {
+                          setOpenHistoryMenuId(null);
+                          setOpenActionHistoryId((value) =>
+                            value === conversation.id ? null : conversation.id,
+                          );
+                        }}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <CoolListChecklistIcon />
+                        조치내역
+                      </button>
+                      <button
                         className="komsco-ai__history-item-menu-item komsco-ai__history-item-menu-item--danger"
                         onClick={() => {
                           setOpenHistoryMenuId(null);
+                          setOpenActionHistoryId((value) =>
+                            value === conversation.id ? null : value,
+                          );
                           deleteConversation(conversation.id);
                         }}
                         role="menuitem"
@@ -355,6 +401,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
       </div>
     </div>
   </aside>
-);
+  );
+};
 
 export default AssistantHistoryPanel;

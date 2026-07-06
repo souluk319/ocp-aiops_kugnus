@@ -22,7 +22,7 @@ import {
   getActionLifecycleSummary,
   getUnrestrictedDisabledReason,
 } from './assistant.actionState';
-import type { AiopsExecutionMode, AiopsRecordView } from './assistant.types';
+import type { AiopsExecutionMode, AiopsRecordView, UiLanguage } from './assistant.types';
 import type { AiopsRuntimeStatus, ClusterSummary } from '../services/aiGateway';
 
 export type RailTone = 'ok' | 'warn' | 'danger' | 'review' | 'neutral';
@@ -409,27 +409,45 @@ export const renderHeaderOpsStatus = (
   summary: ClusterSummary | null,
   loading: boolean,
   error: string,
+  language: UiLanguage = 'ko',
 ) => {
   const nodeStatus = getNodeCompactStatus(summary, loading, error);
   const operatorStatus = getOperatorCompactStatus(summary, loading, error);
+  const isKo = language === 'ko';
 
-  const headerNodeLabel = nodeStatus.label
-    .replace(' · Ready', '')
-    .replace(' 부분 확인', '')
-    .replace(' 확인 필요', '');
+  const headerNodeLabel = summary
+    ? nodeStatus.label
+        .replace(' · Ready', '')
+        .replace(' 부분 확인', '')
+        .replace(' 확인 필요', '')
+    : isKo
+      ? nodeStatus.label.replace(' 확인 필요', ' 확인')
+      : loading
+        ? 'Node loading'
+        : error
+          ? 'Node check'
+          : 'Node pending';
   const headerOperatorLabel =
     summary && getClusterFaultCount(summary) > 0
-      ? `Operator 장애 ${getClusterFaultCount(summary)}`
+      ? isKo
+        ? `Operator 장애 ${getClusterFaultCount(summary)}`
+        : `Operator issues ${getClusterFaultCount(summary)}`
       : summary && summary.operators.progressing > 0
-        ? `Operator 진행 ${summary.operators.progressing}`
+        ? isKo
+          ? `Operator 진행 ${summary.operators.progressing}`
+          : `Operator progressing ${summary.operators.progressing}`
         : summary &&
             summary.operators.total > 0 &&
             summary.operators.available === summary.operators.total
-          ? 'Operator 정상'
-          : operatorStatus.label.replace(' 확인 필요', ' 확인');
+          ? isKo
+            ? 'Operator 정상'
+            : 'Operator OK'
+          : isKo
+            ? operatorStatus.label.replace(' 확인 필요', ' 확인')
+            : 'Operator check';
 
   return (
-    <div className="komsco-ai__header-ops" aria-label="클러스터 운영 상태">
+    <div className="komsco-ai__header-ops" aria-label={isKo ? '클러스터 운영 상태' : 'Cluster status'}>
       {renderHeaderOpsChip(
         headerNodeLabel,
         nodeStatus.tone,

@@ -9,6 +9,7 @@ import {
   Network,
   Settings,
   Siren,
+  Sparkles,
 } from 'lucide-react';
 import type { NavView } from './types';
 
@@ -29,6 +30,7 @@ export const navItems: NavItem[] = [
   { id: 'wiki', label: '위키 문서 관리', group: 'OPERATIONS', icon: <BookOpen /> },
   { id: 'reports', label: '보고서', group: 'OPERATIONS', icon: <FileText /> },
   { id: 'settings', label: '설정', group: 'OPERATIONS', icon: <Settings /> },
+  { id: 'v2', label: 'AIOps Console', group: 'OPERATIONS', icon: <Sparkles /> },
 ];
 
 export const navGroupLabel: Record<NavItem['group'], string> = {
@@ -49,6 +51,7 @@ export const standaloneRouteByView: Record<NavView, string> = {
   'service-map': '/dashboards/aiops/service-map',
   settings: '/dashboards/aiops/settings',
   wiki: '/dashboards/aiops/docs',
+  v2: '/dashboards/aiops/v2',
 };
 
 export const viewFromPathname = (pathname: string): NavView | undefined => {

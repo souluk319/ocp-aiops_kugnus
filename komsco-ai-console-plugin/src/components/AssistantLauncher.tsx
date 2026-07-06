@@ -256,7 +256,7 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
       product: {
         mission: 'Evidence-first OpenShift operations assistant',
         mode: 'evidence_first_execution',
-        name: 'Cywell AI',
+        name: 'AIOps Copilot',
       },
       rcaContextStatus: {
         latestContext: null,
@@ -2890,7 +2890,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     <div className={assistantRootClassName} data-ui-language={uiLanguage}>
       {!open && !embedded && (
         <button
-          aria-label="Open Cywell AI"
+          aria-label="Open AIOps Copilot"
           className="komsco-ai__fab"
           onMouseDown={openAssistant}
           onClick={openAssistant}
@@ -2911,7 +2911,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           wrapperClassName={`${assistantRootClassName} komsco-ai--portal`}
         >
           <div
-            aria-label="Cywell AI assistant"
+            aria-label="AIOps Copilot"
             ref={surfaceRef}
             className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
               historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
