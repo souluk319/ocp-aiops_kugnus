@@ -714,8 +714,15 @@ const sendLiveQuestion = async ({ label, mode, question }) => {
       const assistantMessages = Array.from(document.querySelectorAll('.komsco-ai__message--assistant'));
       const userMessages = Array.from(document.querySelectorAll('.komsco-ai__message--user'));
       const latest = assistantMessages[assistantMessages.length - 1];
+      latest?.querySelectorAll('.komsco-ai__progress').forEach((el) => {
+        el.open = true;
+      });
       const content = latest?.querySelector('.komsco-ai__message-content');
       const text = content?.textContent || '';
+      const progressTexts = Array.from(latest?.querySelectorAll(
+        '.komsco-ai__progress-summary, .komsco-ai__progress-step-copy'
+      ) || []).map((el) => el.textContent.replace(/\\s+/g, ' ').trim()).filter(Boolean);
+      const progressText = progressTexts.join(' ');
       const source = latest?.querySelector('.komsco-ai__message-source')?.textContent.trim() || '';
       const sourceTitle = latest?.querySelector('.komsco-ai__message-source')?.getAttribute('title') || '';
       const actionPlanButtons = Array.from(
@@ -737,6 +744,15 @@ const sendLiveQuestion = async ({ label, mode, question }) => {
         'confidence',
       ]
         .filter((term) => text.includes(term));
+      const rawProgressTerms = [
+        'Oc Namespace Inventory',
+        'oc read-only namespace inventory',
+        'request_intent_classifier',
+        'Request Intent Classifier',
+        'unclear_or_out_of_scope',
+        'insufficient_operational_context',
+        'confidence',
+      ].filter((term) => progressText.includes(term));
       const scenarioTerms = [
         'KubePodNotReady',
         'CrashLoopBackOff',
@@ -755,6 +771,9 @@ const sendLiveQuestion = async ({ label, mode, question }) => {
         loading,
         mode: ${JSON.stringify(mode)},
         preview: text.slice(0, 900),
+        progressText,
+        progressTexts,
+        rawProgressTerms,
         rawTerms,
         scenarioTerms,
         source,
@@ -766,6 +785,14 @@ const sendLiveQuestion = async ({ label, mode, question }) => {
           text.includes('지금 가능한 요청 예시') &&
           text.includes('처리 상태: 추가 정보 필요') &&
           text.includes('실행 상태: 변경 작업 없음'),
+        progressUsesOperatorLabels:
+          progressText.length > 0 &&
+          !rawProgressTerms.length &&
+          (
+            progressText.includes('요청 해석 확인') ||
+            progressText.includes('네임스페이스 사용 여부 확인') ||
+            progressText.includes('증거 수집 계획')
+          ),
         textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(text),
         textIncludesExecuteMode: text.includes('실행 가능 모드'),
         textIncludesReadOnlyCommand:
@@ -814,7 +841,8 @@ const verifyLiveModeRenderedAnswers = async () => {
       !readOnly.textIncludesActionPlanCandidate &&
       readOnly.hasGatewayDirect &&
       !readOnly.hasGatewayFallback &&
-      !readOnly.hasInternalLeak,
+      !readOnly.hasInternalLeak &&
+      readOnly.progressUsesOperatorLabels,
     'read-only live UI answer must stay query-only and must not expose Action Plan creation CTA',
     metrics,
   );
@@ -824,7 +852,8 @@ const verifyLiveModeRenderedAnswers = async () => {
       execute.actionPlanButtons.includes('Action Plan 생성') &&
       execute.hasGatewayDirect &&
       !execute.hasGatewayFallback &&
-      !execute.hasInternalLeak,
+      !execute.hasInternalLeak &&
+      execute.progressUsesOperatorLabels,
     'execute live UI answer must render a distinct approval-gated Action Plan CTA',
     metrics,
   );
@@ -834,7 +863,8 @@ const verifyLiveModeRenderedAnswers = async () => {
       unrestricted.actionPlanButtons.includes('Action Plan 생성') &&
       unrestricted.hasGatewayDirect &&
       !unrestricted.hasGatewayFallback &&
-      !unrestricted.hasInternalLeak,
+      !unrestricted.hasInternalLeak &&
+      unrestricted.progressUsesOperatorLabels,
     'unrestricted live UI answer must still render approval-gated Action Plan CTA without auto mutation',
     metrics,
   );
@@ -868,6 +898,7 @@ const verifyLiveClarificationAnswers = async () => {
         !item.hasGatewayFallback &&
         !item.hasInternalLeak &&
         !item.hasScenarioLeak &&
+        item.progressUsesOperatorLabels &&
         item.actionPlanButtons.length === 0 &&
         item.answerActionButtons.length === 0 &&
         !item.textIncludesActionPlanCandidate,

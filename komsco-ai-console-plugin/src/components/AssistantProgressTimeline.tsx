@@ -123,6 +123,16 @@ const productProgressText = (value?: string): string => {
   if (text === 'Rag Context Evidence') {
     return '문서 근거';
   }
+  if (text === 'oc read-only namespace inventory') {
+    return '네임스페이스 사용 여부 조회';
+  }
+  if (/^namespace\s+\d+개\s+read-only\s+조회$/i.test(text)) {
+    const count = text.match(/^namespace\s+(\d+)개/i)?.[1] ?? '';
+    return count ? `네임스페이스 ${count}개 조회 완료` : '네임스페이스 조회 완료';
+  }
+  if (/^intent\s+/i.test(text)) {
+    return '요청 해석 완료';
+  }
   if (text === 'RCA Context' || text === 'RCA Evidence Context' || text === 'RCA 근거 문맥') {
     return '답변 근거';
   }
@@ -144,6 +154,8 @@ const productProgressText = (value?: string): string => {
     .replace(/Node 상태 RCA 증거 수집 완료/g, '노드 상태 근거 수집 완료')
     .replace(/Active Alert RCA 증거 수집 완료/g, '경고 근거 수집 완료')
     .replace(/Restart metric RCA 증거 수집 완료/g, '재시작 지표 수집 완료')
+    .replace(/oc read-only namespace inventory/gi, '네임스페이스 사용 여부 조회')
+    .replace(/request intent classifier/gi, '요청 해석 확인')
     .replace(/Node Status Evidence 시작/g, '노드 상태 근거 확인 시작')
     .replace(/Active Alerts Evidence 시작/g, '경고 근거 확인 시작')
     .replace(/Restart Metric Evidence 시작/g, '재시작 지표 확인 시작')
