@@ -3520,7 +3520,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               />
                               {(hasContent || (!hasProgress && !waitingForContent)) && (
                                 <div className="komsco-ai__message-content">
-                                  {renderFormattedContent(message, setPreviewAttachment)}
+                                  {renderFormattedContent(
+                                    message,
+                                    setPreviewAttachment,
+                                    uiLanguage,
+                                  )}
                                 </div>
                               )}
                               {message.role === 'assistant' &&

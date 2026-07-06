@@ -814,10 +814,44 @@ const kindCounts = (items) =>
 
 const extractRequestedNamespaceNames = (message, availableNames) => {
   const available = new Set(availableNames);
-  const tokens = Array.from(String(message || '').toLowerCase().matchAll(namespaceNamePattern)).map(
-    (match) => match[0],
-  );
-  return [...new Set(tokens.filter((token) => available.has(token)))];
+  const explicitSimpleNamespaceTokens = new Set();
+  const tokens = [];
+
+  for (const rawLine of String(message || '').toLowerCase().split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const normalizedLine = line
+      .replace(/^[-*]\s*/, '')
+      .replace(/^[`'"]|[`'"]$/g, '')
+      .trim();
+    const lineTokens = Array.from(line.matchAll(namespaceNamePattern)).map((match) => match[0]);
+    const namespaceOnlyLine =
+      lineTokens.length > 0 &&
+      normalizedLine
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .every((part) => lineTokens.includes(part));
+
+    for (const token of lineTokens) {
+      if (!available.has(token)) {
+        continue;
+      }
+      tokens.push(token);
+      if (namespaceOnlyLine || line.includes(`\`${token}\``)) {
+        explicitSimpleNamespaceTokens.add(token);
+      }
+    }
+  }
+
+  return [
+    ...new Set(
+      tokens.filter((token) => {
+        if (token.includes('-') || token.includes('.')) {
+          return true;
+        }
+        return explicitSimpleNamespaceTokens.has(token);
+      }),
+    ),
+  ];
 };
 
 const namespaceDecision = ({ activeWorkloads, ageDays, exposureCount, lastEventAgeDays, name, pvcCount }) => {

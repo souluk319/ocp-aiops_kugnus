@@ -362,6 +362,18 @@ const NAMESPACE_CLEANUP_QUESTION = [
   '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
 ].join('\n');
 
+const EN_NAMESPACE_CLEANUP_QUESTION_WITH_TEST_WORD = [
+  'Review whether these namespaces are actually in use or stale test namespaces.',
+  'aiops-demo',
+  'cywell-aiops',
+  'gpu-test-kugnus',
+  'komsco-ai',
+  'komsco-ai-dev',
+  'komsco-aiops-lab',
+  'For each namespace, summarize the decision criteria and read-only oc commands.',
+  'If there is a cleanup candidate, create an approval-ready Action Plan candidate.',
+].join('\n');
+
 const TEST_POD_CREATE_QUESTION = [
   'gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성해.',
   '읽기 전용이면 조회 명령만 알려주고,',
@@ -463,6 +475,61 @@ const verifyModeAnswerContracts = async () => {
       !metrics.execute.hasInternalLeak &&
       !metrics.unrestricted.hasInternalLeak,
     'same namespace cleanup question must produce distinct safe answers and Action Plan capability by execution mode',
+    metrics,
+  );
+
+  return metrics;
+};
+
+const verifyEnglishNamespaceExtractionContract = async () => {
+  const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
+    body: JSON.stringify({
+      conversationId: 'v0281-english-namespace-extraction',
+      message: EN_NAMESPACE_CLEANUP_QUESTION_WITH_TEST_WORD,
+      pageContext: {
+        aiopsExecutionMode: 'execute',
+        aiopsUiLanguage: 'en',
+        route: '/dashboards/aiops',
+      },
+    }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  });
+  const raw = await response.text();
+  const events = parseSseEvents(raw);
+  const answerText = events
+    .filter((event) => event.type === 'text')
+    .map((event) => event.content || '')
+    .join('\n');
+  const inventoryResult = events.find(
+    (event) => event.type === 'tool_result' && event.name === 'oc_namespace_inventory',
+  )?.result;
+  const requestedNames = Array.isArray(inventoryResult?.requestedNames)
+    ? inventoryResult.requestedNames
+    : [];
+  const metrics = {
+    answerPreview: answerText.slice(0, 900),
+    hasKorean: /[가-힣]/.test(answerText),
+    hasStandaloneTestNamespace: requestedNames.includes('test'),
+    ok: response.ok,
+    requestedNames,
+    status: response.status,
+  };
+
+  assert(
+    metrics.ok &&
+      !metrics.hasKorean &&
+      !metrics.hasStandaloneTestNamespace &&
+      JSON.stringify(metrics.requestedNames) ===
+        JSON.stringify([
+          'aiops-demo',
+          'cywell-aiops',
+          'gpu-test-kugnus',
+          'komsco-ai',
+          'komsco-ai-dev',
+          'komsco-aiops-lab',
+        ]),
+    'English namespace cleanup prompt must not treat prose word "test" as a namespace',
     metrics,
   );
 
@@ -2085,6 +2152,7 @@ const verifyStandalonePortal = async () => {
 const main = async () => {
   sourceReview();
   const modeContracts = await verifyModeAnswerContracts();
+  const englishNamespaceExtraction = await verifyEnglishNamespaceExtractionContract();
   const testPodContracts = await verifyTestPodCreateContracts();
   const consolePluginChunks = await verifyConsolePluginChunkProxy();
   const chromeVersion = await setupBrowser();
@@ -2098,6 +2166,7 @@ const main = async () => {
     chrome: chromeVersion,
     consolePluginChunks,
     consoleResult,
+    englishNamespaceExtraction,
     modeContracts,
     passed: true,
     portalResult,

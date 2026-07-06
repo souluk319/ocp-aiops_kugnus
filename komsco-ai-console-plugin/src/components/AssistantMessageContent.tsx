@@ -13,7 +13,7 @@ import {
   stripDefaultEvidenceAppendix,
   trimIndentedCodeLine,
 } from './assistant.render';
-import type { Message } from './assistant.types';
+import type { Message, UiLanguage } from './assistant.types';
 import type { ImageAttachment } from '../services/aiGateway';
 
 const renderAttachmentGrid = (
@@ -70,66 +70,128 @@ type RunbookSection = {
   title: string;
 };
 
-const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
-  action: 'Action Plan',
-  cause: '원인 후보',
-  details: '근거 상세보기',
-  evidence: '확인한 근거',
-  followup: '추가 확인',
-  impact: '영향 범위',
-  summary: '현재 판단',
-  terminal: '터미널 확인 명령',
-  verification: '검증/롤백',
+const RUNBOOK_SECTION_TITLES: Record<UiLanguage, Record<RunbookSectionId, string>> = {
+  en: {
+    action: 'Action Plan',
+    cause: 'Root Cause Candidates',
+    details: 'Evidence Details',
+    evidence: 'Confirmed Evidence',
+    followup: 'Additional Checks',
+    impact: 'Impact Scope',
+    summary: 'Current Assessment',
+    terminal: 'Terminal Read-Only Commands',
+    verification: 'Verification / Rollback',
+  },
+  ko: {
+    action: 'Action Plan',
+    cause: '원인 후보',
+    details: '근거 상세보기',
+    evidence: '확인한 근거',
+    followup: '추가 확인',
+    impact: '영향 범위',
+    summary: '현재 판단',
+    terminal: '터미널 확인 명령',
+    verification: '검증/롤백',
+  },
 };
 
 const RUNBOOK_SECTION_META: Record<
-  RunbookSectionId,
-  { badge: string; subtitle: string; tone: 'high' | 'mid' | 'low' | 'neutral' }
+  UiLanguage,
+  Record<RunbookSectionId, { badge: string; subtitle: string; tone: 'high' | 'mid' | 'low' | 'neutral' }>
 > = {
-  action: {
-    badge: '조치',
-    subtitle: '승인 조건과 실행 전 확인 사항',
-    tone: 'high',
+  en: {
+    action: {
+      badge: 'Action',
+      subtitle: 'Approval conditions and execution checks',
+      tone: 'high',
+    },
+    cause: {
+      badge: 'RCA',
+      subtitle: 'Likely causes narrowed by symptoms and evidence',
+      tone: 'mid',
+    },
+    details: {
+      badge: 'Details',
+      subtitle: 'Source evidence for audit and review',
+      tone: 'neutral',
+    },
+    evidence: {
+      badge: 'Evidence',
+      subtitle: 'Signals and query results confirmed from the cluster',
+      tone: 'low',
+    },
+    followup: {
+      badge: 'Check',
+      subtitle: 'Items that still need confirmation',
+      tone: 'low',
+    },
+    impact: {
+      badge: 'Impact',
+      subtitle: 'Service impact scope and priority',
+      tone: 'mid',
+    },
+    summary: {
+      badge: 'Assess',
+      subtitle: 'Current situation and first items to read',
+      tone: 'low',
+    },
+    terminal: {
+      badge: 'Commands',
+      subtitle: 'Safe read-only commands for terminal verification',
+      tone: 'neutral',
+    },
+    verification: {
+      badge: 'Verify',
+      subtitle: 'Post-execution checks and rollback path',
+      tone: 'low',
+    },
   },
-  cause: {
-    badge: '분석',
-    subtitle: '증상과 근거로 좁힌 원인 후보',
-    tone: 'mid',
-  },
-  details: {
-    badge: '상세',
-    subtitle: '감사와 재검토를 위한 원문 근거',
-    tone: 'neutral',
-  },
-  evidence: {
-    badge: '근거',
-    subtitle: '클러스터에서 확인한 신호와 조회 결과',
-    tone: 'low',
-  },
-  followup: {
-    badge: '확인',
-    subtitle: '아직 확정되지 않은 항목',
-    tone: 'low',
-  },
-  impact: {
-    badge: '영향',
-    subtitle: '서비스 영향 범위와 우선순위',
-    tone: 'mid',
-  },
-  summary: {
-    badge: '판단',
-    subtitle: '현재 상황과 먼저 볼 항목',
-    tone: 'low',
-  },
-  terminal: {
-    badge: '명령',
-    subtitle: '터미널에서 안전하게 확인할 read-only 명령',
-    tone: 'neutral',
-  },
-  verification: {
-    badge: '검증',
-    subtitle: '실행 후 확인과 실패 시 되돌림',
-    tone: 'low',
+  ko: {
+    action: {
+      badge: '조치',
+      subtitle: '승인 조건과 실행 전 확인 사항',
+      tone: 'high',
+    },
+    cause: {
+      badge: '분석',
+      subtitle: '증상과 근거로 좁힌 원인 후보',
+      tone: 'mid',
+    },
+    details: {
+      badge: '상세',
+      subtitle: '감사와 재검토를 위한 원문 근거',
+      tone: 'neutral',
+    },
+    evidence: {
+      badge: '근거',
+      subtitle: '클러스터에서 확인한 신호와 조회 결과',
+      tone: 'low',
+    },
+    followup: {
+      badge: '확인',
+      subtitle: '아직 확정되지 않은 항목',
+      tone: 'low',
+    },
+    impact: {
+      badge: '영향',
+      subtitle: '서비스 영향 범위와 우선순위',
+      tone: 'mid',
+    },
+    summary: {
+      badge: '판단',
+      subtitle: '현재 상황과 먼저 볼 항목',
+      tone: 'low',
+    },
+    terminal: {
+      badge: '명령',
+      subtitle: '터미널에서 안전하게 확인할 read-only 명령',
+      tone: 'neutral',
+    },
+    verification: {
+      badge: '검증',
+      subtitle: '실행 후 확인과 실패 시 되돌림',
+      tone: 'low',
+    },
   },
 };
 
@@ -143,40 +205,69 @@ const normalizeRunbookHeading = (line: string): string =>
 
 const runbookSectionId = (line: string): RunbookSectionId | null => {
   const heading = normalizeRunbookHeading(line).replace(/\s*\([^)]*\)\s*/g, '').trim();
-  if (/^(요약|현재 판단|우선 판단|우선 확인|상세 분석|분석 결과|결론)$/i.test(heading)) {
+  if (
+    /^(요약|현재 판단|우선 판단|우선 확인|상세 분석|분석 결과|결론|summary|current assessment|assessment|priority assessment|conclusion|request clarification)$/i.test(
+      heading,
+    )
+  ) {
     return 'summary';
   }
-  if (/^(영향 범위|운영 영향|서비스 영향|영향|대상|범위|심각도|우선순위)$/i.test(heading)) {
+  if (
+    /^(영향 범위|운영 영향|서비스 영향|영향|대상|범위|심각도|우선순위|impact scope|operational impact|service impact|impact|target|scope|severity|priority)$/i.test(
+      heading,
+    )
+  ) {
     return 'impact';
   }
-  if (/^(확인한 근거|실제 근거|근거|증거|관측 근거|확인 근거)$/i.test(heading)) {
+  if (
+    /^(확인한 근거|실제 근거|근거|증거|관측 근거|확인 근거|confirmed evidence|query evidence|evidence|observed evidence)$/i.test(
+      heading,
+    )
+  ) {
     return 'evidence';
   }
-  if (/^(추가 확인|추가 확인 필요|확인 필요 항목|다음 확인|다음 확인 명령)$/i.test(heading)) {
+  if (
+    /^(추가 확인|추가 확인 필요|확인 필요 항목|다음 확인|다음 확인 명령|additional checks|additional check|needed information|next check|next step)$/i.test(
+      heading,
+    )
+  ) {
     return 'followup';
   }
-  if (/^(원인 후보|원인 후보 및 추가 확인 필요 항목|가능한 원인|원인|가설)$/i.test(heading)) {
+  if (
+    /^(원인 후보|원인 후보 및 추가 확인 필요 항목|가능한 원인|원인|가설|root cause candidates|root cause|possible causes|cause candidates|causes)$/i.test(
+      heading,
+    )
+  ) {
     return 'cause';
   }
   if (/^(action plan|조치 계획|실행 계획|권장 조치|권장 명령|조치)$/i.test(heading)) {
     return 'action';
   }
-  if (/^(검증\/롤백|검증|롤백|확인 및 롤백)$/i.test(heading)) {
+  if (
+    /^(검증\/롤백|검증|롤백|확인 및 롤백|verification \/ rollback|verification\/rollback|verification|rollback|verify and rollback)$/i.test(
+      heading,
+    )
+  ) {
     return 'verification';
   }
-  if (/^(터미널 확인 명령|확인 명령|조회 명령|read-only 명령|oc 확인 명령)$/i.test(heading)) {
+  if (
+    /^(터미널 확인 명령|확인 명령|조회 명령|read-only 명령|oc 확인 명령|terminal read-only commands|terminal commands|read-only commands|query commands|oc commands)$/i.test(
+      heading,
+    )
+  ) {
     return 'terminal';
   }
-  if (/^(근거 상세보기|상세 근거|상세|원문 근거)$/i.test(heading)) {
+  if (/^(근거 상세보기|상세 근거|상세|원문 근거|evidence details|details|source evidence)$/i.test(heading)) {
     return 'details';
   }
   return null;
 };
 
-const parseRunbookSections = (content: string): RunbookSection[] | null => {
+const parseRunbookSections = (content: string, language: UiLanguage): RunbookSection[] | null => {
   const lines = stripDefaultEvidenceAppendix(content).split('\n');
   const intro: string[] = [];
   const sections: RunbookSection[] = [];
+  const titles = RUNBOOK_SECTION_TITLES[language];
   let current: RunbookSection | null = null;
 
   const pushCurrent = () => {
@@ -198,7 +289,7 @@ const parseRunbookSections = (content: string): RunbookSection[] | null => {
       current = {
         id: sectionId,
         lines: [],
-        title: RUNBOOK_SECTION_TITLES[sectionId],
+        title: titles[sectionId],
       };
       return;
     }
@@ -215,7 +306,7 @@ const parseRunbookSections = (content: string): RunbookSection[] | null => {
     sections.unshift({
       id: 'summary',
       lines: cleanIntro.slice(0, 4),
-      title: RUNBOOK_SECTION_TITLES.summary,
+      title: titles.summary,
     });
   }
 
@@ -226,6 +317,7 @@ const renderRunbookLines = (
   lines: string[],
   sectionKey: string,
   sectionId: RunbookSectionId,
+  language: UiLanguage,
 ): React.ReactNode => {
   const items = lines
     .map((line) => line.trim())
@@ -234,7 +326,7 @@ const renderRunbookLines = (
     .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, ''));
 
   if (items.length === 0) {
-    return <p>표시할 내용이 없습니다.</p>;
+    return <p>{language === 'en' ? 'No displayable content.' : '표시할 내용이 없습니다.'}</p>;
   }
 
   if (items.every(isCommandLikeLine)) {
@@ -275,10 +367,10 @@ const renderRunbookLines = (
   );
 };
 
-const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
+const renderRunbookAnswer = (sections: RunbookSection[], language: UiLanguage): React.ReactNode => (
   <div className="komsco-ai__runbook-answer">
     {sections.map((section, index) => {
-      const meta = RUNBOOK_SECTION_META[section.id];
+      const meta = RUNBOOK_SECTION_META[language][section.id];
       return (
         <section
           className={`komsco-ai__runbook-section is-${section.id} tone-${meta.tone}`}
@@ -295,7 +387,7 @@ const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
             <span className={`komsco-ai__runbook-badge tone-${meta.tone}`}>{meta.badge}</span>
           </div>
           <div className="komsco-ai__runbook-section-body">
-            {renderRunbookLines(section.lines, `runbook-${section.id}`, section.id)}
+            {renderRunbookLines(section.lines, `runbook-${section.id}`, section.id, language)}
           </div>
         </section>
       );
@@ -306,6 +398,7 @@ const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
 export const renderFormattedContent = (
   message: Message,
   onPreviewAttachment: (attachment: ImageAttachment) => void,
+  language: UiLanguage = 'ko',
 ): React.ReactNode => {
   if (message.role === 'user') {
     return (
@@ -317,9 +410,9 @@ export const renderFormattedContent = (
   }
 
   const displayContent = normalizeAssistantDisplayText(message.content);
-  const runbookSections = parseRunbookSections(displayContent);
+  const runbookSections = parseRunbookSections(displayContent, language);
   if (runbookSections) {
-    return renderRunbookAnswer(runbookSections);
+    return renderRunbookAnswer(runbookSections, language);
   }
 
   const lines = stripDefaultEvidenceAppendix(displayContent).split('\n');
