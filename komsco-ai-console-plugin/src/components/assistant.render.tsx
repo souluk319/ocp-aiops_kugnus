@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import { CoolCopyIcon, CoolWrapTextIcon } from './coolicons';
 import { INLINE_PATTERN, MARKDOWN_LINK_PATTERN, URL_PATTERN } from './assistant.constants';
-import type { RagAppendixRef } from './assistant.types';
+import type { RagAppendixRef, UiLanguage } from './assistant.types';
 import { redactSensitiveText } from '../utils/evidenceDisplay';
 
 export const cleanMarkdownLabel = (label: string): string =>
@@ -92,9 +92,30 @@ export const collectIndentedBlock = (lines: string[], startIndex: number): strin
   return block;
 };
 
-const CodeBlock: React.FC<{ language?: string; lines: string[] }> = ({ language, lines }) => {
+const CODE_BLOCK_LABELS: Record<
+  UiLanguage,
+  { copyCommand: string; showWrapped: string; showUnwrapped: string }
+> = {
+  en: {
+    copyCommand: 'Copy command',
+    showUnwrapped: 'Disable line wrap',
+    showWrapped: 'Wrap lines',
+  },
+  ko: {
+    copyCommand: '명령 복사',
+    showUnwrapped: '개행 해제',
+    showWrapped: '개행 표시',
+  },
+};
+
+const CodeBlock: React.FC<{ language?: string; lines: string[]; uiLanguage?: UiLanguage }> = ({
+  language,
+  lines,
+  uiLanguage = 'ko',
+}) => {
   const [wrapped, setWrapped] = React.useState(false);
   const code = lines.join('\n').trimEnd();
+  const labels = CODE_BLOCK_LABELS[uiLanguage];
 
   return (
     <pre
@@ -106,19 +127,19 @@ const CodeBlock: React.FC<{ language?: string; lines: string[] }> = ({ language,
       <code>{code}</code>
       <div className="komsco-ai__code-actions">
         <button
-          aria-label={wrapped ? '개행 해제' : '개행 표시'}
+          aria-label={wrapped ? labels.showUnwrapped : labels.showWrapped}
           aria-pressed={wrapped}
           className={`komsco-ai__code-wrap-toggle${
             wrapped ? ' komsco-ai__code-wrap-toggle--active' : ''
           }`}
           onClick={() => setWrapped((value) => !value)}
-          title={wrapped ? '개행 해제' : '개행 표시'}
+          title={wrapped ? labels.showUnwrapped : labels.showWrapped}
           type="button"
         >
           <CoolWrapTextIcon />
         </button>
         <button
-          aria-label="명령 복사"
+          aria-label={labels.copyCommand}
           className="komsco-ai__code-copy"
           onClick={() => {
             if (navigator.clipboard) {
@@ -138,9 +159,16 @@ export const renderCodeBlock = (
   lines: string[],
   key: string,
   language?: string,
-): React.ReactNode => <CodeBlock key={key} language={language} lines={lines} />;
+  uiLanguage: UiLanguage = 'ko',
+): React.ReactNode => (
+  <CodeBlock key={key} language={language} lines={lines} uiLanguage={uiLanguage} />
+);
 
-export const renderInlineText = (text: string, keyPrefix: string): React.ReactNode[] =>
+export const renderInlineText = (
+  text: string,
+  keyPrefix: string,
+  uiLanguage: UiLanguage = 'ko',
+): React.ReactNode[] =>
   text.split(INLINE_PATTERN).map((part, index) => {
     const markdownLink = parseMarkdownLink(part);
     if (markdownLink) {
@@ -175,7 +203,13 @@ export const renderInlineText = (text: string, keyPrefix: string): React.ReactNo
     if (part.startsWith('`') && part.endsWith('`')) {
       const innerText = part.slice(1, -1);
       if (isCommandLikeLine(innerText)) {
-        return <CodeBlock key={`${keyPrefix}-code-${index}`} lines={[innerText]} />;
+        return (
+          <CodeBlock
+            key={`${keyPrefix}-code-${index}`}
+            lines={[innerText]}
+            uiLanguage={uiLanguage}
+          />
+        );
       }
 
       return (
@@ -188,7 +222,7 @@ export const renderInlineText = (text: string, keyPrefix: string): React.ReactNo
     if (part.startsWith('**') && part.endsWith('**')) {
       return (
         <strong className="komsco-ai__formatted-strong" key={`${keyPrefix}-strong-${index}`}>
-          {renderInlineText(part.slice(2, -2), `${keyPrefix}-strong-${index}`)}
+          {renderInlineText(part.slice(2, -2), `${keyPrefix}-strong-${index}`, uiLanguage)}
         </strong>
       );
     }

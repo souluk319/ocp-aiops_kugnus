@@ -118,6 +118,16 @@ const sourceReview = () => {
     'runbook answer must render namespace decision tables as a dedicated section',
   );
   assert(
+    messageContent.includes('onPreviewAttachment, language') &&
+      readFile('komsco-ai-console-plugin/src/components/assistant.render.tsx').includes(
+        "copyCommand: 'Copy command'",
+      ) &&
+      readFile('komsco-ai-console-plugin/src/components/assistant.render.tsx').includes(
+        "showWrapped: 'Wrap lines'",
+      ),
+    'assistant formatted content controls must localize code and attachment actions in English mode',
+  );
+  assert(
     progressTimeline.includes('Test Pod creation preflight') &&
       progressTimeline.includes('Target namespace and server check') &&
       assistantConstants.includes("oc_test_pod_create_preflight: '테스트 Pod 생성 사전 확인'"),
@@ -1052,6 +1062,13 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         (/Namespace|Name pace/.test(decisionTableText)) &&
         (/Decision|Deci ion/.test(decisionTableText)) &&
         decisionTableText.includes('Next Step');
+      const codeActionLabels = Array.from(
+        latest?.querySelectorAll('.komsco-ai__code-actions button') || []
+      )
+        .map((el) =>
+          ((el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '')).trim()
+        )
+        .filter(Boolean);
       const actionPlanButtons = Array.from(
         document.querySelectorAll('.komsco-ai__create-action-plan-button')
       ).map((el) => el.textContent.trim());
@@ -1113,6 +1130,8 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         decisionSectionVisible,
         decisionTableHasExpectedColumns,
         decisionTableText,
+        codeActionLabels,
+        codeActionLabelsHaveKorean: codeActionLabels.some((label) => /[가-힣]/.test(label)),
         sectionHeaders,
         source,
         sourceHasKorean:
@@ -1392,8 +1411,10 @@ const verifyLiveEnglishProgressLabels = async () => {
       namespace.textIncludesReadOnlyCommand &&
       namespace.decisionSectionVisible &&
       namespace.decisionTableCount >= 1 &&
-      namespace.decisionTableHasExpectedColumns,
-    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, and decision tables',
+      namespace.decisionTableHasExpectedColumns &&
+      namespace.codeActionLabels.length > 0 &&
+      !namespace.codeActionLabelsHaveKorean,
+    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, and code action labels',
     metrics,
   );
 

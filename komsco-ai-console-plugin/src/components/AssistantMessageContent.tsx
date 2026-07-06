@@ -20,6 +20,7 @@ const renderAttachmentGrid = (
   attachments: ImageAttachment[] | undefined,
   keyPrefix: string,
   onPreview: (attachment: ImageAttachment) => void,
+  language: UiLanguage,
 ): React.ReactNode => {
   if (!attachments || attachments.length === 0) {
     return null;
@@ -27,28 +28,35 @@ const renderAttachmentGrid = (
 
   return (
     <div className="komsco-ai__attachment-grid" key={`${keyPrefix}-attachments`}>
-      {attachments.map((attachment) => (
-        <button
-          aria-label={`${attachment.name} 크게 보기`}
-          className="komsco-ai__attachment-card"
-          key={attachment.id}
-          onClick={() => onPreview(attachment)}
-          title={`${attachment.name} 크게 보기`}
-          type="button"
-        >
-          <img
-            alt={attachment.name}
-            className="komsco-ai__attachment-image"
-            src={getAttachmentPreviewUrl(attachment)}
-          />
-          <div className="komsco-ai__attachment-meta">
-            <span className="komsco-ai__attachment-name">{attachment.name}</span>
-            <span className="komsco-ai__attachment-size">
-              {attachment.mimeType} · {formatFileSize(attachment.size)}
-            </span>
-          </div>
-        </button>
-      ))}
+      {attachments.map((attachment) => {
+        const previewLabel =
+          language === 'en'
+            ? `Open ${attachment.name} preview`
+            : `${attachment.name} 크게 보기`;
+
+        return (
+          <button
+            aria-label={previewLabel}
+            className="komsco-ai__attachment-card"
+            key={attachment.id}
+            onClick={() => onPreview(attachment)}
+            title={previewLabel}
+            type="button"
+          >
+            <img
+              alt={attachment.name}
+              className="komsco-ai__attachment-image"
+              src={getAttachmentPreviewUrl(attachment)}
+            />
+            <div className="komsco-ai__attachment-meta">
+              <span className="komsco-ai__attachment-name">{attachment.name}</span>
+              <span className="komsco-ai__attachment-size">
+                {attachment.mimeType} · {formatFileSize(attachment.size)}
+              </span>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 };
@@ -347,6 +355,7 @@ const renderMarkdownTable = (
   headers: string[],
   rows: string[][],
   keyPrefix: string,
+  uiLanguage: UiLanguage = 'ko',
 ): React.ReactNode => (
   <div className="komsco-ai__table-wrap" key={`${keyPrefix}-table`}>
     <table className="komsco-ai__table">
@@ -354,7 +363,7 @@ const renderMarkdownTable = (
         <tr>
           {headers.map((header, headerIndex) => (
             <th key={`${keyPrefix}-head-${headerIndex}`}>
-              {renderInlineText(header, `${keyPrefix}-head-${headerIndex}`)}
+              {renderInlineText(header, `${keyPrefix}-head-${headerIndex}`, uiLanguage)}
             </th>
           ))}
         </tr>
@@ -364,7 +373,11 @@ const renderMarkdownTable = (
           <tr key={`${keyPrefix}-row-${rowIndex}`}>
             {headers.map((_, cellIndex) => (
               <td key={`${keyPrefix}-row-${rowIndex}-${cellIndex}`}>
-                {renderInlineText(row[cellIndex] ?? '', `${keyPrefix}-${rowIndex}-${cellIndex}`)}
+                {renderInlineText(
+                  row[cellIndex] ?? '',
+                  `${keyPrefix}-${rowIndex}-${cellIndex}`,
+                  uiLanguage,
+                )}
               </td>
             ))}
           </tr>
@@ -411,13 +424,21 @@ const renderRunbookLines = (
       <div className="komsco-ai__runbook-table-block">
         {introLines.map((item, index) => (
           <p key={`${sectionKey}-table-intro-${index}`}>
-            {renderInlineText(item.replace(/^[-*]\s+/, ''), `${sectionKey}-table-intro-${index}`)}
+            {renderInlineText(
+              item.replace(/^[-*]\s+/, ''),
+              `${sectionKey}-table-intro-${index}`,
+              language,
+            )}
           </p>
         ))}
-        {renderMarkdownTable(headers, rows, `${sectionKey}-decision`)}
+        {renderMarkdownTable(headers, rows, `${sectionKey}-decision`, language)}
         {outroLines.map((item, index) => (
           <p key={`${sectionKey}-table-outro-${index}`}>
-            {renderInlineText(item.replace(/^[-*]\s+/, ''), `${sectionKey}-table-outro-${index}`)}
+            {renderInlineText(
+              item.replace(/^[-*]\s+/, ''),
+              `${sectionKey}-table-outro-${index}`,
+              language,
+            )}
           </p>
         ))}
       </div>
@@ -432,22 +453,24 @@ const renderRunbookLines = (
   }
 
   if (items.every(isCommandLikeLine)) {
-    return renderCodeBlock(items.slice(0, 6), `${sectionKey}-commands`);
+    return renderCodeBlock(items.slice(0, 6), `${sectionKey}-commands`, undefined, language);
   }
 
   if (items.length === 1) {
     if (isCommandLikeLine(items[0])) {
-      return renderCodeBlock([items[0]], `${sectionKey}-command`);
+      return renderCodeBlock([items[0]], `${sectionKey}-command`, undefined, language);
     }
 
-    return <p>{renderInlineText(items[0], `${sectionKey}-line`)}</p>;
+    return <p>{renderInlineText(items[0], `${sectionKey}-line`, language)}</p>;
   }
 
   if (sectionId === 'summary') {
     return (
       <div className="komsco-ai__runbook-paragraph-stack">
         {items.slice(0, 6).map((item, index) => (
-          <p key={`${sectionKey}-${index}`}>{renderInlineText(item, `${sectionKey}-${index}`)}</p>
+          <p key={`${sectionKey}-${index}`}>
+            {renderInlineText(item, `${sectionKey}-${index}`, language)}
+          </p>
         ))}
       </div>
     );
@@ -461,8 +484,8 @@ const renderRunbookLines = (
           key={`${sectionKey}-${index}`}
         >
           {isCommandLikeLine(item)
-            ? renderCodeBlock([item], `${sectionKey}-${index}-command`)
-            : renderInlineText(item, `${sectionKey}-${index}`)}
+            ? renderCodeBlock([item], `${sectionKey}-${index}-command`, undefined, language)
+            : renderInlineText(item, `${sectionKey}-${index}`, language)}
         </li>
       ))}
     </ul>
@@ -506,7 +529,7 @@ export const renderFormattedContent = (
     return (
       <div className="komsco-ai__message-text">
         {message.content && <div>{message.content}</div>}
-        {renderAttachmentGrid(message.attachments, 'message', onPreviewAttachment)}
+        {renderAttachmentGrid(message.attachments, 'message', onPreviewAttachment, language)}
       </div>
     );
   }
@@ -536,7 +559,7 @@ export const renderFormattedContent = (
       <ul className="komsco-ai__formatted-list" key={`list-${listIndex}`}>
         {bulletItems.map((item, index) => (
           <li className="komsco-ai__formatted-list-item" key={`list-${listIndex}-${index}`}>
-            {renderInlineText(item, `list-${listIndex}-${index}`)}
+            {renderInlineText(item, `list-${listIndex}-${index}`, language)}
           </li>
         ))}
       </ul>,
@@ -557,7 +580,7 @@ export const renderFormattedContent = (
       >
         {orderedItems.map((item, index) => (
           <li className="komsco-ai__formatted-list-item" key={`ordered-${listIndex}-${index}`}>
-            {renderInlineText(item, `ordered-${listIndex}-${index}`)}
+            {renderInlineText(item, `ordered-${listIndex}-${index}`, language)}
           </li>
         ))}
       </ol>,
@@ -596,7 +619,7 @@ export const renderFormattedContent = (
     }
 
     const codeIndex = nodes.length;
-    nodes.push(renderCodeBlock(codeBlockLines, `code-block-${codeIndex}`, codeBlockLanguage));
+    nodes.push(renderCodeBlock(codeBlockLines, `code-block-${codeIndex}`, codeBlockLanguage, language));
     codeBlockLanguage = '';
     codeBlockLines = [];
     inCodeBlock = false;
@@ -643,7 +666,7 @@ export const renderFormattedContent = (
       const codeLines = collectIndentedBlock(lines, index);
       if (codeLines.some(isCommandLikeLine)) {
         flushAll();
-        nodes.push(renderCodeBlock(codeLines, `indented-code-${index}`));
+        nodes.push(renderCodeBlock(codeLines, `indented-code-${index}`, undefined, language));
         index += codeLines.length - 1;
         continue;
       }
@@ -680,7 +703,7 @@ export const renderFormattedContent = (
         rowIndex += 1;
       }
 
-      nodes.push(renderMarkdownTable(headers, rows, `table-${index}`));
+      nodes.push(renderMarkdownTable(headers, rows, `table-${index}`, language));
       index = rowIndex - 1;
       continue;
     }
@@ -730,7 +753,7 @@ export const renderFormattedContent = (
           }`}
           key={`heading-${index}`}
         >
-          {renderInlineText(headingText, `heading-${index}`)}
+          {renderInlineText(headingText, `heading-${index}`, language)}
         </div>,
       );
       continue;
@@ -738,7 +761,7 @@ export const renderFormattedContent = (
 
     nodes.push(
       <div className="komsco-ai__formatted-line" key={`line-${index}`}>
-        {renderInlineText(line, `line-${index}`)}
+        {renderInlineText(line, `line-${index}`, language)}
       </div>,
     );
   }
