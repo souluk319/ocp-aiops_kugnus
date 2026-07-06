@@ -1131,6 +1131,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
             '.komsco-ai__health-head',
             '.komsco-ai__rail-status-pair',
             '.komsco-ai__rail-section-head',
+            '.komsco-ai__rail-feedback-copy',
             '.komsco-ai__rail-empty',
             '.komsco-ai__scope-list--secondary',
             '.komsco-ai__scope-list--execution',
@@ -1171,6 +1172,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         'AIOps execution status',
         'Answer evidence',
         'Answer feedback',
+        'Copy feedback JSON',
         'Recent diagnostics',
         'Approval and execution',
         'Read only',
@@ -1513,6 +1515,39 @@ const verifyLiveEnglishProgressLabels = async () => {
     question: NAMESPACE_CLEANUP_QUESTION,
   });
   const metrics = { namespace, unclear };
+  const englishFeedbackCopy = await evaluate(`(async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value) => {
+          window.__copiedEnglishFeedbackJson = value;
+        }
+      }
+    });
+    const button = document.querySelector('.komsco-ai__rail-feedback-copy');
+    const beforeLabel = button?.getAttribute('aria-label') || '';
+    button?.click();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const afterLabel = button?.getAttribute('aria-label') || '';
+    const copied = window.__copiedEnglishFeedbackJson || '';
+    let parsed = null;
+    try {
+      parsed = JSON.parse(copied);
+    } catch {
+      parsed = null;
+    }
+    return {
+      afterLabel,
+      beforeLabel,
+      copiedLength: copied.length,
+      ok: beforeLabel === 'Copy feedback JSON' &&
+        afterLabel === 'Feedback JSON copied' &&
+        Boolean(parsed) &&
+        parsed.summary?.total >= 1 &&
+        Array.isArray(parsed.records)
+    };
+  })()`);
+  metrics.englishFeedbackCopy = englishFeedbackCopy;
 
   for (const item of [unclear, namespace]) {
     assert(
@@ -1543,7 +1578,8 @@ const verifyLiveEnglishProgressLabels = async () => {
       !namespace.detailChromeLabelsHaveKorean &&
       namespace.railChromeUsesEnglish &&
       !namespace.railChromeHasKorean &&
-      namespace.railChromeMissingEnglishLabels.length === 0,
+      namespace.railChromeMissingEnglishLabels.length === 0 &&
+      englishFeedbackCopy.ok,
     'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, code action labels, footer details, and insight rail chrome',
     metrics,
   );
