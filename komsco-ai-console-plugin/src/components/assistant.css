@@ -6408,6 +6408,10 @@
   background: #f59e0b;
 }
 
+.komsco-ai__surface .komsco-ai__runbook-section.is-decisions::before {
+  background: #0f766e;
+}
+
 .komsco-ai__surface .komsco-ai__runbook-section.is-details::before {
   background: #64748b;
 }
@@ -6552,6 +6556,31 @@
   background: #111b2b;
   border-color: #202c3e;
   border-radius: 10px;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-table-block {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-section-body .komsco-ai__table-wrap {
+  max-width: 100%;
+  margin-block: 2px;
+  border-radius: 9px;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-section-body .komsco-ai__table {
+  min-width: 560px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-section-body .komsco-ai__table th,
+.komsco-ai__surface .komsco-ai__runbook-section-body .komsco-ai__table td {
+  padding: 7px 8px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .komsco-ai__history-sidebar,

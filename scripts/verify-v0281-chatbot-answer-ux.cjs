@@ -111,6 +111,13 @@ const sourceReview = () => {
     'runbook answer must render terminal command sections instead of truncating them under Action Plan',
   );
   assert(
+    messageContent.includes("decisions: 'Namespace Decisions'") &&
+      messageContent.includes("decisions: '판단 결과'") &&
+      messageContent.includes('isMarkdownTableSeparator') &&
+      messageContent.includes('komsco-ai__runbook-table-block'),
+    'runbook answer must render namespace decision tables as a dedicated section',
+  );
+  assert(
     progressTimeline.includes('Test Pod creation preflight') &&
       progressTimeline.includes('Target namespace and server check') &&
       assistantConstants.includes("oc_test_pod_create_preflight: '테스트 Pod 생성 사전 확인'"),
@@ -1026,6 +1033,25 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       const progressText = progressTexts.join(' ');
       const source = latest?.querySelector('.komsco-ai__message-source')?.textContent.trim() || '';
       const sourceTitle = latest?.querySelector('.komsco-ai__message-source')?.getAttribute('title') || '';
+      const sectionHeaders = Array.from(
+        latest?.querySelectorAll('.komsco-ai__runbook-section-title') || []
+      ).map((el) => el.textContent.replace(/\\s+/g, ' ').trim()).filter(Boolean);
+      const decisionTableCount =
+        latest?.querySelectorAll('.komsco-ai__runbook-section.is-decisions .komsco-ai__table')
+          .length || 0;
+      const decisionTableText = Array.from(
+        latest?.querySelectorAll('.komsco-ai__runbook-section.is-decisions .komsco-ai__table') ||
+          []
+      )
+        .map((el) => el.textContent.replace(/\\s+/g, ' ').trim())
+        .join(' ');
+      const decisionSectionVisible = sectionHeaders.some((header) =>
+        header === 'Namespace Decisions' || header === 'Name pace Deci ion'
+      );
+      const decisionTableHasExpectedColumns =
+        (/Namespace|Name pace/.test(decisionTableText)) &&
+        (/Decision|Deci ion/.test(decisionTableText)) &&
+        decisionTableText.includes('Next Step');
       const actionPlanButtons = Array.from(
         document.querySelectorAll('.komsco-ai__create-action-plan-button')
       ).map((el) => el.textContent.trim());
@@ -1083,6 +1109,11 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         rawProgressTerms,
         rawTerms,
         scenarioTerms,
+        decisionTableCount,
+        decisionSectionVisible,
+        decisionTableHasExpectedColumns,
+        decisionTableText,
+        sectionHeaders,
         source,
         sourceHasKorean:
           /[가-힣]/.test(source + ' ' + sourceTitle),
@@ -1358,8 +1389,11 @@ const verifyLiveEnglishProgressLabels = async () => {
       namespace.hasGatewayDirect &&
       namespace.textIncludesEnglishExecuteMode &&
       namespace.textIncludesEnglishActionPlanCandidate &&
-      namespace.textIncludesReadOnlyCommand,
-    'English UI live answers must localize clarification, execution mode, Action Plan, and Gateway source badges',
+      namespace.textIncludesReadOnlyCommand &&
+      namespace.decisionSectionVisible &&
+      namespace.decisionTableCount >= 1 &&
+      namespace.decisionTableHasExpectedColumns,
+    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, and decision tables',
     metrics,
   );
 

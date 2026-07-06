@@ -57,6 +57,7 @@ type RunbookSectionId =
   | 'summary'
   | 'impact'
   | 'evidence'
+  | 'decisions'
   | 'followup'
   | 'cause'
   | 'action'
@@ -74,6 +75,7 @@ const RUNBOOK_SECTION_TITLES: Record<UiLanguage, Record<RunbookSectionId, string
   en: {
     action: 'Action Plan',
     cause: 'Root Cause Candidates',
+    decisions: 'Namespace Decisions',
     details: 'Evidence Details',
     evidence: 'Confirmed Evidence',
     followup: 'Additional Checks',
@@ -85,6 +87,7 @@ const RUNBOOK_SECTION_TITLES: Record<UiLanguage, Record<RunbookSectionId, string
   ko: {
     action: 'Action Plan',
     cause: '원인 후보',
+    decisions: '판단 결과',
     details: '근거 상세보기',
     evidence: '확인한 근거',
     followup: '추가 확인',
@@ -108,6 +111,11 @@ const RUNBOOK_SECTION_META: Record<
     cause: {
       badge: 'RCA',
       subtitle: 'Likely causes narrowed by symptoms and evidence',
+      tone: 'mid',
+    },
+    decisions: {
+      badge: 'Decide',
+      subtitle: 'Per-target decision and next step',
       tone: 'mid',
     },
     details: {
@@ -155,6 +163,11 @@ const RUNBOOK_SECTION_META: Record<
     cause: {
       badge: '분석',
       subtitle: '증상과 근거로 좁힌 원인 후보',
+      tone: 'mid',
+    },
+    decisions: {
+      badge: '판단',
+      subtitle: '대상별 판단과 다음 조치',
       tone: 'mid',
     },
     details: {
@@ -225,6 +238,13 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
     )
   ) {
     return 'evidence';
+  }
+  if (
+    /^(판단 결과|대상별 판단|네임스페이스별 판단|네임스페이스 판단|namespace decisions|decision table|per-namespace decisions|target decisions)$/i.test(
+      heading,
+    )
+  ) {
+    return 'decisions';
   }
   if (
     /^(추가 확인|추가 확인 필요|확인 필요 항목|다음 확인|다음 확인 명령|additional checks|additional check|needed information|next check|next step)$/i.test(
@@ -313,16 +333,98 @@ const parseRunbookSections = (content: string, language: UiLanguage): RunbookSec
   return sections.length >= 3 ? sections : null;
 };
 
+const parseMarkdownTableRow = (line: string): string[] =>
+  line
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+
+const isMarkdownTableSeparator = (line: string): boolean =>
+  /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line);
+
+const renderMarkdownTable = (
+  headers: string[],
+  rows: string[][],
+  keyPrefix: string,
+): React.ReactNode => (
+  <div className="komsco-ai__table-wrap" key={`${keyPrefix}-table`}>
+    <table className="komsco-ai__table">
+      <thead>
+        <tr>
+          {headers.map((header, headerIndex) => (
+            <th key={`${keyPrefix}-head-${headerIndex}`}>
+              {renderInlineText(header, `${keyPrefix}-head-${headerIndex}`)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, rowIndex) => (
+          <tr key={`${keyPrefix}-row-${rowIndex}`}>
+            {headers.map((_, cellIndex) => (
+              <td key={`${keyPrefix}-row-${rowIndex}-${cellIndex}`}>
+                {renderInlineText(row[cellIndex] ?? '', `${keyPrefix}-${rowIndex}-${cellIndex}`)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
 const renderRunbookLines = (
   lines: string[],
   sectionKey: string,
   sectionId: RunbookSectionId,
   language: UiLanguage,
 ): React.ReactNode => {
-  const items = lines
+  const contentLines = lines
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^```/.test(line))
+    .filter((line) => !/^```/.test(line));
+
+  const tableIndex = contentLines.findIndex(
+    (line, index) =>
+      line.includes('|') && isMarkdownTableSeparator(contentLines[index + 1] ?? ''),
+  );
+
+  if (tableIndex >= 0) {
+    const headers = parseMarkdownTableRow(contentLines[tableIndex]);
+    const rows: string[][] = [];
+    let rowIndex = tableIndex + 2;
+
+    while (rowIndex < contentLines.length) {
+      const rowLine = contentLines[rowIndex];
+      if (!rowLine.includes('|') || isMarkdownTableSeparator(rowLine)) {
+        break;
+      }
+      rows.push(parseMarkdownTableRow(rowLine));
+      rowIndex += 1;
+    }
+
+    const introLines = contentLines.slice(0, tableIndex);
+    const outroLines = contentLines.slice(rowIndex);
+
+    return (
+      <div className="komsco-ai__runbook-table-block">
+        {introLines.map((item, index) => (
+          <p key={`${sectionKey}-table-intro-${index}`}>
+            {renderInlineText(item.replace(/^[-*]\s+/, ''), `${sectionKey}-table-intro-${index}`)}
+          </p>
+        ))}
+        {renderMarkdownTable(headers, rows, `${sectionKey}-decision`)}
+        {outroLines.map((item, index) => (
+          <p key={`${sectionKey}-table-outro-${index}`}>
+            {renderInlineText(item.replace(/^[-*]\s+/, ''), `${sectionKey}-table-outro-${index}`)}
+          </p>
+        ))}
+      </div>
+    );
+  }
+
+  const items = contentLines
     .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, ''));
 
   if (items.length === 0) {
@@ -511,16 +613,6 @@ export const renderFormattedContent = (
     flushReferences();
   };
 
-  const parseTableRow = (line: string): string[] =>
-    line
-      .replace(/^\|/, '')
-      .replace(/\|$/, '')
-      .split('|')
-      .map((cell) => cell.trim());
-
-  const isTableSeparator = (line: string): boolean =>
-    /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line);
-
   for (let index = 0; index < lines.length; index += 1) {
     let rawLine = lines[index];
     let line = rawLine.trim();
@@ -572,9 +664,9 @@ export const renderFormattedContent = (
     }
 
     const nextLine = lines[index + 1]?.trim() ?? '';
-    if (line.includes('|') && isTableSeparator(nextLine)) {
+    if (line.includes('|') && isMarkdownTableSeparator(nextLine)) {
       flushAll();
-      const headers = parseTableRow(line);
+      const headers = parseMarkdownTableRow(line);
       const rows: string[][] = [];
       let rowIndex = index + 2;
 
@@ -584,39 +676,11 @@ export const renderFormattedContent = (
           break;
         }
 
-        rows.push(parseTableRow(rowLine));
+        rows.push(parseMarkdownTableRow(rowLine));
         rowIndex += 1;
       }
 
-      nodes.push(
-        <div className="komsco-ai__table-wrap" key={`table-${index}`}>
-          <table className="komsco-ai__table">
-            <thead>
-              <tr>
-                {headers.map((header, headerIndex) => (
-                  <th key={`table-${index}-head-${headerIndex}`}>
-                    {renderInlineText(header, `table-${index}-head-${headerIndex}`)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, tableRowIndex) => (
-                <tr key={`table-${index}-row-${tableRowIndex}`}>
-                  {headers.map((_, cellIndex) => (
-                    <td key={`table-${index}-row-${tableRowIndex}-${cellIndex}`}>
-                      {renderInlineText(
-                        row[cellIndex] ?? '',
-                        `table-${index}-${tableRowIndex}-${cellIndex}`,
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>,
-      );
+      nodes.push(renderMarkdownTable(headers, rows, `table-${index}`));
       index = rowIndex - 1;
       continue;
     }
