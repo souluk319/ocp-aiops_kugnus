@@ -1205,6 +1205,16 @@ const openShiftSignalAnswer = (inventory) => {
 const buildTestPodCreatePreflight = async (request) => {
   const server = await runOc(['whoami', '--show-server']);
   if (!server.ok) {
+    if (request.supported) {
+      return {
+        ok: true,
+        status: 'namespace_check_deferred',
+        error: server.stderr || server.error || 'oc whoami failed',
+        namespace: request.namespace,
+        ocAvailable: false,
+        server: '콘솔 연결 전 사전검증',
+      };
+    }
     return {
       ok: false,
       status: 'oc_unavailable',
@@ -1215,14 +1225,15 @@ const buildTestPodCreatePreflight = async (request) => {
   }
   const namespace = await runOc(['get', 'namespace', request.namespace, '-o', 'name']);
   return {
-    ok: namespace.ok && request.supported,
+    ok: request.supported,
     status: request.supported
       ? namespace.ok
         ? 'namespace_ready'
-        : 'namespace_not_found'
+        : 'namespace_check_deferred'
       : 'unsupported_namespace_for_local_mutation',
     error: request.supported ? namespace.stderr || namespace.error || '' : 'local fixture mutation namespace mismatch',
     namespace: request.namespace,
+    ocAvailable: true,
     server: server.stdout,
   };
 };
@@ -1230,6 +1241,13 @@ const buildTestPodCreatePreflight = async (request) => {
 const testPodCreateAnswer = (request, preflight, executionMode = 'read-only') => {
   const targetLabel = `${LOCAL_TEST_POD_TARGET.namespace}/${LOCAL_TEST_POD_TARGET.name}`;
   const actionCapableMode = actionCapableExecutionMode(executionMode);
+  const requestedCount = request.count || LOCAL_TEST_POD_COUNT;
+  const preflightLabel =
+    preflight.status === 'namespace_ready'
+      ? 'namespace 존재 확인'
+      : preflight.status === 'namespace_check_deferred'
+        ? '실행 전 namespace 재확인 필요'
+        : preflight.status;
   if (!request.supported) {
     return [
       '## 현재 판단',
@@ -1252,12 +1270,12 @@ const testPodCreateAnswer = (request, preflight, executionMode = 'read-only') =>
     '',
     '## 대상',
     `- namespace: \`${LOCAL_TEST_POD_TARGET.namespace}\``,
-    `- 생성 수량: \`${LOCAL_TEST_POD_COUNT}\``,
+    `- 생성 수량: \`${requestedCount}\``,
     `- 계획 대상: \`${targetLabel}\``,
     '',
     '## 확인한 근거',
     `- API 서버: ${preflight.server || '확인 실패'}`,
-    `- namespace 사전 확인: ${preflight.status}`,
+    `- namespace 사전 확인: ${preflightLabel}`,
   ];
 
   if (!preflight.ok) {
@@ -1270,11 +1288,18 @@ const testPodCreateAnswer = (request, preflight, executionMode = 'read-only') =>
     actionCapableMode
       ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
       : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
-    `- 조치 후보: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${LOCAL_TEST_POD_COUNT}\` 테스트 Pod 생성`,
+    `- 조치 후보: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${requestedCount}\` 테스트 Pod 생성`,
     `- 이미지: \`${LOCAL_TEST_POD_IMAGE}\``,
-    '- 실행 조건: 운영자 승인 후 Pod 오브젝트 생성',
-    '- 검증: 생성된 Pod 오브젝트 3개가 조회되는지 확인',
+    '- 실행 조건: 운영자 승인 후 대상 namespace를 다시 확인하고 Pod 오브젝트 생성',
+    `- 검증: 생성된 Pod 오브젝트 ${requestedCount}개가 조회되는지 확인`,
     '- 정리: 테스트 완료 후 label 기준 삭제 계획을 별도로 승인',
+    '',
+    '## 터미널 확인 명령',
+    '```bash',
+    'oc whoami --show-server',
+    `oc get namespace ${LOCAL_TEST_POD_TARGET.namespace}`,
+    `oc get pods -n ${LOCAL_TEST_POD_TARGET.namespace} -l app=${LOCAL_TEST_POD_NAME_PREFIX}`,
+    '```',
   );
 
   return lines.join('\n');

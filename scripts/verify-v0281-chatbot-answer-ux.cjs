@@ -104,6 +104,11 @@ const sourceReview = () => {
     'runbook answer must start with current judgment label',
   );
   assert(
+    messageContent.includes("terminal: '터미널 확인 명령'") &&
+      messageContent.includes('터미널에서 안전하게 확인할 read-only 명령'),
+    'runbook answer must render terminal command sections instead of truncating them under Action Plan',
+  );
+  assert(
     css.includes('v0.2.8.1: Action Plan-first chatbot answer UX'),
     'v0.2.8.1 CSS guard block missing',
   );
@@ -150,6 +155,13 @@ const sourceReview = () => {
     localGateway.includes('optionalComment: body.optionalComment') &&
       localGateway.includes('LOCAL_CHAT_FEEDBACK.set'),
     'local fixture gateway must persist feedback comments for browser acceptance tests',
+  );
+  assert(
+    localGateway.includes('parseTestPodCreateRequest') &&
+      localGateway.includes('create_test_pod_action_candidate') &&
+      localGateway.includes('namespace_check_deferred') &&
+      localGateway.includes('실행 전 namespace 재확인 필요'),
+    'local gateway must support test Pod creation as an approval-gated execution request',
   );
   assert(
     /\.komsco-ai__surface \.komsco-ai__empty-mark\s*\{[\s\S]*background: transparent;[\s\S]*border: 0;[\s\S]*box-shadow: none;[\s\S]*\}/.test(css) &&
@@ -271,6 +283,12 @@ const NAMESPACE_CLEANUP_QUESTION = [
   '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
 ].join('\n');
 
+const TEST_POD_CREATE_QUESTION = [
+  'gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성해.',
+  '읽기 전용이면 조회 명령만 알려주고,',
+  '실행 가능이면 승인 가능한 Action Plan 후보까지 보여줘.',
+].join('\n');
+
 const UNCLEAR_CHAT_QUESTIONS = ['야', '명청한챗봇'];
 
 const verifyModeAnswerContracts = async () => {
@@ -366,6 +384,110 @@ const verifyModeAnswerContracts = async () => {
       !metrics.execute.hasInternalLeak &&
       !metrics.unrestricted.hasInternalLeak,
     'same namespace cleanup question must produce distinct safe answers and Action Plan capability by execution mode',
+    metrics,
+  );
+
+  return metrics;
+};
+
+const verifyTestPodCreateContracts = async () => {
+  const runMode = async (mode) => {
+    const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
+      body: JSON.stringify({
+        conversationId: `v0281-test-pod-contract-${mode}`,
+        message: TEST_POD_CREATE_QUESTION,
+        pageContext: {
+          aiopsExecutionMode: mode,
+          route: '/dashboards/aiops',
+        },
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    const raw = await response.text();
+    const events = parseSseEvents(raw);
+    const answerText = events
+      .filter((event) => event.type === 'text')
+      .map((event) => event.content || '')
+      .join('\n');
+    const toolPlan = events.find((event) => event.type === 'tool_plan')?.plan || {};
+    const toolPlanJson = JSON.stringify(toolPlan);
+    const eventJson = JSON.stringify(events);
+    return {
+      answerPreview: answerText.slice(0, 900),
+      eventTypes: events.map((event) => event.type),
+      hasActionCandidateReady: toolPlanJson.includes('action_candidate_ready'),
+      hasCandidateTool: toolPlanJson.includes('create_test_pod_action_candidate'),
+      hasDone: raw.includes('[DONE]'),
+      hasInternalLeak: /5174|local fixture|시나리오 처리 범위/.test(answerText),
+      hasMutationExecute: eventJson.includes('mutation_succeeded'),
+      mode,
+      mutationsEnabled: toolPlan?.execution_policy?.mutations_enabled,
+      ok: response.ok,
+      status: response.status,
+      textHash: `${answerText.length}:${answerText.slice(0, 80)}`,
+      textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(answerText),
+      textIncludesReadOnlyCommand:
+        answerText.includes('oc whoami --show-server') &&
+        answerText.includes('oc get namespace gpu-test-kugnus') &&
+        answerText.includes('oc get pods -n gpu-test-kugnus'),
+      textIncludesReadOnlyMode: answerText.includes('읽기 전용 모드'),
+      textIncludesExecuteMode: answerText.includes('실행 가능 모드'),
+      textIncludesUnrestrictedMode: answerText.includes('실행 무제한 모드'),
+      textIncludesVerificationGate:
+        answerText.includes('실행 전 namespace 재확인 필요') ||
+        answerText.includes('namespace 존재 확인'),
+      toolPlanMode: toolPlan?.execution_policy?.mode || '',
+      validationStatus: toolPlan?.validation?.status || '',
+    };
+  };
+
+  const readOnly = await runMode('read-only');
+  const execute = await runMode('execute');
+  const unrestricted = await runMode('unrestricted');
+  const metrics = {
+    distinct:
+      readOnly.textHash !== execute.textHash &&
+      execute.textHash !== unrestricted.textHash &&
+      readOnly.toolPlanMode !== execute.toolPlanMode &&
+      execute.toolPlanMode !== unrestricted.toolPlanMode,
+    execute,
+    readOnly,
+    unrestricted,
+  };
+
+  assert(
+    metrics.readOnly.ok &&
+      metrics.execute.ok &&
+      metrics.unrestricted.ok &&
+      metrics.readOnly.hasDone &&
+      metrics.execute.hasDone &&
+      metrics.unrestricted.hasDone &&
+      metrics.readOnly.textIncludesReadOnlyMode &&
+      metrics.readOnly.textIncludesReadOnlyCommand &&
+      metrics.readOnly.toolPlanMode === 'read_only_review' &&
+      metrics.readOnly.mutationsEnabled === false &&
+      !metrics.readOnly.hasCandidateTool &&
+      !metrics.readOnly.textIncludesActionPlanCandidate &&
+      metrics.execute.textIncludesExecuteMode &&
+      metrics.execute.toolPlanMode === 'controlled_execution' &&
+      metrics.execute.mutationsEnabled === true &&
+      metrics.execute.hasCandidateTool &&
+      metrics.execute.hasActionCandidateReady &&
+      metrics.execute.textIncludesActionPlanCandidate &&
+      metrics.execute.textIncludesVerificationGate &&
+      metrics.unrestricted.textIncludesUnrestrictedMode &&
+      metrics.unrestricted.toolPlanMode === 'unrestricted_pending_approval' &&
+      metrics.unrestricted.mutationsEnabled === true &&
+      metrics.unrestricted.hasCandidateTool &&
+      metrics.unrestricted.textIncludesActionPlanCandidate &&
+      !metrics.execute.hasMutationExecute &&
+      !metrics.unrestricted.hasMutationExecute &&
+      metrics.distinct &&
+      !metrics.readOnly.hasInternalLeak &&
+      !metrics.execute.hasInternalLeak &&
+      !metrics.unrestricted.hasInternalLeak,
+    'test Pod creation request must produce distinct safe answers and approval-gated Action Plan capability by execution mode',
     metrics,
   );
 
@@ -850,6 +972,16 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
           text.includes('oc get namespaces') &&
           text.includes('oc get all,pvc,route,event'),
         textIncludesReadOnlyMode: text.includes('읽기 전용 모드'),
+        textIncludesTestPodCommand:
+          text.includes('oc get namespace gpu-test-kugnus') &&
+          text.includes('oc get pods -n gpu-test-kugnus'),
+        textIncludesTestPodTarget:
+          text.includes('테스트 Pod') &&
+          text.includes('gpu-test-kugnus') &&
+          text.includes('aiops-test-pods'),
+        textIncludesVerificationGate:
+          text.includes('실행 전 namespace 재확인 필요') ||
+          text.includes('namespace 존재 확인'),
         textIncludesUnrestrictedMode: text.includes('실행 무제한 모드'),
         userMessages: userMessages.length
       };
@@ -922,6 +1054,74 @@ const verifyLiveModeRenderedAnswers = async () => {
   assert(
     metrics.distinct,
     'same namespace cleanup question must render distinct live UI answers by execution mode',
+    metrics,
+  );
+
+  return metrics;
+};
+
+const sendLiveTestPodCreateQuestion = async (mode) =>
+  sendLiveQuestion({
+    label: `test Pod create ${mode}`,
+    mode,
+    question: TEST_POD_CREATE_QUESTION,
+  });
+
+const verifyLiveTestPodCreateAnswers = async () => {
+  const readOnly = await sendLiveTestPodCreateQuestion('read-only');
+  const execute = await sendLiveTestPodCreateQuestion('execute');
+  const unrestricted = await sendLiveTestPodCreateQuestion('unrestricted');
+  const metrics = {
+    distinct:
+      readOnly.textHash !== execute.textHash &&
+      execute.textHash !== unrestricted.textHash &&
+      readOnly.textHash !== unrestricted.textHash,
+    execute,
+    readOnly,
+    unrestricted,
+  };
+
+  assert(
+    readOnly.textIncludesReadOnlyMode &&
+      readOnly.textIncludesTestPodCommand &&
+      readOnly.textIncludesTestPodTarget &&
+      readOnly.actionPlanButtons.length === 0 &&
+      !readOnly.textIncludesActionPlanCandidate &&
+      readOnly.hasGatewayDirect &&
+      !readOnly.hasGatewayFallback &&
+      !readOnly.hasInternalLeak &&
+      readOnly.progressUsesOperatorLabels,
+    'read-only test Pod creation answer must provide safe commands without an Action Plan CTA',
+    metrics,
+  );
+  assert(
+    execute.textIncludesExecuteMode &&
+      execute.textIncludesTestPodTarget &&
+      execute.textIncludesActionPlanCandidate &&
+      execute.textIncludesVerificationGate &&
+      execute.actionPlanButtons.includes('Action Plan 생성') &&
+      execute.hasGatewayDirect &&
+      !execute.hasGatewayFallback &&
+      !execute.hasInternalLeak &&
+      execute.progressUsesOperatorLabels,
+    'execute test Pod creation answer must render an approval-gated Action Plan CTA',
+    metrics,
+  );
+  assert(
+    unrestricted.textIncludesUnrestrictedMode &&
+      unrestricted.textIncludesTestPodTarget &&
+      unrestricted.textIncludesActionPlanCandidate &&
+      unrestricted.actionPlanButtons.includes('Action Plan 생성') &&
+      unrestricted.hasGatewayDirect &&
+      !unrestricted.hasGatewayFallback &&
+      !unrestricted.hasInternalLeak &&
+      unrestricted.progressUsesOperatorLabels,
+    'unrestricted test Pod creation answer must still require the approval-gated Action Plan CTA',
+    metrics,
+  );
+  assert(
+    metrics.distinct,
+    'same test Pod creation question must render distinct live UI answers by execution mode',
     metrics,
   );
 
@@ -1725,6 +1925,7 @@ const verifyConsoleAssistant = async () => {
   });
 
   const liveModeRenderedAnswers = await verifyLiveModeRenderedAnswers();
+  const liveTestPodCreateAnswers = await verifyLiveTestPodCreateAnswers();
   const liveClarificationAnswers = await verifyLiveClarificationAnswers();
   const liveEnglishProgressLabels = await verifyLiveEnglishProgressLabels();
 
@@ -1736,6 +1937,7 @@ const verifyConsoleAssistant = async () => {
     liveClarificationAnswers,
     liveEnglishProgressLabels,
     liveModeRenderedAnswers,
+    liveTestPodCreateAnswers,
     metrics,
   };
 };
@@ -1774,6 +1976,7 @@ const verifyStandalonePortal = async () => {
 const main = async () => {
   sourceReview();
   const modeContracts = await verifyModeAnswerContracts();
+  const testPodContracts = await verifyTestPodCreateContracts();
   const chromeVersion = await setupBrowser();
   const consoleResult = await verifyConsoleAssistant();
   const portalResult = await verifyStandalonePortal();
@@ -1788,6 +1991,7 @@ const main = async () => {
     passed: true,
     portalResult,
     screenshots: [path.join(screenshotDir, 'v0281-chatbot-history.png')],
+    testPodContracts,
   };
   console.log(JSON.stringify(output, null, 2));
 };

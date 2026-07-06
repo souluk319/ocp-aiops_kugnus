@@ -61,6 +61,7 @@ type RunbookSectionId =
   | 'cause'
   | 'action'
   | 'verification'
+  | 'terminal'
   | 'details';
 
 type RunbookSection = {
@@ -77,6 +78,7 @@ const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
   followup: '추가 확인',
   impact: '영향 범위',
   summary: '현재 판단',
+  terminal: '터미널 확인 명령',
   verification: '검증/롤백',
 };
 
@@ -119,6 +121,11 @@ const RUNBOOK_SECTION_META: Record<
     subtitle: '현재 상황과 먼저 볼 항목',
     tone: 'low',
   },
+  terminal: {
+    badge: '명령',
+    subtitle: '터미널에서 안전하게 확인할 read-only 명령',
+    tone: 'neutral',
+  },
   verification: {
     badge: '검증',
     subtitle: '실행 후 확인과 실패 시 되돌림',
@@ -156,6 +163,9 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
   }
   if (/^(검증\/롤백|검증|롤백|확인 및 롤백)$/i.test(heading)) {
     return 'verification';
+  }
+  if (/^(터미널 확인 명령|확인 명령|조회 명령|read-only 명령|oc 확인 명령)$/i.test(heading)) {
+    return 'terminal';
   }
   if (/^(근거 상세보기|상세 근거|상세|원문 근거)$/i.test(heading)) {
     return 'details';
@@ -220,6 +230,7 @@ const renderRunbookLines = (
   const items = lines
     .map((line) => line.trim())
     .filter(Boolean)
+    .filter((line) => !/^```/.test(line))
     .map((line) => line.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, ''));
 
   if (items.length === 0) {
