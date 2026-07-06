@@ -1706,6 +1706,63 @@ const verifyConsoleAssistant = async () => {
     actionMetrics,
   );
 
+  await setUiLanguageInUi('en');
+  const englishActionMetrics = await evaluate(`(() => {
+    const labelOf = (el) => el.getAttribute('aria-label') || el.textContent.trim();
+    const userActions = Array.from(
+      document.querySelectorAll('.komsco-ai__message--user [data-message-actions="user"] button')
+    ).map(labelOf);
+    const assistantActions = Array.from(
+      document.querySelectorAll('.komsco-ai__message--assistant [data-message-actions="assistant"] button')
+    ).map(labelOf);
+    const allMessageActions = Array.from(document.querySelectorAll('.komsco-ai__message-actions button')).map(labelOf);
+    return {
+      assistantActions,
+      hiddenFullscreenInMessageActions: allMessageActions.some((label) => /full screen|fullscreen|전체.?화면/i.test(label)),
+      userActions
+    };
+  })()`);
+  assert(
+    JSON.stringify(englishActionMetrics.userActions) === JSON.stringify(['Edit and resend', 'Copy']),
+    'English user message footer must expose edit-resend and copy only',
+    englishActionMetrics,
+  );
+  assert(
+    JSON.stringify(englishActionMetrics.assistantActions) ===
+      JSON.stringify(['Copy', 'Good response', 'Bad response']),
+    'English assistant message footer must expose copy, good response, and bad response only',
+    englishActionMetrics,
+  );
+  assert(
+    !englishActionMetrics.hiddenFullscreenInMessageActions,
+    'English message footer must not contain a fullscreen action',
+    englishActionMetrics,
+  );
+
+  const englishFeedbackClickMetrics = await evaluate(`(() => {
+    const down = document.querySelector('.komsco-ai__message--assistant [aria-label="Bad response"]');
+    down?.click();
+    const form = document.querySelector('.komsco-ai__feedback-comment');
+    const input = form?.querySelector('input');
+    const metrics = {
+      formTextBeforeSubmit: form?.textContent.trim() || '',
+      inputPlaceholder: input?.getAttribute('placeholder') || '',
+      inputValue: input?.value || '',
+      pressed: down?.getAttribute('aria-pressed') || ''
+    };
+    down?.click();
+    return metrics;
+  })()`);
+  assert(
+    englishFeedbackClickMetrics.pressed === 'true' &&
+      englishFeedbackClickMetrics.formTextBeforeSubmit.includes('What should be improved?') &&
+      englishFeedbackClickMetrics.inputPlaceholder === 'Add a short note for the test log' &&
+      englishFeedbackClickMetrics.inputValue === '',
+    'English thumbs-down feedback must open a localized tester comment rail',
+    englishFeedbackClickMetrics,
+  );
+  await setUiLanguageInUi('ko');
+
   const editResendMetrics = await evaluate(`(() => {
     const edit = document.querySelector('.komsco-ai__message--user [aria-label="수정해서 다시 보내기"]');
     const textarea = document.querySelector('.komsco-ai__composer textarea');
