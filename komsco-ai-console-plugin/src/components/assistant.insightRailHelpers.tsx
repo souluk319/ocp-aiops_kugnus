@@ -429,21 +429,15 @@ export const renderHeaderOpsStatus = (
           : 'Node pending';
   const headerOperatorLabel =
     summary && getClusterFaultCount(summary) > 0
-      ? isKo
-        ? `Operator 장애 ${getClusterFaultCount(summary)}`
-        : `Operator issues ${getClusterFaultCount(summary)}`
+      ? `Operator ${getClusterFaultCount(summary)}`
       : summary && summary.operators.progressing > 0
-        ? isKo
-          ? `Operator 진행 ${summary.operators.progressing}`
-          : `Operator progressing ${summary.operators.progressing}`
+        ? `Operator ${summary.operators.progressing}`
         : summary &&
             summary.operators.total > 0 &&
             summary.operators.available === summary.operators.total
-          ? isKo
-            ? 'Operator 정상'
-            : 'Operator OK'
+          ? 'Operator'
           : isKo
-            ? operatorStatus.label.replace(' 확인 필요', ' 확인')
+            ? 'Operator'
             : 'Operator check';
 
   return (

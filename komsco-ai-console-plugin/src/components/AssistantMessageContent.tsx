@@ -1,6 +1,5 @@
 import * as React from 'react';
 
-import { CoolCaretDownIcon } from './coolicons';
 import { normalizeAssistantDisplayText } from './assistant.display';
 import { formatFileSize, getAttachmentPreviewUrl } from './assistant.attachments';
 import {
@@ -58,6 +57,7 @@ type RunbookSectionId =
   | 'summary'
   | 'impact'
   | 'evidence'
+  | 'followup'
   | 'cause'
   | 'action'
   | 'verification'
@@ -74,6 +74,7 @@ const RUNBOOK_SECTION_TITLES: Record<RunbookSectionId, string> = {
   cause: '원인 후보',
   details: '근거 상세보기',
   evidence: '확인한 근거',
+  followup: '추가 확인',
   impact: '영향 범위',
   summary: '현재 판단',
   verification: '검증/롤백',
@@ -89,7 +90,7 @@ const RUNBOOK_SECTION_META: Record<
     tone: 'high',
   },
   cause: {
-    badge: '가설',
+    badge: '분석',
     subtitle: '증상과 근거로 좁힌 원인 후보',
     tone: 'mid',
   },
@@ -101,6 +102,11 @@ const RUNBOOK_SECTION_META: Record<
   evidence: {
     badge: '근거',
     subtitle: '클러스터에서 확인한 신호와 조회 결과',
+    tone: 'low',
+  },
+  followup: {
+    badge: '확인',
+    subtitle: '아직 확정되지 않은 항목',
     tone: 'low',
   },
   impact: {
@@ -139,10 +145,13 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
   if (/^(확인한 근거|실제 근거|근거|증거|관측 근거|확인 근거)$/i.test(heading)) {
     return 'evidence';
   }
-  if (/^(원인 후보|원인 후보 및 추가 확인 필요 항목|추가 확인 필요|가능한 원인|원인|가설)$/i.test(heading)) {
+  if (/^(추가 확인|추가 확인 필요|확인 필요 항목|다음 확인|다음 확인 명령)$/i.test(heading)) {
+    return 'followup';
+  }
+  if (/^(원인 후보|원인 후보 및 추가 확인 필요 항목|가능한 원인|원인|가설)$/i.test(heading)) {
     return 'cause';
   }
-  if (/^(action plan|조치 계획|실행 계획|권장 조치|권장 명령|다음 확인|다음 확인 명령|조치)$/i.test(heading)) {
+  if (/^(action plan|조치 계획|실행 계획|권장 조치|권장 명령|조치)$/i.test(heading)) {
     return 'action';
   }
   if (/^(검증\/롤백|검증|롤백|확인 및 롤백)$/i.test(heading)) {
@@ -203,7 +212,11 @@ const parseRunbookSections = (content: string): RunbookSection[] | null => {
   return sections.length >= 3 ? sections : null;
 };
 
-const renderRunbookLines = (lines: string[], sectionKey: string): React.ReactNode => {
+const renderRunbookLines = (
+  lines: string[],
+  sectionKey: string,
+  sectionId: RunbookSectionId,
+): React.ReactNode => {
   const items = lines
     .map((line) => line.trim())
     .filter(Boolean)
@@ -223,6 +236,16 @@ const renderRunbookLines = (lines: string[], sectionKey: string): React.ReactNod
     }
 
     return <p>{renderInlineText(items[0], `${sectionKey}-line`)}</p>;
+  }
+
+  if (sectionId === 'summary') {
+    return (
+      <div className="komsco-ai__runbook-paragraph-stack">
+        {items.slice(0, 6).map((item, index) => (
+          <p key={`${sectionKey}-${index}`}>{renderInlineText(item, `${sectionKey}-${index}`)}</p>
+        ))}
+      </div>
+    );
   }
 
   return (
@@ -246,12 +269,11 @@ const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
     {sections.map((section, index) => {
       const meta = RUNBOOK_SECTION_META[section.id];
       return (
-        <details
+        <section
           className={`komsco-ai__runbook-section is-${section.id} tone-${meta.tone}`}
           key={section.id}
-          open={index === 0}
         >
-          <summary className="komsco-ai__runbook-section-head">
+          <div className="komsco-ai__runbook-section-head">
             <span className="komsco-ai__runbook-step-index">
               {String(index + 1).padStart(2, '0')}
             </span>
@@ -260,12 +282,11 @@ const renderRunbookAnswer = (sections: RunbookSection[]): React.ReactNode => (
               <span className="komsco-ai__runbook-section-subtitle">{meta.subtitle}</span>
             </span>
             <span className={`komsco-ai__runbook-badge tone-${meta.tone}`}>{meta.badge}</span>
-            <CoolCaretDownIcon />
-          </summary>
-          <div className="komsco-ai__runbook-section-body">
-            {renderRunbookLines(section.lines, `runbook-${section.id}`)}
           </div>
-        </details>
+          <div className="komsco-ai__runbook-section-body">
+            {renderRunbookLines(section.lines, `runbook-${section.id}`, section.id)}
+          </div>
+        </section>
       );
     })}
   </div>

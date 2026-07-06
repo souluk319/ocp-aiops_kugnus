@@ -4163,22 +4163,27 @@
 
 .komsco-ai__scroll-bottom {
   position: absolute;
-  inset-block-start: -46px;
-  left: 50%;
+  inset-block-start: -38px;
+  inset-inline-end: 16px;
   z-index: 3;
   display: inline-grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
   padding: 0;
   margin: 0;
-  color: var(--komsco-blue-700);
-  background: #fff;
-  border: 1px solid #cfd9e6;
-  border-radius: 999px;
-  box-shadow: 0 8px 22px rgb(15 23 42 / 14%);
-  transform: translateX(-50%);
+  color: #475569;
+  background: rgb(255 255 255 / 82%);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: none;
+  transform: none;
+}
+
+.komsco-ai__scroll-bottom:hover {
+  color: #0f172a;
+  background: #f8fafc;
 }
 
 .komsco-ai__scroll-bottom svg {
@@ -6689,7 +6694,16 @@
 }
 
 .komsco-ai--portal .komsco-ai__surface .komsco-ai__header-op-chip {
+  flex: 0 1 auto;
   height: 24px;
+  max-width: min(140px, 42vw);
+  min-width: 0;
+}
+
+.komsco-ai--portal .komsco-ai__surface .komsco-ai__header-op-chip > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (width <= 760px) {
@@ -6765,42 +6779,54 @@
 }
 
 .komsco-ai__surface .komsco-ai__runbook-answer {
-  gap: 10px;
+  gap: 0;
+  padding: 0 2px;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-section {
-  border-color: #d7e0ec;
-  border-left-width: 4px;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgb(15 23 42 / 5%);
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
-.komsco-ai__surface .komsco-ai__runbook-section[open] {
-  background: #ffffff;
-  border-color: #c9d7e8;
+.komsco-ai__surface .komsco-ai__runbook-section:first-child {
+  border-top: 0;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-section::before {
+  display: none;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-section-head {
-  min-height: 48px;
-  padding: 9px 12px;
+  min-height: 0;
+  padding: 10px 0 6px;
+  cursor: default;
+  user-select: text;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-step-index {
-  width: 26px;
-  height: 26px;
-  font-size: 11px;
+  width: 22px;
+  height: auto;
+  place-items: start;
+  color: #64748b;
+  background: transparent;
+  font-size: 10px;
+  border-radius: 0;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-section-title {
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-section-subtitle {
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-section-body {
-  padding: 12px 14px 14px;
+  padding: 0 0 12px 31px;
   font-size: 14px;
   line-height: 1.68;
 }
@@ -6809,6 +6835,61 @@
 .komsco-ai__surface .komsco-ai__runbook-section-body li {
   font-size: 14px;
   line-height: 1.68;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-paragraph-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-paragraph-stack p {
+  margin: 0;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-section-body .komsco-ai__formatted-code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-badge {
+  height: auto;
+  padding: 0;
+  font-size: 10.5px;
+  font-weight: 740;
+  line-height: 1.2;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.komsco-ai__surface .komsco-ai__runbook-badge.tone-high,
+.komsco-ai__surface .komsco-ai__runbook-badge.tone-mid,
+.komsco-ai__surface .komsco-ai__runbook-badge.tone-low,
+.komsco-ai__surface .komsco-ai__runbook-badge.tone-neutral {
+  background: transparent;
+  border-color: transparent;
+}
+
+.komsco-ai__surface .komsco-ai__evidence-detail,
+.komsco-ai__surface .komsco-ai__toolplan-json,
+.komsco-ai__surface .komsco-ai__progress {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.komsco-ai__surface .komsco-ai__toolplan-json {
+  padding: 0;
+}
+
+.komsco-ai__surface .komsco-ai__evidence-detail summary,
+.komsco-ai__surface .komsco-ai__toolplan-json summary,
+.komsco-ai__surface .komsco-ai__progress-summary {
+  color: #64748b;
+  text-decoration: none;
 }
 
 .komsco-ai__surface .komsco-ai__answer-actions {
@@ -7238,7 +7319,7 @@
   grid-column: 1 / -1;
   grid-row: 2;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   justify-content: flex-start;
@@ -7246,7 +7327,7 @@
   min-height: 30px;
   height: auto;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .komsco-ai--portal .komsco-ai__surface .komsco-ai__header {
@@ -7261,7 +7342,7 @@
   height: auto;
   min-height: 30px;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   transform: none;
 }
 
