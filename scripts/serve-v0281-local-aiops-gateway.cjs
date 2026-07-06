@@ -30,8 +30,24 @@ const LOCAL_TARGET = {
 };
 
 const LOCAL_PLAN_DIGEST = 'sha256:local-crashloop-plan-v1';
+const LOCAL_TEST_POD_TARGET = {
+  apiVersion: 'v1',
+  kind: 'Pod',
+  namespace: process.env.AIOPS_LOCAL_TEST_POD_NAMESPACE || 'gpu-test-kugnus',
+  name: 'aiops-test-pods',
+  uid: 'local-pod-aiops-test-pods',
+};
+const LOCAL_TEST_POD_COUNT = Number(process.env.AIOPS_LOCAL_TEST_POD_COUNT || 3);
+const LOCAL_TEST_POD_IMAGE =
+  process.env.AIOPS_LOCAL_TEST_POD_IMAGE ||
+  'registry.access.redhat.com/ubi9/ubi-minimal:latest';
+const LOCAL_TEST_POD_NAME_PREFIX =
+  process.env.AIOPS_LOCAL_TEST_POD_NAME_PREFIX || 'aiops-test-pod';
+const LOCAL_TEST_POD_PLAN_DIGEST = 'sha256:local-create-test-pods-plan-v1';
 const LOCAL_ACTION_REGISTRY_DIGEST = 'sha256:local-action-registry-v1';
 const LOCAL_POLICY_DIGEST = 'sha256:local-policy-v1';
+const LOCAL_ACTION_PROPOSALS = new Map();
+const LOCAL_SEALED_PLANS = new Map();
 const LOCAL_APPROVALS = new Map();
 const LOCAL_EXECUTIONS = new Map([
   [
@@ -65,36 +81,124 @@ const LOCAL_EXECUTIONS = new Map([
   ],
 ]);
 
-const localAction = () => ({
-  toolName: 'rollout_restart_deployment',
-  toolVersion: 'v1',
-  normalizedParameters: {
-    namespace: LOCAL_TARGET.namespace,
-    name: LOCAL_TARGET.name,
-  },
-  actionRegistry: {
-    version: 'local-fixture',
-    digest: LOCAL_ACTION_REGISTRY_DIGEST,
-  },
-  authorization: {
-    apiGroup: 'apps',
-    resource: 'deployments',
-    subresource: '',
-    verb: 'patch',
-  },
-});
+const actionTypeFromCandidateId = (candidateId = '') => {
+  const value = String(candidateId || '');
+  if (value.includes('create-test-pods')) {
+    return 'test-pods';
+  }
+  if (value.includes('crashloop')) {
+    return 'crashloop';
+  }
+  return '';
+};
 
-const localProposalRecord = () => ({
+const actionTypeFromProposalId = (proposalId = '') => {
+  const value = String(proposalId || '');
+  if (value.includes('test-pods')) {
+    return 'test-pods';
+  }
+  if (value.includes('crashloop')) {
+    return 'crashloop';
+  }
+  return '';
+};
+
+const actionTypeFromPlanId = (planId = '') => {
+  const value = String(planId || '');
+  if (value.includes('test-pods')) {
+    return 'test-pods';
+  }
+  if (value.includes('crashloop')) {
+    return 'crashloop';
+  }
+  return '';
+};
+
+const actionTypeFromPlanDigest = (planDigest = '') => {
+  if (planDigest === LOCAL_TEST_POD_PLAN_DIGEST) {
+    return 'test-pods';
+  }
+  if (planDigest === LOCAL_PLAN_DIGEST) {
+    return 'crashloop';
+  }
+  return '';
+};
+
+const planDigestForAction = (actionType = 'crashloop') =>
+  actionType === 'test-pods' ? LOCAL_TEST_POD_PLAN_DIGEST : LOCAL_PLAN_DIGEST;
+
+const targetForAction = (actionType = 'crashloop') =>
+  actionType === 'test-pods' ? LOCAL_TEST_POD_TARGET : LOCAL_TARGET;
+
+const planIdForAction = (actionType = 'crashloop') =>
+  actionType === 'test-pods' ? 'plan-local-test-pods' : 'plan-local-crashloop';
+
+const proposalIdForAction = (actionType = 'crashloop') =>
+  actionType === 'test-pods' ? 'proposal-local-test-pods' : 'proposal-local-crashloop';
+
+const actionTitleForAction = (actionType = 'crashloop') =>
+  actionType === 'test-pods'
+    ? '테스트 Pod 3개 생성'
+    : 'CrashLoopBackOff 복구 조치 후보';
+
+const localAction = (actionType = 'crashloop') => {
+  if (actionType === 'test-pods') {
+    return {
+      toolName: 'create_test_pods',
+      toolVersion: 'v1',
+      normalizedParameters: {
+        namespace: LOCAL_TEST_POD_TARGET.namespace,
+        count: LOCAL_TEST_POD_COUNT,
+        image: LOCAL_TEST_POD_IMAGE,
+        namePrefix: LOCAL_TEST_POD_NAME_PREFIX,
+      },
+      actionRegistry: {
+        version: 'local-fixture',
+        digest: LOCAL_ACTION_REGISTRY_DIGEST,
+      },
+      authorization: {
+        apiGroup: '',
+        resource: 'pods',
+        subresource: '',
+        verb: 'create',
+      },
+    };
+  }
+
+  return {
+    toolName: 'rollout_restart_deployment',
+    toolVersion: 'v1',
+    normalizedParameters: {
+      namespace: LOCAL_TARGET.namespace,
+      name: LOCAL_TARGET.name,
+    },
+    actionRegistry: {
+      version: 'local-fixture',
+      digest: LOCAL_ACTION_REGISTRY_DIGEST,
+    },
+    authorization: {
+      apiGroup: 'apps',
+      resource: 'deployments',
+      subresource: '',
+      verb: 'patch',
+    },
+  };
+};
+
+const localProposalRecord = (actionType = 'crashloop') => {
+  const isTestPods = actionType === 'test-pods';
+  const target = targetForAction(actionType);
+  return {
   schemaVersion: 'v1',
   apiVersion: 'aiops.komsco/v1',
   kind: 'ActionProposalRecord',
-  metadata: { name: 'proposal-local-crashloop', createdAt: nowIso() },
+  metadata: { name: proposalIdForAction(actionType), createdAt: nowIso() },
   spec: {
     candidateActionRequest: {
       schemaVersion: 'v1',
-      title: 'CrashLoopBackOff 복구 조치 후보',
-      target: LOCAL_TARGET,
-      action: localAction(),
+      title: actionTitleForAction(actionType),
+      target,
+      action: localAction(actionType),
       requester: LOCAL_SUBJECT,
       policy: {
         mode: 'local-only',
@@ -102,50 +206,66 @@ const localProposalRecord = () => ({
         policyDecisionDigest: LOCAL_POLICY_DIGEST,
       },
     },
-    candidateRequestDigest: 'sha256:local-candidate-request-v1',
+    candidateRequestDigest: isTestPods
+      ? 'sha256:local-test-pods-candidate-request-v1'
+      : 'sha256:local-candidate-request-v1',
     digestSchema: {
       name: 'candidate-action-request-digest-v1',
       canonicalization: 'stable-json-sort-keys',
     },
-    evidenceRefs: [
-      {
-        id: 'ev-local-alert-notready',
-        kind: 'Alert',
-        source: 'local-fixture',
-      },
-    ],
-    incidentId: 'inc-local-crashloop',
+    evidenceRefs: isTestPods
+      ? [
+          {
+            id: 'ev-local-user-request-test-pods',
+            kind: 'UserRequest',
+            source: 'chat',
+          },
+        ]
+      : [
+          {
+            id: 'ev-local-alert-notready',
+            kind: 'Alert',
+            source: 'local-fixture',
+          },
+        ],
+    incidentId: isTestPods ? 'inc-local-test-pods' : 'inc-local-crashloop',
     runId: 'run-local-fixture',
     runbookRefs: [
       {
-        title: 'Deployment restart runbook',
-        uri: 'local-fixture://runbooks/deployment-restart',
+        title: isTestPods ? 'Test Pod creation runbook' : 'Deployment restart runbook',
+        uri: isTestPods
+          ? 'local-fixture://runbooks/create-test-pods'
+          : 'local-fixture://runbooks/deployment-restart',
       },
     ],
     sourceType: 'local-fixture',
     status: { phase: 'proposed' },
   },
   subject: LOCAL_SUBJECT,
-});
+  };
+};
 
-const localSealedPlanRecord = () => {
+const localSealedPlanRecord = (actionType = 'crashloop') => {
   const createdAt = nowIso();
+  const isTestPods = actionType === 'test-pods';
+  const target = targetForAction(actionType);
+  const planDigest = planDigestForAction(actionType);
   const plan = {
     schemaVersion: 'v1',
     clusterId: 'local-aiops-fixture',
     metadata: {
-      planId: 'plan-local-crashloop',
-      incidentId: 'inc-local-crashloop',
+      planId: planIdForAction(actionType),
+      incidentId: isTestPods ? 'inc-local-test-pods' : 'inc-local-crashloop',
       requester: LOCAL_SUBJECT,
-      idempotencyKey: 'idem-local-crashloop',
+      idempotencyKey: isTestPods ? 'idem-local-test-pods' : 'idem-local-crashloop',
       createdAt,
       apiCallTimeout: '30s',
       verificationDeadline: '10m',
       maxMutationAttempts: 1,
       maxVerificationAttempts: 3,
     },
-    target: LOCAL_TARGET,
-    action: localAction(),
+    target,
+    action: localAction(actionType),
     safety: {
       risk: 'low',
       policy: {
@@ -158,34 +278,43 @@ const localSealedPlanRecord = () => {
         requestDigest: 'sha256:local-dry-run-v1',
       },
       preconditions: [
-        { type: 'TargetExists', value: true },
-        { type: 'LocalFixtureOnly', value: true },
+        { type: isTestPods ? 'TargetNamespaceSpecified' : 'TargetExists', value: true },
+        { type: isTestPods ? 'CompanyServerMutationGuard' : 'LocalFixtureOnly', value: true },
       ],
       hardPostconditions: [{ type: 'ExecutionRecordTerminalState', value: true }],
-      observationalPostconditions: [
-        { type: 'DeploymentRestartObserved', value: LOCAL_TARGET.name },
-      ],
-      rollbackDescription: '필요 시 직전 ReplicaSet으로 rollout undo를 수행합니다.',
+      observationalPostconditions: isTestPods
+        ? [{ type: 'TestPodsCreated', value: `${LOCAL_TEST_POD_COUNT} pods` }]
+        : [{ type: 'DeploymentRestartObserved', value: LOCAL_TARGET.name }],
+      rollbackDescription: isTestPods
+        ? `테스트 후 label app=${LOCAL_TEST_POD_NAME_PREFIX} 기준으로 생성 Pod를 삭제합니다.`
+        : '필요 시 직전 ReplicaSet으로 rollout undo를 수행합니다.',
       rollbackRequiresApproval: true,
       rollbackPossible: true,
       expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     },
     approvalPresentation: {
       impact: {
-        affectedWorkloads: 1,
-        affectedPods: 1,
+        affectedWorkloads: isTestPods ? 0 : 1,
+        affectedPods: isTestPods ? LOCAL_TEST_POD_COUNT : 1,
         availabilityRisk: 'low',
-        summaryDigest: 'sha256:local-impact-v1',
+        summaryDigest: isTestPods ? 'sha256:local-test-pods-impact-v1' : 'sha256:local-impact-v1',
       },
       dryRun: {
         decision: 'local_fixture_validated',
         normalizedDiffDigest: 'sha256:local-dry-run-v1',
       },
-      evidenceRefs: [{ id: 'ev-local-alert-notready', source: 'local-fixture' }],
-      runbookRefs: [{ title: 'Deployment restart runbook' }],
+      evidenceRefs: [
+        {
+          id: isTestPods ? 'ev-local-user-request-test-pods' : 'ev-local-alert-notready',
+          source: isTestPods ? 'chat' : 'local-fixture',
+        },
+      ],
+      runbookRefs: [
+        { title: isTestPods ? 'Test Pod creation runbook' : 'Deployment restart runbook' },
+      ],
     },
     digest: {
-      planDigest: LOCAL_PLAN_DIGEST,
+      planDigest,
       canonicalization: 'stable-json-sort-keys',
       digestSchema: 'sealed-action-plan-digest-v1',
     },
@@ -195,7 +324,7 @@ const localSealedPlanRecord = () => {
     schemaVersion: 'v1',
     apiVersion: 'aiops.komsco/v1',
     kind: 'SealedActionPlanRecord',
-    metadata: { name: 'plan-local-crashloop', createdAt },
+    metadata: { name: planIdForAction(actionType), createdAt },
     spec: { sealedActionPlan: plan, status: { phase: 'sealed' } },
     subject: LOCAL_SUBJECT,
   };
@@ -274,11 +403,64 @@ const isOpenShiftSignalQuestion = (message) => {
   if (isNamespaceCleanupQuestion(text) || isCrashloopDemoQuestion(text)) {
     return false;
   }
-  return /(openshift|오픈시프트|경고|alert|event|이벤트|operator|pod|clusteroperator|co\b)/i.test(text);
+  return /(openshift|오픈시프트|경고|alert|event|이벤트|operator|pod|파드|clusteroperator|co\b)/i.test(text);
 };
 
 const ocReadTimeoutMs = Number(process.env.AIOPS_LOCAL_OC_TIMEOUT_MS || 12000);
 const namespaceNamePattern = /\b[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\b/g;
+const dnsLabelPattern = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/;
+
+const koreanCountWords = new Map([
+  ['한', 1],
+  ['하나', 1],
+  ['두', 2],
+  ['둘', 2],
+  ['세', 3],
+  ['셋', 3],
+  ['네', 4],
+  ['넷', 4],
+  ['다섯', 5],
+]);
+
+const requestedPodCount = (message) => {
+  const text = String(message || '');
+  const digitMatch = text.match(/(\d+)\s*(?:개|대|pods?|파드)?/i);
+  if (digitMatch) {
+    return Math.max(1, Math.min(10, Number(digitMatch[1])));
+  }
+  for (const [word, count] of koreanCountWords) {
+    if (new RegExp(`${word}\\s*(?:개|대|pods?|파드)`, 'i').test(text)) {
+      return count;
+    }
+  }
+  return LOCAL_TEST_POD_COUNT;
+};
+
+const requestedNamespace = (message) => {
+  const text = String(message || '');
+  const beforeNamespace = text.match(/\b([a-z0-9](?:[-a-z0-9]*[a-z0-9])?)\s*(?:namespace|네임스페이스|ns)\b/i);
+  if (beforeNamespace && dnsLabelPattern.test(beforeNamespace[1])) {
+    return beforeNamespace[1];
+  }
+  const names = text.match(namespaceNamePattern) || [];
+  return names.find((name) => dnsLabelPattern.test(name) && name.includes('-')) || '';
+};
+
+const parseTestPodCreateRequest = (message) => {
+  const text = String(message || '');
+  const asksCreate = /(생성|만들|띄워|올려|create|run|start)/i.test(text);
+  const mentionsPod = /(pod|파드)/i.test(text);
+  if (!asksCreate || !mentionsPod) {
+    return null;
+  }
+
+  const namespace = requestedNamespace(text) || LOCAL_TEST_POD_TARGET.namespace;
+  return {
+    count: requestedPodCount(text),
+    namespace,
+    supported: namespace === LOCAL_TEST_POD_TARGET.namespace,
+  };
+};
 const activeWorkloadKinds = new Set([
   'CronJob',
   'DaemonSet',
@@ -733,6 +915,173 @@ const openShiftSignalAnswer = (inventory) => {
   return lines.join('\n');
 };
 
+const buildTestPodCreatePreflight = async (request) => {
+  const server = await runOc(['whoami', '--show-server']);
+  if (!server.ok) {
+    return {
+      ok: false,
+      status: 'oc_unavailable',
+      error: server.stderr || server.error || 'oc whoami failed',
+      namespace: request.namespace,
+      server: '',
+    };
+  }
+  const namespace = await runOc(['get', 'namespace', request.namespace, '-o', 'name']);
+  return {
+    ok: namespace.ok && request.supported,
+    status: request.supported
+      ? namespace.ok
+        ? 'namespace_ready'
+        : 'namespace_not_found'
+      : 'unsupported_namespace_for_local_mutation',
+    error: request.supported ? namespace.stderr || namespace.error || '' : 'local fixture mutation namespace mismatch',
+    namespace: request.namespace,
+    server: server.stdout,
+  };
+};
+
+const testPodCreateAnswer = (request, preflight) => {
+  const targetLabel = `${LOCAL_TEST_POD_TARGET.namespace}/${LOCAL_TEST_POD_TARGET.name}`;
+  if (!request.supported) {
+    return [
+      '## 현재 판단',
+      '이 로컬 실행 fixture는 현재 테스트 Pod 생성 대상을 `gpu-test-kugnus`로 제한합니다.',
+      '',
+      '## 요청한 대상',
+      `- namespace: \`${request.namespace}\``,
+      '',
+      '## 다음 조치',
+      '- 다른 namespace까지 허용하려면 fixture 안전 범위를 먼저 넓혀야 합니다.',
+    ].join('\n');
+  }
+
+  const lines = [
+    '## 현재 판단',
+    '요청은 실행 가능한 Action Plan 대상으로 처리했습니다. 답변 단계에서는 바로 변경하지 않고, 승인 후 실행합니다.',
+    '',
+    '## 대상',
+    `- namespace: \`${LOCAL_TEST_POD_TARGET.namespace}\``,
+    `- 생성 수량: \`${LOCAL_TEST_POD_COUNT}\``,
+    `- 계획 대상: \`${targetLabel}\``,
+    '',
+    '## 확인한 근거',
+    `- API 서버: ${preflight.server || '확인 실패'}`,
+    `- namespace 사전 확인: ${preflight.status}`,
+  ];
+
+  if (!preflight.ok) {
+    lines.push(`- 실패 사유: ${preflight.error || 'unknown'}`);
+  }
+
+  lines.push(
+    '',
+    '## Action Plan',
+    `- 조치: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${LOCAL_TEST_POD_COUNT}\` 테스트 Pod 생성`,
+    `- 이미지: \`${LOCAL_TEST_POD_IMAGE}\``,
+    '- 실행: 승인 후 `oc run`으로 Pod 오브젝트를 생성',
+    '- 검증: 생성된 Pod 오브젝트 3개가 조회되는지 확인',
+    '- 정리: 테스트 완료 후 `app=aiops-test-pod` label 기준 삭제 가능',
+  );
+
+  return lines.join('\n');
+};
+
+const expectedMutationServer = () =>
+  process.env.KOMSCO_AIOPS_COMPANY_SERVER || 'https://api.ocp.cywell.server:6443';
+
+const executeTestPodCreatePlan = async () => {
+  const server = await runOc(['whoami', '--show-server']);
+  if (!server.ok) {
+    return {
+      ok: false,
+      status: 'mutation_failed',
+      reason: `oc server check failed: ${server.stderr || server.error}`,
+      companyMutationExecuted: false,
+      server: '',
+      createdPods: [],
+    };
+  }
+
+  const actualServer = String(server.stdout || '').trim();
+  const expectedServer = expectedMutationServer();
+  if (process.env.AIOPS_LOCAL_ALLOW_MUTATION_ON_ANY_SERVER !== '1' && actualServer !== expectedServer) {
+    return {
+      ok: false,
+      status: 'mutation_rejected',
+      reason: `server mismatch: expected ${expectedServer}, got ${actualServer}`,
+      companyMutationExecuted: false,
+      server: actualServer,
+      createdPods: [],
+    };
+  }
+
+  const namespace = await runOc(['get', 'namespace', LOCAL_TEST_POD_TARGET.namespace, '-o', 'name']);
+  if (!namespace.ok) {
+    return {
+      ok: false,
+      status: 'mutation_failed',
+      reason: `namespace check failed: ${namespace.stderr || namespace.error}`,
+      companyMutationExecuted: false,
+      server: actualServer,
+      createdPods: [],
+    };
+  }
+
+  const requestId = Date.now().toString(36);
+  const createdPods = [];
+  const errors = [];
+  for (let index = 1; index <= LOCAL_TEST_POD_COUNT; index += 1) {
+    const podName = `${LOCAL_TEST_POD_NAME_PREFIX}-${requestId}-${index}`;
+    const labels = `app=aiops-test-pod,aiops.komsco.local/request-id=${requestId}`;
+    const result = await runOc([
+      'run',
+      podName,
+      '-n',
+      LOCAL_TEST_POD_TARGET.namespace,
+      '--image',
+      LOCAL_TEST_POD_IMAGE,
+      '--restart=Never',
+      '--image-pull-policy=IfNotPresent',
+      '--labels',
+      labels,
+      '--command',
+      '--',
+      'sleep',
+      '3600',
+    ]);
+    if (result.ok) {
+      createdPods.push(podName);
+    } else {
+      errors.push(`${podName}: ${result.stderr || result.error}`);
+    }
+  }
+
+  const verification = await runOcJson([
+    'get',
+    'pods',
+    '-n',
+    LOCAL_TEST_POD_TARGET.namespace,
+    '-l',
+    `aiops.komsco.local/request-id=${requestId}`,
+    '-o',
+    'json',
+  ]);
+  const observed = verification.ok ? resourceItems(verification.json).length : 0;
+  const ok = errors.length === 0 && observed === LOCAL_TEST_POD_COUNT;
+  return {
+    ok,
+    status: ok ? 'mutation_succeeded' : createdPods.length ? 'mutation_partial' : 'mutation_failed',
+    reason: ok
+      ? `created ${observed}/${LOCAL_TEST_POD_COUNT} test pods`
+      : `created ${createdPods.length}/${LOCAL_TEST_POD_COUNT}; ${errors.join('; ') || verification.stderr || verification.error}`,
+    companyMutationExecuted: createdPods.length > 0,
+    server: actualServer,
+    createdPods,
+    observedPods: observed,
+    requestId,
+  };
+};
+
 const unsupportedLocalQuestionAnswer = () => [
   '## 현재 상태',
   '이 질문은 5174 local fixture의 실행 가능한 시나리오로 처리하지 않았습니다.',
@@ -743,6 +1092,7 @@ const unsupportedLocalQuestionAnswer = () => [
   '## 가능한 요청',
   '- 최근 OpenShift 경고와 Action Plan 테스트',
   '- 특정 네임스페이스의 사용 여부 read-only 조회',
+  '- gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성',
 ].join('\n');
 
 const streamLocalChat = async (req, res) => {
@@ -764,6 +1114,92 @@ const streamLocalChat = async (req, res) => {
 
   const runId = `run-local-${Date.now()}`;
   const userMessage = latestUserMessageFromBody(requestBody);
+  const testPodCreateRequest = parseTestPodCreateRequest(userMessage);
+
+  if (testPodCreateRequest) {
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: 'started',
+      message: '테스트 Pod 생성 Action Plan 사전 확인을 시작했습니다.',
+    });
+    sse(res, {
+      type: 'tool_call',
+      id: 'test-pod-create-preflight-local',
+      name: 'oc_test_pod_create_preflight',
+      summary: 'namespace and server preflight',
+    });
+    const preflight = await buildTestPodCreatePreflight(testPodCreateRequest);
+    const answer = testPodCreateAnswer(testPodCreateRequest, preflight);
+    sse(res, {
+      type: 'tool_result',
+      id: 'test-pod-create-preflight-local',
+      name: 'oc_test_pod_create_preflight',
+      status: preflight.ok ? 'success' : 'failed',
+      summary: preflight.ok
+        ? `${LOCAL_TEST_POD_TARGET.namespace} namespace 확인`
+        : `테스트 Pod 생성 사전 확인 실패: ${preflight.status}`,
+      result: preflight,
+    });
+    sse(res, {
+      type: 'tool_plan',
+      runId,
+      plan: {
+        task_type: 'test_pod_create',
+        target: LOCAL_TEST_POD_TARGET,
+        execution_policy: {
+          mode: 'controlled_execution',
+          mutations_enabled: true,
+          local_fixture_only: false,
+        },
+        tool_plan: [
+          {
+            step: 1,
+            adapter: 'oc',
+            tool: 'oc_get_namespace',
+            verb: 'get',
+            purpose: '대상 namespace 존재 확인',
+          },
+          {
+            step: 2,
+            adapter: 'oc',
+            tool: 'oc_run_test_pods',
+            verb: 'create',
+            purpose: '승인 후 테스트 Pod 3개 생성',
+          },
+          {
+            step: 3,
+            adapter: 'oc',
+            tool: 'oc_get_created_pods',
+            verb: 'get',
+            purpose: '생성된 Pod 오브젝트 확인',
+          },
+        ],
+        validation: {
+          ok: preflight.ok,
+          status: preflight.status,
+        },
+      },
+      status: preflight.ok ? 'success' : 'failed',
+    });
+    sse(res, {
+      type: 'text',
+      content: answer,
+      source: preflight.ok ? 'oc_action_plan_preflight' : 'oc_action_plan_preflight_failed',
+      streamProbe: preflight.ok ? 'ok' : 'failed',
+    });
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: preflight.ok ? 'completed' : 'failed',
+      message: preflight.ok
+        ? '테스트 Pod 생성 Action Plan 사전 확인을 완료했습니다.'
+        : '테스트 Pod 생성 사전 확인에 실패했습니다.',
+    });
+    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
+    res.end();
+    return;
+  }
 
   if (isNamespaceCleanupQuestion(userMessage)) {
     sse(res, {
@@ -1287,8 +1723,8 @@ const aiopsStatus = () => ({
       },
     },
     records: {
-      actionProposals: [localProposalRecord()],
-      sealedActionPlans: [localSealedPlanRecord()],
+      actionProposals: [localProposalRecord(), ...Array.from(LOCAL_ACTION_PROPOSALS.values())],
+      sealedActionPlans: [localSealedPlanRecord(), ...Array.from(LOCAL_SEALED_PLANS.values())],
       approvalDecisions: Array.from(LOCAL_APPROVALS.values()),
       executionRecords: Array.from(LOCAL_EXECUTIONS.values()),
       auditRecords: [localAuditRecord()],
@@ -1334,6 +1770,35 @@ const actionCandidates = () => ({
         },
         evidenceRefs: [{ id: 'ev-local-alert-notready', source: 'local-fixture' }],
       },
+      {
+        id: 'candidate-local-create-test-pods-gpu-test-kugnus',
+        title: '테스트 Pod 3개 생성',
+        severity: 'review',
+        confidence: 'high',
+        riskLevel: 'low',
+        riskLabel: '낮음',
+        statusLabel: '승인 필요',
+        sourceType: 'chat-request',
+        sourceFindingId: 'ev-local-user-request-test-pods',
+        target: LOCAL_TEST_POD_TARGET,
+        evidence: '사용자가 gpu-test-kugnus namespace에 테스트 Pod 3개 생성을 요청했습니다.',
+        expectedImpact: 'gpu-test-kugnus namespace에 테스트 Pod 3개를 생성합니다.',
+        recommendationSteps: [
+          '대상 namespace 존재 확인',
+          '테스트 Pod 생성 계획 승인',
+          'Pod 오브젝트 3개 생성 확인',
+        ],
+        verificationChecks: ['label aiops.komsco.local/request-id 기준 Pod 3개 조회'],
+        prerequisiteChecks: ['oc whoami --show-server 회사 서버 일치', 'gpu-test-kugnus namespace 존재'],
+        executable: true,
+        approvalRequired: true,
+        executionPolicy: {
+          executionEnabled: true,
+          mode: 'controlled-execution',
+          proposalOnly: false,
+        },
+        evidenceRefs: [{ id: 'ev-local-user-request-test-pods', source: 'chat' }],
+      },
     ],
     dataSources: [
       { name: 'local-fixture', status: 'ok', detail: 'deterministic local simulator' },
@@ -1345,9 +1810,12 @@ const actionCandidates = () => ({
   },
 });
 
-const makeApprovalRecord = (approvalScope = 'single-target') => {
+const makeApprovalRecord = (approvalScope = 'single-target', actionType = 'crashloop') => {
   const approvalId = `approval-local-${Date.now()}`;
   const approvedAt = nowIso();
+  const target = targetForAction(actionType);
+  const planDigest = planDigestForAction(actionType);
+  const action = localAction(actionType);
   const record = {
     schemaVersion: 'v1',
     apiVersion: 'aiops.komsco/v1',
@@ -1356,13 +1824,13 @@ const makeApprovalRecord = (approvalScope = 'single-target') => {
     spec: {
       approvalDecision: {
         approvalId,
-        planDigest: LOCAL_PLAN_DIGEST,
+        planDigest,
         status: 'approved',
         approver: LOCAL_SUBJECT,
         approvedAt,
         expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
         approvalScope,
-        target: LOCAL_TARGET,
+        target,
         authorizationAttestationRef: {
           attestationId: `attestation-${approvalId}`,
           attestationDigest: `sha256:${approvalId}`,
@@ -1371,20 +1839,20 @@ const makeApprovalRecord = (approvalScope = 'single-target') => {
           audience: 'aiops-action-executor',
         },
         kubernetesAuthorization: {
-          apiGroup: 'apps',
-          resource: 'deployments',
+          apiGroup: action.authorization.apiGroup,
+          resource: action.authorization.resource,
           subresource: '',
-          verb: 'patch',
+          verb: action.authorization.verb,
           ssarDecision: 'allowed',
           evaluatedAt: approvedAt,
           review: { allowed: true, reason: 'local fixture approval' },
         },
-        action: localAction(),
+        action,
         ...(approvalScope === 'lab-auto-unrestricted'
           ? {
               decidedBy: 'auto-policy',
               decisionPolicy: {
-                toolName: 'rollout_restart_deployment',
+                toolName: action.toolName,
                 triggeredBy: 'local-fixture-unrestricted-mode',
               },
             }
@@ -1398,9 +1866,14 @@ const makeApprovalRecord = (approvalScope = 'single-target') => {
   return record;
 };
 
-const makeExecutionRecord = (approvalId) => {
+const makeExecutionRecord = async (approvalId, actionType = 'crashloop') => {
   const executionId = `execution-local-${Date.now()}`;
   const createdAt = nowIso();
+  const isTestPods = actionType === 'test-pods';
+  const executionResult = isTestPods ? await executeTestPodCreatePlan() : null;
+  const target = targetForAction(actionType);
+  const planId = planIdForAction(actionType);
+  const planDigest = planDigestForAction(actionType);
   const record = {
     schemaVersion: 'v1',
     apiVersion: 'aiops.komsco/v1',
@@ -1409,27 +1882,40 @@ const makeExecutionRecord = (approvalId) => {
     spec: {
       executionId,
       approvalId,
-      planId: 'plan-local-crashloop',
-      planDigest: LOCAL_PLAN_DIGEST,
+      planId,
+      planDigest,
       executionGrantRef: {
         grantId: `grant-${executionId}`,
         grantDigest: `sha256:${executionId}`,
         bearerGrantStored: false,
       },
       mutationOutcome: {
-        status: 'mutation_succeeded',
-        reason: 'local simulator accepted rollout restart',
+        status: isTestPods ? executionResult.status : 'mutation_succeeded',
+        reason: isTestPods ? executionResult.reason : 'local simulator accepted rollout restart',
       },
       remediationOutcome: {
-        status: 'verified',
-        reason: 'restart_annotation_observed',
+        status: isTestPods && !executionResult.ok ? 'verification_failed' : 'verified',
+        reason: isTestPods
+          ? `observed ${executionResult.observedPods || 0}/${LOCAL_TEST_POD_COUNT} created pods`
+          : 'restart_annotation_observed',
       },
       executorTrace: {
-        mutationSubmitted: true,
-        companyMutationExecuted: false,
-        mode: 'local-only',
+        mutationSubmitted: isTestPods ? executionResult.companyMutationExecuted : true,
+        companyMutationExecuted: isTestPods ? executionResult.companyMutationExecuted : false,
+        mode: isTestPods ? 'oc-company-server' : 'local-only',
+        ...(isTestPods
+          ? {
+              createdPods: executionResult.createdPods,
+              requestId: executionResult.requestId,
+              server: executionResult.server,
+              target,
+            }
+          : {}),
       },
-      executionAuthorization: { allowed: true, reason: 'local fixture execution' },
+      executionAuthorization: {
+        allowed: !isTestPods || executionResult.ok,
+        reason: isTestPods ? executionResult.reason : 'local fixture execution',
+      },
     },
     subject: LOCAL_SUBJECT,
   };
@@ -1528,8 +2014,13 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/v1/actions/plans' && req.method === 'POST') {
-    await readJsonBody(req);
-    const record = localSealedPlanRecord();
+    const body = await readJsonBody(req);
+    const actionType = actionTypeFromProposalId(body.proposalId) || 'crashloop';
+    const record = localSealedPlanRecord(actionType);
+    if (actionType === 'test-pods') {
+      LOCAL_ACTION_PROPOSALS.set(proposalIdForAction(actionType), localProposalRecord(actionType));
+      LOCAL_SEALED_PLANS.set(record.metadata.name, record);
+    }
     json(res, 200, {
       apiVersion: 'aiops.komsco/v1',
       kind: 'SealedActionPlan',
@@ -1540,21 +2031,36 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/v1/actions/candidate-plans' && req.method === 'POST') {
     const body = await readJsonBody(req);
-    const proposal = localProposalRecord();
-    const plan = localSealedPlanRecord();
+    const actionType = actionTypeFromCandidateId(body.candidateId) || 'crashloop';
+    const proposal = localProposalRecord(actionType);
+    const plan = localSealedPlanRecord(actionType);
+    if (actionType === 'test-pods') {
+      LOCAL_ACTION_PROPOSALS.set(proposal.metadata.name, proposal);
+      LOCAL_SEALED_PLANS.set(plan.metadata.name, plan);
+    }
     json(res, 200, {
       apiVersion: 'aiops.komsco/v1',
       kind: 'ActionCandidatePlan',
-      metadata: { name: 'candidate-plan-local-crashloop', createdAt: nowIso() },
+      metadata: {
+        name:
+          actionType === 'test-pods'
+            ? 'candidate-plan-local-test-pods'
+            : 'candidate-plan-local-crashloop',
+        createdAt: nowIso(),
+      },
       spec: {
-        candidateId: body.candidateId || 'candidate-local-crashloop-restart',
+        candidateId:
+          body.candidateId ||
+          (actionType === 'test-pods'
+            ? 'candidate-local-create-test-pods-gpu-test-kugnus'
+            : 'candidate-local-crashloop-restart'),
         plan: {
           apiVersion: 'aiops.komsco/v1',
           kind: 'SealedActionPlan',
           metadata: plan.metadata,
           spec: plan.spec,
         },
-        planDigest: LOCAL_PLAN_DIGEST,
+        planDigest: planDigestForAction(actionType),
         planId: plan.metadata.name,
         proposal: {
           apiVersion: 'aiops.komsco/v1',
@@ -1564,19 +2070,24 @@ const server = http.createServer(async (req, res) => {
         },
         proposalId: proposal.metadata.name,
         status: 'planned',
-        target: LOCAL_TARGET,
-        title: 'CrashLoopBackOff Deployment 재시작',
+        target: targetForAction(actionType),
+        title: actionTitleForAction(actionType),
       },
     });
     return;
   }
   if (url.pathname === '/v1/actions/approvals' && req.method === 'POST') {
     const body = await readJsonBody(req);
-    if (body.expectedPlanDigest && body.expectedPlanDigest !== LOCAL_PLAN_DIGEST) {
+    const actionType =
+      actionTypeFromPlanDigest(body.expectedPlanDigest) || actionTypeFromPlanId(body.planId) || 'crashloop';
+    if (
+      body.expectedPlanDigest &&
+      ![LOCAL_PLAN_DIGEST, LOCAL_TEST_POD_PLAN_DIGEST].includes(body.expectedPlanDigest)
+    ) {
       json(res, 409, { detail: 'expectedPlanDigest does not match the sealed plan' });
       return;
     }
-    const record = makeApprovalRecord(body.approvalScope || 'single-target');
+    const record = makeApprovalRecord(body.approvalScope || 'single-target', actionType);
     json(res, 200, {
       apiVersion: 'aiops.komsco/v1',
       kind: 'ApprovalDecision',
@@ -1587,7 +2098,12 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/v1/actions/rejections' && req.method === 'POST') {
     const body = await readJsonBody(req);
-    if (body.expectedPlanDigest && body.expectedPlanDigest !== LOCAL_PLAN_DIGEST) {
+    const actionType =
+      actionTypeFromPlanDigest(body.expectedPlanDigest) || actionTypeFromPlanId(body.planId) || 'crashloop';
+    if (
+      body.expectedPlanDigest &&
+      ![LOCAL_PLAN_DIGEST, LOCAL_TEST_POD_PLAN_DIGEST].includes(body.expectedPlanDigest)
+    ) {
       json(res, 409, { detail: 'expectedPlanDigest does not match the sealed plan' });
       return;
     }
@@ -1600,14 +2116,14 @@ const server = http.createServer(async (req, res) => {
       spec: {
         approvalDecision: {
           approvalId: rejectionId,
-          planDigest: LOCAL_PLAN_DIGEST,
+          planDigest: planDigestForAction(actionType),
           status: 'rejected',
           approver: LOCAL_SUBJECT,
           rejectedAt,
           reason: body.reason || 'operator rejected the proposed action',
           approvalScope: 'single-target',
-          target: LOCAL_TARGET,
-          action: localAction(),
+          target: targetForAction(actionType),
+          action: localAction(actionType),
         },
       },
     };
@@ -1622,12 +2138,18 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/v1/actions/execute' && req.method === 'POST') {
     const body = await readJsonBody(req);
-    if (body.expectedPlanDigest && body.expectedPlanDigest !== LOCAL_PLAN_DIGEST) {
+    const actionType =
+      actionTypeFromPlanDigest(body.expectedPlanDigest) || actionTypeFromPlanId(body.planId) || 'crashloop';
+    if (
+      body.expectedPlanDigest &&
+      ![LOCAL_PLAN_DIGEST, LOCAL_TEST_POD_PLAN_DIGEST].includes(body.expectedPlanDigest)
+    ) {
       json(res, 409, { detail: 'Execution request is stale for this sealed plan' });
       return;
     }
-    const approvalId = body.approvalId || makeApprovalRecord('lab-auto-unrestricted').metadata.name;
-    const record = makeExecutionRecord(approvalId);
+    const approvalId =
+      body.approvalId || makeApprovalRecord('lab-auto-unrestricted', actionType).metadata.name;
+    const record = await makeExecutionRecord(approvalId, actionType);
     json(res, 200, {
       apiVersion: 'aiops.komsco/v1',
       kind: 'ExecutionRecord',

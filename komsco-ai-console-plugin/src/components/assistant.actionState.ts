@@ -64,9 +64,7 @@ export const getAiopsRecordAction = (
   const records = aiopsStatus?.spec.records;
   const modeDisabledReason = !canUseActionExecution(aiopsStatus)
     ? 'Gateway 실행 기능 미구성'
-    : !executionModeAllowsActions(executionMode)
-      ? '읽기 전용 모드에서는 승인·실행 불가'
-      : '';
+    : '';
   const withModeGate = (action: AiopsRecordAction): AiopsRecordAction =>
     modeDisabledReason
       ? { ...action, disabledReason: action.disabledReason ?? modeDisabledReason }

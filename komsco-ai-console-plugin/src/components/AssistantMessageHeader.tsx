@@ -42,6 +42,48 @@ const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
   return <img alt="" className="komsco-ai__message-logo" src={aiopsIcon} />;
 };
 
+const assistantSourceLabel = (message: Message): string => {
+  if (message.fallbackAnswer || message.answerSource === 'gateway_fallback') {
+    return 'Gateway fallback';
+  }
+  if (message.answerSource === 'ols') {
+    return 'OLS 연결';
+  }
+  if (message.answerSource === 'gateway_direct') {
+    return 'Gateway 직접조회';
+  }
+  return '응답 경로 확인 중';
+};
+
+const assistantSourceClass = (message: Message): string => {
+  if (message.fallbackAnswer || message.answerSource === 'gateway_fallback') {
+    return 'komsco-ai__message-source--fallback';
+  }
+  if (message.answerSource === 'ols') {
+    return 'komsco-ai__message-source--ols';
+  }
+  return 'komsco-ai__message-source--aiops';
+};
+
+const assistantSourceTitle = (message: Message): string => {
+  if (message.fallbackAnswer || message.answerSource === 'gateway_fallback') {
+    return message.gatewayContextDigest
+      ? `Gateway fallback · ${message.gatewayContextDigest}`
+      : 'Gateway fallback answer';
+  }
+  if (message.answerSource === 'ols') {
+    return message.gatewayContextDigest
+      ? `OpenShift Lightspeed stream connected · ${message.gatewayContextDigest}`
+      : 'OpenShift Lightspeed stream connected';
+  }
+  if (message.answerSource === 'gateway_direct') {
+    return message.gatewayContextDigest
+      ? `Gateway direct evidence response · ${message.gatewayContextDigest}`
+      : 'Gateway direct evidence response';
+  }
+  return 'Answer source is still being resolved';
+};
+
 const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
   copied,
   copiedLabel,
@@ -51,17 +93,8 @@ const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
   message,
   onCopy,
 }) => {
-  const assistantSourceLabel =
-    message.role === 'assistant' && hasContent
-      ? message.fallbackAnswer
-        ? 'Gateway fallback'
-        : 'AIOps 응답'
-      : '';
-  const assistantSourceTitle = message.fallbackAnswer
-    ? message.gatewayContextDigest
-      ? `Gateway context ${message.gatewayContextDigest}`
-      : 'Gateway fallback answer'
-    : 'AIOps answer';
+  const sourceLabel =
+    message.role === 'assistant' && hasContent ? assistantSourceLabel(message) : '';
 
   return (
     <div className="komsco-ai__message-head">
@@ -71,16 +104,12 @@ const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
         </div>
       )}
       <div className="komsco-ai__message-label">{getMessageLabel(message.role, language)}</div>
-      {assistantSourceLabel && (
+      {sourceLabel && (
         <span
-          className={`komsco-ai__message-source ${
-            message.fallbackAnswer
-              ? 'komsco-ai__message-source--fallback'
-              : 'komsco-ai__message-source--aiops'
-          }`}
-          title={assistantSourceTitle}
+          className={`komsco-ai__message-source ${assistantSourceClass(message)}`}
+          title={assistantSourceTitle(message)}
         >
-          {assistantSourceLabel}
+          {sourceLabel}
         </span>
       )}
       {message.role === 'assistant' && hasContent && (

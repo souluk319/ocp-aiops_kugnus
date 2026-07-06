@@ -221,7 +221,7 @@ export const AssistantRailActionRecords: React.FC<AssistantRailActionRecordsProp
                 <Button
                   className="komsco-ai__action-button"
                   data-answer-action-step={item.step}
-                  isDisabled={busy || Boolean(item.disabledReason)}
+                  isDisabled={busy}
                   isLoading={busy}
                   key={item.step}
                   onClick={() => onAction(record, item)}
@@ -310,7 +310,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
           {!hasResolvedRecords
             ? '좌측 조치 목록에 연결된 계획 흐름입니다. record 연결 후 승인 버튼을 표시합니다.'
             : readOnlyBlocked
-            ? '읽기 전용 모드라 조치 버튼은 숨기고 계획 상태만 보여줍니다.'
+            ? '읽기 전용 모드입니다. 버튼은 유지하고 클릭 시 실행 제한 사유를 표시합니다.'
             : '승인 가능한 조치 흐름만 카드로 표시합니다.'}
         </span>
       </div>
@@ -321,9 +321,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
           const action = resolveAction(record, aiopsStatus, executionMode);
           const stage = getActionRecordStage(record);
           const actions =
-            readOnlyBlocked
-              ? []
-              : action?.step === 'approve-plan'
+            action?.step === 'approve-plan'
               ? [action, { ...action, label: '거절', step: 'reject-plan' as const }]
               : action
                 ? [action]
@@ -393,7 +391,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                     <Button
                       className="komsco-ai__action-button"
                       data-answer-action-step={item.step}
-                      isDisabled={busy || Boolean(item.disabledReason)}
+                      isDisabled={busy}
                       isLoading={busy}
                       key={item.step}
                       onClick={() => onAction(record, item)}
@@ -409,8 +407,11 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                   );
                 })}
               </div>
-              {!readOnlyBlocked && action?.disabledReason && (
-                <div className="komsco-ai__answer-action-note">{action.disabledReason}</div>
+              {(readOnlyBlocked || action?.disabledReason) && (
+                <div className="komsco-ai__answer-action-note">
+                  {action?.disabledReason ??
+                    '읽기 전용 모드에서는 승인·실행 요청을 보내지 않습니다. 실행하려면 실행 가능 또는 실행 무제한을 선택하세요.'}
+                </div>
               )}
             </div>
           );

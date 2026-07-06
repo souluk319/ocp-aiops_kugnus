@@ -551,7 +551,28 @@ const markLastAssistantFallback = (
   const next = [...messages];
   next[assistantIndex] = {
     ...next[assistantIndex],
+    answerSource: 'gateway_fallback',
     fallbackAnswer: true,
+    gatewayContextDigest: gatewayContextDigest || next[assistantIndex].gatewayContextDigest,
+  };
+
+  return next;
+};
+
+const markLastAssistantSource = (
+  messages: Message[],
+  answerSource: NonNullable<Message['answerSource']>,
+  gatewayContextDigest?: string,
+): Message[] => {
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    answerSource,
     gatewayContextDigest: gatewayContextDigest || next[assistantIndex].gatewayContextDigest,
   };
 
@@ -1773,6 +1794,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const handleAiopsAction = React.useCallback(
     async (record: AiopsRecordView, action: AiopsRecordAction) => {
       if (action.disabledReason) {
+        setAiopsActionError(action.disabledReason);
+        setAiopsActionNotice('');
         return;
       }
       if (!executionModeAllowsActions(executionMode)) {
@@ -2565,6 +2588,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 lastStatus: 'started',
                 streamProbe: 'started',
               });
+              setMessages((prev) => markLastAssistantSource(prev, 'ols', event.gatewayContextDigest));
             }
             if (event.stage === 'completed' && !lightspeedStageSeen && !fallbackAnswerSeen) {
               updateLightspeedStatus({
@@ -2572,6 +2596,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 lastStatus: 'gateway_direct',
                 streamProbe: 'not_used',
               });
+              setMessages((prev) =>
+                markLastAssistantSource(prev, 'gateway_direct', event.gatewayContextDigest),
+              );
             }
           }
 
@@ -2685,6 +2712,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                 lastStatus: event.streamProbe ?? 'failed',
                 streamProbe: event.streamProbe ?? 'failed',
               });
+            } else {
+              setMessages((prev) =>
+                markLastAssistantSource(
+                  prev,
+                  lightspeedStageSeen ? 'ols' : 'gateway_direct',
+                  event.gatewayContextDigest,
+                ),
+              );
             }
             if (event.content.trim()) {
               finishResponseWaitStep('답변 표시 시작');

@@ -1356,6 +1356,12 @@
 }
 
 .komsco-ai__message-source--aiops {
+  color: #334155;
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.komsco-ai__message-source--ols {
   color: #12605a;
   background: #e8f7f3;
   border-color: #9bd7cc;
@@ -6601,9 +6607,17 @@
 }
 
 .komsco-ai__surface .komsco-ai__send {
-  color: #fff;
-  background: #0b1220;
-  border-color: #0b1220;
+  color: #475569;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.komsco-ai__surface .komsco-ai__send:hover:not(:disabled),
+.komsco-ai__surface .komsco-ai__send:focus-visible:not(:disabled) {
+  color: #1d4ed8;
+  background: #f8fbff;
+  border-color: #cbd7e6;
 }
 
 .komsco-ai__surface .komsco-ai__answer-actions {
