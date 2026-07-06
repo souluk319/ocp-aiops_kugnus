@@ -110,6 +110,84 @@ const csvEscape = (value) => {
   return text;
 };
 
+const bucketText = (value) => {
+  const text = asText(value).trim();
+  return text || '(empty)';
+};
+
+const incrementCounter = (counter, value) => {
+  const key = bucketText(value);
+  counter[key] = (counter[key] || 0) + 1;
+};
+
+const sortCounter = (counter) =>
+  Object.fromEntries(
+    Object.entries(counter).sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+      if (rightValue !== leftValue) {
+        return rightValue - leftValue;
+      }
+      return leftKey.localeCompare(rightKey);
+    }),
+  );
+
+const latestTimestamp = (current, candidate) => {
+  const text = asText(candidate).trim();
+  if (!text) {
+    return current;
+  }
+  if (!current) {
+    return text;
+  }
+
+  const currentTime = Date.parse(current);
+  const candidateTime = Date.parse(text);
+  if (!Number.isNaN(currentTime) && !Number.isNaN(candidateTime)) {
+    return candidateTime > currentTime ? text : current;
+  }
+  return text > current ? text : current;
+};
+
+const summarizeRows = (rows) => {
+  const counters = {
+    byIntent: {},
+    byMode: {},
+    byRating: {},
+    byRoute: {},
+    bySource: {},
+  };
+  let latestSubmittedAt = '';
+  let negativeWithComment = 0;
+  let withComment = 0;
+
+  rows.forEach((row) => {
+    incrementCounter(counters.byIntent, row.intent);
+    incrementCounter(counters.byMode, row.mode);
+    incrementCounter(counters.byRating, row.rating);
+    incrementCounter(counters.byRoute, row.route);
+    incrementCounter(counters.bySource, row.source);
+
+    if (bucketText(row.optionalComment) !== '(empty)') {
+      withComment += 1;
+      if (bucketText(row.rating) === 'down') {
+        negativeWithComment += 1;
+      }
+    }
+    latestSubmittedAt = latestTimestamp(latestSubmittedAt, row.submittedAt || row.createdAt);
+  });
+
+  return {
+    total: rows.length,
+    withComment,
+    negativeWithComment,
+    latestSubmittedAt,
+    byRating: sortCounter(counters.byRating),
+    bySource: sortCounter(counters.bySource),
+    byMode: sortCounter(counters.byMode),
+    byIntent: sortCounter(counters.byIntent),
+    byRoute: sortCounter(counters.byRoute),
+  };
+};
+
 const serialize = (rows, options) => {
   if (options.format === 'jsonl') {
     return `${rows.map((row) => JSON.stringify(row)).join('\n')}${rows.length ? '\n' : ''}`;
@@ -140,6 +218,7 @@ const serialize = (rows, options) => {
     {
       count: rows.length,
       exportedAt: new Date().toISOString(),
+      summary: summarizeRows(rows),
       records: rows,
       sourceUrl: options.url,
     },
