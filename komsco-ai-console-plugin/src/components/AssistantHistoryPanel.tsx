@@ -85,17 +85,17 @@ const HistoryActionStageIcon: React.FC<{ stage: ConversationActionRef['stage'] }
 
 const compactActionLabel = (label: string): string => label.replace(/^\d+단계\s*·\s*/, '');
 
-const actionStageLabel = (stage: ConversationActionRef['stage']): string => {
+const actionStageLabel = (stage: ConversationActionRef['stage'], language: UiLanguage): string => {
   if (stage === 'plan') {
     return 'Action Plan';
   }
   if (stage === 'approval') {
-    return '승인';
+    return language === 'en' ? 'Approval' : '승인';
   }
   if (stage === 'execution') {
-    return '실행';
+    return language === 'en' ? 'Execution' : '실행';
   }
-  return '조치 후보';
+  return language === 'en' ? 'Candidate' : '조치 후보';
 };
 
 const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
@@ -266,7 +266,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                     <button
                       aria-expanded={menuOpen}
                       aria-haspopup="menu"
-                      aria-label="대화 옵션"
+                      aria-label={uiLanguage === 'en' ? 'Conversation options' : '대화 옵션'}
                       className="komsco-ai__history-item-menu-trigger"
                       onClick={(event) => {
                         const rect = event.currentTarget.getBoundingClientRect();
@@ -286,14 +286,20 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                 </div>
                 {!isRenaming && actionHistoryOpen && (
                   <div
-                    aria-label={`${conversation.title} 조치내역`}
+                    aria-label={
+                      uiLanguage === 'en'
+                        ? `${conversation.title} action history`
+                        : `${conversation.title} 조치내역`
+                    }
                     className={`komsco-ai__history-action-refs${
                       actionRefs.length === 0 ? ' komsco-ai__history-action-refs--empty' : ''
                     }`}
                   >
                     {actionRefs.length === 0 ? (
                       <div className="komsco-ai__history-action-empty">
-                        저장된 조치내역이 없습니다.
+                        {uiLanguage === 'en'
+                          ? 'No saved action history.'
+                          : '저장된 조치내역이 없습니다.'}
                       </div>
                     ) : (
                       actionRefs.map((actionRef) => (
@@ -303,15 +309,15 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                           disabled={loading}
                           key={actionRef.id}
                           onClick={() => onActionRefSelect(conversation, actionRef)}
-                          title={`${actionStageLabel(actionRef.stage)} · ${actionRef.label} · ${
-                            actionRef.toolName || '조치'
+                          title={`${actionStageLabel(actionRef.stage, uiLanguage)} · ${actionRef.label} · ${
+                            actionRef.toolName || (uiLanguage === 'en' ? 'action' : '조치')
                           } · ${actionRef.targetKey}`}
                           type="button"
                         >
                           <HistoryActionStageIcon stage={actionRef.stage} />
                           <span className="komsco-ai__history-action-ref-copy">
                             <span className="komsco-ai__history-action-ref-stage">
-                              {actionStageLabel(actionRef.stage)}
+                              {actionStageLabel(actionRef.stage, uiLanguage)}
                             </span>
                             <strong>{compactActionLabel(actionRef.label)}</strong>
                             <small>
@@ -349,7 +355,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                         type="button"
                       >
                         <CoolPencilIcon />
-                        이름 변경
+                        {uiLanguage === 'en' ? 'Rename' : '이름 변경'}
                       </button>
                       <button
                         className="komsco-ai__history-item-menu-item"
@@ -363,7 +369,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                         type="button"
                       >
                         <CoolListChecklistIcon />
-                        조치내역
+                        {uiLanguage === 'en' ? 'Action history' : '조치내역'}
                       </button>
                       <button
                         className="komsco-ai__history-item-menu-item komsco-ai__history-item-menu-item--danger"
@@ -378,7 +384,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                         type="button"
                       >
                         <CoolTrashIcon />
-                        대화 삭제
+                        {uiLanguage === 'en' ? 'Delete chat' : '대화 삭제'}
                       </button>
                     </div>,
                     document.body,
@@ -389,7 +395,10 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
         )}
       </div>
     )}
-    <div className="komsco-ai__history-user" aria-label="현재 OpenShift 사용자">
+    <div
+      className="komsco-ai__history-user"
+      aria-label={uiLanguage === 'en' ? 'Current OpenShift user' : '현재 OpenShift 사용자'}
+    >
       <div className="komsco-ai__history-user-avatar">
         <CoolUserCircleIcon />
       </div>

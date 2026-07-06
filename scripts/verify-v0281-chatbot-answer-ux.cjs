@@ -44,6 +44,7 @@ const assert = (condition, message, evidence = undefined) => {
 const sourceReview = () => {
   const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
+  const insightRailHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.insightRailHelpers.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
   const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
   const gatewayService = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
@@ -65,6 +66,12 @@ const sourceReview = () => {
   assert(
     historyPanel.includes('HistoryActionStageIcon'),
     'history sidebar action refs must include stage icons',
+  );
+  assert(
+    historyPanel.includes("uiLanguage === 'en' ? 'Rename' : '이름 변경'") &&
+      historyPanel.includes("uiLanguage === 'en' ? 'Action history' : '조치내역'") &&
+      historyPanel.includes("uiLanguage === 'en' ? 'Delete chat' : '대화 삭제'"),
+    'history row menu must translate all visible menu items in English mode',
   );
   assert(
     historyPanel.includes('komsco-ai__history-item-main'),
@@ -97,6 +104,12 @@ const sourceReview = () => {
   assert(
     css.includes('header chrome alignment and message icon scope fix'),
     'header alignment and message icon scope guard missing',
+  );
+  assert(
+    insightRailHelpers.includes("isKo ? '읽기 전용' : 'Read only'") &&
+      insightRailHelpers.includes("isKo ? '실행 가능' : 'Execute'") &&
+      insightRailHelpers.includes("isKo ? '실행 무제한' : 'Unrestricted'"),
+    'execution capability badges must translate read-only, execute, and unrestricted labels',
   );
   assert(
     css.includes('.komsco-ai__message--assistant .komsco-ai__message-avatar') &&
@@ -805,6 +818,279 @@ const verifyConsoleAssistant = async () => {
     'assistant message icon should not keep an outer border',
     headerMetrics,
   );
+
+  await evaluate(`document.querySelector('.komsco-ai__language-button')?.click(); true;`);
+  const englishChromeMetrics = await poll(
+    `(() => {
+      const modeLabels = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button span'))
+        .map((el) => el.textContent.trim());
+      const executionBadgeText = document.querySelector('.komsco-ai__scope-list--execution')?.textContent || '';
+      const languageCode = document.querySelector('.komsco-ai__language-code')?.textContent.trim() || '';
+      const sidebar = document.querySelector('.komsco-ai__history-sidebar');
+      const sidebarRect = sidebar?.getBoundingClientRect();
+      if (!(sidebarRect && sidebarRect.width > 160)) {
+        document.querySelector('.komsco-ai__sidebar-toggle')?.click();
+      }
+      const trigger = document.querySelector('.komsco-ai__history-item-row .komsco-ai__history-item-menu-trigger');
+      if (trigger && !document.querySelector('.komsco-ai__history-item-menu-panel')) {
+        trigger.click();
+      }
+      const menuLabels = Array.from(
+        document.querySelectorAll('.komsco-ai__history-item-menu-panel [role="menuitem"]')
+      ).map((item) => item.textContent.trim());
+      const controls = Array.from(document.querySelectorAll(
+        '.komsco-ai__language-button, .komsco-ai__header-actions .komsco-ai__icon-button, .komsco-ai__mode-toggle-button'
+      ));
+      const overflowingControls = controls
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+        .map((el) => ({
+          label: el.getAttribute('aria-label') || el.textContent.trim(),
+          className: String(el.className),
+          sw: el.scrollWidth,
+          cw: el.clientWidth,
+          sh: el.scrollHeight,
+          ch: el.clientHeight
+        }));
+      return {
+        languageCode,
+        menuLabels,
+        modeLabels,
+        ok:
+          languageCode === 'EN' &&
+          modeLabels.includes('Read only') &&
+          modeLabels.includes('Execute') &&
+          modeLabels.includes('Unrestricted') &&
+          menuLabels.includes('Rename') &&
+          menuLabels.includes('Action history') &&
+          menuLabels.includes('Delete chat') &&
+          !modeLabels.join(' ').includes('읽기 전용') &&
+          !modeLabels.join(' ').includes('실행 무제한') &&
+          !menuLabels.join(' ').includes('조치내역') &&
+          !executionBadgeText.includes('읽기 전용') &&
+          !executionBadgeText.includes('실행 가능') &&
+          !executionBadgeText.includes('실행 무제한') &&
+          overflowingControls.length === 0,
+        executionBadgeText,
+        overflowingControls
+      };
+    })()`,
+    (value) => value?.ok,
+    'English language toggle must translate execution modes and history menu without overflow',
+    10000,
+  );
+  await evaluate(`(() => {
+    const actionHistory = Array.from(
+      document.querySelectorAll('.komsco-ai__history-item-menu-panel [role="menuitem"]')
+    ).find((item) => item.textContent.includes('Action history'));
+    actionHistory?.click();
+    document.querySelector('.komsco-ai__language-button')?.click();
+    return true;
+  })()`);
+  const koreanRestoredMetrics = await poll(
+    `(() => {
+      const modeLabels = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button span'))
+        .map((el) => el.textContent.trim());
+      const languageCode = document.querySelector('.komsco-ai__language-code')?.textContent.trim() || '';
+      return {
+        languageCode,
+        modeLabels,
+        ok:
+          languageCode === 'KR' &&
+          modeLabels.includes('읽기 전용') &&
+          modeLabels.includes('실행 가능') &&
+          modeLabels.includes('실행 무제한')
+      };
+    })()`,
+    (value) => value?.ok,
+    'Korean language toggle restore',
+    10000,
+  );
+  await evaluate(`(() => {
+    const sidebar = document.querySelector('.komsco-ai__history-sidebar');
+    const rect = sidebar?.getBoundingClientRect();
+    if (rect && rect.width > 160) {
+      document.querySelector('.komsco-ai__sidebar-toggle')?.click();
+    }
+    return true;
+  })()`);
+  await poll(
+    `(() => {
+      const sidebar = document.querySelector('.komsco-ai__history-sidebar');
+      const rect = sidebar?.getBoundingClientRect();
+      return !rect || rect.width <= 160;
+    })()`,
+    Boolean,
+    'history sidebar closed before resize acceptance',
+    10000,
+  );
+
+  const resizeStartMetrics = await evaluate(`(() => {
+    const surface = document.querySelector('.komsco-ai__surface');
+    const unlock = document.querySelector('[aria-label="창 크기 잠금 해제"]');
+    const before = surface?.getBoundingClientRect();
+    window.__v0281ResizeBefore = before
+      ? { height: Math.round(before.height), width: Math.round(before.width), left: Math.round(before.left), right: Math.round(before.right), top: Math.round(before.top), bottom: Math.round(before.bottom) }
+      : null;
+    unlock?.click();
+    return {
+      before: window.__v0281ResizeBefore,
+      clicked: Boolean(unlock)
+    };
+  })()`);
+  assert(resizeStartMetrics.clicked, 'resize unlock button must be clickable', resizeStartMetrics);
+  const resizeUnlockMetrics = await poll(
+    `(() => {
+      const surface = document.querySelector('.komsco-ai__surface');
+      const handles = Array.from(document.querySelectorAll('.komsco-ai__resize-handle'))
+        .map((el) => Array.from(el.classList).find((item) => item.startsWith('komsco-ai__resize-handle--'))?.replace('komsco-ai__resize-handle--', ''))
+        .filter(Boolean)
+        .sort();
+      const workspace = document.querySelector('.komsco-ai__workspace');
+      const workspaceRect = workspace?.getBoundingClientRect();
+      const expectedHandles = ['e', 'n', 'ne', 'nw', 's', 'se', 'sw', 'w'];
+      return {
+        handles,
+        hasAllHandles: JSON.stringify(handles) === JSON.stringify(expectedHandles),
+        resizeUnlocked: surface?.classList.contains('komsco-ai__surface--resize-unlocked') || false,
+        workspaceHeight: workspaceRect ? Math.round(workspaceRect.height) : 0
+      };
+    })()`,
+    (value) => value?.resizeUnlocked && value?.hasAllHandles && value?.workspaceHeight >= 220,
+    'resize unlock handles and non-collapsed workspace',
+    10000,
+  );
+  const resizeHandleMetrics = await evaluate(`(() => {
+    const w = document.querySelector('.komsco-ai__resize-handle--w');
+    const wRect = w?.getBoundingClientRect();
+    return {
+      ok: Boolean(w && wRect),
+      x: wRect ? Math.round(wRect.left + wRect.width / 2) : 0,
+      y: wRect ? Math.round(wRect.top + wRect.height / 2) : 0
+    };
+  })()`);
+  assert(resizeHandleMetrics.ok, 'west resize handle must be measurable for real mouse drag', resizeHandleMetrics);
+  await send('Input.dispatchMouseEvent', {
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+    type: 'mousePressed',
+    x: resizeHandleMetrics.x,
+    y: resizeHandleMetrics.y,
+  });
+  await send('Input.dispatchMouseEvent', {
+    buttons: 1,
+    type: 'mouseMoved',
+    x: resizeHandleMetrics.x - 64,
+    y: resizeHandleMetrics.y,
+  });
+  await send('Input.dispatchMouseEvent', {
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+    type: 'mouseReleased',
+    x: resizeHandleMetrics.x - 64,
+    y: resizeHandleMetrics.y,
+  });
+  const resizeMetrics = await poll(
+    `(() => {
+      const before = window.__v0281ResizeBefore;
+      const surface = document.querySelector('.komsco-ai__surface');
+      const after = surface?.getBoundingClientRect();
+      const workspace = document.querySelector('.komsco-ai__workspace');
+      const workspaceRect = workspace?.getBoundingClientRect();
+      return {
+        after: after ? { height: Math.round(after.height), width: Math.round(after.width), left: Math.round(after.left), right: Math.round(after.right), top: Math.round(after.top), bottom: Math.round(after.bottom) } : null,
+        before,
+        handles: ${JSON.stringify(resizeUnlockMetrics.handles)},
+        hasAllHandles: ${JSON.stringify(resizeUnlockMetrics.hasAllHandles)},
+        resizeUnlocked: surface?.classList.contains('komsco-ai__surface--resize-unlocked') || false,
+        sizeChanged: Boolean(before && after && (Math.abs(after.width - before.width) >= 8 || Math.abs(after.height - before.height) >= 8)),
+        viewport: { height: window.innerHeight, width: window.innerWidth },
+        workspaceHeight: workspaceRect ? Math.round(workspaceRect.height) : 0
+      };
+    })()`,
+    (value) =>
+      value?.resizeUnlocked &&
+      value?.hasAllHandles &&
+      value?.workspaceHeight >= 220 &&
+      value?.sizeChanged &&
+      value?.after?.left >= 0 &&
+      value?.after?.top >= 0 &&
+      value?.after?.right <= value?.viewport?.width + 1 &&
+      value?.after?.bottom <= value?.viewport?.height + 1,
+    'unlocked assistant resize result',
+    10000,
+  );
+  assert(
+    resizeMetrics.resizeUnlocked &&
+      resizeMetrics.hasAllHandles &&
+      resizeMetrics.workspaceHeight >= 220 &&
+      resizeMetrics.sizeChanged &&
+      resizeMetrics.after.left >= 0 &&
+      resizeMetrics.after.top >= 0 &&
+      resizeMetrics.after.right <= resizeMetrics.viewport.width + 1 &&
+      resizeMetrics.after.bottom <= resizeMetrics.viewport.height + 1,
+    'unlocked assistant must resize from all boundaries without collapsing or leaving the viewport',
+    resizeMetrics,
+  );
+
+  await evaluate(`document.querySelector('[aria-label="Close AIOps Copilot"]')?.click(); true;`);
+  const closeMetrics = await poll(
+    `(() => ({
+      fabVisible: Boolean(document.querySelector('.komsco-ai__fab')),
+      surfaceOpen: Boolean(document.querySelector('.komsco-ai__surface'))
+    }))()`,
+    (value) => value?.fabVisible && !value?.surfaceOpen,
+    'assistant closes to FAB after resize',
+    10000,
+  );
+  await evaluate(`document.querySelector('.komsco-ai__fab')?.click(); true;`);
+  const closeReopenMetrics = await poll(
+    `(() => {
+    const surface = document.querySelector('.komsco-ai__surface');
+    const rect = surface?.getBoundingClientRect();
+    return {
+      assistantMessages: document.querySelectorAll('.komsco-ai__message--assistant').length,
+      closeMetrics: ${JSON.stringify(closeMetrics)},
+      fabVisible: Boolean(document.querySelector('.komsco-ai__fab')),
+      handleCount: document.querySelectorAll('.komsco-ai__resize-handle').length,
+      rect: rect ? { height: Math.round(rect.height), width: Math.round(rect.width), left: Math.round(rect.left), right: Math.round(rect.right), top: Math.round(rect.top), bottom: Math.round(rect.bottom) } : null,
+      resizeUnlocked: surface?.classList.contains('komsco-ai__surface--resize-unlocked') || false,
+      surfaceOpen: Boolean(surface),
+      transform: surface ? getComputedStyle(surface).transform : '',
+      userMessages: document.querySelectorAll('.komsco-ai__message--user').length,
+      viewport: { height: window.innerHeight, width: window.innerWidth }
+    };
+  })()`,
+    (value) =>
+      value?.closeMetrics?.fabVisible &&
+      value?.surfaceOpen &&
+      !value?.resizeUnlocked &&
+      value?.handleCount === 0 &&
+      value?.assistantMessages === 0 &&
+      value?.userMessages === 0 &&
+      value?.rect?.left >= 0 &&
+      value?.rect?.top >= 0 &&
+      value?.rect?.right <= value?.viewport?.width + 1 &&
+      value?.rect?.bottom <= value?.viewport?.height + 1,
+    'assistant reopens cleanly after resize close',
+    10000,
+  );
+  assert(
+    closeReopenMetrics.closeMetrics?.fabVisible &&
+      closeReopenMetrics.surfaceOpen &&
+      !closeReopenMetrics.resizeUnlocked &&
+      closeReopenMetrics.handleCount === 0 &&
+      closeReopenMetrics.assistantMessages === 0 &&
+      closeReopenMetrics.userMessages === 0 &&
+      closeReopenMetrics.rect.left >= 0 &&
+      closeReopenMetrics.rect.top >= 0 &&
+      closeReopenMetrics.rect.right <= closeReopenMetrics.viewport.width + 1 &&
+      closeReopenMetrics.rect.bottom <= closeReopenMetrics.viewport.height + 1,
+    'closing and reopening after resize must reset to a clean, unbroken empty chat surface',
+    closeReopenMetrics,
+  );
+
   const respondingRailMetrics = await evaluate(`(() => {
     const surface = document.querySelector('.komsco-ai__surface');
     const header = document.querySelector('.komsco-ai__header');

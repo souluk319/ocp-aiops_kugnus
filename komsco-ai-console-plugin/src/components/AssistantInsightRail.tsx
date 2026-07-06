@@ -245,7 +245,7 @@ const AssistantInsightRail: React.FC<AssistantInsightRailProps> = ({
         <strong>AIOps 실행 상태</strong>
         <span>{aiopsStatus ? '연결됨' : aiopsStatusError ? '확인 필요' : '수집 중'}</span>
       </div>
-      {renderExecutionCapabilityBadges(aiopsStatus, executionMode)}
+      {renderExecutionCapabilityBadges(aiopsStatus, executionMode, language)}
       <div className="komsco-ai__scope-list komsco-ai__scope-list--secondary">
         {renderStatusTag(
           aiopsStatus

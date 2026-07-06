@@ -499,38 +499,50 @@ export const getClusterHost = (apiUrl?: string): string => {
 export const renderExecutionCapabilityBadges = (
   status: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
+  language: UiLanguage = 'ko',
 ) => {
   const actionExecutionAvailable = canUseActionExecution(status);
   const unrestrictedAvailable = canUseUnrestrictedCommands(status);
   const readOnlyActive = executionMode === 'read-only';
   const executeActive = executionMode === 'execute';
   const unrestrictedActive = executionMode === 'unrestricted';
+  const isKo = language === 'ko';
 
   return (
     <div className="komsco-ai__scope-list komsco-ai__scope-list--execution">
       {renderStatusTag(
-        '읽기 전용',
+        isKo ? '읽기 전용' : 'Read only',
         readOnlyActive ? 'ok' : 'neutral',
-        '조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.',
+        isKo
+          ? '조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.'
+          : 'Collects evidence only. It does not create plans, approvals, or executions.',
         <CoolShieldCheckIcon />,
       )}
       {renderStatusTag(
-        '승인 실행',
+        isKo ? '실행 가능' : 'Execute',
         actionExecutionAvailable ? (executeActive ? 'review' : 'ok') : 'warn',
         actionExecutionAvailable
-          ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
+          ? isKo
+            ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
+            : 'Action Executor is connected and can run approved requests.'
           : getActionExecutionDisabledReason(status),
         <CoolTerminalIcon />,
       )}
       {renderStatusTag(
-        '실행 무제한',
+        isKo ? '실행 무제한' : 'Unrestricted',
         unrestrictedActive ? 'danger' : unrestrictedAvailable ? 'review' : 'neutral',
         unrestrictedActive
           ? unrestrictedAvailable
-            ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
-            : '실행 무제한 모드가 선택되었습니다. Gateway capability가 OFF이면 실행 시 서버가 거절 사유를 반환합니다.'
+            ? isKo
+              ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
+              : 'Local experimental mode allows unrestricted command execution.'
+            : isKo
+              ? '실행 무제한 모드가 선택되었습니다. Gateway capability가 OFF이면 실행 시 서버가 거절 사유를 반환합니다.'
+              : 'Unrestricted mode is selected. If the Gateway capability is off, the server will return a rejection reason.'
           : unrestrictedAvailable
-            ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
+            ? isKo
+              ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
+              : 'Local experimental mode allows unrestricted command execution.'
             : getUnrestrictedDisabledReason(status),
         <CoolInfoIcon />,
       )}
