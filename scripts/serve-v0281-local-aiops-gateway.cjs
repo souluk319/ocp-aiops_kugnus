@@ -4,6 +4,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const host = process.env.AIOPS_LOCAL_FIXTURE_HOST || '127.0.0.1';
 const port = Number(process.env.AIOPS_LOCAL_FIXTURE_PORT || 18080);
@@ -238,7 +239,520 @@ const sse = (res, payload) => {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 };
 
-const streamLocalChat = (req, res) => {
+const latestUserMessageFromBody = (body) => {
+  if (typeof body?.message === 'string') {
+    return body.message;
+  }
+  if (Array.isArray(body?.recentMessages)) {
+    const latest = [...body.recentMessages].reverse().find((item) => item?.role === 'user');
+    return typeof latest?.content === 'string' ? latest.content : '';
+  }
+  return '';
+};
+
+const isNamespaceCleanupQuestion = (message) => {
+  const text = String(message || '');
+  const mentionsNamespace = /(namespace|namespaces|네임스페이스|ns\b)/i.test(text);
+  const hasNamespaceLikeName = /\b[a-z0-9]+(?:-[a-z0-9]+)+\b/i.test(text);
+  const asksCleanup = /(안쓰|안 쓰|안쓰고|안 쓰고|정리|삭제|오래된|unused|cleanup|clean up|사용 여부|쓰고있는|쓰고 있는)/i.test(
+    text,
+  );
+  return asksCleanup && (mentionsNamespace || hasNamespaceLikeName);
+};
+
+const isCrashloopDemoQuestion = (message) => {
+  if (!String(message || '').trim() || isNamespaceCleanupQuestion(message)) {
+    return false;
+  }
+  return /(kubepodnotready|crashloop|crash loop|action plan|조치 후보|복구|rollout|재시작|승인|실행)/i.test(
+    message,
+  );
+};
+
+const isOpenShiftSignalQuestion = (message) => {
+  const text = String(message || '');
+  if (isNamespaceCleanupQuestion(text) || isCrashloopDemoQuestion(text)) {
+    return false;
+  }
+  return /(openshift|오픈시프트|경고|alert|event|이벤트|operator|pod|clusteroperator|co\b)/i.test(text);
+};
+
+const ocReadTimeoutMs = Number(process.env.AIOPS_LOCAL_OC_TIMEOUT_MS || 12000);
+const namespaceNamePattern = /\b[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\b/g;
+const activeWorkloadKinds = new Set([
+  'CronJob',
+  'DaemonSet',
+  'Deployment',
+  'DeploymentConfig',
+  'Job',
+  'Pod',
+  'StatefulSet',
+]);
+const passiveWorkloadKinds = new Set(['ReplicaSet', 'ReplicationController']);
+const exposureKinds = new Set(['Route', 'Service']);
+
+const runOc = (args) =>
+  new Promise((resolve) => {
+    execFile(
+      'oc',
+      args,
+      { maxBuffer: 8 * 1024 * 1024, timeout: ocReadTimeoutMs },
+      (error, stdout, stderr) => {
+        if (error) {
+          resolve({
+            ok: false,
+            args,
+            error: error.message,
+            stderr: String(stderr || '').trim(),
+            stdout: String(stdout || '').trim(),
+          });
+          return;
+        }
+        resolve({ ok: true, args, stdout: String(stdout || '').trim(), stderr: String(stderr || '').trim() });
+      },
+    );
+  });
+
+const runOcJson = async (args) => {
+  const result = await runOc(args);
+  if (!result.ok) {
+    return result;
+  }
+  try {
+    return { ...result, json: JSON.parse(result.stdout || '{}') };
+  } catch (error) {
+    return { ...result, ok: false, error: `failed to parse oc JSON: ${error.message}` };
+  }
+};
+
+const resourceItems = (payload) => (Array.isArray(payload?.items) ? payload.items : []);
+
+const metadataName = (item) => String(item?.metadata?.name || '');
+
+const metadataNamespace = (item) => String(item?.metadata?.namespace || '');
+
+const parseTimeMs = (value) => {
+  const ms = Date.parse(String(value || ''));
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+const daysSince = (timestampMs) => {
+  if (!timestampMs) {
+    return null;
+  }
+  return Math.max(0, Math.floor((Date.now() - timestampMs) / 86_400_000));
+};
+
+const eventTimestampMs = (item) =>
+  parseTimeMs(
+    item?.eventTime ||
+      item?.lastTimestamp ||
+      item?.series?.lastObservedTime ||
+      item?.firstTimestamp ||
+      item?.metadata?.creationTimestamp,
+  );
+
+const kindCounts = (items) =>
+  items.reduce((acc, item) => {
+    const kind = String(item?.kind || 'Unknown');
+    acc[kind] = (acc[kind] || 0) + 1;
+    return acc;
+  }, {});
+
+const extractRequestedNamespaceNames = (message, availableNames) => {
+  const available = new Set(availableNames);
+  const tokens = Array.from(String(message || '').toLowerCase().matchAll(namespaceNamePattern)).map(
+    (match) => match[0],
+  );
+  return [...new Set(tokens.filter((token) => available.has(token)))];
+};
+
+const namespaceDecision = ({ activeWorkloads, ageDays, exposureCount, lastEventAgeDays, name, pvcCount }) => {
+  if (/^(default|kube-|kubernetes|openshift(?:-|$))/.test(name)) {
+    return {
+      label: '보호',
+      reason: '시스템 또는 기본 namespace라 정리 대상에서 제외',
+      next: '삭제 금지',
+    };
+  }
+  if (pvcCount > 0) {
+    return {
+      label: '삭제 보류',
+      reason: `PVC ${pvcCount}개가 남아 있음`,
+      next: '소유자와 데이터 보존 필요 여부 확인',
+    };
+  }
+  if (activeWorkloads > 0 || exposureCount > 0) {
+    return {
+      label: '사용 중',
+      reason: `workload ${activeWorkloads}개, service/route ${exposureCount}개 확인`,
+      next: '배포 소유자 확인 후 유지 여부 결정',
+    };
+  }
+  if (lastEventAgeDays !== null && lastEventAgeDays <= 14) {
+    return {
+      label: '확인 필요',
+      reason: `최근 ${lastEventAgeDays}일 안에 event가 있음`,
+      next: '최근 작업자와 변경 이력 확인',
+    };
+  }
+  return {
+    label: '정리 검토 가능',
+    reason: `workload/PVC/route 없음${ageDays === null ? '' : `, namespace age ${ageDays}일`}`,
+    next: '소유자 확인 후 삭제 계획 생성',
+  };
+};
+
+const inspectNamespace = async (namespace) => {
+  const inventory = await runOcJson([
+    'get',
+    'all,pvc,route,event',
+    '-n',
+    namespace,
+    '-o',
+    'json',
+    '--ignore-not-found',
+  ]);
+  if (!inventory.ok) {
+    return {
+      namespace,
+      ok: false,
+      error: inventory.stderr || inventory.error || 'oc namespace inventory failed',
+    };
+  }
+  const items = resourceItems(inventory.json).filter((item) => metadataNamespace(item) === namespace || !metadataNamespace(item));
+  const counts = kindCounts(items);
+  const activeWorkloads = Object.entries(counts).reduce(
+    (total, [kind, count]) => total + (activeWorkloadKinds.has(kind) ? count : 0),
+    0,
+  );
+  const passiveWorkloads = Object.entries(counts).reduce(
+    (total, [kind, count]) => total + (passiveWorkloadKinds.has(kind) ? count : 0),
+    0,
+  );
+  const exposureCount = Object.entries(counts).reduce(
+    (total, [kind, count]) => total + (exposureKinds.has(kind) ? count : 0),
+    0,
+  );
+  const pvcCount = counts.PersistentVolumeClaim || 0;
+  const eventTimes = items.filter((item) => item?.kind === 'Event').map(eventTimestampMs).filter(Boolean);
+  const lastEventMs = eventTimes.length ? Math.max(...eventTimes) : 0;
+  return {
+    namespace,
+    ok: true,
+    activeWorkloads,
+    passiveWorkloads,
+    exposureCount,
+    pvcCount,
+    eventCount: counts.Event || 0,
+    kindCounts: counts,
+    lastEventAgeDays: daysSince(lastEventMs),
+    lastEventAt: lastEventMs ? new Date(lastEventMs).toISOString() : '',
+  };
+};
+
+const buildNamespaceInventory = async (message) => {
+  const server = await runOc(['whoami', '--show-server']);
+  if (!server.ok) {
+    return {
+      ok: false,
+      status: 'oc_unavailable',
+      error: server.stderr || server.error || 'oc whoami failed',
+    };
+  }
+  const namespaces = await runOcJson(['get', 'namespaces', '-o', 'json']);
+  if (!namespaces.ok) {
+    return {
+      ok: false,
+      status: 'namespace_list_failed',
+      server: server.stdout,
+      error: namespaces.stderr || namespaces.error || 'oc get namespaces failed',
+    };
+  }
+  const namespaceItems = resourceItems(namespaces.json);
+  const availableNames = namespaceItems.map(metadataName).filter(Boolean).sort();
+  const requestedNames = extractRequestedNamespaceNames(message, availableNames);
+  const selectedNames = requestedNames.length ? requestedNames : availableNames.slice(0, 12);
+  const inspected = [];
+  for (const namespace of selectedNames) {
+    const namespaceMeta = namespaceItems.find((item) => metadataName(item) === namespace);
+    const createdMs = parseTimeMs(namespaceMeta?.metadata?.creationTimestamp);
+    const inventory = await inspectNamespace(namespace);
+    inspected.push({
+      ...inventory,
+      ageDays: daysSince(createdMs),
+      decision: inventory.ok
+        ? namespaceDecision({
+            activeWorkloads: inventory.activeWorkloads,
+            ageDays: daysSince(createdMs),
+            exposureCount: inventory.exposureCount,
+            lastEventAgeDays: inventory.lastEventAgeDays,
+            name: namespace,
+            pvcCount: inventory.pvcCount,
+          })
+        : {
+            label: '판단 불가',
+            reason: inventory.error,
+            next: 'oc 조회 오류 확인',
+          },
+    });
+  }
+  return {
+    ok: true,
+    status: requestedNames.length ? 'scoped_by_user_names' : 'default_first_page',
+    server: server.stdout,
+    totalNamespaces: availableNames.length,
+    requestedNames,
+    inspected,
+  };
+};
+
+const tableCell = (value) => String(value ?? '').replace(/\|/g, '/');
+
+const namespaceInventoryAnswer = (inventory) => {
+  if (!inventory.ok) {
+    return [
+      '## 현재 상태',
+      '실제 OpenShift 조회를 실행하지 못했습니다.',
+      '',
+      '## 실패 지점',
+      `- ${inventory.status}: ${inventory.error}`,
+      '',
+      '## 다음 조치',
+      '- 로컬 터미널에서 `oc whoami --show-server`와 `oc get namespaces`가 되는지 먼저 확인해야 합니다.',
+      '- 조회가 되기 전에는 네임스페이스 정리 후보를 판정하지 않습니다.',
+    ].join('\n');
+  }
+
+  const lines = [
+    '## 현재 판단',
+    '실제 `oc` 읽기 전용 조회 결과로만 분류했습니다. 삭제나 변경은 실행하지 않았습니다.',
+    '',
+    '## 조회 근거',
+    `- API 서버: ${inventory.server}`,
+    `- 접근 가능한 namespace: ${inventory.totalNamespaces}개`,
+    `- 조회 범위: ${inventory.requestedNames.length ? inventory.requestedNames.join(', ') : '첫 12개 namespace'}`,
+    '',
+    '## 네임스페이스별 판단',
+    '| Namespace | 판단 | 근거 | 다음 조치 |',
+    '|---|---|---|---|',
+  ];
+
+  for (const item of inventory.inspected) {
+    const reason = item.ok
+      ? `${item.decision.reason}; events ${item.eventCount}개${item.lastEventAgeDays === null ? '' : `, last ${item.lastEventAgeDays}일 전`}`
+      : item.decision.reason;
+    lines.push(
+      `| ${tableCell(item.namespace)} | ${tableCell(item.decision.label)} | ${tableCell(reason)} | ${tableCell(item.decision.next)} |`,
+    );
+  }
+
+  lines.push(
+    '',
+    '## Action Plan',
+    '- `정리 검토 가능`만 삭제 계획 후보로 올립니다.',
+    '- `사용 중`, `삭제 보류`, `보호`는 삭제 계획을 만들지 않습니다.',
+    '- 삭제 전 승인 조건: 소유자 확인, PVC/Route 잔존 여부 확인, 백업 필요 여부 확인.',
+  );
+  return lines.join('\n');
+};
+
+const compactText = (value, max = 140) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+};
+
+const ageText = (timestampMs) => {
+  const days = daysSince(timestampMs);
+  if (days === null) {
+    return '-';
+  }
+  if (days === 0) {
+    return '오늘';
+  }
+  return `${days}일 전`;
+};
+
+const warningEventRows = (payload, limit = 8) =>
+  resourceItems(payload)
+    .map((item) => {
+      const involved = item?.involvedObject || item?.regarding || {};
+      const timestampMs = eventTimestampMs(item);
+      const namespace = String(involved.namespace || item?.metadata?.namespace || '');
+      const targetKind = String(involved.kind || 'Resource');
+      const targetName = String(involved.name || metadataName(item) || '');
+      return {
+        namespace,
+        target: targetName ? `${targetKind}/${targetName}` : targetKind,
+        reason: String(item?.reason || ''),
+        message: compactText(item?.message || item?.note || ''),
+        timestampMs,
+      };
+    })
+    .sort((a, b) => b.timestampMs - a.timestampMs)
+    .slice(0, limit);
+
+const conditionValue = (resource, type) =>
+  resource?.status?.conditions?.find((condition) => condition?.type === type)?.status || '';
+
+const operatorIssueRows = (payload) =>
+  resourceItems(payload)
+    .map((item) => {
+      const available = conditionValue(item, 'Available');
+      const degraded = conditionValue(item, 'Degraded');
+      const progressing = conditionValue(item, 'Progressing');
+      const issue = degraded === 'True' || available === 'False' || progressing === 'True';
+      return {
+        name: metadataName(item),
+        available,
+        degraded,
+        progressing,
+        issue,
+      };
+    })
+    .filter((item) => item.issue);
+
+const podIssueRows = (payload, limit = 8) =>
+  resourceItems(payload)
+    .map((pod) => {
+      const statuses = Array.isArray(pod?.status?.containerStatuses) ? pod.status.containerStatuses : [];
+      const waiting = statuses
+        .map((status) => status?.state?.waiting?.reason)
+        .filter(Boolean)
+        .join(', ');
+      const restarts = statuses.reduce((total, status) => total + Number(status?.restartCount || 0), 0);
+      const unready = statuses.some((status) => status && status.ready === false);
+      const phase = String(pod?.status?.phase || '');
+      const issue = !['Running', 'Succeeded'].includes(phase) || Boolean(waiting) || unready || restarts > 0;
+      return {
+        namespace: metadataNamespace(pod),
+        name: metadataName(pod),
+        phase,
+        waiting,
+        restarts,
+        issue,
+      };
+    })
+    .filter((item) => item.issue)
+    .sort((a, b) => b.restarts - a.restarts)
+    .slice(0, limit);
+
+const buildOpenShiftSignalInventory = async () => {
+  const server = await runOc(['whoami', '--show-server']);
+  if (!server.ok) {
+    return {
+      ok: false,
+      status: 'oc_unavailable',
+      error: server.stderr || server.error || 'oc whoami failed',
+    };
+  }
+  const [events, operators, pods] = await Promise.all([
+    runOcJson(['get', 'events', '-A', '--field-selector', 'type=Warning', '-o', 'json']),
+    runOcJson(['get', 'clusteroperators', '-o', 'json']),
+    runOcJson(['get', 'pods', '-A', '-o', 'json']),
+  ]);
+  const commandResults = { events, operators, pods };
+  const rows = {
+    warnings: events.ok ? warningEventRows(events.json) : [],
+    operators: operators.ok ? operatorIssueRows(operators.json) : [],
+    pods: pods.ok ? podIssueRows(pods.json) : [],
+  };
+  return {
+    ok: events.ok || operators.ok || pods.ok,
+    status: events.ok && operators.ok && pods.ok ? 'read_only_signals_collected' : 'partial_read_only_signals',
+    server: server.stdout,
+    errors: Object.entries(commandResults)
+      .filter(([, result]) => !result.ok)
+      .map(([name, result]) => `${name}: ${result.stderr || result.error}`),
+    totals: {
+      warningEvents: events.ok ? resourceItems(events.json).length : 0,
+      operatorIssues: rows.operators.length,
+      podIssues: rows.pods.length,
+    },
+    rows,
+  };
+};
+
+const openShiftSignalAnswer = (inventory) => {
+  if (!inventory.ok) {
+    return [
+      '## 현재 상태',
+      '실제 OpenShift 경고 조회를 실행하지 못했습니다.',
+      '',
+      '## 실패 지점',
+      `- ${inventory.status}: ${inventory.error}`,
+      '',
+      '## 다음 조치',
+      '- 로컬 터미널에서 `oc whoami --show-server`, `oc get events -A`가 되는지 먼저 확인해야 합니다.',
+    ].join('\n');
+  }
+
+  const lines = [
+    '## 현재 판단',
+    '실제 `oc` 읽기 전용 조회로 최근 경고와 우선 확인 대상을 정리했습니다. 변경은 실행하지 않았습니다.',
+    '',
+    '## 조회 근거',
+    `- API 서버: ${inventory.server}`,
+    `- Warning event: ${inventory.totals.warningEvents}개`,
+    `- Operator 이상: ${inventory.totals.operatorIssues}개`,
+    `- Pod 확인 대상: ${inventory.totals.podIssues}개`,
+  ];
+  if (inventory.errors.length) {
+    lines.push(`- 일부 조회 실패: ${inventory.errors.join('; ')}`);
+  }
+
+  lines.push('', '## 우선 확인');
+  if (!inventory.rows.warnings.length && !inventory.rows.operators.length && !inventory.rows.pods.length) {
+    lines.push('- 현재 접근 가능한 범위에서 우선 확인할 Warning event, Operator issue, Pod issue가 보이지 않습니다.');
+  } else {
+    lines.push('| 구분 | 대상 | 근거 | 다음 확인 |');
+    lines.push('|---|---|---|---|');
+    for (const item of inventory.rows.operators.slice(0, 4)) {
+      lines.push(
+        `| Operator | ${tableCell(item.name)} | Available=${item.available}, Degraded=${item.degraded}, Progressing=${item.progressing} | ClusterOperator condition message 확인 |`,
+      );
+    }
+    for (const item of inventory.rows.warnings.slice(0, 6)) {
+      lines.push(
+        `| Warning | ${tableCell(item.namespace ? `${item.namespace}/${item.target}` : item.target)} | ${tableCell(item.reason)} · ${tableCell(ageText(item.timestampMs))} · ${tableCell(item.message)} | Event 전후 Pod/Deployment 상태 확인 |`,
+      );
+    }
+    for (const item of inventory.rows.pods.slice(0, 6)) {
+      lines.push(
+        `| Pod | ${tableCell(`${item.namespace}/${item.name}`)} | phase=${tableCell(item.phase)}, waiting=${tableCell(item.waiting || '-')}, restarts=${item.restarts} | logs/events/owner Deployment 확인 |`,
+      );
+    }
+  }
+
+  lines.push(
+    '',
+    '## Action Plan',
+    '- 이 질문은 경고 정리라서 즉시 변경 계획을 만들지 않습니다.',
+    '- 특정 Pod/Deployment와 원하는 조치가 확정되면 그때 승인 가능한 Action Plan을 생성합니다.',
+  );
+  return lines.join('\n');
+};
+
+const unsupportedLocalQuestionAnswer = () => [
+  '## 현재 상태',
+  '이 질문은 5174 local fixture의 실행 가능한 시나리오로 처리하지 않았습니다.',
+  '',
+  '## 실행한 조회',
+  '- 없음',
+  '',
+  '## 가능한 요청',
+  '- 최근 OpenShift 경고와 Action Plan 테스트',
+  '- 특정 네임스페이스의 사용 여부 read-only 조회',
+].join('\n');
+
+const streamLocalChat = async (req, res) => {
+  let requestBody = {};
+  try {
+    requestBody = await readJsonBody(req);
+  } catch {
+    requestBody = {};
+  }
+
   res.writeHead(200, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
@@ -249,6 +763,143 @@ const streamLocalChat = (req, res) => {
   });
 
   const runId = `run-local-${Date.now()}`;
+  const userMessage = latestUserMessageFromBody(requestBody);
+
+  if (isNamespaceCleanupQuestion(userMessage)) {
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: 'started',
+      message: '네임스페이스 read-only 조회를 시작했습니다.',
+    });
+    sse(res, {
+      type: 'tool_call',
+      id: 'namespace-inventory-local',
+      name: 'oc_namespace_inventory',
+      summary: 'oc read-only namespace inventory',
+    });
+    const inventory = await buildNamespaceInventory(userMessage);
+    const answer = namespaceInventoryAnswer(inventory);
+    sse(res, {
+      type: 'tool_result',
+      id: 'namespace-inventory-local',
+      name: 'oc_namespace_inventory',
+      status: inventory.ok ? 'success' : 'failed',
+      summary: inventory.ok
+        ? `namespace ${inventory.inspected.length}개 read-only 조회`
+        : 'namespace read-only 조회 실패',
+      result: inventory,
+    });
+    sse(res, {
+      type: 'tool_plan',
+      runId,
+      plan: {
+        task_type: 'namespace_cleanup_review',
+        execution_policy: {
+          mode: 'read_only_review',
+          mutations_enabled: false,
+          local_fixture_only: false,
+        },
+        tool_plan: [
+          {
+            step: 1,
+            adapter: 'oc',
+            tool: 'oc_get_namespaces',
+            verb: 'list',
+            purpose: '접근 가능한 네임스페이스 목록 확인',
+          },
+          {
+            step: 2,
+            adapter: 'oc',
+            tool: 'oc_get_namespace_inventory',
+            verb: 'get',
+            purpose: 'workload, PVC, Route, Event 잔존 확인',
+          },
+        ],
+        validation: {
+          ok: inventory.ok,
+          status: inventory.ok ? 'read_only_inventory_collected' : inventory.status,
+        },
+      },
+      status: inventory.ok ? 'success' : 'failed',
+    });
+    sse(res, {
+      type: 'text',
+      content: answer,
+      source: inventory.ok ? 'oc_read_only_inventory' : 'oc_read_failed',
+      streamProbe: inventory.ok ? 'ok' : 'failed',
+    });
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: inventory.ok ? 'completed' : 'failed',
+      message: inventory.ok ? '네임스페이스 read-only 조회를 완료했습니다.' : '네임스페이스 조회에 실패했습니다.',
+    });
+    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
+    res.end();
+    return;
+  }
+
+  if (isOpenShiftSignalQuestion(userMessage)) {
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: 'started',
+      message: 'OpenShift read-only 신호 조회를 시작했습니다.',
+    });
+    sse(res, {
+      type: 'tool_call',
+      id: 'openshift-signal-inventory-local',
+      name: 'oc_openshift_signal_inventory',
+      summary: 'oc read-only warning/operator/pod inventory',
+    });
+    const inventory = await buildOpenShiftSignalInventory();
+    const answer = openShiftSignalAnswer(inventory);
+    sse(res, {
+      type: 'tool_result',
+      id: 'openshift-signal-inventory-local',
+      name: 'oc_openshift_signal_inventory',
+      status: inventory.ok ? 'success' : 'failed',
+      summary: inventory.ok
+        ? `warning ${inventory.totals.warningEvents}개, operator issue ${inventory.totals.operatorIssues}개, pod issue ${inventory.totals.podIssues}개 조회`
+        : 'OpenShift read-only 신호 조회 실패',
+      result: inventory,
+    });
+    sse(res, {
+      type: 'text',
+      content: answer,
+      source: inventory.ok ? 'oc_read_only_inventory' : 'oc_read_failed',
+      streamProbe: inventory.ok ? 'ok' : 'failed',
+    });
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: inventory.ok ? 'completed' : 'failed',
+      message: inventory.ok ? 'OpenShift read-only 신호 조회를 완료했습니다.' : 'OpenShift 신호 조회에 실패했습니다.',
+    });
+    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
+    res.end();
+    return;
+  }
+
+  if (!isCrashloopDemoQuestion(userMessage)) {
+    sse(res, {
+      type: 'run_status',
+      runId,
+      stage: 'skipped',
+      message: 'local fixture 처리 범위 밖의 질문입니다.',
+    });
+    sse(res, {
+      type: 'text',
+      content: unsupportedLocalQuestionAnswer(),
+      source: 'local_fixture_guard',
+      streamProbe: 'not_used',
+    });
+    sse(res, { type: 'end', conversationId: `local-fixture-${Date.now()}` });
+    res.end();
+    return;
+  }
+
   const contextDigest = 'sha256:local-rca-context-v1';
   const toolPlan = {
     task_type: 'pod_restart_rca',
@@ -291,7 +942,7 @@ const streamLocalChat = (req, res) => {
     evidence: {
       confirmed: [
         'KubePodNotReady alert is firing for openshift-marketplace/appscan360-catalog.',
-        'komsco-ai-local/aiops-scenario-crashloop is 0/1 ready in the local simulator.',
+        'Local simulator target Deployment is 0/1 ready.',
       ],
       missing: ['실제 OpenShift API 변경은 수행하지 않는 local-only fixture입니다.'],
     },
@@ -309,13 +960,13 @@ const streamLocalChat = (req, res) => {
     '## 요약',
     '`로컬 시뮬레이션 응답`입니다.',
     '실제 OLS/클러스터 분석 결과가 아니라 5174 fixture의 고정 테스트 데이터입니다.',
-    '테스트 대상: `komsco-ai-local/aiops-scenario-crashloop`',
+    '테스트 대상: CrashLoopBackOff 복구 fixture',
     '현재 상태: 로컬 fixture에 CrashLoopBackOff가 주입되어 있습니다.',
     '대기 중인 계획: `plan-local-crashloop` Action Plan',
     '',
     '## 확인한 근거',
     '- `KubePodNotReady` 경고가 firing 상태입니다.',
-    '- `aiops-scenario-crashloop` Deployment가 `0/1 ready` 상태입니다.',
+    '- 대상 Deployment 1개가 `0/1 ready` 상태입니다.',
     '- Gateway 상태는 local-only fixture, mutation simulator enabled입니다.',
     '',
     '## 추가 확인',
@@ -848,7 +1499,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/v1/chat/stream' && req.method === 'POST') {
-    streamLocalChat(req, res);
+    await streamLocalChat(req, res);
     return;
   }
   if (url.pathname === '/v1/cluster/summary') {

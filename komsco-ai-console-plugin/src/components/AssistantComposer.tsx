@@ -185,7 +185,7 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
                 : copy.inputPlaceholder
             }
             rows={1}
-            style={{ maxHeight: 110, minHeight: 35, overflowY: 'auto' }}
+            style={{ maxHeight: 76, minHeight: 32, overflowY: 'auto' }}
             value={input}
           />
           <div className="komsco-ai__composer-toolbar">

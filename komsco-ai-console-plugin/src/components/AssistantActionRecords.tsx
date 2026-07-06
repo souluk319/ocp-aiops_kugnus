@@ -105,6 +105,19 @@ const actionCardMetaLabel = (stage: AiopsLifecycleStage): string => {
   return '실행 결과';
 };
 
+const actionCardTargetDisplayLabel = (stage: AiopsLifecycleStage): string => {
+  if (stage === 'proposal') {
+    return '검토 대상';
+  }
+  if (stage === 'plan') {
+    return '대상 워크로드';
+  }
+  if (stage === 'approval') {
+    return '승인 대상';
+  }
+  return '실행 대상';
+};
+
 export const PlanSummaryBlock: React.FC<{
   executionMode?: AiopsExecutionMode;
   record: AiopsRecordView;
@@ -335,7 +348,9 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                   <ActionStageIcon stage="execution" />
                   <div className="komsco-ai__answer-action-main">
                     <span>{actionCardMetaLabel('execution')}</span>
-                    <strong>{getRecordTargetLabel(record)}</strong>
+                    <strong title={getRecordTargetLabel(record)}>
+                      {actionCardTargetDisplayLabel('execution')}
+                    </strong>
                     <small>4단계 · 실행 완료</small>
                   </div>
                 </div>
@@ -360,7 +375,9 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                 <ActionStageIcon stage={stage} />
                 <div className="komsco-ai__answer-action-main">
                   <span>{actionCardMetaLabel(stage)}</span>
-                  <strong>{getRecordTargetLabel(record)}</strong>
+                  <strong title={getRecordTargetLabel(record)}>
+                    {actionCardTargetDisplayLabel(stage)}
+                  </strong>
                   <small>{getActionRecordStageLabel(record, executionMode)}</small>
                 </div>
               </div>
@@ -408,7 +425,9 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
               <ActionStageIcon stage={ref.stage} />
               <div className="komsco-ai__answer-action-main">
                 <span>{actionCardMetaLabel(ref.stage)}</span>
-                <strong>{ref.targetKey || '대상 확인 필요'}</strong>
+                <strong title={ref.targetKey || undefined}>
+                  {actionCardTargetDisplayLabel(ref.stage)}
+                </strong>
                 <small>{ref.label.replace(/^\d+단계\s*·\s*/, '')}</small>
               </div>
             </div>
