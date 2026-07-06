@@ -134,7 +134,22 @@ const FeedbackRail: React.FC<{ language: UiLanguage; records: FeedbackRecord[] }
   const needsWorkCount = records.filter(
     (record) => feedbackSpecText(record, 'rating') === 'down',
   ).length;
-  const latestComment = feedbackSpecText(latest, 'optionalComment');
+  const latestNeedsWorkComment = feedbackSpecText(
+    sortedRecords.find(
+      (record) =>
+        feedbackSpecText(record, 'rating') === 'down' &&
+        feedbackSpecText(record, 'optionalComment').trim(),
+    ),
+    'optionalComment',
+  );
+  const latestGoodComment = feedbackSpecText(
+    sortedRecords.find(
+      (record) =>
+        feedbackSpecText(record, 'rating') === 'up' &&
+        feedbackSpecText(record, 'optionalComment').trim(),
+    ),
+    'optionalComment',
+  );
   const latestRating = feedbackSpecText(latest, 'rating');
   const copyLabel = copied
     ? text(language, '피드백 JSON 복사됨', 'Feedback JSON copied')
@@ -191,16 +206,24 @@ const FeedbackRail: React.FC<{ language: UiLanguage; records: FeedbackRecord[] }
       </div>
       {latest ? (
         <div className="komsco-ai__rail-command">
-          <p>
-            {latestComment
-              ? `${text(language, '최근 의견', 'Latest note')}: ${truncateRailText(
-                  latestComment,
-                )}`
-              : `${text(language, '최근 평가', 'Latest rating')}: ${feedbackRatingLabel(
-                  latestRating,
-                  language,
-                )}`}
-          </p>
+          {latestNeedsWorkComment ? (
+            <p>
+              {text(language, '최근 개선 의견', 'Latest needs-work note')}:{' '}
+              {truncateRailText(latestNeedsWorkComment)}
+            </p>
+          ) : null}
+          {latestGoodComment ? (
+            <p>
+              {text(language, '최근 좋았던 점', 'Latest good note')}:{' '}
+              {truncateRailText(latestGoodComment)}
+            </p>
+          ) : null}
+          {!latestNeedsWorkComment && !latestGoodComment ? (
+            <p>
+              {text(language, '최근 평가', 'Latest rating')}:{' '}
+              {feedbackRatingLabel(latestRating, language)}
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="komsco-ai__rail-empty">

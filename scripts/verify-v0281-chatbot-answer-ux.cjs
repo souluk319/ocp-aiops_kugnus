@@ -197,14 +197,16 @@ const sourceReview = () => {
   assert(
     insightRail.includes("'답변 피드백'") &&
       insightRail.includes("'Answer feedback'") &&
-      insightRail.includes("'최근 의견'") &&
-      insightRail.includes("'Latest note'") &&
+      insightRail.includes("'최근 개선 의견'") &&
+      insightRail.includes("'Latest needs-work note'") &&
+      insightRail.includes("'최근 좋았던 점'") &&
+      insightRail.includes("'Latest good note'") &&
       insightRail.includes("'피드백 JSON 복사'") &&
       insightRail.includes("'Copy feedback JSON'") &&
       insightRail.includes('komsco-ai__rail-feedback-copy') &&
       insightRail.includes('chatFeedback') &&
       css.includes('.komsco-ai__rail-feedback-copy'),
-    'insight rail must expose and copy collected answer feedback for tester review',
+    'insight rail must expose separate good and needs-work feedback notes for tester review',
   );
   assert(
     launcher.includes('.then(() => refreshAiopsRuntimeStatus())'),
@@ -1929,12 +1931,13 @@ const verifyConsoleAssistant = async () => {
       return {
         ok: text.includes('답변 피드백') &&
           text.includes('개선') &&
+          text.includes('최근 개선 의견') &&
           text.includes(${JSON.stringify(feedbackComment)}),
         text
       };
     })()`,
     (value) => value?.ok,
-    'insight rail answer feedback summary with latest tester comment',
+    'insight rail answer feedback summary with latest needs-work tester comment',
     30000,
   );
   const feedbackCopy = await evaluate(`(async () => {
@@ -2051,6 +2054,23 @@ const verifyConsoleAssistant = async () => {
     })()`,
     (value) => value?.ok,
     'gateway positive feedback record with optional comment',
+    30000,
+  );
+  const combinedFeedbackRail = await poll(
+    `(() => {
+      const section = Array.from(document.querySelectorAll('.komsco-ai__rail-section'))
+        .find((el) => (el.textContent || '').includes('답변 피드백'));
+      const text = section?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+      return {
+        ok: text.includes('최근 개선 의견') &&
+          text.includes(${JSON.stringify(feedbackComment)}) &&
+          text.includes('최근 좋았던 점') &&
+          text.includes(${JSON.stringify(positiveFeedbackComment)}),
+        text
+      };
+    })()`,
+    (value) => value?.ok,
+    'insight rail answer feedback summary with separate good and needs-work comments',
     30000,
   );
 
