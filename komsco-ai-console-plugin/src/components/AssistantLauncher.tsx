@@ -2812,6 +2812,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           aiopsDemoCycle: activeDraftPageContext,
           aiopsTaskMode: assistantTaskMode,
           aiopsTaskModeLabel: selectedTaskMode.label,
+          aiopsUiLanguage: uiLanguage,
         };
         const activeStepIdsByName = new Map<string, string>();
         const activeStepStartedAt = new Map<string, number>();

@@ -1010,6 +1010,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         loading,
         mode: ${JSON.stringify(mode)},
         preview: text.slice(0, 900),
+        answerHasKorean: /[가-힣]/.test(text),
         progressText,
         progressTexts,
         rawProgressTerms,
@@ -1051,6 +1052,17 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         progressHasKorean:
           /[가-힣]/.test(progressText),
         textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(text),
+        textIncludesEnglishActionPlanCandidate:
+          /approval-ready Action Plan candidate|Approval-required candidates|Action Plan candidate can be created/.test(text),
+        textIncludesEnglishClarification:
+          text.includes('Request Clarification') &&
+          text.includes('Needed Information') &&
+          text.includes('Good Request Examples') &&
+          text.includes('processing status: more information required') &&
+          text.includes('execution status: no change created'),
+        textIncludesEnglishExecuteMode: text.includes('Execution-enabled mode'),
+        textIncludesEnglishReadOnlyMode: text.includes('Read-only mode'),
+        textIncludesEnglishUnrestrictedMode: text.includes('Unrestricted mode'),
         textIncludesExecuteMode: text.includes('실행 가능 모드'),
         textIncludesReadOnlyCommand:
           text.includes('oc get namespaces') &&
@@ -1266,16 +1278,21 @@ const verifyLiveEnglishProgressLabels = async () => {
         item.sourceUsesEnglishLabel &&
         !item.sourceHasKorean &&
         !item.progressHasKorean &&
+        !item.answerHasKorean &&
         !item.rawProgressTerms.length,
-      'English UI progress and source labels must stay English and hide raw operator names',
+      'English UI answer, progress, and source labels must stay English and hide raw operator names',
       metrics,
     );
   }
   assert(
     unclear.source === 'Request clarification' &&
+      unclear.textIncludesEnglishClarification &&
       namespace.source === 'Gateway live query' &&
-      namespace.hasGatewayDirect,
-    'English UI live answers must localize clarification and Gateway source badges',
+      namespace.hasGatewayDirect &&
+      namespace.textIncludesEnglishExecuteMode &&
+      namespace.textIncludesEnglishActionPlanCandidate &&
+      namespace.textIncludesReadOnlyCommand,
+    'English UI live answers must localize clarification, execution mode, Action Plan, and Gateway source badges',
     metrics,
   );
 

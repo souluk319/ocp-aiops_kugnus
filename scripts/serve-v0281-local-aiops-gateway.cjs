@@ -604,7 +604,29 @@ const normalizedChatText = (message) => String(message || '').replace(/\s+/g, ' 
 const actionCapableExecutionMode = (executionMode) =>
   executionMode === 'execute' || executionMode === 'unrestricted';
 
-const executionModeSentence = (executionMode) => {
+const uiLanguageFromRequestBody = (body) => {
+  const value = String(
+    body?.pageContext?.aiopsUiLanguage ||
+      body?.pageContext?.uiLanguage ||
+      body?.pageContext?.language ||
+      body?.language ||
+      '',
+  )
+    .trim()
+    .toLowerCase();
+  return value.startsWith('en') ? 'en' : 'ko';
+};
+
+const executionModeSentence = (executionMode, language = 'ko') => {
+  if (language === 'en') {
+    if (executionMode === 'unrestricted') {
+      return 'Unrestricted mode: query and plan generation are available, but risky changes still require an approval gate.';
+    }
+    if (executionMode === 'execute') {
+      return 'Execution-enabled mode: the Copilot can create approval-ready Action Plan candidates after evidence collection. No change runs before approval.';
+    }
+    return 'Read-only mode: the Copilot only collects evidence and does not create or run changes.';
+  }
   if (executionMode === 'unrestricted') {
     return '실행 무제한 모드: 조회와 계획 생성은 가능하지만, 위험 조치는 승인 게이트를 먼저 통과해야 합니다.';
   }
@@ -614,7 +636,16 @@ const executionModeSentence = (executionMode) => {
   return '읽기 전용 모드: 조회와 근거 수집만 수행하고 변경 작업은 만들지 않습니다.';
 };
 
-const clarificationModeSentence = (executionMode) => {
+const clarificationModeSentence = (executionMode, language = 'ko') => {
+  if (language === 'en') {
+    if (executionMode === 'unrestricted') {
+      return 'Unrestricted mode: risky changes will not run until the request target and task are clear.';
+    }
+    if (executionMode === 'execute') {
+      return 'Execution-enabled mode: no approval or execution will be created until the request is clear.';
+    }
+    return 'Read-only mode: only evidence collection is allowed; no changes are created or run.';
+  }
   if (executionMode === 'unrestricted') {
     return '실행 무제한 모드: 요청이 명확해지기 전에는 위험 조치를 실행하지 않습니다.';
   }
@@ -931,6 +962,57 @@ const buildNamespaceInventory = async (message) => {
 
 const tableCell = (value) => String(value ?? '').replace(/\|/g, '/');
 
+const englishNamespaceDecision = (item) => {
+  if (!item.ok) {
+    return {
+      label: 'Query failed',
+      reason: item.error || item.decision?.reason || 'namespace inventory query failed',
+      next: 'Check the oc query error before making a cleanup decision',
+    };
+  }
+  const label = item.decision?.label || '';
+  if (label === '보호') {
+    return {
+      label: 'Protected',
+      reason: 'system or default namespace; excluded from cleanup',
+      next: 'Do not delete',
+    };
+  }
+  if (label === '삭제 보류') {
+    return {
+      label: 'Hold deletion',
+      reason: `PVC ${item.pvcCount} remains`,
+      next: 'Confirm owner and data retention requirements',
+    };
+  }
+  if (label === '사용 중') {
+    return {
+      label: 'In use',
+      reason: `workload ${item.activeWorkloads}, service/route ${item.exposureCount}`,
+      next: 'Confirm owner before deciding whether to keep it',
+    };
+  }
+  if (label === '확인 필요') {
+    return {
+      label: 'Needs review',
+      reason: `event observed within the last ${item.lastEventAgeDays} days`,
+      next: 'Check recent operator and change history',
+    };
+  }
+  if (label === '정리 검토 가능') {
+    return {
+      label: 'Cleanup candidate',
+      reason: `no workload, PVC, or route${item.ageDays === null ? '' : `; namespace age ${item.ageDays} days`}`,
+      next: 'Confirm owner before creating a delete plan',
+    };
+  }
+  return {
+    label: label || 'Needs review',
+    reason: item.decision?.reason || 'manual review required',
+    next: item.decision?.next || 'confirm owner and current usage',
+  };
+};
+
 const executionModeFromRequestBody = (body) => {
   const mode = String(body?.pageContext?.aiopsExecutionMode || '').trim().toLowerCase();
   if (['execute', 'execution', 'execution-enabled', 'enabled'].includes(mode)) {
@@ -964,8 +1046,22 @@ const namespaceReviewCommandBlock = (inventory) => {
   return lines.join('\n');
 };
 
-const namespaceInventoryAnswer = (inventory, executionMode = 'read-only') => {
+const namespaceInventoryAnswer = (inventory, executionMode = 'read-only', language = 'ko') => {
+  const isEn = language === 'en';
   if (!inventory.ok) {
+    if (isEn) {
+      return [
+        '## Current Status',
+        'The Copilot could not run the live OpenShift read-only query.',
+        '',
+        '## Failure Point',
+        `- ${inventory.status}: ${inventory.error}`,
+        '',
+        '## Next Step',
+        '- First check whether `oc whoami --show-server` and `oc get namespaces` work in the local terminal.',
+        '- Namespace cleanup candidates are not decided until read-only inventory succeeds.',
+      ].join('\n');
+    }
     return [
       '## 현재 상태',
       '실제 OpenShift 조회를 실행하지 못했습니다.',
@@ -981,46 +1077,73 @@ const namespaceInventoryAnswer = (inventory, executionMode = 'read-only') => {
 
   const cleanupCandidates = namespaceCleanupCandidates(inventory);
   const actionCapableMode = actionCapableExecutionMode(executionMode);
-  const modeLine = actionCapableMode
-    ? cleanupCandidates.length
-      ? `${executionModeSentence(executionMode)} 정리 후보가 있어 Action Plan 후보를 만들 수 있습니다. 실제 삭제는 승인 전 실행하지 않습니다.`
-      : `${executionModeSentence(executionMode)} 승인 가능한 정리 후보가 없어 Action Plan을 만들지 않습니다.`
-    : executionModeSentence(executionMode);
+  const modeLine = isEn
+    ? actionCapableMode
+      ? cleanupCandidates.length
+        ? `${executionModeSentence(executionMode, language)} Cleanup candidates exist, so an Action Plan candidate can be created. No delete runs before approval.`
+        : `${executionModeSentence(executionMode, language)} No approval-ready cleanup candidate was found, so no Action Plan is created.`
+      : executionModeSentence(executionMode, language)
+    : actionCapableMode
+      ? cleanupCandidates.length
+        ? `${executionModeSentence(executionMode, language)} 정리 후보가 있어 Action Plan 후보를 만들 수 있습니다. 실제 삭제는 승인 전 실행하지 않습니다.`
+        : `${executionModeSentence(executionMode, language)} 승인 가능한 정리 후보가 없어 Action Plan을 만들지 않습니다.`
+      : executionModeSentence(executionMode, language);
   const lines = [
-    '## 현재 판단',
+    isEn ? '## Current Assessment' : '## 현재 판단',
     modeLine,
     '',
-    '## 조회 근거',
-    `- API 서버: ${inventory.server}`,
-    `- 접근 가능한 namespace: ${inventory.totalNamespaces}개`,
-    `- 조회 범위: ${inventory.requestedNames.length ? inventory.requestedNames.join(', ') : '첫 12개 namespace'}`,
+    isEn ? '## Query Evidence' : '## 조회 근거',
+    isEn ? `- API server: ${inventory.server}` : `- API 서버: ${inventory.server}`,
+    isEn
+      ? `- Accessible namespaces: ${inventory.totalNamespaces}`
+      : `- 접근 가능한 namespace: ${inventory.totalNamespaces}개`,
+    isEn
+      ? `- Query scope: ${inventory.requestedNames.length ? inventory.requestedNames.join(', ') : 'first 12 namespaces'}`
+      : `- 조회 범위: ${inventory.requestedNames.length ? inventory.requestedNames.join(', ') : '첫 12개 namespace'}`,
     '',
-    '## 네임스페이스별 판단',
-    '| Namespace | 판단 | 근거 | 다음 조치 |',
+    isEn ? '## Namespace Decisions' : '## 네임스페이스별 판단',
+    isEn ? '| Namespace | Decision | Evidence | Next Step |' : '| Namespace | 판단 | 근거 | 다음 조치 |',
     '|---|---|---|---|',
   ];
 
   for (const item of inventory.inspected) {
-    const reason = item.ok
-      ? `${item.decision.reason}; events ${item.eventCount}개${item.lastEventAgeDays === null ? '' : `, last ${item.lastEventAgeDays}일 전`}`
-      : item.decision.reason;
+    const display = isEn ? englishNamespaceDecision(item) : item.decision;
+    const reason = isEn
+      ? item.ok
+        ? `${display.reason}; events ${item.eventCount}${item.lastEventAgeDays === null ? '' : `, last ${item.lastEventAgeDays} days ago`}`
+        : display.reason
+      : item.ok
+        ? `${item.decision.reason}; events ${item.eventCount}개${item.lastEventAgeDays === null ? '' : `, last ${item.lastEventAgeDays}일 전`}`
+        : item.decision.reason;
     lines.push(
-      `| ${tableCell(item.namespace)} | ${tableCell(item.decision.label)} | ${tableCell(reason)} | ${tableCell(item.decision.next)} |`,
+      `| ${tableCell(item.namespace)} | ${tableCell(display.label)} | ${tableCell(reason)} | ${tableCell(display.next)} |`,
     );
   }
 
   lines.push(
     '',
     '## Action Plan',
-    actionCapableMode && cleanupCandidates.length
-      ? `- 승인 필요 후보: ${cleanupCandidates.map((item) => `\`${item.namespace}\``).join(', ')}`
-      : '- 읽기 전용 모드에서는 Action Plan 버튼을 만들지 않습니다.',
-    '- `정리 검토 가능`만 삭제 계획 후보로 올립니다.',
-    '- `사용 중`, `삭제 보류`, `보호`는 삭제 계획을 만들지 않습니다.',
-    '- 삭제 전 승인 조건: 소유자 확인, PVC/Route 잔존 여부 확인, 백업 필요 여부 확인.',
-    '- 실제 삭제 실행 명령은 승인 전에는 절대 생성하거나 실행하지 않습니다.',
+    isEn
+      ? actionCapableMode && cleanupCandidates.length
+        ? `- Approval-required candidates: ${cleanupCandidates.map((item) => `\`${item.namespace}\``).join(', ')}`
+        : '- Read-only mode does not create an Action Plan button.'
+      : actionCapableMode && cleanupCandidates.length
+        ? `- 승인 필요 후보: ${cleanupCandidates.map((item) => `\`${item.namespace}\``).join(', ')}`
+        : '- 읽기 전용 모드에서는 Action Plan 버튼을 만들지 않습니다.',
+    isEn
+      ? '- Only `Cleanup candidate` namespaces are eligible for a delete plan.'
+      : '- `정리 검토 가능`만 삭제 계획 후보로 올립니다.',
+    isEn
+      ? '- `In use`, `Hold deletion`, and `Protected` namespaces do not receive delete plans.'
+      : '- `사용 중`, `삭제 보류`, `보호`는 삭제 계획을 만들지 않습니다.',
+    isEn
+      ? '- Approval requirements: owner confirmation, PVC/Route check, and backup requirement check.'
+      : '- 삭제 전 승인 조건: 소유자 확인, PVC/Route 잔존 여부 확인, 백업 필요 여부 확인.',
+    isEn
+      ? '- The actual delete command is never generated or executed before approval.'
+      : '- 실제 삭제 실행 명령은 승인 전에는 절대 생성하거나 실행하지 않습니다.',
     '',
-    '## 터미널 확인 명령',
+    isEn ? '## Terminal Read-Only Commands' : '## 터미널 확인 명령',
     namespaceReviewCommandBlock(inventory),
   );
   return lines.join('\n');
@@ -1142,8 +1265,21 @@ const buildOpenShiftSignalInventory = async () => {
   };
 };
 
-const openShiftSignalAnswer = (inventory) => {
+const openShiftSignalAnswer = (inventory, language = 'ko') => {
+  const isEn = language === 'en';
   if (!inventory.ok) {
+    if (isEn) {
+      return [
+        '## Current Status',
+        'The Copilot could not run the live OpenShift warning query.',
+        '',
+        '## Failure Point',
+        `- ${inventory.status}: ${inventory.error}`,
+        '',
+        '## Next Step',
+        '- First check whether `oc whoami --show-server` and `oc get events -A` work in the local terminal.',
+      ].join('\n');
+    }
     return [
       '## 현재 상태',
       '실제 OpenShift 경고 조회를 실행하지 못했습니다.',
@@ -1157,38 +1293,44 @@ const openShiftSignalAnswer = (inventory) => {
   }
 
   const lines = [
-    '## 현재 판단',
-    '실제 `oc` 읽기 전용 조회로 최근 경고와 우선 확인 대상을 정리했습니다. 변경은 실행하지 않았습니다.',
+    isEn ? '## Current Assessment' : '## 현재 판단',
+    isEn
+      ? 'The Copilot summarized recent warnings and priority checks using live `oc` read-only queries. No change was executed.'
+      : '실제 `oc` 읽기 전용 조회로 최근 경고와 우선 확인 대상을 정리했습니다. 변경은 실행하지 않았습니다.',
     '',
-    '## 조회 근거',
-    `- API 서버: ${inventory.server}`,
-    `- Warning event: ${inventory.totals.warningEvents}개`,
-    `- Operator 이상: ${inventory.totals.operatorIssues}개`,
-    `- Pod 확인 대상: ${inventory.totals.podIssues}개`,
+    isEn ? '## Query Evidence' : '## 조회 근거',
+    isEn ? `- API server: ${inventory.server}` : `- API 서버: ${inventory.server}`,
+    isEn ? `- Warning events: ${inventory.totals.warningEvents}` : `- Warning event: ${inventory.totals.warningEvents}개`,
+    isEn ? `- Operator issues: ${inventory.totals.operatorIssues}` : `- Operator 이상: ${inventory.totals.operatorIssues}개`,
+    isEn ? `- Pods needing review: ${inventory.totals.podIssues}` : `- Pod 확인 대상: ${inventory.totals.podIssues}개`,
   ];
   if (inventory.errors.length) {
-    lines.push(`- 일부 조회 실패: ${inventory.errors.join('; ')}`);
+    lines.push(isEn ? `- Partial query failures: ${inventory.errors.join('; ')}` : `- 일부 조회 실패: ${inventory.errors.join('; ')}`);
   }
 
-  lines.push('', '## 우선 확인');
+  lines.push('', isEn ? '## Priority Checks' : '## 우선 확인');
   if (!inventory.rows.warnings.length && !inventory.rows.operators.length && !inventory.rows.pods.length) {
-    lines.push('- 현재 접근 가능한 범위에서 우선 확인할 Warning event, Operator issue, Pod issue가 보이지 않습니다.');
+    lines.push(
+      isEn
+        ? '- No Warning event, Operator issue, or Pod issue is visible in the accessible scope.'
+        : '- 현재 접근 가능한 범위에서 우선 확인할 Warning event, Operator issue, Pod issue가 보이지 않습니다.',
+    );
   } else {
-    lines.push('| 구분 | 대상 | 근거 | 다음 확인 |');
+    lines.push(isEn ? '| Type | Target | Evidence | Next Check |' : '| 구분 | 대상 | 근거 | 다음 확인 |');
     lines.push('|---|---|---|---|');
     for (const item of inventory.rows.operators.slice(0, 4)) {
       lines.push(
-        `| Operator | ${tableCell(item.name)} | Available=${item.available}, Degraded=${item.degraded}, Progressing=${item.progressing} | ClusterOperator condition message 확인 |`,
+        `| Operator | ${tableCell(item.name)} | Available=${item.available}, Degraded=${item.degraded}, Progressing=${item.progressing} | ${isEn ? 'Check ClusterOperator condition message' : 'ClusterOperator condition message 확인'} |`,
       );
     }
     for (const item of inventory.rows.warnings.slice(0, 6)) {
       lines.push(
-        `| Warning | ${tableCell(item.namespace ? `${item.namespace}/${item.target}` : item.target)} | ${tableCell(item.reason)} · ${tableCell(ageText(item.timestampMs))} · ${tableCell(item.message)} | Event 전후 Pod/Deployment 상태 확인 |`,
+        `| Warning | ${tableCell(item.namespace ? `${item.namespace}/${item.target}` : item.target)} | ${tableCell(item.reason)} · ${tableCell(isEn ? `${daysSince(item.timestampMs) ?? '-'} days ago` : ageText(item.timestampMs))} · ${tableCell(item.message)} | ${isEn ? 'Check Pod/Deployment state around the event' : 'Event 전후 Pod/Deployment 상태 확인'} |`,
       );
     }
     for (const item of inventory.rows.pods.slice(0, 6)) {
       lines.push(
-        `| Pod | ${tableCell(`${item.namespace}/${item.name}`)} | phase=${tableCell(item.phase)}, waiting=${tableCell(item.waiting || '-')}, restarts=${item.restarts} | logs/events/owner Deployment 확인 |`,
+        `| Pod | ${tableCell(`${item.namespace}/${item.name}`)} | phase=${tableCell(item.phase)}, waiting=${tableCell(item.waiting || '-')}, restarts=${item.restarts} | ${isEn ? 'Check logs, events, and owner Deployment' : 'logs/events/owner Deployment 확인'} |`,
       );
     }
   }
@@ -1196,8 +1338,12 @@ const openShiftSignalAnswer = (inventory) => {
   lines.push(
     '',
     '## Action Plan',
-    '- 이 질문은 경고 정리라서 즉시 변경 계획을 만들지 않습니다.',
-    '- 특정 Pod/Deployment와 원하는 조치가 확정되면 그때 승인 가능한 Action Plan을 생성합니다.',
+    isEn
+      ? '- This request summarizes warnings, so no immediate change plan is created.'
+      : '- 이 질문은 경고 정리라서 즉시 변경 계획을 만들지 않습니다.',
+    isEn
+      ? '- Once a specific Pod/Deployment and intended change are confirmed, the Copilot can create an approval-ready Action Plan.'
+      : '- 특정 Pod/Deployment와 원하는 조치가 확정되면 그때 승인 가능한 Action Plan을 생성합니다.',
   );
   return lines.join('\n');
 };
@@ -1238,17 +1384,35 @@ const buildTestPodCreatePreflight = async (request) => {
   };
 };
 
-const testPodCreateAnswer = (request, preflight, executionMode = 'read-only') => {
+const testPodCreateAnswer = (request, preflight, executionMode = 'read-only', language = 'ko') => {
+  const isEn = language === 'en';
   const targetLabel = `${LOCAL_TEST_POD_TARGET.namespace}/${LOCAL_TEST_POD_TARGET.name}`;
   const actionCapableMode = actionCapableExecutionMode(executionMode);
   const requestedCount = request.count || LOCAL_TEST_POD_COUNT;
   const preflightLabel =
     preflight.status === 'namespace_ready'
-      ? 'namespace 존재 확인'
+      ? isEn
+        ? 'namespace exists'
+        : 'namespace 존재 확인'
       : preflight.status === 'namespace_check_deferred'
-        ? '실행 전 namespace 재확인 필요'
+        ? isEn
+          ? 'namespace must be rechecked before execution'
+          : '실행 전 namespace 재확인 필요'
         : preflight.status;
   if (!request.supported) {
+    if (isEn) {
+      return [
+        '## Current Assessment',
+        'The request was interpreted as test Pod creation, but the namespace is outside the current safe scope.',
+        '',
+        '## Requested Target',
+        `- namespace: \`${request.namespace}\``,
+        '',
+        '## Next Step',
+        '- Confirm that the target namespace is correct, then ask again.',
+        '- No creation plan or execution is created until the allowed scope is expanded.',
+      ].join('\n');
+    }
     return [
       '## 현재 판단',
       '테스트 Pod 생성 요청으로 해석했지만, 현재 안전 범위 밖의 네임스페이스입니다.',
@@ -1263,38 +1427,54 @@ const testPodCreateAnswer = (request, preflight, executionMode = 'read-only') =>
   }
 
   const lines = [
-    '## 현재 판단',
+    isEn ? '## Current Assessment' : '## 현재 판단',
     actionCapableMode
-      ? `${executionModeSentence(executionMode)} 테스트 Pod 생성은 승인 가능한 Action Plan 후보로 올릴 수 있습니다.`
-      : `${executionModeSentence(executionMode)} 테스트 Pod 생성 요청은 해석했지만 Action Plan 버튼은 만들지 않습니다.`,
+      ? isEn
+        ? `${executionModeSentence(executionMode, language)} Test Pod creation can be proposed as an approval-ready Action Plan candidate.`
+        : `${executionModeSentence(executionMode, language)} 테스트 Pod 생성은 승인 가능한 Action Plan 후보로 올릴 수 있습니다.`
+      : isEn
+        ? `${executionModeSentence(executionMode, language)} The test Pod creation request was understood, but no Action Plan button is created.`
+        : `${executionModeSentence(executionMode, language)} 테스트 Pod 생성 요청은 해석했지만 Action Plan 버튼은 만들지 않습니다.`,
     '',
-    '## 대상',
+    isEn ? '## Target' : '## 대상',
     `- namespace: \`${LOCAL_TEST_POD_TARGET.namespace}\``,
-    `- 생성 수량: \`${requestedCount}\``,
-    `- 계획 대상: \`${targetLabel}\``,
+    isEn ? `- requested count: \`${requestedCount}\`` : `- 생성 수량: \`${requestedCount}\``,
+    isEn ? `- plan target: \`${targetLabel}\`` : `- 계획 대상: \`${targetLabel}\``,
     '',
-    '## 확인한 근거',
-    `- API 서버: ${preflight.server || '확인 실패'}`,
-    `- namespace 사전 확인: ${preflightLabel}`,
+    isEn ? '## Confirmed Evidence' : '## 확인한 근거',
+    isEn ? `- API server: ${preflight.server || 'check failed'}` : `- API 서버: ${preflight.server || '확인 실패'}`,
+    isEn ? `- namespace preflight: ${preflightLabel}` : `- namespace 사전 확인: ${preflightLabel}`,
   ];
 
   if (!preflight.ok) {
-    lines.push(`- 실패 사유: ${preflight.error || 'unknown'}`);
+    lines.push(isEn ? `- failure reason: ${preflight.error || 'unknown'}` : `- 실패 사유: ${preflight.error || 'unknown'}`);
   }
 
   lines.push(
     '',
     '## Action Plan',
     actionCapableMode
-      ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
-      : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
-    `- 조치 후보: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${requestedCount}\` 테스트 Pod 생성`,
-    `- 이미지: \`${LOCAL_TEST_POD_IMAGE}\``,
-    '- 실행 조건: 운영자 승인 후 대상 namespace를 다시 확인하고 Pod 오브젝트 생성',
-    `- 검증: 생성된 Pod 오브젝트 ${requestedCount}개가 조회되는지 확인`,
-    '- 정리: 테스트 완료 후 label 기준 삭제 계획을 별도로 승인',
+      ? isEn
+        ? '- status: approval-required Action Plan candidate can be created'
+        : '- 상태: 승인 필요 Action Plan 후보 생성 가능'
+      : isEn
+        ? '- status: read-only mode does not show plan creation or execution buttons'
+        : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
+    isEn
+      ? `- proposed action: create test Pods \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${requestedCount}\``
+      : `- 조치 후보: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${requestedCount}\` 테스트 Pod 생성`,
+    isEn ? `- image: \`${LOCAL_TEST_POD_IMAGE}\`` : `- 이미지: \`${LOCAL_TEST_POD_IMAGE}\``,
+    isEn
+      ? '- execution condition: after operator approval, recheck the target namespace and create Pod objects'
+      : '- 실행 조건: 운영자 승인 후 대상 namespace를 다시 확인하고 Pod 오브젝트 생성',
+    isEn
+      ? `- verification: confirm that ${requestedCount} created Pod objects are listed`
+      : `- 검증: 생성된 Pod 오브젝트 ${requestedCount}개가 조회되는지 확인`,
+    isEn
+      ? '- cleanup: after the test, approve a separate label-based delete plan'
+      : '- 정리: 테스트 완료 후 label 기준 삭제 계획을 별도로 승인',
     '',
-    '## 터미널 확인 명령',
+    isEn ? '## Terminal Read-Only Commands' : '## 터미널 확인 명령',
     '```bash',
     'oc whoami --show-server',
     `oc get namespace ${LOCAL_TEST_POD_TARGET.namespace}`,
@@ -1401,24 +1581,46 @@ const executeTestPodCreatePlan = async () => {
   };
 };
 
-const unsupportedLocalQuestionAnswer = (intent, executionMode) => [
-  '## 요청 확인',
-  'OpenShift 운영 작업으로 바로 실행할 만큼 대상과 목적이 충분하지 않습니다.',
-  '',
-  '## 필요한 정보',
-  '- 확인할 대상: namespace, pod, deployment, node, operator 중 하나',
-  '- 원하는 작업: 상태 조회, 원인 분석, Action Plan 생성, 승인 후 실행 중 하나',
-  '',
-  '## 지금 가능한 요청 예시',
-  '- 최근 OpenShift 경고를 실제 근거와 추가 확인 항목으로 나눠줘.',
-  '- 다음 네임스페이스가 실제 사용 중인지 read-only 명령까지 정리해줘.',
-  '- gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성 계획을 만들어줘.',
-  '',
-  '## 현재 모드',
-  `- ${clarificationModeSentence(executionMode)}`,
-  '- 처리 상태: 추가 정보 필요',
-  '- 실행 상태: 변경 작업 없음',
-].join('\n');
+const unsupportedLocalQuestionAnswer = (intent, executionMode, language = 'ko') => {
+  if (language === 'en') {
+    return [
+      '## Request Clarification',
+      'The target and task are not clear enough to run an OpenShift operation.',
+      '',
+      '## Needed Information',
+      '- Target: one of namespace, pod, deployment, node, or operator',
+      '- Task: status query, root-cause analysis, Action Plan creation, or approved execution',
+      '',
+      '## Good Request Examples',
+      '- Separate recent OpenShift warnings into confirmed evidence and items that need more checking.',
+      '- Review whether the listed namespaces are still in use and provide read-only `oc` commands.',
+      '- Create an approval-ready plan for three test Pods in the gpu-test-kugnus namespace.',
+      '',
+      '## Current Mode',
+      `- ${clarificationModeSentence(executionMode, language)}`,
+      '- processing status: more information required',
+      '- execution status: no change created',
+    ].join('\n');
+  }
+  return [
+    '## 요청 확인',
+    'OpenShift 운영 작업으로 바로 실행할 만큼 대상과 목적이 충분하지 않습니다.',
+    '',
+    '## 필요한 정보',
+    '- 확인할 대상: namespace, pod, deployment, node, operator 중 하나',
+    '- 원하는 작업: 상태 조회, 원인 분석, Action Plan 생성, 승인 후 실행 중 하나',
+    '',
+    '## 지금 가능한 요청 예시',
+    '- 최근 OpenShift 경고를 실제 근거와 추가 확인 항목으로 나눠줘.',
+    '- 다음 네임스페이스가 실제 사용 중인지 read-only 명령까지 정리해줘.',
+    '- gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성 계획을 만들어줘.',
+    '',
+    '## 현재 모드',
+    `- ${clarificationModeSentence(executionMode, language)}`,
+    '- 처리 상태: 추가 정보 필요',
+    '- 실행 상태: 변경 작업 없음',
+  ].join('\n');
+};
 
 const streamLocalChat = async (req, res) => {
   let requestBody = {};
@@ -1440,6 +1642,7 @@ const streamLocalChat = async (req, res) => {
   const runId = `run-local-${Date.now()}`;
   const userMessage = latestUserMessageFromBody(requestBody);
   const executionMode = executionModeFromRequestBody(requestBody);
+  const uiLanguage = uiLanguageFromRequestBody(requestBody);
   const intent = classifyLocalChatIntent(userMessage);
   const testPodCreateRequest =
     intent.intent === 'execution_request' ? parseTestPodCreateRequest(userMessage) : null;
@@ -1461,7 +1664,7 @@ const streamLocalChat = async (req, res) => {
       summary: '대상 네임스페이스 및 서버 확인',
     });
     const preflight = await buildTestPodCreatePreflight(testPodCreateRequest);
-    const answer = testPodCreateAnswer(testPodCreateRequest, preflight, executionMode);
+    const answer = testPodCreateAnswer(testPodCreateRequest, preflight, executionMode, uiLanguage);
     const canProposeTestPods = actionCapableMode && preflight.ok;
     sse(res, {
       type: 'tool_result',
@@ -1561,7 +1764,7 @@ const streamLocalChat = async (req, res) => {
     const inventory = await buildNamespaceInventory(userMessage);
     const cleanupCandidates = namespaceCleanupCandidates(inventory);
     const canProposeCleanup = inventory.ok && actionCapableMode && cleanupCandidates.length > 0;
-    const answer = namespaceInventoryAnswer(inventory, executionMode);
+    const answer = namespaceInventoryAnswer(inventory, executionMode, uiLanguage);
     sse(res, {
       type: 'tool_result',
       id: 'namespace-inventory-local',
@@ -1650,7 +1853,7 @@ const streamLocalChat = async (req, res) => {
       summary: 'oc read-only warning/operator/pod inventory',
     });
     const inventory = await buildOpenShiftSignalInventory();
-    const answer = openShiftSignalAnswer(inventory);
+    const answer = openShiftSignalAnswer(inventory, uiLanguage);
     sse(res, {
       type: 'tool_result',
       id: 'openshift-signal-inventory-local',
@@ -1700,7 +1903,7 @@ const streamLocalChat = async (req, res) => {
     });
     sse(res, {
       type: 'text',
-      content: unsupportedLocalQuestionAnswer(intent, executionMode),
+      content: unsupportedLocalQuestionAnswer(intent, executionMode, uiLanguage),
       source: 'copilot_clarification',
       streamProbe: 'not_used',
     });
@@ -1724,6 +1927,7 @@ const streamLocalChat = async (req, res) => {
           reason: 'no_matching_operational_route',
         },
         executionMode,
+        uiLanguage,
       ),
       source: 'copilot_clarification',
       streamProbe: 'not_used',
@@ -1797,34 +2001,64 @@ const streamLocalChat = async (req, res) => {
       value: crashloopActionCapableMode ? '가능' : '읽기 전용',
     },
   ];
-  const answer = [
-    '## 현재 판단',
-    crashloopActionCapableMode
-      ? `${executionModeSentence(executionMode)} CrashLoopBackOff 복구 조치는 승인 가능한 Action Plan 후보로 정리할 수 있습니다.`
-      : `${executionModeSentence(executionMode)} CrashLoopBackOff 복구 조치는 조회와 근거 정리까지만 표시합니다.`,
-    '',
-    '## 영향 범위',
-    '- 대상: Deployment 1개',
-    '- 현재 상태: ready replica 0/1',
-    '- 사용자 영향: 해당 Deployment가 제공하는 기능 일부 중단 가능',
-    '',
-    '## 확인한 근거',
-    '- `KubePodNotReady` 경고가 firing 상태입니다.',
-    '- 대상 Deployment 1개가 `0/1 ready` 상태입니다.',
-    '',
-    '## 추가 확인',
-    '- 실제 운영 판단에서는 Pod 로그와 이벤트가 필요합니다.',
-    '- 최근 배포 변경 이력을 확인해야 원인을 확정할 수 있습니다.',
-    '- 실행 전 대상 Deployment와 namespace가 최신인지 다시 확인해야 합니다.',
-    '',
-    '## Action Plan',
-    crashloopActionCapableMode
-      ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
-      : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
-    '- 조치: Deployment rollout restart',
-    '- 검증: 재시작 후 ready replica가 `1/1`로 회복되는지 확인',
-    '- 롤백: 필요 시 직전 ReplicaSet으로 rollout undo',
-  ].join('\n');
+  const answer =
+    uiLanguage === 'en'
+      ? [
+          '## Current Assessment',
+          crashloopActionCapableMode
+            ? `${executionModeSentence(executionMode, uiLanguage)} The CrashLoopBackOff remediation can be prepared as an approval-ready Action Plan candidate.`
+            : `${executionModeSentence(executionMode, uiLanguage)} The CrashLoopBackOff remediation is shown as evidence and review only.`,
+          '',
+          '## Impact Scope',
+          '- Target: 1 Deployment',
+          '- Current state: ready replica 0/1',
+          '- User impact: features served by this Deployment may be partially unavailable',
+          '',
+          '## Confirmed Evidence',
+          '- `KubePodNotReady` alert is firing.',
+          '- The target Deployment is `0/1 ready`.',
+          '',
+          '## Additional Checks',
+          '- Production judgment needs Pod logs and events.',
+          '- Recent deployment history is needed before confirming the root cause.',
+          '- Recheck the target Deployment and namespace before execution.',
+          '',
+          '## Action Plan',
+          crashloopActionCapableMode
+            ? '- status: approval-required Action Plan candidate can be created'
+            : '- status: read-only mode does not show plan creation or execution buttons',
+          '- action: Deployment rollout restart',
+          '- verification: confirm ready replica recovers to `1/1` after restart',
+          '- rollback: run rollout undo to the previous ReplicaSet if needed',
+        ].join('\n')
+      : [
+          '## 현재 판단',
+          crashloopActionCapableMode
+            ? `${executionModeSentence(executionMode, uiLanguage)} CrashLoopBackOff 복구 조치는 승인 가능한 Action Plan 후보로 정리할 수 있습니다.`
+            : `${executionModeSentence(executionMode, uiLanguage)} CrashLoopBackOff 복구 조치는 조회와 근거 정리까지만 표시합니다.`,
+          '',
+          '## 영향 범위',
+          '- 대상: Deployment 1개',
+          '- 현재 상태: ready replica 0/1',
+          '- 사용자 영향: 해당 Deployment가 제공하는 기능 일부 중단 가능',
+          '',
+          '## 확인한 근거',
+          '- `KubePodNotReady` 경고가 firing 상태입니다.',
+          '- 대상 Deployment 1개가 `0/1 ready` 상태입니다.',
+          '',
+          '## 추가 확인',
+          '- 실제 운영 판단에서는 Pod 로그와 이벤트가 필요합니다.',
+          '- 최근 배포 변경 이력을 확인해야 원인을 확정할 수 있습니다.',
+          '- 실행 전 대상 Deployment와 namespace가 최신인지 다시 확인해야 합니다.',
+          '',
+          '## Action Plan',
+          crashloopActionCapableMode
+            ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
+            : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
+          '- 조치: Deployment rollout restart',
+          '- 검증: 재시작 후 ready replica가 `1/1`로 회복되는지 확인',
+          '- 롤백: 필요 시 직전 ReplicaSet으로 rollout undo',
+        ].join('\n');
 
   sse(res, {
     type: 'run_status',
