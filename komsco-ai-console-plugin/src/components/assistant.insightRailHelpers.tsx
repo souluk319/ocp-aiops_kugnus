@@ -33,20 +33,27 @@ export type CompactStatus = {
   tone: RailTone;
 };
 
-export const formatSummaryTime = (updatedAt?: string): string => {
+const formatCount = (count: number, language: UiLanguage): string =>
+  language === 'ko' ? `${count}건` : String(count);
+
+export const formatSummaryTime = (updatedAt?: string, language: UiLanguage = 'ko'): string => {
+  const isKo = language === 'ko';
   if (!updatedAt) {
-    return '수집 대기';
+    return isKo ? '수집 대기' : 'Pending';
   }
 
   const date = new Date(updatedAt);
   if (Number.isNaN(date.getTime())) {
-    return '수집됨';
+    return isKo ? '수집됨' : 'Collected';
   }
 
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString(isKo ? 'ko-KR' : 'en-US', { hour: '2-digit', minute: '2-digit' });
 };
 
-const getNodePressureLabel = (node: ClusterSummary['nodes']['items'][number]): string => {
+const getNodePressureLabel = (
+  node: ClusterSummary['nodes']['items'][number],
+  language: UiLanguage = 'ko',
+): string => {
   const pressures = [];
   if (node.pressures.disk) {
     pressures.push('Disk');
@@ -58,7 +65,11 @@ const getNodePressureLabel = (node: ClusterSummary['nodes']['items'][number]): s
     pressures.push('PID');
   }
 
-  return pressures.length > 0 ? `${pressures.join('/')} Pressure` : 'Pressure 없음';
+  return pressures.length > 0
+    ? `${pressures.join('/')} Pressure`
+    : language === 'ko'
+      ? 'Pressure 없음'
+      : 'No pressure';
 };
 
 const formatCpuUsage = (value?: string): string | null => {
@@ -219,7 +230,10 @@ const formatMemoryBytes = (bytes: number): string => {
   return `${Math.round(bytes / 1024)} KiB`;
 };
 
-export const getClusterUsageSummary = (summary: ClusterSummary): string => {
+export const getClusterUsageSummary = (
+  summary: ClusterSummary,
+  language: UiLanguage = 'ko',
+): string => {
   const cpuTotal = summary.nodes.items.reduce((total, node) => {
     const cores = cpuCoresFromUsage(node.usage.cpu);
     return cores === null ? total : total + cores;
@@ -237,19 +251,24 @@ export const getClusterUsageSummary = (summary: ClusterSummary): string => {
     return 'Metrics connected, usage pending';
   }
 
-  return `CPU ${cpuTotal > 0 ? formatCpuCores(cpuTotal) : '-'} · 메모리 ${
+  return `CPU ${cpuTotal > 0 ? formatCpuCores(cpuTotal) : '-'} · ${
+    language === 'ko' ? '메모리' : 'Memory'
+  } ${
     memoryTotal > 0 ? formatMemoryBytes(memoryTotal) : '-'
   }`;
 };
 
-export const formatNodeUsage = (node: ClusterSummary['nodes']['items'][number]): string => {
+export const formatNodeUsage = (
+  node: ClusterSummary['nodes']['items'][number],
+  language: UiLanguage = 'ko',
+): string => {
   const cpu = formatCpuUsage(node.usage.cpu);
   const memory = formatMemoryUsage(node.usage.memory);
   if (!cpu && !memory) {
-    return getNodePressureLabel(node);
+    return getNodePressureLabel(node, language);
   }
 
-  return `CPU ${cpu ?? '-'} · 메모리 ${memory ?? '-'}`;
+  return `CPU ${cpu ?? '-'} · ${language === 'ko' ? '메모리' : 'Memory'} ${memory ?? '-'}`;
 };
 
 export const getClusterFaultCount = (summary: ClusterSummary): number =>
@@ -287,12 +306,14 @@ export const getNodeCompactStatus = (
   summary: ClusterSummary | null,
   loading: boolean,
   error: string,
+  language: UiLanguage = 'ko',
 ): CompactStatus => {
+  const isKo = language === 'ko';
   if (summary) {
     const label = `Node ${summary.nodes.ready}/${summary.nodes.total}`;
     if (summary.nodes.notReady > 0) {
       return {
-        label: `${label} 확인 필요`,
+        label: isKo ? `${label} 확인 필요` : `${label} check`,
         title: `${summary.nodes.notReady} node(s) are not ready.`,
         tone: 'danger',
       };
@@ -307,7 +328,7 @@ export const getNodeCompactStatus = (
     }
 
     return {
-      label: `${label} 부분 확인`,
+      label: isKo ? `${label} 부분 확인` : `${label} partial`,
       title: 'Node readiness is partially available.',
       tone: 'warn',
     };
@@ -315,14 +336,14 @@ export const getNodeCompactStatus = (
 
   if (error) {
     return {
-      label: 'Node 확인 필요',
+      label: isKo ? 'Node 확인 필요' : 'Node check',
       title: error,
       tone: 'danger',
     };
   }
 
   return {
-    label: loading ? 'Node 수집 중' : 'Node 대기',
+    label: loading ? (isKo ? 'Node 수집 중' : 'Node loading') : isKo ? 'Node 대기' : 'Node pending',
     title: 'Cluster node summary is not available yet.',
     tone: 'neutral',
   };
@@ -332,12 +353,14 @@ export const getOperatorCompactStatus = (
   summary: ClusterSummary | null,
   loading: boolean,
   error: string,
+  language: UiLanguage = 'ko',
 ): CompactStatus => {
+  const isKo = language === 'ko';
   if (summary) {
     const faultCount = getClusterFaultCount(summary);
     if (faultCount > 0) {
       return {
-        label: `Operator ${faultCount}건 확인`,
+        label: isKo ? `Operator ${formatCount(faultCount, language)} 확인` : `Operator ${faultCount} issues`,
         title: `${faultCount} degraded/unavailable operator issue(s) need attention.`,
         tone: 'danger',
       };
@@ -345,7 +368,9 @@ export const getOperatorCompactStatus = (
 
     if (summary.operators.progressing > 0) {
       return {
-        label: `Operator ${summary.operators.progressing}건 진행`,
+        label: isKo
+          ? `Operator ${formatCount(summary.operators.progressing, language)} 진행`
+          : `Operator ${summary.operators.progressing} progressing`,
         title: `${summary.operators.progressing} operator(s) are progressing.`,
         tone: 'warn',
       };
@@ -353,14 +378,18 @@ export const getOperatorCompactStatus = (
 
     if (summary.operators.total > 0 && summary.operators.available === summary.operators.total) {
       return {
-        label: `Operator ${summary.operators.available}/${summary.operators.total} 정상`,
+        label: isKo
+          ? `Operator ${summary.operators.available}/${summary.operators.total} 정상`
+          : `Operator ${summary.operators.available}/${summary.operators.total} ready`,
         title: `All ${summary.operators.total} ClusterOperators are available.`,
         tone: 'ok',
       };
     }
 
     return {
-      label: `Operator ${summary.operators.available}/${summary.operators.total} 확인`,
+      label: isKo
+        ? `Operator ${summary.operators.available}/${summary.operators.total} 확인`
+        : `Operator ${summary.operators.available}/${summary.operators.total} check`,
       title: 'ClusterOperator summary is partially available.',
       tone: 'warn',
     };
@@ -368,14 +397,20 @@ export const getOperatorCompactStatus = (
 
   if (error) {
     return {
-      label: 'Operator 확인 필요',
+      label: isKo ? 'Operator 확인 필요' : 'Operator check',
       title: error,
       tone: 'danger',
     };
   }
 
   return {
-    label: loading ? 'Operator 수집 중' : 'Operator 대기',
+    label: loading
+      ? isKo
+        ? 'Operator 수집 중'
+        : 'Operator loading'
+      : isKo
+        ? 'Operator 대기'
+        : 'Operator pending',
     title: 'ClusterOperator summary is not available yet.',
     tone: 'neutral',
   };
@@ -411,8 +446,8 @@ export const renderHeaderOpsStatus = (
   error: string,
   language: UiLanguage = 'ko',
 ) => {
-  const nodeStatus = getNodeCompactStatus(summary, loading, error);
-  const operatorStatus = getOperatorCompactStatus(summary, loading, error);
+  const nodeStatus = getNodeCompactStatus(summary, loading, error, language);
+  const operatorStatus = getOperatorCompactStatus(summary, loading, error, language);
   const isKo = language === 'ko';
 
   const headerNodeLabel = summary
@@ -462,12 +497,17 @@ export const renderRailSummaryBadges = (
   summary: ClusterSummary | null,
   loading: boolean,
   error: string,
+  language: UiLanguage = 'ko',
 ) => {
-  const nodeStatus = getNodeCompactStatus(summary, loading, error);
-  const operatorStatus = getOperatorCompactStatus(summary, loading, error);
+  const isKo = language === 'ko';
+  const nodeStatus = getNodeCompactStatus(summary, loading, error, language);
+  const operatorStatus = getOperatorCompactStatus(summary, loading, error, language);
 
   return (
-    <div className="komsco-ai__rail-status-pair" aria-label="클러스터 핵심 상태">
+    <div
+      className="komsco-ai__rail-status-pair"
+      aria-label={isKo ? '클러스터 핵심 상태' : 'Cluster key status'}
+    >
       {renderStatusTag(
         nodeStatus.label,
         nodeStatus.tone,
@@ -525,7 +565,7 @@ export const renderExecutionCapabilityBadges = (
           ? isKo
             ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
             : 'Action Executor is connected and can run approved requests.'
-          : getActionExecutionDisabledReason(status),
+          : getActionExecutionDisabledReason(status, language),
         <CoolTerminalIcon />,
       )}
       {renderStatusTag(
@@ -543,7 +583,7 @@ export const renderExecutionCapabilityBadges = (
             ? isKo
               ? '로컬 실험 모드에서 제한 없는 명령 실행이 허용됩니다.'
               : 'Local experimental mode allows unrestricted command execution.'
-            : getUnrestrictedDisabledReason(status),
+            : getUnrestrictedDisabledReason(status, language),
         <CoolInfoIcon />,
       )}
     </div>
@@ -553,8 +593,10 @@ export const renderExecutionCapabilityBadges = (
 export const renderActionLifecycle = (
   aiopsStatus: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
+  language: UiLanguage = 'ko',
 ) => {
-  const summary = getActionLifecycleSummary(aiopsStatus, executionMode);
+  const isKo = language === 'ko';
+  const summary = getActionLifecycleSummary(aiopsStatus, executionMode, language);
   const actionExecutorState = !aiopsStatus
     ? 'pending'
     : aiopsStatus.spec.capabilities.actionExecutorConfigured
@@ -576,7 +618,7 @@ export const renderActionLifecycle = (
       data-ui-execution-mode={executionMode}
     >
       <div className="komsco-ai__action-lifecycle-steps" aria-label="AIOps action lifecycle">
-        {getActionLifecycleSteps(aiopsStatus).map((step) => (
+        {getActionLifecycleSteps(aiopsStatus, language).map((step) => (
           <div
             className={`komsco-ai__action-lifecycle-step${
               step.count > 0 ? ' komsco-ai__action-lifecycle-step--active' : ''
@@ -599,16 +641,40 @@ export const renderActionLifecycle = (
           {renderStatusTag(summary.value, summary.tone)}
         </div>
         <p className="komsco-ai__action-lifecycle-proof">
-          실행 전 안전장치: 계획 다이제스트, 유효한 승인, 근거 최신성, 권한 검증, 변경 실행 설정을
-          확인합니다. 근거가 오래되었거나 만료되면 실행이 막히고 실패 사유로 표시됩니다 — 이 경우 새
-          계획과 승인을 다시 만들어야 합니다.
+          {isKo
+            ? '실행 전 안전장치: 계획 다이제스트, 유효한 승인, 근거 최신성, 권한 검증, 변경 실행 설정을 확인합니다. 근거가 오래되었거나 만료되면 실행이 막히고 실패 사유로 표시됩니다. 이 경우 새 계획과 승인을 다시 만들어야 합니다.'
+            : 'Before execution, the Copilot checks the plan digest, active approval, evidence freshness, permissions, and mutation settings. If evidence is stale or expired, execution is blocked with a reason and a new plan and approval are required.'}
         </p>
       </div>
     </div>
   );
 };
 
-export const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string) => {
+const PHASE_LABEL_EN: Record<string, string> = {
+  approved: 'Approved',
+  completed: 'Completed',
+  denied: 'Denied',
+  disabled: 'Disabled',
+  executed: 'Executed',
+  expired: 'Expired',
+  failed: 'Failed',
+  mismatch: 'Mismatch',
+  pending: 'Pending',
+  proposed: 'Proposed',
+  rejected: 'Rejected',
+  sealed: 'Approval pending',
+  stale: 'Stale',
+  submitted: 'Submitted',
+  succeeded: 'Succeeded',
+  verified: 'Verified',
+  waiting: 'Waiting',
+};
+
+export const renderRecordRows = (
+  records: AiopsRecordView[],
+  emptyLabel: string,
+  language: UiLanguage = 'ko',
+) => {
   if (records.length === 0) {
     return <div className="komsco-ai__rail-empty">{emptyLabel}</div>;
   }
@@ -619,7 +685,10 @@ export const renderRecordRows = (records: AiopsRecordView[], emptyLabel: string)
       <div className="komsco-ai__rail-command" key={record.metadata?.name ?? phase}>
         <code>{record.metadata?.name ?? record.kind ?? 'record'}</code>
         <p>{getRecordTargetLabel(record)}</p>
-        {renderStatusTag(phaseLabelKo(phase), getPhaseTone(phase))}
+        {renderStatusTag(
+          language === 'ko' ? phaseLabelKo(phase) : PHASE_LABEL_EN[phase] || phase,
+          getPhaseTone(phase),
+        )}
       </div>
     );
   });

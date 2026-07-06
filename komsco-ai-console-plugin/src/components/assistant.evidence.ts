@@ -223,17 +223,18 @@ export const evidenceStepStatusLabel = (
   return status || (isKo ? '대기' : 'Pending');
 };
 
-export const rcaStatusLabel = (status?: string): string => {
+export const rcaStatusLabel = (status?: string, language: UiLanguage = 'ko'): string => {
   const normalized = String(status || '')
     .trim()
     .toLowerCase();
+  const isKo = language === 'ko';
   if (normalized === 'available' || normalized === 'success' || normalized === 'ready') {
-    return '연결됨';
+    return isKo ? '연결됨' : 'Connected';
   }
   if (normalized === 'failed' || normalized === 'error') {
-    return '확인 필요';
+    return isKo ? '확인 필요' : 'Needs check';
   }
-  return status || '대기';
+  return status || (isKo ? '대기' : 'Pending');
 };
 
 export const compactEvidenceTypeSummary = (

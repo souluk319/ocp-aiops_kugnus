@@ -14,6 +14,7 @@ import type {
   AiopsLifecycleStage,
   AiopsRecordAction,
   AiopsRecordView,
+  UiLanguage,
   UiTone,
 } from './assistant.types';
 
@@ -25,30 +26,48 @@ export const canUseActionExecution = (status: AiopsRuntimeStatus | null): boolea
 export const canUseUnrestrictedCommands = (status: AiopsRuntimeStatus | null): boolean =>
   Boolean(status?.spec.capabilities.unrestrictedCommandsEnabled);
 
-export const getActionExecutionDisabledReason = (status: AiopsRuntimeStatus | null): string => {
+export const getActionExecutionDisabledReason = (
+  status: AiopsRuntimeStatus | null,
+  language: UiLanguage = 'ko',
+): string => {
+  const isKo = language === 'ko';
   if (!status) {
-    return 'AIOps 실행 상태를 아직 불러오지 못했습니다.';
+    return isKo
+      ? 'AIOps 실행 상태를 아직 불러오지 못했습니다.'
+      : 'AIOps execution status has not loaded yet.';
   }
 
   const reasons = [];
   if (!status.spec.capabilities.mutationsEnabled) {
-    reasons.push('변경 실행 기능이 비활성화되어 있습니다');
+    reasons.push(isKo ? '변경 실행 기능이 비활성화되어 있습니다' : 'Mutation execution is disabled');
   }
   if (!status.spec.capabilities.actionExecutorConfigured) {
-    reasons.push('Action Executor 연결 정보가 설정되지 않았습니다');
+    reasons.push(
+      isKo
+        ? 'Action Executor 연결 정보가 설정되지 않았습니다'
+        : 'Action Executor connection is not configured',
+    );
   }
 
   return reasons.join('; ');
 };
 
-export const getUnrestrictedDisabledReason = (status: AiopsRuntimeStatus | null): string => {
+export const getUnrestrictedDisabledReason = (
+  status: AiopsRuntimeStatus | null,
+  language: UiLanguage = 'ko',
+): string => {
+  const isKo = language === 'ko';
   if (!status) {
-    return 'AIOps 실행 상태를 아직 불러오지 못했습니다.';
+    return isKo
+      ? 'AIOps 실행 상태를 아직 불러오지 못했습니다.'
+      : 'AIOps execution status has not loaded yet.';
   }
 
   return status.spec.capabilities.unrestrictedCommandsEnabled
     ? ''
-    : 'Gateway가 실행 무제한 capability를 허용하지 않았습니다';
+    : isKo
+      ? 'Gateway가 실행 무제한 capability를 허용하지 않았습니다'
+      : 'Gateway does not allow unrestricted command capability';
 };
 
 export const executionModeAllowsActions = (mode: AiopsExecutionMode): boolean =>
@@ -120,43 +139,51 @@ export const getAiopsRecordAction = (
   return null;
 };
 
-export const getExecutionModeShortLabel = (mode: AiopsExecutionMode): string => {
+export const getExecutionModeShortLabel = (
+  mode: AiopsExecutionMode,
+  language: UiLanguage = 'ko',
+): string => {
+  const isKo = language === 'ko';
   if (mode === 'unrestricted') {
-    return '무제한';
+    return isKo ? '무제한' : 'Unrestricted';
   }
   if (mode === 'execute') {
-    return '실행';
+    return isKo ? '실행' : 'Execute';
   }
-  return '읽기';
+  return isKo ? '읽기' : 'Read only';
 };
 
-export const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
+export const getActionLifecycleSteps = (
+  status: AiopsRuntimeStatus | null,
+  language: UiLanguage = 'ko',
+) => {
   const records = status?.spec.records;
+  const isKo = language === 'ko';
 
   return [
     {
       count: records?.actionProposals.length ?? 0,
-      detail: '조치 후보 접수',
+      detail: isKo ? '조치 후보 접수' : 'Action candidates',
       key: 'proposal',
-      label: '제안',
+      label: isKo ? '제안' : 'Candidate',
     },
     {
       count: records?.sealedActionPlans.length ?? 0,
-      detail: '승인 필요 조치 계획',
+      detail: isKo ? '승인 필요 조치 계획' : 'Approval-required plans',
       key: 'plan',
-      label: '계획',
+      label: isKo ? '계획' : 'Plan',
     },
     {
       count: records?.approvalDecisions.length ?? 0,
-      detail: '승인 결정',
+      detail: isKo ? '승인 결정' : 'Approval decisions',
       key: 'approval',
-      label: '승인',
+      label: isKo ? '승인' : 'Approval',
     },
     {
       count: records?.executionRecords.length ?? 0,
-      detail: '실행 기록',
+      detail: isKo ? '실행 기록' : 'Execution records',
       key: 'execution',
-      label: '실행',
+      label: isKo ? '실행' : 'Execution',
     },
   ] as Array<{
     count: number;
@@ -169,13 +196,17 @@ export const getActionLifecycleSteps = (status: AiopsRuntimeStatus | null) => {
 export const getActionLifecycleSummary = (
   status: AiopsRuntimeStatus | null,
   executionMode: AiopsExecutionMode,
+  language: UiLanguage = 'ko',
 ) => {
+  const isKo = language === 'ko';
   if (!status) {
     return {
-      label: '실행 상태',
-      text: 'AIOps 실행 상태를 불러오는 중입니다. 상태가 확인될 때까지 실행이 비활성화됩니다.',
+      label: isKo ? '실행 상태' : 'Execution status',
+      text: isKo
+        ? 'AIOps 실행 상태를 불러오는 중입니다. 상태가 확인될 때까지 실행이 비활성화됩니다.'
+        : 'AIOps execution status is loading. Execution stays disabled until the status is available.',
       tone: 'neutral' as UiTone,
-      value: '대기 중',
+      value: isKo ? '대기 중' : 'Pending',
     };
   }
 
@@ -184,28 +215,40 @@ export const getActionLifecycleSummary = (
   const actionsAllowed = canUseActionExecution(status) && executionModeAllowsActions(executionMode);
   const blockers: string[] = [];
   if (!actionExecutorConfigured) {
-    blockers.push('Action Executor가 설정되지 않았습니다');
+    blockers.push(
+      isKo ? 'Action Executor가 설정되지 않았습니다' : 'Action Executor is not configured',
+    );
   }
   if (!mutationsEnabled) {
-    blockers.push('변경 실행이 비활성화되어 있어 승인된 조치도 실제로 적용되지 않습니다');
+    blockers.push(
+      isKo
+        ? '변경 실행이 비활성화되어 있어 승인된 조치도 실제로 적용되지 않습니다'
+        : 'Mutation execution is disabled, so approved actions are not applied',
+    );
   }
   if (!executionModeAllowsActions(executionMode)) {
-    blockers.push('현재 모드에서는 제안·승인·실행이 제한됩니다');
+    blockers.push(
+      isKo
+        ? '현재 모드에서는 제안·승인·실행이 제한됩니다'
+        : 'The current mode limits proposal, approval, and execution requests',
+    );
   }
 
   if (blockers.length === 0 && actionsAllowed) {
     return {
-      label: '현재 상태',
-      text: '서버 측 검증을 통과하면 계획·승인·실행 요청을 보낼 수 있습니다.',
+      label: isKo ? '현재 상태' : 'Current state',
+      text: isKo
+        ? '서버 측 검증을 통과하면 계획·승인·실행 요청을 보낼 수 있습니다.'
+        : 'Plan, approval, and execution requests are available after server-side validation.',
       tone: 'review' as UiTone,
-      value: getExecutionModeShortLabel(executionMode),
+      value: getExecutionModeShortLabel(executionMode, language),
     };
   }
 
   return {
-    label: '제한 사유',
+    label: isKo ? '제한 사유' : 'Blocking reason',
     text: blockers.join('; '),
     tone: 'warn' as UiTone,
-    value: '설정 필요',
+    value: isKo ? '설정 필요' : 'Setup required',
   };
 };

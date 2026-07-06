@@ -7,6 +7,7 @@ import type {
   ConversationActionRef,
   ExecutionOutcomeSummary,
   PlanSummary,
+  UiLanguage,
 } from './assistant.types';
 
 export const getRecordSpecMap = (record: AiopsRecordView): Record<string, unknown> =>
@@ -309,6 +310,29 @@ const PHASE_LABEL_KO: Record<string, string> = {
 
 export const phaseLabelKo = (phase: string): string => PHASE_LABEL_KO[phase] || phase;
 
+const PHASE_LABEL_EN: Record<string, string> = {
+  approved: 'Approved',
+  completed: 'Completed',
+  denied: 'Denied',
+  disabled: 'Disabled',
+  executed: 'Executed',
+  expired: 'Expired',
+  failed: 'Failed',
+  mismatch: 'Mismatch',
+  pending: 'Pending',
+  proposed: 'Proposed',
+  rejected: 'Rejected',
+  sealed: 'Approval pending',
+  stale: 'Stale',
+  submitted: 'Submitted',
+  succeeded: 'Succeeded',
+  verified: 'Verified',
+  waiting: 'Waiting',
+};
+
+export const phaseLabel = (phase: string, language: UiLanguage = 'ko'): string =>
+  language === 'ko' ? phaseLabelKo(phase) : PHASE_LABEL_EN[phase] || phase;
+
 export const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleStage => {
   const spec = getRecordSpecMap(record);
   const kind = record.kind ?? '';
@@ -327,21 +351,23 @@ export const getActionRecordStage = (record: AiopsRecordView): AiopsLifecycleSta
 export const getActionRecordStageLabel = (
   record: AiopsRecordView,
   executionMode?: AiopsExecutionMode,
+  language: UiLanguage = 'ko',
 ): string => {
+  const isKo = language === 'ko';
   const stage = getActionRecordStage(record);
   if (stage === 'execution') {
-    return '4단계 · 실행 완료';
+    return isKo ? '4단계 · 실행 완료' : 'Step 4 · Executed';
   }
   if (stage === 'approval') {
-    return '3단계 · 실행 대기';
+    return isKo ? '3단계 · 실행 대기' : 'Step 3 · Waiting to execute';
   }
   if (stage === 'plan') {
     if (executionMode === 'unrestricted') {
-      return '2단계 · 실행 가능';
+      return isKo ? '2단계 · 실행 가능' : 'Step 2 · Ready to execute';
     }
-    return '2단계 · 승인 필요';
+    return isKo ? '2단계 · 승인 필요' : 'Step 2 · Approval required';
   }
-  return '1단계 · 후보 접수';
+  return isKo ? '1단계 · 후보 접수' : 'Step 1 · Candidate received';
 };
 
 export const actionAnchorForMessageIndex = (messageIndex: number): string =>
@@ -378,30 +404,40 @@ export const conversationActionRefFromRecord = (
 export const getActionRecordProof = (
   record: AiopsRecordView,
   executionMode?: AiopsExecutionMode,
+  language: UiLanguage = 'ko',
 ): string => {
+  const isKo = language === 'ko';
   const spec = getRecordSpecMap(record);
   const planDigest = getPlanDigest(record);
   const approvalPlanDigest = getApprovalPlanDigest(record);
 
   if (planDigest) {
     if (executionMode === 'unrestricted') {
-      return '조치 계획이 만들어졌습니다. 실행하면 자동 승인 후 클러스터에 적용됩니다.';
+      return isKo
+        ? '조치 계획이 만들어졌습니다. 실행하면 자동 승인 후 클러스터에 적용됩니다.'
+        : 'The action plan is ready. Execution will auto-approve and apply it to the cluster.';
     }
-    return '조치 계획이 만들어졌습니다. 승인하면 실행할 수 있습니다.';
+    return isKo
+      ? '조치 계획이 만들어졌습니다. 승인하면 실행할 수 있습니다.'
+      : 'The action plan is ready. It can run after approval.';
   }
   if (approvalPlanDigest) {
     const decision = getApprovalDecision(record);
     const status = String(decision?.status ?? 'unknown');
     if (status === 'rejected') {
-      return '이 조치는 거절되었습니다.';
+      return isKo ? '이 조치는 거절되었습니다.' : 'This action was rejected.';
     }
     if (status === 'approved') {
-      return '승인이 완료됐습니다. 실행 버튼을 누르면 클러스터에 적용됩니다.';
+      return isKo
+        ? '승인이 완료됐습니다. 실행 버튼을 누르면 클러스터에 적용됩니다.'
+        : 'Approval is complete. Use Execute to apply it to the cluster.';
     }
-    return `승인 상태: ${status}`;
+    return isKo ? `승인 상태: ${status}` : `Approval status: ${status}`;
   }
   if (typeof spec.approvalId === 'string') {
-    return '조치가 실행 처리되었습니다.';
+    return isKo ? '조치가 실행 처리되었습니다.' : 'The action was processed for execution.';
   }
-  return '조치 후보가 접수됐습니다. 계획을 만들면 다음 단계로 진행됩니다.';
+  return isKo
+    ? '조치 후보가 접수됐습니다. 계획을 만들면 다음 단계로 진행됩니다.'
+    : 'The action candidate was received. Create a plan to move to the next step.';
 };

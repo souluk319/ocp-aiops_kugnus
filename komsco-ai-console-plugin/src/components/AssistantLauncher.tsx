@@ -1203,7 +1203,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const panelDragFrameRef = React.useRef<number | undefined>();
   const panelDragNextOffsetRef = React.useRef<{ x: number; y: number } | null>(null);
   const actionExecutionAvailable = canUseActionExecution(aiopsStatus);
-  const actionExecutionDisabledReason = getActionExecutionDisabledReason(aiopsStatus);
+  const actionExecutionDisabledReason = getActionExecutionDisabledReason(aiopsStatus, uiLanguage);
   const assistantConnection = getAssistantConnectionState(
     clusterSummary,
     clusterSummaryLoading,
@@ -3568,6 +3568,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     busyActionId={aiopsActionBusyId}
                                     executionMode={executionMode}
                                     fallbackRefs={answerActionRefs}
+                                    language={uiLanguage}
                                     onAction={handleAiopsAction}
                                     records={answerActionRecords}
                                     resolveAction={getAiopsRecordAction}

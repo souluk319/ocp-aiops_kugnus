@@ -6,7 +6,7 @@ import type { ConversationHistoryItem, Message, UiLanguage, UiTone } from './ass
 
 const messageTime = (timestamp: number | undefined, language: UiLanguage): string => {
   if (!timestamp) {
-    return '시간 대기';
+    return language === 'ko' ? '시간 대기' : 'Time pending';
   }
 
   return new Date(timestamp).toLocaleTimeString(languageLocale(language), {
@@ -31,6 +31,12 @@ const StatusTag: React.FC<{
   <span className={`komsco-ai__scope-tag komsco-ai__scope-tag--${tone}`}>{label}</span>
 );
 
+const text = (language: UiLanguage, ko: string, en: string): string =>
+  language === 'ko' ? ko : en;
+
+const countText = (count: number, language: UiLanguage): string =>
+  language === 'ko' ? `${count}건` : String(count);
+
 type AssistantConversationRailProps = {
   conversationHistory: ConversationHistoryItem[];
   language: UiLanguage;
@@ -51,35 +57,51 @@ const AssistantConversationRail: React.FC<AssistantConversationRailProps> = ({
     <>
       <div className="komsco-ai__rail-section">
         <div className="komsco-ai__rail-section-head">
-          <strong>대화 요약</strong>
-          <span>{visibleMessages.length}건</span>
+          <strong>{text(language, '대화 요약', 'Conversation summary')}</strong>
+          <span>{countText(visibleMessages.length, language)}</span>
         </div>
         {latestUser || latestAssistant ? (
           <>
             <div className="komsco-ai__rail-command">
-              <code>최근 질문 · {messageTime(latestUser?.timestamp, language)}</code>
-              <p>{latestUser ? messagePreview(latestUser.content) : '아직 질문이 없습니다.'}</p>
+              <code>
+                {text(language, '최근 질문', 'Latest question')} ·{' '}
+                {messageTime(latestUser?.timestamp, language)}
+              </code>
+              <p>
+                {latestUser
+                  ? messagePreview(latestUser.content)
+                  : text(language, '아직 질문이 없습니다.', 'No question yet.')}
+              </p>
             </div>
             <div className="komsco-ai__rail-command">
-              <code>최근 답변 · {messageTime(latestAssistant?.timestamp, language)}</code>
+              <code>
+                {text(language, '최근 답변', 'Latest answer')} ·{' '}
+                {messageTime(latestAssistant?.timestamp, language)}
+              </code>
               <p>
                 {latestAssistant
                   ? messagePreview(latestAssistant.content)
-                  : '아직 답변이 없습니다.'}
+                  : text(language, '아직 답변이 없습니다.', 'No answer yet.')}
               </p>
             </div>
           </>
         ) : (
           <div className="komsco-ai__rail-empty">
-            질문을 보내면 요약과 답변 흐름이 여기에 남습니다.
+            {text(
+              language,
+              '질문을 보내면 요약과 답변 흐름이 여기에 남습니다.',
+              'After you send a question, the summary and answer flow appear here.',
+            )}
           </div>
         )}
       </div>
 
       <div className="komsco-ai__rail-section">
         <div className="komsco-ai__rail-section-head">
-          <strong>질문·답변 타임라인</strong>
-          <span>최신 {timeline.length}건</span>
+          <strong>{text(language, '질문·답변 타임라인', 'Question-answer timeline')}</strong>
+          <span>
+            {text(language, `최신 ${timeline.length}건`, `Latest ${timeline.length}`)}
+          </span>
         </div>
         {timeline.length > 0 ? (
           timeline.map((message, index) => (
@@ -90,23 +112,35 @@ const AssistantConversationRail: React.FC<AssistantConversationRailProps> = ({
             >
               <div className="komsco-ai__rail-command-head">
                 <div className="komsco-ai__rail-command-title">
-                  <span>{message.role === 'user' ? '사용자' : 'AIOps'}</span>
+                  <span>{message.role === 'user' ? text(language, '사용자', 'User') : 'AIOps'}</span>
                   <code>{messageTime(message.timestamp, language)}</code>
                 </div>
-                <StatusTag label={message.role === 'user' ? '질문' : '답변'} />
+                <StatusTag
+                  label={
+                    message.role === 'user'
+                      ? text(language, '질문', 'Question')
+                      : text(language, '답변', 'Answer')
+                  }
+                />
               </div>
               <p>{messagePreview(message.content)}</p>
             </div>
           ))
         ) : (
-          <div className="komsco-ai__rail-empty">아직 질문·답변 타임라인이 없습니다.</div>
+          <div className="komsco-ai__rail-empty">
+            {text(
+              language,
+              '아직 질문·답변 타임라인이 없습니다.',
+              'No question-answer timeline yet.',
+            )}
+          </div>
         )}
       </div>
 
       <div className="komsco-ai__rail-section">
         <div className="komsco-ai__rail-section-head">
-          <strong>저장된 리포트</strong>
-          <span>{conversationHistory.length}건</span>
+          <strong>{text(language, '저장된 리포트', 'Saved reports')}</strong>
+          <span>{countText(conversationHistory.length, language)}</span>
         </div>
         {conversationHistory.length > 0 ? (
           conversationHistory.slice(0, 3).map((item) => (
@@ -117,7 +151,11 @@ const AssistantConversationRail: React.FC<AssistantConversationRailProps> = ({
           ))
         ) : (
           <div className="komsco-ai__rail-empty">
-            저장된 분석 대화가 있으면 이곳에서 다시 확인합니다.
+            {text(
+              language,
+              '저장된 분석 대화가 있으면 이곳에서 다시 확인합니다.',
+              'Saved analysis conversations appear here.',
+            )}
           </div>
         )}
       </div>
