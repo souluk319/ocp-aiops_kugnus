@@ -3,6 +3,7 @@ import { AssistantRailActionRecords } from './AssistantActionRecords';
 import AssistantConversationRail from './AssistantConversationRail';
 import { getAiopsRecordAction } from './assistant.actionState';
 import { rcaRailEvidenceCounts, rcaStatusLabel } from './assistant.evidence';
+import { CoolCopyIcon } from './coolicons';
 import {
   formatNodeUsage,
   formatSummaryTime,
@@ -75,7 +76,39 @@ const feedbackRatingLabel = (rating: string, language: UiLanguage): string => {
   return text(language, '평가 대기', 'Pending');
 };
 
-const renderFeedbackRail = (records: FeedbackRecord[], language: UiLanguage) => {
+const copyText = async (value: string): Promise<boolean> => {
+  if (!value) {
+    return false;
+  }
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall back to execCommand for restricted local console/browser contexts.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.inset = '-9999px auto auto -9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    return document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textarea);
+  }
+};
+
+const FeedbackRail: React.FC<{ language: UiLanguage; records: FeedbackRecord[] }> = ({
+  language,
+  records,
+}) => {
+  const [copied, setCopied] = React.useState(false);
   const sortedRecords = [...records].sort((a, b) => feedbackCreatedAt(b) - feedbackCreatedAt(a));
   const latest = sortedRecords[0];
   const goodCount = records.filter((record) => feedbackSpecText(record, 'rating') === 'up').length;
@@ -84,12 +117,51 @@ const renderFeedbackRail = (records: FeedbackRecord[], language: UiLanguage) => 
   ).length;
   const latestComment = feedbackSpecText(latest, 'optionalComment');
   const latestRating = feedbackSpecText(latest, 'rating');
+  const copyLabel = copied
+    ? text(language, '피드백 JSON 복사됨', 'Feedback JSON copied')
+    : text(language, '피드백 JSON 복사', 'Copy feedback JSON');
+  const feedbackPayload = JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      summary: {
+        total: records.length,
+        good: goodCount,
+        needsWork: needsWorkCount,
+      },
+      latest: latest ?? null,
+      records: sortedRecords,
+    },
+    null,
+    2,
+  );
+  const copyFeedback = () => {
+    void copyText(feedbackPayload).then((ok) => {
+      if (!ok) {
+        return;
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    });
+  };
 
   return (
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
         <strong>{text(language, '답변 피드백', 'Answer feedback')}</strong>
-        <span>{countText(records.length, language)}</span>
+        <div className="komsco-ai__rail-feedback-actions">
+          <span>{countText(records.length, language)}</span>
+          <button
+            aria-label={copyLabel}
+            className="komsco-ai__rail-feedback-copy"
+            data-copied={copied ? 'true' : undefined}
+            disabled={records.length === 0}
+            onClick={copyFeedback}
+            title={copyLabel}
+            type="button"
+          >
+            <CoolCopyIcon />
+          </button>
+        </div>
       </div>
       <div className="komsco-ai__scope-list">
         {renderStatusTag(text(language, `좋음 ${goodCount}`, `Good ${goodCount}`), 'ok')}
@@ -527,7 +599,7 @@ const AssistantInsightRail: React.FC<AssistantInsightRailProps> = ({
       </div>
     </div>
 
-    {renderFeedbackRail(aiopsStatus?.spec.records.chatFeedback ?? [], language)}
+    <FeedbackRail language={language} records={aiopsStatus?.spec.records.chatFeedback ?? []} />
 
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">

@@ -2906,6 +2906,53 @@
   color: #637286;
 }
 
+.komsco-ai__rail-feedback-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.komsco-ai__rail-section-head .komsco-ai__rail-feedback-actions span {
+  max-width: none;
+  white-space: nowrap;
+}
+
+.komsco-ai__rail-feedback-copy {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #536276;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid #d7e0eb;
+  border-radius: 6px;
+  place-items: center;
+}
+
+.komsco-ai__rail-feedback-copy:hover,
+.komsco-ai__rail-feedback-copy[data-copied='true'] {
+  color: #1d4ed8;
+  background: #f6f9ff;
+  border-color: #b7c9e7;
+}
+
+.komsco-ai__rail-feedback-copy:disabled {
+  color: #a9b5c5;
+  cursor: default;
+  background: transparent;
+}
+
+.komsco-ai__rail-feedback-copy svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+}
+
 .komsco-ai__health-score {
   margin-block-start: 6px;
   font-size: 30px;

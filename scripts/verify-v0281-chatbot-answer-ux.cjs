@@ -197,8 +197,12 @@ const sourceReview = () => {
       insightRail.includes("'Answer feedback'") &&
       insightRail.includes("'최근 의견'") &&
       insightRail.includes("'Latest note'") &&
-      insightRail.includes('chatFeedback'),
-    'insight rail must expose collected answer feedback for tester review',
+      insightRail.includes("'피드백 JSON 복사'") &&
+      insightRail.includes("'Copy feedback JSON'") &&
+      insightRail.includes('komsco-ai__rail-feedback-copy') &&
+      insightRail.includes('chatFeedback') &&
+      css.includes('.komsco-ai__rail-feedback-copy'),
+    'insight rail must expose and copy collected answer feedback for tester review',
   );
   assert(
     launcher.includes('.then(() => refreshAiopsRuntimeStatus())'),
@@ -1892,6 +1896,39 @@ const verifyConsoleAssistant = async () => {
     'insight rail answer feedback summary with latest tester comment',
     30000,
   );
+  const feedbackCopy = await evaluate(`(async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (value) => {
+          window.__copiedFeedbackJson = value;
+        }
+      }
+    });
+    const button = document.querySelector('.komsco-ai__rail-feedback-copy');
+    button?.click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const copied = window.__copiedFeedbackJson || '';
+    let parsed = null;
+    try {
+      parsed = JSON.parse(copied);
+    } catch {
+      parsed = null;
+    }
+    return {
+      buttonLabel: button?.getAttribute('aria-label') || '',
+      copied,
+      ok: Boolean(parsed) &&
+        parsed.summary?.total >= 1 &&
+        parsed.summary?.needsWork >= 1 &&
+        copied.includes(${JSON.stringify(feedbackComment)})
+    };
+  })()`);
+  assert(
+    feedbackCopy.ok,
+    'feedback rail copy button must copy reviewable JSON with latest tester comment',
+    feedbackCopy,
+  );
 
   const headerMetrics = await evaluate(`(() => {
     const header = document.querySelector('.komsco-ai__header');
@@ -2360,6 +2397,7 @@ const verifyConsoleAssistant = async () => {
   const liveEnglishProgressLabels = await verifyLiveEnglishProgressLabels();
 
   return {
+    feedbackCopy,
     feedbackGateway,
     feedbackRail,
     feedbackStored,
