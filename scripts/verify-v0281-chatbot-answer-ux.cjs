@@ -218,6 +218,75 @@ const fetchJson = async (url) => {
   return res.json();
 };
 
+const fetchTextStatus = async (url) => {
+  const res = await fetch(url);
+  const text = await res.text();
+  return {
+    contentType: res.headers.get('content-type') || '',
+    ok: res.ok,
+    status: res.status,
+    text,
+    url,
+  };
+};
+
+const isJavaScriptResponse = (result) =>
+  result.ok &&
+  /(?:application|text)\/javascript|application\/x-javascript/i.test(result.contentType);
+
+const verifyConsolePluginChunkProxy = async () => {
+  const base = new URL('/api/plugins/cywell-aiops-console-plugin/', consoleUrl).toString();
+  const entry = await fetchTextStatus(new URL('plugin-entry.js', base).toString());
+  assert(
+    isJavaScriptResponse(entry) && entry.text.includes('useAssistantOverlay'),
+    'local OKD console must serve the AIOps plugin entry through the 9000 proxy',
+    {
+      contentType: entry.contentType,
+      hint: 'Check that the console plugin webpack dev server is listening on 9001.',
+      status: entry.status,
+      url: entry.url,
+    },
+  );
+
+  const referencedChunks = new Set(
+    [...entry.text.matchAll(/__webpack_require__\.e\("([^"]+)"\)/g)]
+      .map((match) => match[1])
+      .filter(Boolean),
+  );
+  const criticalChunks = [
+    'exposed-NullContextProvider',
+    'exposed-useAssistantOverlay',
+    'components_AssistantLauncher_tsx',
+    [...referencedChunks].find((name) =>
+      name.startsWith('vendors-node_modules_patternfly_react-core'),
+    ),
+  ].filter((name) => name && referencedChunks.has(name));
+
+  const checks = [];
+  for (const chunk of criticalChunks) {
+    const result = await fetchTextStatus(new URL(`${chunk}-chunk.js`, base).toString());
+    checks.push({
+      chunk,
+      contentType: result.contentType,
+      ok: isJavaScriptResponse(result),
+      status: result.status,
+      url: result.url,
+    });
+  }
+
+  assert(
+    checks.length >= 3 && checks.every((item) => item.ok),
+    'local OKD console plugin chunks must be reachable through the 9000 proxy before browser acceptance',
+    {
+      checks,
+      hint:
+        'If chunks are 404 or text/html, restart the 9001 plugin webpack dev server after running the production plugin build.',
+    },
+  );
+
+  return checks;
+};
+
 const waitForJson = async (url, timeoutMs = 30000) => {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -2000,6 +2069,7 @@ const main = async () => {
   sourceReview();
   const modeContracts = await verifyModeAnswerContracts();
   const testPodContracts = await verifyTestPodCreateContracts();
+  const consolePluginChunks = await verifyConsolePluginChunkProxy();
   const chromeVersion = await setupBrowser();
   const consoleResult = await verifyConsoleAssistant();
   const portalResult = await verifyStandalonePortal();
@@ -2009,6 +2079,7 @@ const main = async () => {
 
   const output = {
     chrome: chromeVersion,
+    consolePluginChunks,
     consoleResult,
     modeContracts,
     passed: true,
