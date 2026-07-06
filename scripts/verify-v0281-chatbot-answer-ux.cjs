@@ -1105,6 +1105,68 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
             .trim()
         )
         .filter(Boolean);
+      const railChromeLabels = Array.from(
+        document.querySelectorAll(
+          [
+            '.komsco-ai__rail-title',
+            '.komsco-ai__connection-main',
+            '.komsco-ai__connection-metrics',
+            '.komsco-ai__health-head',
+            '.komsco-ai__rail-status-pair',
+            '.komsco-ai__rail-section-head',
+            '.komsco-ai__rail-empty',
+            '.komsco-ai__scope-list--secondary',
+            '.komsco-ai__scope-list--execution',
+            '.komsco-ai__action-lifecycle-steps',
+            '.komsco-ai__action-lifecycle-summary',
+            '.komsco-ai__rail-command-head',
+            '.komsco-ai__rail-action-proof',
+            '.komsco-ai__plan-summary',
+            '.komsco-ai__rail-action-row',
+            '.komsco-ai__rail-command-detail > summary'
+          ].join(', ')
+        ) || []
+      )
+        .map((el) => {
+          const style = window.getComputedStyle(el);
+          const visible = style.display !== 'none' && style.visibility !== 'hidden';
+          if (!visible) return '';
+          return [
+            el.textContent || '',
+            el.getAttribute('aria-label') || '',
+            el.getAttribute('title') || '',
+          ]
+            .join(' ')
+            .replace(/\\s+/g, ' ')
+            .trim();
+        })
+        .filter(Boolean);
+      const railChromeText = railChromeLabels.join(' ');
+      const expectedEnglishRailLabels = [
+        'Current cluster context',
+        'Cluster health',
+        'Conversation summary',
+        'Question-answer timeline',
+        'Saved reports',
+        'Node status',
+        'Cluster status',
+        'Operator issues',
+        'AIOps execution status',
+        'Answer evidence',
+        'Recent diagnostics',
+        'Approval and execution',
+        'Read only',
+        'Execute',
+        'Unrestricted',
+        'Candidate',
+        'Plan',
+        'Approval',
+        'Execution',
+        'Details (JSON)'
+      ];
+      const missingEnglishRailLabels = expectedEnglishRailLabels.filter(
+        (expected) => !railChromeText.includes(expected)
+      );
       const actionPlanButtons = Array.from(
         document.querySelectorAll('.komsco-ai__create-action-plan-button')
       ).map((el) => el.textContent.trim());
@@ -1170,6 +1232,13 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         codeActionLabelsHaveKorean: codeActionLabels.some((label) => /[가-힣]/.test(label)),
         detailChromeLabels,
         detailChromeLabelsHaveKorean: detailChromeLabels.some((label) => /[가-힣]/.test(label)),
+        railChromeLabels,
+        railChromeHasKorean: railChromeLabels.some((label) => /[가-힣]/.test(label)),
+        railChromeMissingEnglishLabels: missingEnglishRailLabels,
+        railChromeUsesEnglish:
+          railChromeLabels.length > 0 &&
+          !railChromeLabels.some((label) => /[가-힣]/.test(label)) &&
+          missingEnglishRailLabels.length === 0,
         sectionHeaders,
         source,
         sourceHasKorean:
@@ -1453,8 +1522,11 @@ const verifyLiveEnglishProgressLabels = async () => {
       namespace.codeActionLabels.length > 0 &&
       !namespace.codeActionLabelsHaveKorean &&
       namespace.detailChromeLabels.length > 0 &&
-      !namespace.detailChromeLabelsHaveKorean,
-    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, code action labels, and footer details',
+      !namespace.detailChromeLabelsHaveKorean &&
+      namespace.railChromeUsesEnglish &&
+      !namespace.railChromeHasKorean &&
+      namespace.railChromeMissingEnglishLabels.length === 0,
+    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, code action labels, footer details, and insight rail chrome',
     metrics,
   );
 
