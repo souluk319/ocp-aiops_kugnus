@@ -845,7 +845,6 @@ const messageActionLabels = (language: UiLanguage) =>
         copied: 'Copied',
         dislike: 'Bad response',
         edit: 'Edit and resend',
-        feedbackCommentPlaceholder: 'Add a short note for the test log',
         feedbackCommentSaved: 'Saved',
         feedbackCommentSubmit: 'Save',
         like: 'Good response',
@@ -855,11 +854,19 @@ const messageActionLabels = (language: UiLanguage) =>
         copied: '복사됨',
         dislike: '좋지 않은 답변',
         edit: '수정해서 다시 보내기',
-        feedbackCommentPlaceholder: '테스트 기록에 남길 의견을 짧게 입력',
         feedbackCommentSaved: '저장됨',
         feedbackCommentSubmit: '저장',
         like: '좋은 답변',
       };
+
+const feedbackCommentPlaceholder = (language: UiLanguage, feedback: MessageFeedbackChoice): string =>
+  language === 'en'
+    ? feedback === 'down'
+      ? 'Note what was wrong or confusing'
+      : 'Note what should stay this good'
+    : feedback === 'down'
+      ? '틀렸거나 불편한 점을 짧게 입력'
+      : '유지할 만한 좋은 점을 짧게 입력';
 
 const readStoredMessageFeedback = (): ChatFeedbackPayload[] => {
   if (typeof window === 'undefined') {
@@ -1019,7 +1026,7 @@ const MessageFeedbackComment: React.FC<{
         <input
           maxLength={1000}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder={labels.feedbackCommentPlaceholder}
+          placeholder={feedbackCommentPlaceholder(language, feedback)}
           value={draft}
         />
       </label>
@@ -3612,6 +3619,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 <MessageFeedbackComment
                                   comment={message.feedbackComment}
                                   feedback={message.feedback}
+                                  key={`${index}-${message.feedback}`}
                                   language={uiLanguage}
                                   onSubmit={(comment) => submitMessageFeedbackComment(index, comment)}
                                 />

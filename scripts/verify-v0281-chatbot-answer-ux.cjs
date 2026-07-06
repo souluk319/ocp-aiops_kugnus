@@ -188,9 +188,11 @@ const sourceReview = () => {
   assert(
     launcher.includes('komsco-ai__feedback-comment') &&
       launcher.includes('feedbackCommentPlaceholder') &&
+      launcher.includes('Note what was wrong or confusing') &&
+      launcher.includes('Note what should stay this good') &&
       launcher.includes('submitMessageFeedbackComment') &&
       launcher.includes('optionalComment'),
-    'assistant feedback must support an inline tester comment, not only a local icon state',
+    'assistant feedback must support direction-specific tester comments, not only a local icon state',
   );
   assert(
     insightRail.includes("'답변 피드백'") &&
@@ -1813,7 +1815,7 @@ const verifyConsoleAssistant = async () => {
   assert(
     englishFeedbackClickMetrics.pressed === 'true' &&
       englishFeedbackClickMetrics.formTextBeforeSubmit.includes('What should be improved?') &&
-      englishFeedbackClickMetrics.inputPlaceholder === 'Add a short note for the test log' &&
+      englishFeedbackClickMetrics.inputPlaceholder === 'Note what was wrong or confusing' &&
       englishFeedbackClickMetrics.inputValue === '',
     'English thumbs-down feedback must open a localized tester comment rail',
     englishFeedbackClickMetrics,
@@ -1885,7 +1887,7 @@ const verifyConsoleAssistant = async () => {
     `(() => {
       const feedbackKey = 'komsco-ai.assistant.message-feedback.v1';
       const records = JSON.parse(localStorage.getItem(feedbackKey) || '[]');
-      const latest = records[records.length - 1] || {};
+      const latest = records[0] || {};
       return {
         latest,
         ok: latest.rating === 'down' &&
@@ -1970,6 +1972,86 @@ const verifyConsoleAssistant = async () => {
     feedbackCopy.ok,
     'feedback rail copy button must copy reviewable JSON with latest tester comment and no subject identity block',
     feedbackCopy,
+  );
+
+  const positiveFeedbackComment = '검증 스크립트: 이 답변 구조는 유지';
+  const positiveFeedbackClickMetrics = await evaluate(`(() => {
+    const up = document.querySelector('.komsco-ai__message--assistant [aria-label="좋은 답변"]');
+    up?.click();
+    const form = document.querySelector('.komsco-ai__feedback-comment');
+    const input = form?.querySelector('input');
+    return {
+      formTextBeforeSubmit: form?.textContent.trim() || '',
+      inputPlaceholder: input?.getAttribute('placeholder') || '',
+      inputValue: input?.value || '',
+      pressed: up?.getAttribute('aria-pressed') || ''
+    };
+  })()`);
+  assert(
+    positiveFeedbackClickMetrics.pressed === 'true' &&
+      positiveFeedbackClickMetrics.formTextBeforeSubmit.includes('무엇이 좋았나요?') &&
+      positiveFeedbackClickMetrics.inputPlaceholder === '유지할 만한 좋은 점을 짧게 입력' &&
+      positiveFeedbackClickMetrics.inputValue === '',
+    'thumbs-up feedback must ask what should be preserved with a specific placeholder',
+    positiveFeedbackClickMetrics,
+  );
+  await evaluate(`(() => {
+    const input = document.querySelector('.komsco-ai__feedback-comment input');
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(input, ${JSON.stringify(positiveFeedbackComment)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  const positiveFeedbackDraftMetrics = await poll(
+    `(() => {
+      const form = document.querySelector('.komsco-ai__feedback-comment');
+      const input = form?.querySelector('input');
+      const submit = form?.querySelector('button');
+      return {
+        buttonDisabledBeforeSubmit: Boolean(submit?.disabled),
+        buttonTextBeforeSubmit: submit?.textContent.trim() || '',
+        inputValue: input?.value || '',
+        ok: input?.value === ${JSON.stringify(positiveFeedbackComment)} &&
+          submit?.textContent.trim() === '저장' &&
+          !submit?.disabled
+      };
+    })()`,
+    (value) => value?.ok,
+    'editable positive feedback comment dirty state',
+    10000,
+  );
+  await evaluate(`document.querySelector('.komsco-ai__feedback-comment button')?.click(); true;`);
+  const positiveFeedbackStored = await poll(
+    `(() => {
+      const feedbackKey = 'komsco-ai.assistant.message-feedback.v1';
+      const records = JSON.parse(localStorage.getItem(feedbackKey) || '[]');
+      const latest = records[0] || {};
+      return {
+        latest,
+        ok: latest.rating === 'up' &&
+          latest.optionalComment === ${JSON.stringify(positiveFeedbackComment)}
+      };
+    })()`,
+    (value) => value?.ok,
+    'local positive feedback payload with optional comment',
+    10000,
+  );
+  const positiveFeedbackGateway = await poll(
+    `(async () => {
+      const response = await fetch('/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status');
+      if (!response.ok) return { ok: false, status: response.status };
+      const payload = await response.json();
+      const records = payload?.spec?.records?.chatFeedback || [];
+      const matched = records.find((record) =>
+        record?.spec?.rating === 'up' &&
+        record?.spec?.optionalComment === ${JSON.stringify(positiveFeedbackComment)}
+      );
+      return { matched, ok: Boolean(matched) };
+    })()`,
+    (value) => value?.ok,
+    'gateway positive feedback record with optional comment',
+    30000,
   );
 
   const headerMetrics = await evaluate(`(() => {
