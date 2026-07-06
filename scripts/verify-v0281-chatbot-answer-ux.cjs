@@ -612,7 +612,12 @@ const openAssistant = async () => {
 const closeAndReopenEmptyAssistant = async () => {
   const surfaceOpen = await evaluate(`Boolean(document.querySelector('.komsco-ai__surface'))`);
   if (surfaceOpen) {
-    await evaluate(`document.querySelector('[aria-label="Close AIOps Copilot"]')?.click(); true;`);
+    await evaluate(`(() => {
+      const close = Array.from(document.querySelectorAll('.komsco-ai__header-actions button'))
+        .find((el) => ['AIOps Copilot 닫기', 'Close AIOps Copilot'].includes(el.getAttribute('aria-label') || ''));
+      close?.click();
+      return true;
+    })()`);
     await poll(
       `(() => ({
         fabVisible: Boolean(document.querySelector('.komsco-ai__fab')),
@@ -715,7 +720,7 @@ const setComposerValue = async (question) => {
     })()`,
     (value) =>
       value?.textareaValue === question &&
-      value?.label === '질문 전송' &&
+      ['질문 전송', 'Send question'].includes(value?.label) &&
       value?.disabled === false,
     'composer send button enabled for live mode test',
     10000,
@@ -753,7 +758,9 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       ).map((el) => el.textContent.trim());
       const loading =
         Boolean(document.querySelector('.komsco-ai__surface--responding')) ||
-        document.querySelector('.komsco-ai__send')?.getAttribute('aria-label') === '응답 중지';
+        ['응답 중지', 'Stop response'].includes(
+          document.querySelector('.komsco-ai__send')?.getAttribute('aria-label') || ''
+        );
       const rawTerms = [
         '5174',
         'local fixture',
@@ -1329,8 +1336,23 @@ const verifyConsoleAssistant = async () => {
         document.querySelectorAll('.komsco-ai__history-item-menu-panel [role="menuitem"]')
       ).map((item) => item.textContent.trim());
       const controls = Array.from(document.querySelectorAll(
-        '.komsco-ai__language-button, .komsco-ai__header-actions .komsco-ai__icon-button, .komsco-ai__mode-toggle-button'
+        '.komsco-ai__sidebar-toggle, .komsco-ai__language-button, .komsco-ai__header-actions .komsco-ai__icon-button, .komsco-ai__mode-toggle-button, .komsco-ai__quick-menu-trigger, .komsco-ai__attach, .komsco-ai__send'
       ));
+      const controlLabels = controls
+        .map((el) => el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent.trim())
+        .filter(Boolean);
+      const requiredControlLabels = [
+        'Conversation sidebar',
+        'Switch to Korean',
+        'Open full screen',
+        'Unlock window size',
+        'Close AIOps Copilot',
+        'Open common check prompts',
+        'Attach file',
+        'Send question'
+      ];
+      const missingControlLabels = requiredControlLabels.filter((label) => !controlLabels.includes(label));
+      const koreanControlLabels = controlLabels.filter((label) => /[가-힣]/.test(label));
       const overflowingControls = controls
         .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
         .map((el) => ({
@@ -1359,8 +1381,13 @@ const verifyConsoleAssistant = async () => {
           !executionBadgeText.includes('읽기 전용') &&
           !executionBadgeText.includes('실행 가능') &&
           !executionBadgeText.includes('실행 무제한') &&
+          missingControlLabels.length === 0 &&
+          koreanControlLabels.length === 0 &&
           overflowingControls.length === 0,
+        controlLabels,
         executionBadgeText,
+        koreanControlLabels,
+        missingControlLabels,
         overflowingControls
       };
     })()`,
@@ -1524,7 +1551,12 @@ const verifyConsoleAssistant = async () => {
     resizeMetrics,
   );
 
-  await evaluate(`document.querySelector('[aria-label="Close AIOps Copilot"]')?.click(); true;`);
+  await evaluate(`(() => {
+    const close = Array.from(document.querySelectorAll('.komsco-ai__header-actions button'))
+      .find((el) => ['AIOps Copilot 닫기', 'Close AIOps Copilot'].includes(el.getAttribute('aria-label') || ''));
+    close?.click();
+    return true;
+  })()`);
   const closeMetrics = await poll(
     `(() => ({
       fabVisible: Boolean(document.querySelector('.komsco-ai__fab')),

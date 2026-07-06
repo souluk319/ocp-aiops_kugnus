@@ -1,8 +1,10 @@
 import * as React from 'react';
 
+import type { AssistantCopy } from './assistant.copy';
 import type { PanelResizeDirection } from './assistant.types';
 
 type AssistantResizeHandlesProps = {
+  copy: AssistantCopy;
   onResizeStart: (
     event: React.MouseEvent<HTMLButtonElement>,
     direction: PanelResizeDirection,
@@ -11,11 +13,11 @@ type AssistantResizeHandlesProps = {
 
 const RESIZE_DIRECTIONS: PanelResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
 
-const AssistantResizeHandles: React.FC<AssistantResizeHandlesProps> = ({ onResizeStart }) => (
-  <div className="komsco-ai__resize-handles" aria-label="채팅창 크기 조절 핸들">
+const AssistantResizeHandles: React.FC<AssistantResizeHandlesProps> = ({ copy, onResizeStart }) => (
+  <div className="komsco-ai__resize-handles" aria-label={copy.resizeHandles}>
     {RESIZE_DIRECTIONS.map((direction) => (
       <button
-        aria-label={`채팅창 ${direction} 방향 크기 조절`}
+        aria-label={`${copy.resizeHandlePrefix} ${direction}`}
         className={`komsco-ai__resize-handle komsco-ai__resize-handle--${direction}${
           direction === 'se' ? ' komsco-ai__resize-grip' : ''
         }`}

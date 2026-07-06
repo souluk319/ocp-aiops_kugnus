@@ -3662,7 +3662,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               </div>
             </Card>
             {panelResizeUnlocked && !fullScreen && (
-              <AssistantResizeHandles onResizeStart={startPanelResize} />
+              <AssistantResizeHandles copy={copy} onResizeStart={startPanelResize} />
             )}
           </div>
         </AssistantSurfacePortal>

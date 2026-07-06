@@ -136,7 +136,11 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
               {pendingAttachments.map((attachment) => (
                 <div className="komsco-ai__pending-attachment" key={attachment.id}>
                   <button
-                    aria-label={`${attachment.name} 크게 보기`}
+                    aria-label={
+                      uiLanguage === 'ko'
+                        ? `${attachment.name} 크게 보기`
+                        : `Preview ${attachment.name}`
+                    }
                     className="komsco-ai__pending-attachment-preview"
                     onClick={() => onPreviewAttachment(attachment)}
                     title={`${attachment.name} · ${formatFileSize(attachment.size)}`}
@@ -149,7 +153,11 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
                     />
                   </button>
                   <Button
-                    aria-label={`${attachment.name} 첨부 제거`}
+                    aria-label={
+                      uiLanguage === 'ko'
+                        ? `${attachment.name} 첨부 제거`
+                        : `Remove ${attachment.name}`
+                    }
                     className="komsco-ai__attachment-remove"
                     isDisabled={loading}
                     onClick={(event) => {
@@ -196,7 +204,7 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
               >
                 <Button
                   aria-expanded={quickPromptMenuOpen}
-                  aria-label="자주 쓰는 점검 질문 열기"
+                  aria-label={copy.quickPromptMenu}
                   aria-haspopup="menu"
                   className="komsco-ai__tool-button komsco-ai__quick-menu-trigger"
                   isDisabled={loading}
@@ -230,7 +238,7 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
 	                          </small>
 	                        </span>
                         <Switch
-                          aria-label="답변 후 조치 계획 기본 제공"
+                          aria-label={copy.autoProposeActionsToggle}
                           id="komsco-ai-auto-propose-toggle"
                           isChecked={autoProposeActions}
                           onChange={(_event, checked) => setAutoProposeActions(checked)}
@@ -263,7 +271,7 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
                 )}
               </div>
               <Button
-                aria-label="파일 첨부"
+                aria-label={copy.fileAttach}
                 className="komsco-ai__tool-button komsco-ai__attach"
                 isDisabled={loading}
                 onClick={() => fileInputRef.current?.click()}
@@ -320,7 +328,7 @@ const AssistantComposer: React.FC<AssistantComposerProps> = ({
               </div>
             </div>
             <Button
-              aria-label={loading ? '응답 중지' : '질문 전송'}
+              aria-label={loading ? copy.stopResponse : copy.sendQuestion}
               className={`komsco-ai__send${loading ? ' komsco-ai__send--stop' : ''}`}
               isDisabled={!loading && !input.trim() && pendingAttachments.length === 0}
               onClick={() => {

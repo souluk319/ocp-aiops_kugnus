@@ -94,29 +94,31 @@ const AssistantHeader: React.FC<AssistantHeaderProps> = ({
         <span className="komsco-ai__language-code">{uiLanguage === 'ko' ? 'KR' : 'EN'}</span>
       </Button>
       <Button
-        aria-label={fullScreen ? 'Exit full screen' : 'Open full screen'}
+        aria-label={fullScreen ? copy.exitFullScreen : copy.openFullScreen}
         className="komsco-ai__icon-button"
         onClick={onToggleFullScreen}
+        title={fullScreen ? copy.exitFullScreen : copy.openFullScreen}
         variant="plain"
       >
         {fullScreen ? <CoolShrinkIcon /> : <CoolExpandIcon />}
       </Button>
       <Button
-        aria-label={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
+        aria-label={panelResizeUnlocked ? copy.lockWindowSize : copy.unlockWindowSize}
         className={`komsco-ai__icon-button${
           panelResizeUnlocked ? ' komsco-ai__icon-button--active' : ''
         }`}
         onClick={onToggleResizeLock}
-        title={panelResizeUnlocked ? '창 크기 잠금' : '창 크기 잠금 해제'}
+        title={panelResizeUnlocked ? copy.lockWindowSize : copy.unlockWindowSize}
         variant="plain"
       >
         {panelResizeUnlocked ? <CoolLockOpenIcon /> : <CoolLockIcon />}
       </Button>
       {!lockOpen && (
         <Button
-          aria-label="Close AIOps Copilot"
+          aria-label={copy.closeCopilot}
           className="komsco-ai__icon-button"
           onClick={onClose}
+          title={copy.closeCopilot}
           variant="plain"
         >
           <CoolCloseIcon />
