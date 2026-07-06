@@ -50,6 +50,76 @@ const text = (language: UiLanguage, ko: string, en: string): string =>
 const countText = (count: number, language: UiLanguage): string =>
   language === 'ko' ? `${count}건` : String(count);
 
+type FeedbackRecord = NonNullable<AiopsRuntimeStatus['spec']['records']['chatFeedback']>[number];
+
+const feedbackSpecText = (record: FeedbackRecord | undefined, key: string): string => {
+  const value = record?.spec?.[key];
+  return typeof value === 'string' ? value : '';
+};
+
+const feedbackCreatedAt = (record: FeedbackRecord): number => {
+  const time = new Date(String(record.metadata?.createdAt ?? '')).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const truncateRailText = (value: string, maxLength = 120): string =>
+  value.length > maxLength ? `${value.slice(0, maxLength - 3).trim()}...` : value;
+
+const feedbackRatingLabel = (rating: string, language: UiLanguage): string => {
+  if (rating === 'up') {
+    return text(language, '좋은 답변', 'Good response');
+  }
+  if (rating === 'down') {
+    return text(language, '개선 요청', 'Needs work');
+  }
+  return text(language, '평가 대기', 'Pending');
+};
+
+const renderFeedbackRail = (records: FeedbackRecord[], language: UiLanguage) => {
+  const sortedRecords = [...records].sort((a, b) => feedbackCreatedAt(b) - feedbackCreatedAt(a));
+  const latest = sortedRecords[0];
+  const goodCount = records.filter((record) => feedbackSpecText(record, 'rating') === 'up').length;
+  const needsWorkCount = records.filter(
+    (record) => feedbackSpecText(record, 'rating') === 'down',
+  ).length;
+  const latestComment = feedbackSpecText(latest, 'optionalComment');
+  const latestRating = feedbackSpecText(latest, 'rating');
+
+  return (
+    <div className="komsco-ai__rail-section">
+      <div className="komsco-ai__rail-section-head">
+        <strong>{text(language, '답변 피드백', 'Answer feedback')}</strong>
+        <span>{countText(records.length, language)}</span>
+      </div>
+      <div className="komsco-ai__scope-list">
+        {renderStatusTag(text(language, `좋음 ${goodCount}`, `Good ${goodCount}`), 'ok')}
+        {renderStatusTag(
+          text(language, `개선 ${needsWorkCount}`, `Needs work ${needsWorkCount}`),
+          needsWorkCount > 0 ? 'warn' : 'neutral',
+        )}
+      </div>
+      {latest ? (
+        <div className="komsco-ai__rail-command">
+          <p>
+            {latestComment
+              ? `${text(language, '최근 의견', 'Latest note')}: ${truncateRailText(
+                  latestComment,
+                )}`
+              : `${text(language, '최근 평가', 'Latest rating')}: ${feedbackRatingLabel(
+                  latestRating,
+                  language,
+                )}`}
+          </p>
+        </div>
+      ) : (
+        <div className="komsco-ai__rail-empty">
+          {text(language, '저장된 답변 피드백이 없습니다.', 'No answer feedback saved.')}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const connectionLabel = (
   summary: ClusterSummary | null,
   error: string,
@@ -456,6 +526,8 @@ const AssistantInsightRail: React.FC<AssistantInsightRailProps> = ({
         </p>
       </div>
     </div>
+
+    {renderFeedbackRail(aiopsStatus?.spec.records.chatFeedback ?? [], language)}
 
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">

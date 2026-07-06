@@ -46,6 +46,7 @@ const sourceReview = () => {
   const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
   const assistantConstants = readFile('komsco-ai-console-plugin/src/components/assistant.constants.tsx');
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
+  const insightRail = readFile('komsco-ai-console-plugin/src/components/AssistantInsightRail.tsx');
   const insightRailHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.insightRailHelpers.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
   const evidenceFooter = readFile('komsco-ai-console-plugin/src/components/AssistantEvidenceFooter.tsx');
@@ -190,6 +191,18 @@ const sourceReview = () => {
       launcher.includes('submitMessageFeedbackComment') &&
       launcher.includes('optionalComment'),
     'assistant feedback must support an inline tester comment, not only a local icon state',
+  );
+  assert(
+    insightRail.includes("'답변 피드백'") &&
+      insightRail.includes("'Answer feedback'") &&
+      insightRail.includes("'최근 의견'") &&
+      insightRail.includes("'Latest note'") &&
+      insightRail.includes('chatFeedback'),
+    'insight rail must expose collected answer feedback for tester review',
+  );
+  assert(
+    launcher.includes('.then(() => refreshAiopsRuntimeStatus())'),
+    'chat feedback persistence must refresh AIOps status so the rail updates without waiting for the next poll',
   );
   assert(
     gatewayService.includes('optionalComment?: string') &&
@@ -1153,6 +1166,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         'Operator issues',
         'AIOps execution status',
         'Answer evidence',
+        'Answer feedback',
         'Recent diagnostics',
         'Approval and execution',
         'Read only',
@@ -1862,6 +1876,22 @@ const verifyConsoleAssistant = async () => {
     'gateway feedback record with optional comment',
     30000,
   );
+  const feedbackRail = await poll(
+    `(() => {
+      const section = Array.from(document.querySelectorAll('.komsco-ai__rail-section'))
+        .find((el) => (el.textContent || '').includes('답변 피드백'));
+      const text = section?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+      return {
+        ok: text.includes('답변 피드백') &&
+          text.includes('개선') &&
+          text.includes(${JSON.stringify(feedbackComment)}),
+        text
+      };
+    })()`,
+    (value) => value?.ok,
+    'insight rail answer feedback summary with latest tester comment',
+    30000,
+  );
 
   const headerMetrics = await evaluate(`(() => {
     const header = document.querySelector('.komsco-ai__header');
@@ -2331,6 +2361,7 @@ const verifyConsoleAssistant = async () => {
 
   return {
     feedbackGateway,
+    feedbackRail,
     feedbackStored,
     fixture,
     historyMetrics,

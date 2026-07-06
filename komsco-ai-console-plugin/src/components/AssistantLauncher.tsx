@@ -2445,13 +2445,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       };
 
       writeStoredMessageFeedback(payload);
-      void submitChatFeedback(payload).catch((error) => {
-        // Feedback is already kept locally; gateway persistence is best-effort during local tests.
-        // eslint-disable-next-line no-console
-        console.warn('AIOps feedback persistence failed', error);
-      });
+      void submitChatFeedback(payload)
+        .then(() => refreshAiopsRuntimeStatus())
+        .catch((error) => {
+          // Feedback is already kept locally; gateway persistence is best-effort during local tests.
+          // eslint-disable-next-line no-console
+          console.warn('AIOps feedback persistence failed', error);
+        });
     },
-    [activeSessionId, conversationId, executionMode],
+    [activeSessionId, conversationId, executionMode, refreshAiopsRuntimeStatus],
   );
 
   const toggleMessageFeedback = React.useCallback(
