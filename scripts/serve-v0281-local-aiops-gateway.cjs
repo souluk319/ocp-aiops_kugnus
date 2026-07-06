@@ -2458,6 +2458,7 @@ const server = http.createServer(async (req, res) => {
         optionalComment: body.optionalComment ? String(body.optionalComment).slice(0, 1000) : '',
         rating: body.rating === 'down' ? 'down' : 'up',
         route: body.route || '',
+        source: body.source || body.answerSource || '',
         intent: body.intent || '',
         submittedAt,
       },

@@ -2416,9 +2416,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     ) => {
       const messageId = `${activeSessionId}:${index}:${message.timestamp ?? 'pending'}`;
       const submittedAt = new Date().toISOString();
+      const feedbackSource =
+        message.answerSource ??
+        (message.answerContract?.includes('fixture')
+          ? 'local_fixture'
+          : message.fallbackAnswer
+            ? 'gateway_fallback'
+            : 'copilot');
       const payload: ChatFeedbackPayload = {
         answerContract: message.answerContract,
-        answerSource: message.answerSource,
+        answerSource: message.answerSource ?? feedbackSource,
         conversationId: conversationId ?? activeSessionId,
         feedbackId: `feedback-${messageId.replace(/[^a-zA-Z0-9-]+/g, '-')}`,
         intent: message.toolPlan?.taskType,
@@ -2427,6 +2434,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         optionalComment: optionalComment?.trim() || undefined,
         rating: feedback,
         route: window.location.pathname,
+        source: feedbackSource,
         timestamp: submittedAt,
       };
 

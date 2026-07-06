@@ -6818,6 +6818,7 @@ def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypat
                     ),
                     "rating": "down",
                     "route": "/dashboards/aiops",
+                    "source": "gateway_direct",
                     "timestamp": "2026-07-06T09:00:00Z",
                 },
             )
@@ -6832,6 +6833,7 @@ def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypat
         assert spec["rating"] == "down"
         assert spec["mode"] == "execute"
         assert spec["intent"] == "namespace_cleanup"
+        assert spec["source"] == "gateway_direct"
         assert spec["optionalComment"].count("[REDACTED]") >= 2
         assert "secret-token-value" not in spec["optionalComment"]
         assert "raw-secret" not in spec["optionalComment"]

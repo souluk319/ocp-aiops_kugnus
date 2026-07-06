@@ -2412,6 +2412,7 @@ class ChatFeedbackCreate(BaseModel):
     optionalComment: str | None = Field(default=None, max_length=1000)
     rating: str = Field(min_length=1, max_length=16)
     route: str | None = Field(default=None, max_length=240)
+    source: str | None = Field(default=None, max_length=80)
     timestamp: str | None = Field(default=None, max_length=80)
 
 
@@ -14382,6 +14383,7 @@ async def create_chat_feedback(
             "optionalComment": redact_sensitive(req.optionalComment or ""),
             "rating": rating,
             "route": req.route or "",
+            "source": req.source or req.answerSource or "",
             "submittedAt": submitted_at,
         },
         "subject": redact_sensitive(dict(subject)),

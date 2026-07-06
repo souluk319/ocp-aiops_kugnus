@@ -156,11 +156,13 @@ const sourceReview = () => {
   );
   assert(
     gatewayService.includes('optionalComment?: string') &&
+      gatewayService.includes('source?: string') &&
       gatewayService.includes('/v1/chat/feedback'),
     'console gateway service must include deployable chat feedback payload contract',
   );
   assert(
     localGateway.includes('optionalComment: body.optionalComment') &&
+      localGateway.includes('source: body.source || body.answerSource') &&
       localGateway.includes('LOCAL_CHAT_FEEDBACK.set'),
     'local fixture gateway must persist feedback comments for browser acceptance tests',
   );
@@ -1452,7 +1454,11 @@ const verifyConsoleAssistant = async () => {
       const latest = records[records.length - 1] || {};
       return {
         latest,
-        ok: latest.rating === 'down' && latest.optionalComment === ${JSON.stringify(feedbackComment)}
+        ok: latest.rating === 'down' &&
+          latest.optionalComment === ${JSON.stringify(feedbackComment)} &&
+          typeof latest.source === 'string' &&
+          latest.source.length > 0 &&
+          latest.source !== 'unknown'
       };
     })()`,
     (value) => value?.ok,
@@ -1468,7 +1474,11 @@ const verifyConsoleAssistant = async () => {
       const latest = records[records.length - 1] || {};
       return {
         latest,
-        ok: latest?.spec?.rating === 'down' && latest?.spec?.optionalComment === ${JSON.stringify(feedbackComment)}
+        ok: latest?.spec?.rating === 'down' &&
+          latest?.spec?.optionalComment === ${JSON.stringify(feedbackComment)} &&
+          typeof latest?.spec?.source === 'string' &&
+          latest.spec.source.length > 0 &&
+          latest.spec.source !== 'unknown'
       };
     })()`,
     (value) => value?.ok,

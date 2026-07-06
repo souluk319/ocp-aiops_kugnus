@@ -24,6 +24,7 @@ export type ChatFeedbackPayload = {
   optionalComment?: string;
   rating: 'up' | 'down';
   route?: string;
+  source?: string;
   timestamp: string;
 };
 
