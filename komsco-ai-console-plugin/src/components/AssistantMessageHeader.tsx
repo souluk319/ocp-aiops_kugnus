@@ -37,20 +37,22 @@ const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
   return <img alt="" className="komsco-ai__message-logo" src={aiopsIcon} />;
 };
 
-const assistantSourceLabel = (message: Message): string => {
+const assistantSourceLabel = (message: Message, language: UiLanguage): string => {
+  const isKo = language === 'ko';
+
   if (message.fallbackAnswer || message.answerSource === 'gateway_fallback') {
     return 'Gateway fallback';
   }
   if (message.answerSource === 'ols') {
-    return 'OLS 연결';
+    return isKo ? 'Lightspeed 연결' : 'Lightspeed connected';
   }
   if (message.answerSource === 'gateway_direct') {
-    return 'Gateway 실조회';
+    return isKo ? 'Gateway 실조회' : 'Gateway live query';
   }
   if (message.answerSource === 'copilot_clarification') {
-    return '요청 확인';
+    return isKo ? '요청 확인' : 'Request clarification';
   }
-  return '응답 경로 확인 중';
+  return isKo ? '응답 경로 확인 중' : 'Resolving answer source';
 };
 
 const assistantSourceClass = (message: Message): string => {
@@ -66,7 +68,9 @@ const assistantSourceClass = (message: Message): string => {
   return 'komsco-ai__message-source--aiops';
 };
 
-const assistantSourceTitle = (message: Message): string => {
+const assistantSourceTitle = (message: Message, language: UiLanguage): string => {
+  const isKo = language === 'ko';
+
   if (message.fallbackAnswer || message.answerSource === 'gateway_fallback') {
     return message.gatewayContextDigest
       ? `Gateway fallback · ${message.gatewayContextDigest}`
@@ -78,14 +82,20 @@ const assistantSourceTitle = (message: Message): string => {
       : 'OpenShift Lightspeed stream connected';
   }
   if (message.answerSource === 'gateway_direct') {
+    const label = isKo
+      ? 'Gateway 실조회 · 결정형 조회라 Lightspeed를 호출하지 않았습니다'
+      : 'Gateway live query · Deterministic lookup did not call Lightspeed';
+
     return message.gatewayContextDigest
-      ? `Gateway 실조회 · 결정형 조회라 Lightspeed를 호출하지 않았습니다 · ${message.gatewayContextDigest}`
-      : 'Gateway 실조회 · 결정형 조회라 Lightspeed를 호출하지 않았습니다';
+      ? `${label} · ${message.gatewayContextDigest}`
+      : label;
   }
   if (message.answerSource === 'copilot_clarification') {
-    return '요청 대상과 작업 목적을 더 확인해야 합니다.';
+    return isKo
+      ? '요청 대상과 작업 목적을 더 확인해야 합니다.'
+      : 'The request needs a clearer target and task goal.';
   }
-  return 'Answer source is still being resolved';
+  return isKo ? '응답 경로를 확인하는 중입니다.' : 'Answer source is still being resolved';
 };
 
 const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
@@ -94,7 +104,7 @@ const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
   message,
 }) => {
   const sourceLabel =
-    message.role === 'assistant' && hasContent ? assistantSourceLabel(message) : '';
+    message.role === 'assistant' && hasContent ? assistantSourceLabel(message, language) : '';
 
   return (
     <div className="komsco-ai__message-head">
@@ -107,7 +117,7 @@ const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
       {sourceLabel && (
         <span
           className={`komsco-ai__message-source ${assistantSourceClass(message)}`}
-          title={assistantSourceTitle(message)}
+          title={assistantSourceTitle(message, language)}
         >
           {sourceLabel}
         </span>

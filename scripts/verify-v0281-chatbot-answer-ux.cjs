@@ -47,6 +47,7 @@ const sourceReview = () => {
   const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
   const insightRailHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.insightRailHelpers.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
+  const messageHeader = readFile('komsco-ai-console-plugin/src/components/AssistantMessageHeader.tsx');
   const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
   const gatewayService = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
   const localGateway = readFile('scripts/serve-v0281-local-aiops-gateway.cjs');
@@ -77,6 +78,13 @@ const sourceReview = () => {
   assert(
     historyPanel.includes('komsco-ai__history-item-main'),
     'history sidebar must group conversation title and action refs under one row',
+  );
+  assert(
+    messageHeader.includes('Gateway live query') &&
+      messageHeader.includes('Request clarification') &&
+      messageHeader.includes('Lightspeed connected') &&
+      messageHeader.includes('Deterministic lookup did not call Lightspeed'),
+    'assistant message source badges and titles must be language-aware in English mode',
   );
   assert(
     launcher.includes('productIcon={aiopsIcon}') && !launcher.includes('aiops_mark.svg'),
@@ -792,7 +800,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         answerActionButtons,
         assistantMessages: assistantMessages.length,
         hasGatewayFallback: source.includes('fallback'),
-        hasGatewayDirect: source.includes('Gateway 실조회'),
+        hasGatewayDirect: source.includes('Gateway 실조회') || source.includes('Gateway live query'),
         hasInternalLeak: rawTerms.length > 0,
         hasScenarioLeak: scenarioTerms.length > 0,
         loading,
@@ -804,7 +812,12 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         rawTerms,
         scenarioTerms,
         source,
+        sourceHasKorean:
+          /[가-힣]/.test(source + ' ' + sourceTitle),
         sourceTitle,
+        sourceUsesEnglishLabel:
+          ['Gateway live query', 'Request clarification', 'Lightspeed connected', 'Gateway fallback'].includes(source) &&
+          !/[가-힣]/.test(source + ' ' + sourceTitle),
         textHash: text.length + ':' + text.slice(0, 80),
         textIncludesClarification:
           text.includes('요청 확인') &&
@@ -966,12 +979,21 @@ const verifyLiveEnglishProgressLabels = async () => {
   for (const item of [unclear, namespace]) {
     assert(
       item.progressUsesEnglishOperatorLabels &&
+        item.sourceUsesEnglishLabel &&
+        !item.sourceHasKorean &&
         !item.progressHasKorean &&
         !item.rawProgressTerms.length,
-      'English UI progress labels must stay English and hide raw operator names',
+      'English UI progress and source labels must stay English and hide raw operator names',
       metrics,
     );
   }
+  assert(
+    unclear.source === 'Request clarification' &&
+      namespace.source === 'Gateway live query' &&
+      namespace.hasGatewayDirect,
+    'English UI live answers must localize clarification and Gateway source badges',
+    metrics,
+  );
 
   await setUiLanguageInUi('ko');
   return metrics;
