@@ -614,6 +614,16 @@ const executionModeSentence = (executionMode) => {
   return '읽기 전용 모드: 조회와 근거 수집만 수행하고 변경 작업은 만들지 않습니다.';
 };
 
+const clarificationModeSentence = (executionMode) => {
+  if (executionMode === 'unrestricted') {
+    return '실행 무제한 모드: 요청이 명확해지기 전에는 위험 조치를 실행하지 않습니다.';
+  }
+  if (executionMode === 'execute') {
+    return '실행 가능 모드: 요청이 명확해지기 전에는 승인이나 실행을 만들지 않습니다.';
+  }
+  return '읽기 전용 모드: 조회와 근거 수집만 수행하고 변경 작업은 만들지 않습니다.';
+};
+
 const actionPolicyModeForExecutionMode = (executionMode, canProposeAction) => {
   if (!canProposeAction) {
     return 'read_only_review';
@@ -1380,8 +1390,9 @@ const unsupportedLocalQuestionAnswer = (intent, executionMode) => [
   '- gpu-test-kugnus 네임스페이스에 테스트 Pod 3개 생성 계획을 만들어줘.',
   '',
   '## 현재 모드',
-  `- ${executionModeSentence(executionMode)}`,
-  `- 요청 해석: ${intent.intent} / ${intent.reason} / confidence ${intent.confidence}`,
+  `- ${clarificationModeSentence(executionMode)}`,
+  '- 처리 상태: 추가 정보 필요',
+  '- 실행 상태: 변경 작업 없음',
 ].join('\n');
 
 const streamLocalChat = async (req, res) => {

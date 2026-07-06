@@ -263,6 +263,8 @@ const NAMESPACE_CLEANUP_QUESTION = [
   '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
 ].join('\n');
 
+const UNCLEAR_CHAT_QUESTIONS = ['야', '명청한챗봇'];
+
 const verifyModeAnswerContracts = async () => {
   const question = NAMESPACE_CLEANUP_QUESTION;
 
@@ -701,10 +703,10 @@ const setComposerValue = async (question) => {
   );
 };
 
-const sendLiveModeQuestion = async (mode) => {
+const sendLiveQuestion = async ({ label, mode, question }) => {
   await closeAndReopenEmptyAssistant();
   await setExecutionModeInUi(mode);
-  await setComposerValue(NAMESPACE_CLEANUP_QUESTION);
+  await setComposerValue(question);
   await evaluate(`document.querySelector('.komsco-ai__send')?.click(); true;`);
 
   return poll(
@@ -725,8 +727,23 @@ const sendLiveModeQuestion = async (mode) => {
       const loading =
         Boolean(document.querySelector('.komsco-ai__surface--responding')) ||
         document.querySelector('.komsco-ai__send')?.getAttribute('aria-label') === '응답 중지';
-      const rawTerms = ['5174', 'local fixture', '시나리오 처리 범위']
+      const rawTerms = [
+        '5174',
+        'local fixture',
+        '시나리오 처리 범위',
+        'unclear_or_out_of_scope',
+        'insufficient_operational_context',
+        'request_intent_classifier',
+        'confidence',
+      ]
         .filter((term) => text.includes(term));
+      const scenarioTerms = [
+        'KubePodNotReady',
+        'CrashLoopBackOff',
+        'komsco-ai-local/aiops-scenario',
+        '로컬 시뮬레이션',
+        'local simulator',
+      ].filter((term) => text.includes(term));
       return {
         actionPlanButtons,
         answerActionButtons,
@@ -734,12 +751,21 @@ const sendLiveModeQuestion = async (mode) => {
         hasGatewayFallback: source.includes('fallback'),
         hasGatewayDirect: source.includes('Gateway 실조회'),
         hasInternalLeak: rawTerms.length > 0,
+        hasScenarioLeak: scenarioTerms.length > 0,
         loading,
         mode: ${JSON.stringify(mode)},
         preview: text.slice(0, 900),
+        rawTerms,
+        scenarioTerms,
         source,
         sourceTitle,
         textHash: text.length + ':' + text.slice(0, 80),
+        textIncludesClarification:
+          text.includes('요청 확인') &&
+          text.includes('필요한 정보') &&
+          text.includes('지금 가능한 요청 예시') &&
+          text.includes('처리 상태: 추가 정보 필요') &&
+          text.includes('실행 상태: 변경 작업 없음'),
         textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(text),
         textIncludesExecuteMode: text.includes('실행 가능 모드'),
         textIncludesReadOnlyCommand:
@@ -755,10 +781,17 @@ const sendLiveModeQuestion = async (mode) => {
       value?.userMessages === 1 &&
       !value?.loading &&
       value?.preview?.length > 160,
-    `live UI mode answer completed for ${mode}`,
+    `live UI answer completed for ${label || mode}`,
     90000,
   );
 };
+
+const sendLiveModeQuestion = async (mode) =>
+  sendLiveQuestion({
+    label: `namespace cleanup ${mode}`,
+    mode,
+    question: NAMESPACE_CLEANUP_QUESTION,
+  });
 
 const verifyLiveModeRenderedAnswers = async () => {
   const readOnly = await sendLiveModeQuestion('read-only');
@@ -810,6 +843,38 @@ const verifyLiveModeRenderedAnswers = async () => {
     'same namespace cleanup question must render distinct live UI answers by execution mode',
     metrics,
   );
+
+  return metrics;
+};
+
+const verifyLiveClarificationAnswers = async () => {
+  const terse = await sendLiveQuestion({
+    label: 'terse unclear Korean input',
+    mode: 'read-only',
+    question: UNCLEAR_CHAT_QUESTIONS[0],
+  });
+  const insult = await sendLiveQuestion({
+    label: 'non-operational insult input',
+    mode: 'execute',
+    question: UNCLEAR_CHAT_QUESTIONS[1],
+  });
+  const metrics = { insult, terse };
+
+  for (const item of [terse, insult]) {
+    assert(
+      item.textIncludesClarification &&
+        item.source === '요청 확인' &&
+        !item.hasGatewayDirect &&
+        !item.hasGatewayFallback &&
+        !item.hasInternalLeak &&
+        !item.hasScenarioLeak &&
+        item.actionPlanButtons.length === 0 &&
+        item.answerActionButtons.length === 0 &&
+        !item.textIncludesActionPlanCandidate,
+      'unclear live UI input must ask for clarification without hardcoded scenario, internal routing, or Action Plan CTA',
+      metrics,
+    );
+  }
 
   return metrics;
 };
@@ -1515,8 +1580,17 @@ const verifyConsoleAssistant = async () => {
   });
 
   const liveModeRenderedAnswers = await verifyLiveModeRenderedAnswers();
+  const liveClarificationAnswers = await verifyLiveClarificationAnswers();
 
-  return { feedbackGateway, feedbackStored, fixture, historyMetrics, liveModeRenderedAnswers, metrics };
+  return {
+    feedbackGateway,
+    feedbackStored,
+    fixture,
+    historyMetrics,
+    liveClarificationAnswers,
+    liveModeRenderedAnswers,
+    metrics,
+  };
 };
 
 const verifyStandalonePortal = async () => {
