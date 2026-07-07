@@ -358,6 +358,17 @@ tasks:
     cmds:
       - KUGNUS_OKD_CONSOLE_REPAIR=false bash ./scripts/kugnus-okd-console-morning.sh
 
+  kugnus:aiops:learning-dataset:
+    desc: Export sanitized AIOps learning/evaluation dataset from transcripts, feedback, action records, audit, and scenario results
+    cmds:
+      - |
+        node scripts/export-aiops-learning-dataset.cjs \
+          --url "{{.GATEWAY_STATUS_URL | default "http://127.0.0.1:5174/v1/aiops/status"}}" \
+          --transcripts "{{.TRANSCRIPTS | default "komsco-ai-gateway/var/aiops/chat-transcripts.jsonl"}}" \
+          --scenario-report "{{.SCENARIO_REPORT | default "docs/Ver.0.1.3/aiops-scenario-evaluation-report.json"}}" \
+          --output "{{.OUTPUT | default ".tmp-kugnus-demo/aiops-learning-dataset.json"}}" \
+          --limit "{{.LIMIT | default "100"}}"
+
   kugnus:aiops:repair:
     desc: Repair stale local OKD AIOps console, plugin, and bridge readiness
     cmds:
