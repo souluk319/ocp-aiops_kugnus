@@ -5286,6 +5286,18 @@ button:disabled {
   white-space: nowrap;
 }
 
+.wiki-knowledge-hero .wiki-knowledge-hero__status {
+  display: block;
+  max-width: 100%;
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 850;
+  color: #8a5a00;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wiki-hero-actions {
   display: flex;
   flex-wrap: wrap;
@@ -5784,6 +5796,15 @@ button:disabled {
 
 .wiki-search-test .portal-search {
   width: 100%;
+}
+
+.wiki-search-test > small {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 850;
+  color: var(--sub);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .wiki-search-results {

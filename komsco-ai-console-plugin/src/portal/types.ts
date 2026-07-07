@@ -200,6 +200,101 @@ export type Endpoint = {
   path: string;
 };
 
+export type RagUploadedDocument = {
+  aclGroups?: string[];
+  checksum?: string;
+  chunkCount?: number;
+  contentBytes?: number;
+  customer?: string;
+  documentId: string;
+  ingestedAt?: string;
+  labels?: Record<string, string>;
+  mimeType?: string;
+  namespace?: string;
+  runId?: string;
+  sourceType?: string;
+  sourceUri?: string;
+  title: string;
+  updatedAt?: string;
+  uploadedBy?: string;
+  version?: string;
+};
+
+export type RagUploadedDocumentList = {
+  apiVersion?: string;
+  kind?: 'RagUploadedDocumentList' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    backend?: AiopsRuntimeStatus['spec']['capabilities']['rag'];
+    documents?: RagUploadedDocument[];
+    items?: RagUploadedDocument[];
+    reason?: string;
+    status?: 'collected' | 'empty' | 'not_configured' | 'unavailable' | string;
+    totals?: {
+      documents?: number;
+    };
+  };
+};
+
+export type RagSearchResultItem = {
+  contentPreview?: string;
+  customer?: string;
+  documentId?: string;
+  evidenceRef?: Record<string, unknown>;
+  id?: string;
+  metadata?: Record<string, unknown>;
+  namespace?: string;
+  score?: number;
+  sourceType?: string;
+  sourceUri?: string;
+  title?: string;
+  version?: string;
+};
+
+export type RagSearchResult = {
+  apiVersion?: string;
+  kind?: 'RagSearchResult' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    query?: string;
+    reason?: string;
+    results?: RagSearchResultItem[];
+    safety?: Record<string, unknown>;
+    status?: 'collected' | 'empty' | 'not_configured' | 'unavailable' | string;
+    topK?: number;
+  };
+};
+
+export type RagUploadIngestionResult = {
+  apiVersion?: string;
+  kind?: 'RagUploadIngestionResult' | string;
+  metadata?: {
+    generatedAt?: string;
+    name?: string;
+  };
+  spec: {
+    backend?: AiopsRuntimeStatus['spec']['capabilities']['rag'];
+    chunks?: Array<{
+      charLength?: number;
+      chunkId?: string;
+      chunkIndex?: number;
+      sourceUri?: string;
+      textHash?: string;
+    }>;
+    document: RagUploadedDocument;
+    ingestionReport?: Record<string, unknown>;
+    reason?: string;
+    safety?: Record<string, unknown>;
+    status?: 'persisted' | 'not_configured' | 'unavailable' | string;
+  };
+};
+
 export type AlertItem = {
   id: string;
   title: string;

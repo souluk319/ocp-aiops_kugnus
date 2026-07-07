@@ -525,6 +525,13 @@ const readJsonBody = (req) =>
     req.on('error', reject);
   });
 
+const drainRequestBody = (req) =>
+  new Promise((resolve, reject) => {
+    req.on('data', () => {});
+    req.on('end', resolve);
+    req.on('error', reject);
+  });
+
 const sse = (res, payload) => {
   if (payload === '[DONE]') {
     res.write('data: [DONE]\n\n');
@@ -2913,7 +2920,92 @@ const server = http.createServer(async (req, res) => {
       apiVersion: 'aiops.komsco/v1',
       kind: 'RagUploadedDocumentList',
       metadata: { generatedAt: nowIso(), name: 'local-fixture-rag-uploads' },
-      spec: { items: [] },
+      spec: {
+        backend: {
+          accessPath: 'gateway-only',
+          backendType: 'fixture',
+          collection: 'komsco-aiops-runbooks',
+          directDatabaseAccess: false,
+          status: 'not_configured',
+        },
+        documents: [],
+        reason: 'Local fixture has no pgvector RAG backend; portal must show sample fallback without failing.',
+        safety: {
+          directDatabaseAccessAllowed: false,
+          gatewayOnly: true,
+          rawContentReturned: false,
+        },
+        status: 'not_configured',
+        totals: { documents: 0 },
+      },
+    });
+    return;
+  }
+  if (url.pathname === '/v1/rag/search' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    json(res, 200, {
+      apiVersion: 'aiops.komsco/v1',
+      kind: 'RagSearchResult',
+      metadata: { generatedAt: nowIso(), name: `local-fixture-rag-search-${Date.now()}` },
+      spec: {
+        evidence: {
+          collectedRefs: [],
+          missing: [{ reason: 'Local fixture has no pgvector RAG backend.', type: 'runbook' }],
+          reason: 'Local fixture has no pgvector RAG backend.',
+          status: 'missing',
+          type: 'runbook',
+        },
+        includeContent: false,
+        query: String(body.query || ''),
+        reason: 'Local fixture has no pgvector RAG backend; search result is intentionally empty.',
+        results: [],
+        safety: {
+          aclRequired: true,
+          directDatabaseAccessAllowed: false,
+          gatewayOnly: true,
+          mockResultsAreProductionEvidence: false,
+        },
+        status: 'not_configured',
+        topK: Number(body.topK || 3),
+      },
+    });
+    return;
+  }
+  if (url.pathname === '/v1/rag/uploads/file' && req.method === 'POST') {
+    await drainRequestBody(req);
+    const documentId = `local-fixture-upload-${Date.now()}`;
+    json(res, 200, {
+      apiVersion: 'aiops.komsco/v1',
+      kind: 'RagUploadIngestionResult',
+      metadata: { generatedAt: nowIso(), name: documentId },
+      spec: {
+        backend: {
+          accessPath: 'gateway-only',
+          backendType: 'fixture',
+          collection: 'komsco-aiops-runbooks',
+          directDatabaseAccess: false,
+          status: 'not_configured',
+        },
+        chunks: [],
+        document: {
+          chunkCount: 0,
+          documentId,
+          namespace: 'cywell-aiops',
+          sourceType: 'user-upload',
+          title: 'Local fixture upload',
+          uploadedBy: 'local-fixture',
+          version: 'v0.2.9',
+        },
+        ingestionReport: { parser: 'fixture', persisted: false },
+        reason: 'Local fixture accepted the upload request but has no pgvector RAG backend.',
+        safety: {
+          directDatabaseAccessAllowed: false,
+          gatewayOnly: true,
+          rawContentReturned: false,
+          redactionAppliedBeforeChunking: true,
+        },
+        status: 'not_configured',
+      },
     });
     return;
   }

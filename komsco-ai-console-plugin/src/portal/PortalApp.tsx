@@ -22,7 +22,14 @@ import type {
   AssistantDraftPrompt,
   AssistantLaunchContext,
 } from '../components/assistant.types';
-import { fetchAiopsEvents, fetchAiopsStatus, fetchClusterSummary } from './api';
+import {
+  fetchAiopsEvents,
+  fetchAiopsStatus,
+  fetchClusterSummary,
+  fetchRagUploadedDocuments,
+  searchRagDocuments,
+  uploadRagDocumentFile,
+} from './api';
 import aiopsIconUrl from './assets/aiops_icon.svg';
 import {
   navGroupLabel,
@@ -42,6 +49,9 @@ import type {
   Endpoint,
   NavView,
   QueueItem,
+  RagSearchResultItem,
+  RagUploadedDocument,
+  RagUploadedDocumentList,
   ScopeItem,
   Severity,
 } from './types';
@@ -395,6 +405,7 @@ const sampleRcaQueues: QueueItem[] = [
 type KnowledgeDoc = {
   category: string;
   chunks: number;
+  dataSource: 'gateway' | 'sample';
   id: string;
   keywords: string[];
   linkedIssues: string[];
@@ -415,10 +426,11 @@ type KnowledgeDoc = {
 type WikiUploadItem = {
   chunks: number;
   collection: string;
+  detail?: string;
   id: string;
   name: string;
   size: string;
-  status: '업로드 대기' | '인덱싱 준비' | '색인됨';
+  status: '업로드 대기' | '업로드 중' | '검증 필요' | '색인됨' | '실패';
   type: string;
   updatedAt: string;
 };
@@ -427,6 +439,7 @@ const sampleKnowledgeDocs: KnowledgeDoc[] = [
   {
     category: '장애 대응',
     chunks: 12,
+    dataSource: 'sample',
     id: 'runbook-crashloop',
     keywords: ['CrashLoopBackOff', 'BackOff', 'restart count', 'exit code', 'image pull'],
     linkedIssues: ['Pods degraded', 'Deployment availability drift', 'CrashLoopBackOff detected'],
@@ -446,6 +459,7 @@ const sampleKnowledgeDocs: KnowledgeDoc[] = [
   {
     category: '변경 통제',
     chunks: 8,
+    dataSource: 'sample',
     id: 'policy-approval',
     keywords: ['approval gate', 'audit', 'change request', '자동 조치', '승인 정책'],
     linkedIssues: ['조치 승인 대기', 'Runbook gate required'],
@@ -465,6 +479,7 @@ const sampleKnowledgeDocs: KnowledgeDoc[] = [
   {
     category: '업데이트',
     chunks: 10,
+    dataSource: 'sample',
     id: 'ocp-update-check',
     keywords: ['ClusterVersion', 'Upgradeable=False', 'AdminAck', 'conditional update', '4.20'],
     linkedIssues: ['OCP 업데이트 사전 확인 필요', 'Admin acknowledgement required'],
@@ -494,10 +509,88 @@ const formatUploadSize = (size: number): string => {
 };
 
 const uploadStatusSeverity = (status: WikiUploadItem['status']): Severity =>
-  status === '색인됨' ? 'ok' : 'warn';
+  status === '색인됨' ? 'ok' : status === '실패' ? 'risk' : 'warn';
 
 const docStatusSeverity = (status: KnowledgeDoc['status']): Severity =>
   status === '검증됨' ? 'ok' : status === '초안' ? 'warn' : 'risk';
+
+const docStatusLabel = (doc: KnowledgeDoc): string =>
+  doc.dataSource === 'sample' ? '샘플' : doc.status;
+
+const ragListDocuments = (payload: RagUploadedDocumentList | null): RagUploadedDocument[] =>
+  payload?.spec.documents ?? payload?.spec.items ?? [];
+
+const ragDateLabel = (value?: string): string => (value ? formatTime(value) : '-');
+
+const ragDocLabelValues = (doc: RagUploadedDocument): string[] =>
+  Array.from(new Set([
+    doc.labels?.domain,
+    doc.labels?.scenario,
+    doc.labels?.source,
+    doc.namespace,
+    doc.sourceType,
+  ].filter((value): value is string => Boolean(value && value.trim()))));
+
+const ragUploadedDocumentToKnowledgeDoc = (doc: RagUploadedDocument): KnowledgeDoc => {
+  const labelValues = ragDocLabelValues(doc);
+  const title = doc.title || doc.documentId;
+  const tags = labelValues.length > 0 ? labelValues.slice(0, 4) : ['Runbook'];
+  const updatedAt = ragDateLabel(doc.updatedAt || doc.ingestedAt);
+  const chunks = Math.max(1, Number(doc.chunkCount ?? 0));
+
+  return {
+    category: doc.labels?.category || doc.sourceType || '운영 문서',
+    chunks,
+    dataSource: 'gateway',
+    id: doc.documentId,
+    keywords: Array.from(new Set([title, doc.sourceType, doc.namespace, doc.customer, ...tags].filter((value): value is string => Boolean(value)))),
+    linkedIssues: doc.labels?.scenario ? [doc.labels.scenario] : ['RAG 검색 대상'],
+    owner: doc.uploadedBy || 'Gateway RAG',
+    rcaLinks: 0,
+    searchStatus: '색인 완료',
+    status: '검증됨',
+    targetScopes: tags,
+    title,
+    updatedAt,
+    verifiedAt: updatedAt,
+    version: doc.version || '-',
+    summary: `${doc.customer ?? 'komsco'} / ${doc.namespace ?? 'namespace 미지정'} · ${chunks}개 chunk · ${doc.mimeType ?? '문서'}`,
+    tags,
+    steps: [
+      'Gateway RAG 업로드 목록에서 확인된 운영 문서입니다.',
+      '검색 테스트로 관련 chunk가 반환되는지 확인합니다.',
+      'RCA 답변에서는 문서 위치와 원문을 상세 보기로 분리합니다.',
+    ],
+  };
+};
+
+const ragSearchResultToKnowledgeDoc = (result: RagSearchResultItem, index: number): KnowledgeDoc => {
+  const title = result.title || result.documentId || `검색 결과 ${index + 1}`;
+  const tags = [result.sourceType, result.namespace, result.customer, result.version]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .slice(0, 4);
+
+  return {
+    category: result.sourceType || '검색 결과',
+    chunks: Number(result.metadata?.chunkIndex ?? index + 1) + 1,
+    dataSource: 'gateway',
+    id: result.id || result.documentId || `rag-search-${index}`,
+    keywords: [title, ...tags],
+    linkedIssues: ['RAG 검색 결과'],
+    owner: 'Gateway RAG',
+    rcaLinks: 0,
+    searchStatus: '색인 완료',
+    status: '검증됨',
+    targetScopes: tags.length > 0 ? tags : ['Runbook'],
+    title,
+    updatedAt: '-',
+    verifiedAt: '-',
+    version: result.version || '-',
+    summary: result.contentPreview || 'Gateway RAG 검색에서 반환된 문서 chunk입니다.',
+    tags: tags.length > 0 ? tags : ['Runbook'],
+    steps: ['검색 결과의 문서 제목과 chunk 점수를 확인합니다.', '운영 답변에서는 원문 URL 대신 문서명을 먼저 노출합니다.'],
+  };
+};
 
 const buildDocSearchResults = (docs: KnowledgeDoc[], query: string, activeDoc: KnowledgeDoc): Array<{ doc: KnowledgeDoc; score: string; reason: string }> => {
   const normalized = query.trim().toLowerCase();
@@ -5783,7 +5876,7 @@ const WikiUploadDrawer: React.FC<{
                   <FileText />
                   <div>
                     <strong>{item.name}</strong>
-                    <span>{item.type} · {item.size} · {item.collection} · 예상 chunk {item.chunks}</span>
+                    <span>{item.type} · {item.size} · {item.collection} · chunk {item.chunks}{item.detail ? ` · ${item.detail}` : ''}</span>
                   </div>
                   <StatusBadge label={item.status} severity={uploadStatusSeverity(item.status)} />
                 </article>
@@ -5800,10 +5893,12 @@ const WikiDocDetailDrawer: React.FC<{
   activeDoc: KnowledgeDoc;
   onClose: () => void;
   open: boolean;
+  searchError: string;
   searchResults: Array<{ doc: KnowledgeDoc; score: string; reason: string }>;
+  searchStatus: string;
   setTestQuery: (value: string) => void;
   testQuery: string;
-}> = ({ activeDoc, onClose, open, searchResults, setTestQuery, testQuery }) => (
+}> = ({ activeDoc, onClose, open, searchError, searchResults, searchStatus, setTestQuery, testQuery }) => (
   <div className={`portal-drawer wiki-drawer wiki-doc-detail-drawer ${open ? 'is-open' : ''}`} onClick={onClose}>
     <aside className="portal-drawer__panel" onClick={(event) => event.stopPropagation()}>
       <div className="portal-drawer__head">
@@ -5861,6 +5956,7 @@ const WikiDocDetailDrawer: React.FC<{
               <Search />
               <input onChange={(event) => setTestQuery(event.target.value)} value={testQuery} />
             </label>
+            <small>{searchStatus}{searchError ? ` · ${searchError}` : ''}</small>
             <div className="wiki-search-results">
               {searchResults.map((result, index) => (
                 <article key={result.doc.id}>
@@ -5877,14 +5973,30 @@ const WikiDocDetailDrawer: React.FC<{
 );
 
 const WikiIndexDetailDrawer: React.FC<{
+  backendReason: string;
+  backendStatus: string;
   indexedCount: number;
+  lastIndexedAt: string;
   onClose: () => void;
   open: boolean;
   pendingUploadCount: number;
   ragChunkSize: string;
   ragCollection: string;
   totalChunks: number;
-}> = ({ indexedCount, onClose, open, pendingUploadCount, ragChunkSize, ragCollection, totalChunks }) => (
+  usingSampleDocs: boolean;
+}> = ({
+  backendReason,
+  backendStatus,
+  indexedCount,
+  lastIndexedAt,
+  onClose,
+  open,
+  pendingUploadCount,
+  ragChunkSize,
+  ragCollection,
+  totalChunks,
+  usingSampleDocs,
+}) => (
   <div className={`portal-drawer wiki-drawer ${open ? 'is-open' : ''}`} onClick={onClose}>
     <aside className="portal-drawer__panel" onClick={(event) => event.stopPropagation()}>
       <div className="portal-drawer__head">
@@ -5898,10 +6010,10 @@ const WikiIndexDetailDrawer: React.FC<{
       </div>
       <div className="portal-drawer__body">
         <div className="wiki-index-compact">
-          <article><span>컬렉션</span><strong>{ragCollection}</strong><small>운영 Runbook 기본 컬렉션</small></article>
-          <article><span>문서</span><strong>{indexedCount}개 색인</strong><small>{pendingUploadCount}개 대기</small></article>
+          <article><span>컬렉션</span><strong>{ragCollection}</strong><small>Gateway RAG 컬렉션</small></article>
+          <article><span>문서</span><strong>{indexedCount}개 {usingSampleDocs ? '샘플 표시' : '색인'}</strong><small>{pendingUploadCount}개 대기</small></article>
           <article><span>청크</span><strong>{totalChunks}개</strong><small>{ragChunkSize} token 기준</small></article>
-          <article><span>검색 상태</span><strong>검색 가능</strong><small>오류 0 · 마지막 색인 07. 03. 오전 09:20</small></article>
+          <article><span>검색 상태</span><strong>{backendStatus}</strong><small>{backendReason || `마지막 확인 ${lastIndexedAt}`}</small></article>
         </div>
         <section className="wiki-drawer-section">
           <strong>파이프라인</strong>
@@ -5923,30 +6035,117 @@ const WikiDocsView: React.FC = () => {
   const [activeDocId, setActiveDocId] = React.useState(sampleKnowledgeDocs[0].id);
   const [query, setQuery] = React.useState('');
   const [category, setCategory] = React.useState('전체');
-  const [ragCollection, setRagCollection] = React.useState('ocp-runbooks');
+  const [ragCollection, setRagCollection] = React.useState('komsco-aiops-runbooks');
   const [ragChunkSize, setRagChunkSize] = React.useState('900');
   const [dragActive, setDragActive] = React.useState(false);
   const [uploadItems, setUploadItems] = React.useState<WikiUploadItem[]>([]);
   const [showAdvancedSettings, setShowAdvancedSettings] = React.useState(false);
   const [openDrawer, setOpenDrawer] = React.useState<'upload' | 'doc' | 'index' | null>(null);
   const [testQuery, setTestQuery] = React.useState('CrashLoopBackOff가 발생한 Pod를 어떻게 확인해?');
-  const categories = ['전체', ...Array.from(new Set(sampleKnowledgeDocs.map((doc) => doc.category))), '검증 필요'];
-  const docs = sampleKnowledgeDocs.filter((doc) => {
-    const matchesCategory = category === '전체' || doc.category === category || (category === '검증 필요' && doc.status === '검증 필요');
-    const text = `${doc.title} ${doc.summary} ${doc.tags.join(' ')} ${doc.keywords.join(' ')}`.toLowerCase();
-    return matchesCategory && (!query.trim() || text.includes(query.trim().toLowerCase()));
-  });
-  const activeDoc = docs.find((doc) => doc.id === activeDocId) ?? docs[0] ?? sampleKnowledgeDocs[0];
+  const [ragUploads, setRagUploads] = React.useState<RagUploadedDocumentList | null>(null);
+  const [ragLoadError, setRagLoadError] = React.useState('');
+  const [ragSearchRows, setRagSearchRows] = React.useState<Array<{ doc: KnowledgeDoc; score: string; reason: string }>>([]);
+  const [ragSearchStatus, setRagSearchStatus] = React.useState('');
+  const [ragSearchError, setRagSearchError] = React.useState('');
+  const [refreshTick, setRefreshTick] = React.useState(0);
+  const liveDocs = React.useMemo(
+    () => ragListDocuments(ragUploads).map(ragUploadedDocumentToKnowledgeDoc),
+    [ragUploads],
+  );
+  const usingSampleDocs = liveDocs.length === 0;
+  const knowledgeDocs = usingSampleDocs ? sampleKnowledgeDocs : liveDocs;
+  const backendCollection = ragUploads?.spec.backend?.collection;
+  const backendStatus = ragUploads?.spec.status ?? (ragLoadError ? 'unavailable' : 'loading');
+  const backendReason = ragLoadError || ragUploads?.spec.reason || '';
+  const lastIndexedAt = ragDateLabel(ragUploads?.metadata?.generatedAt);
+  const categories = React.useMemo(
+    () => ['전체', ...Array.from(new Set(knowledgeDocs.map((doc) => doc.category))), '검증 필요'],
+    [knowledgeDocs],
+  );
+  const docs = React.useMemo(
+    () => knowledgeDocs.filter((doc) => {
+      const matchesCategory = category === '전체' || doc.category === category || (category === '검증 필요' && doc.status === '검증 필요');
+      const text = `${doc.title} ${doc.summary} ${doc.tags.join(' ')} ${doc.keywords.join(' ')}`.toLowerCase();
+      return matchesCategory && (!query.trim() || text.includes(query.trim().toLowerCase()));
+    }),
+    [category, knowledgeDocs, query],
+  );
+  const activeDoc = docs.find((doc) => doc.id === activeDocId) ?? docs[0] ?? knowledgeDocs[0] ?? sampleKnowledgeDocs[0];
 
   React.useEffect(() => {
-    setActiveDocId((current) => (docs.some((doc) => doc.id === current) ? current : docs[0]?.id ?? sampleKnowledgeDocs[0].id));
-  }, [docs]);
+    let cancelled = false;
+    fetchRagUploadedDocuments()
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setRagUploads(payload);
+        setRagLoadError('');
+        const collection = payload.spec.backend?.collection;
+        if (typeof collection === 'string' && collection) {
+          setRagCollection(collection);
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setRagLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshTick]);
+
+  React.useEffect(() => {
+    setActiveDocId((current) => (docs.some((doc) => doc.id === current) ? current : docs[0]?.id ?? knowledgeDocs[0]?.id ?? sampleKnowledgeDocs[0].id));
+  }, [docs, knowledgeDocs]);
+
+  React.useEffect(() => {
+    const normalized = testQuery.trim();
+    if (!normalized) {
+      setRagSearchRows([]);
+      setRagSearchStatus('');
+      setRagSearchError('');
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      searchRagDocuments(normalized)
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+          const rows = (payload.spec.results ?? []).slice(0, 3).map((result, index) => ({
+            doc: ragSearchResultToKnowledgeDoc(result, index),
+            reason: payload.spec.status === 'collected' ? 'Gateway RAG 검색 결과' : payload.spec.reason ?? 'Gateway RAG 검색',
+            score: typeof result.score === 'number' ? result.score.toFixed(2) : '-',
+          }));
+          setRagSearchRows(rows);
+          setRagSearchStatus(payload.spec.status ?? '');
+          setRagSearchError('');
+        })
+        .catch((error: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          setRagSearchRows([]);
+          setRagSearchStatus('unavailable');
+          setRagSearchError(error instanceof Error ? error.message : String(error));
+        });
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [testQuery]);
 
   const handleUploadFiles = React.useCallback((fileList: FileList | null) => {
     if (!fileList?.length) {
       return;
     }
-    const nextItems = Array.from(fileList).map((file, index): WikiUploadItem => {
+    const files = Array.from(fileList);
+    const nextItems = files.map((file, index): WikiUploadItem => {
       const extension = file.name.includes('.') ? file.name.split('.').pop()?.toUpperCase() ?? 'FILE' : 'FILE';
       return {
         chunks: Math.max(1, Math.ceil(file.size / Math.max(1, Number(ragChunkSize) * 120))),
@@ -5954,20 +6153,53 @@ const WikiDocsView: React.FC = () => {
         id: `${file.name}-${file.lastModified}-${index}`,
         name: file.name,
         size: formatUploadSize(file.size),
-        status: '인덱싱 준비',
+        status: '업로드 중',
         type: extension,
         updatedAt: '방금 선택',
       };
     });
     setUploadItems((current) => [...nextItems, ...current]);
+    files.forEach((file, index) => {
+      const itemId = `${file.name}-${file.lastModified}-${index}`;
+      void uploadRagDocumentFile(file)
+        .then((result) => {
+          const chunkCount = result.spec.chunks?.length ?? result.spec.document.chunkCount ?? 0;
+          setUploadItems((current) => current.map((item) => (
+            item.id === itemId
+              ? {
+                  ...item,
+                  chunks: Math.max(1, Number(chunkCount || item.chunks)),
+                  detail: result.spec.reason,
+                  status: result.spec.status === 'persisted' ? '색인됨' : '검증 필요',
+                  updatedAt: 'Gateway 응답 완료',
+                }
+              : item
+          )));
+          setRefreshTick((value) => value + 1);
+        })
+        .catch((error: unknown) => {
+          setUploadItems((current) => current.map((item) => (
+            item.id === itemId
+              ? {
+                  ...item,
+                  detail: error instanceof Error ? error.message : String(error),
+                  status: '실패',
+                  updatedAt: 'Gateway 오류',
+                }
+              : item
+          )));
+        });
+    });
   }, [ragChunkSize, ragCollection]);
 
-  const indexedCount = sampleKnowledgeDocs.length;
-  const verifiedCount = sampleKnowledgeDocs.filter((doc) => doc.status === '검증됨').length;
-  const reviewCount = sampleKnowledgeDocs.filter((doc) => doc.status === '검증 필요').length;
+  const indexedCount = knowledgeDocs.length;
+  const verifiedCount = knowledgeDocs.filter((doc) => doc.status === '검증됨').length;
+  const reviewCount = knowledgeDocs.filter((doc) => doc.status === '검증 필요').length;
   const pendingUploadCount = uploadItems.length;
-  const totalChunks = sampleKnowledgeDocs.reduce((total, doc) => total + doc.chunks, 0);
-  const searchResults = buildDocSearchResults(sampleKnowledgeDocs, testQuery, activeDoc);
+  const totalChunks = knowledgeDocs.reduce((total, doc) => total + doc.chunks, 0);
+  const localSearchResults = buildDocSearchResults(knowledgeDocs, testQuery, activeDoc);
+  const searchResults = ragSearchRows.length > 0 ? ragSearchRows : localSearchResults;
+  const searchStatusLabel = ragSearchStatus || (usingSampleDocs ? 'sample-fallback' : 'local-filter');
 
   return (
     <section className="wiki-workbench stack-view">
@@ -5975,7 +6207,8 @@ const WikiDocsView: React.FC = () => {
         <div>
           <span>운영 지식베이스</span>
           <h2>RCA와 AI 추천 액션에서 참조되는 Runbook 문서를 관리합니다.</h2>
-          <p>{ragCollection} · 색인 {indexedCount} · 대기 {pendingUploadCount} · 이슈 0 · 마지막 색인 07. 03. 오전 09:20</p>
+          <p>{backendCollection ?? ragCollection} · {usingSampleDocs ? 'Gateway 문서 없음, 샘플 표시' : `Gateway 색인 ${indexedCount}`} · 대기 {pendingUploadCount} · 상태 {backendStatus} · 마지막 확인 {lastIndexedAt}</p>
+          {(backendReason || ragSearchError) && <small className="wiki-knowledge-hero__status">{backendReason || ragSearchError}</small>}
         </div>
         <div className="wiki-hero-actions">
           <button className="portal-button is-primary" onClick={() => setOpenDrawer('upload')} type="button">
@@ -5984,7 +6217,7 @@ const WikiDocsView: React.FC = () => {
           <button className="portal-button" onClick={() => setOpenDrawer('index')} type="button">
             인덱싱 세부 상태
           </button>
-          <button className="portal-button" type="button">색인 재실행</button>
+          <button className="portal-button" onClick={() => setRefreshTick((value) => value + 1)} type="button">목록 새로고침</button>
         </div>
         <div className="wiki-health-strip">
           <article><span>운영 문서</span><strong>{indexedCount}</strong></article>
@@ -6024,10 +6257,10 @@ const WikiDocsView: React.FC = () => {
               >
                 <div className="doc-list__head">
                   <strong>{doc.title}</strong>
-                  <StatusBadge label={doc.status} severity={docStatusSeverity(doc.status)} />
+                  <StatusBadge label={docStatusLabel(doc)} severity={doc.dataSource === 'sample' ? 'warn' : docStatusSeverity(doc.status)} />
                 </div>
                 <span>{doc.category} · {doc.targetScopes.slice(0, 3).join(' · ')}</span>
-                <small>{doc.searchStatus} · {doc.chunks} 청크 · RCA 연결 {doc.rcaLinks}건 · 검증 {doc.verifiedAt}</small>
+                <small>{doc.dataSource === 'gateway' ? 'Gateway RAG' : '샘플'} · {doc.searchStatus} · {doc.chunks} 청크 · RCA 연결 {doc.rcaLinks}건 · 검증 {doc.verifiedAt}</small>
               </button>
             ))}
             {docs.length === 0 && <EmptyState label="조건에 맞는 문서가 없습니다." />}
@@ -6054,18 +6287,24 @@ const WikiDocsView: React.FC = () => {
         activeDoc={activeDoc}
         onClose={() => setOpenDrawer(null)}
         open={openDrawer === 'doc'}
+        searchError={ragSearchError}
         searchResults={searchResults}
+        searchStatus={searchStatusLabel}
         setTestQuery={setTestQuery}
         testQuery={testQuery}
       />
       <WikiIndexDetailDrawer
+        backendReason={backendReason}
+        backendStatus={backendStatus}
         indexedCount={indexedCount}
+        lastIndexedAt={lastIndexedAt}
         onClose={() => setOpenDrawer(null)}
         open={openDrawer === 'index'}
         pendingUploadCount={pendingUploadCount}
         ragChunkSize={ragChunkSize}
         ragCollection={ragCollection}
         totalChunks={totalChunks}
+        usingSampleDocs={usingSampleDocs}
       />
     </section>
   );
