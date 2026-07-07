@@ -3963,6 +3963,8 @@ async def execute_natural_action_plan_result(
     mutation_status = str(executor_result.get("mutationOutcome", {}).get("status") or "")
     if mutation_status == "mutation_succeeded":
         status = "executed"
+    elif mutation_status == "review_recorded":
+        status = "review_recorded"
     elif mutation_status == "mutation_disabled":
         status = "execution_disabled"
     else:
@@ -4009,6 +4011,8 @@ def natural_action_execution_response(result: Mapping[str, Any]) -> str:
         )
 
     heading = "자연어 조치 요청을 해석해 실행까지 완료했습니다."
+    if status == "review_recorded":
+        heading = "자연어 조치 요청을 해석해 검토 기록을 남겼습니다."
     if status == "execution_disabled":
         heading = "자연어 조치 요청을 해석했지만 mutation 실행은 비활성화되어 있습니다."
     elif status == "execution_failed":
@@ -12486,7 +12490,7 @@ def namespace_cleanup_review_execution_result(sealed_plan: Mapping[str, Any]) ->
     target_name = str(target.get("name") or target.get("namespace") or "namespace")
     return {
         "mutationOutcome": {
-            "status": "mutation_succeeded",
+            "status": "review_recorded",
             "reason": f"namespace cleanup review recorded for {target_name}; no namespace deletion executed",
             "httpStatus": 200,
         },
@@ -12511,7 +12515,7 @@ def test_pod_create_review_execution_result(sealed_plan: Mapping[str, Any]) -> d
     count = int(parameters.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
     return {
         "mutationOutcome": {
-            "status": "mutation_succeeded",
+            "status": "review_recorded",
             "reason": f"test Pod creation review recorded for {target_name}; no Pod was created",
             "httpStatus": 200,
         },
@@ -12535,7 +12539,7 @@ def pod_diagnostic_review_execution_result(sealed_plan: Mapping[str, Any]) -> di
     ) or "pod"
     return {
         "mutationOutcome": {
-            "status": "mutation_succeeded",
+            "status": "review_recorded",
             "reason": f"pod diagnostic review recorded for {target_label}; no Pod eviction or restart was executed",
             "httpStatus": 200,
         },

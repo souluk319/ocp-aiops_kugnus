@@ -394,7 +394,7 @@ const executePlan = async () => {
     button.click();
     return { ok: true, disabled, label, title };
   })()`);
-  assert(clicked?.ok, '실행 button must be clickable after approval', clicked);
+  assert(clicked?.ok, 'execution or review-record button must be clickable after approval', clicked);
 
   return poll(
     `(() => {
@@ -407,6 +407,7 @@ const executePlan = async () => {
         before: ${Number(before) || 0},
         createButtonCount: latest?.querySelectorAll('.komsco-ai__create-action-plan-button').length || 0,
         executionCount: document.querySelectorAll('[data-action-lifecycle-stage="execution"]').length,
+        hasReviewRecordedText: /검토 기록|Review recorded|클러스터 변경 없이|No cluster change/.test(text),
         latestExecutionCards: executionCards.length,
         stages: records.map((record) => record.getAttribute('data-action-lifecycle-stage')),
         text: text.slice(0, 1400)
@@ -414,6 +415,7 @@ const executePlan = async () => {
     })()`,
     (value) =>
       value?.stages?.includes('execution') &&
+      value.hasReviewRecordedText &&
       value.latestExecutionCards >= 1 &&
       value.executionCount > value.before &&
       value.createButtonCount === 0,
@@ -513,6 +515,7 @@ const verifyHistoryAndJson = async () => {
       value?.count >= 1 &&
       value.grouped === value.count &&
       value.stageLabels?.every((label) => label !== 'Action Plan') &&
+      value.stageLabels?.includes('기록') &&
       value.primaryLabels?.every((label) => !/^(승인 필요|실행 완료|후보 접수|Candidate received|Approval required|Executed)$/i.test(label)) &&
       value.primaryLabels?.some((label) => /정리|Pod|Namespace|review|plan/i.test(label)) &&
       (!value.answerStages?.includes('execution') || value.stages?.includes('execution')),
@@ -551,7 +554,10 @@ const verifyHistoryAndJson = async () => {
       return {
         ok: Boolean(parsed?.kind || parsed?.metadata),
         kind: parsed?.kind || '',
+        mutationReason: parsed?.spec?.mutationOutcome?.reason || '',
+        mutationStatus: parsed?.spec?.mutationOutcome?.status || '',
         name: parsed?.metadata?.name || '',
+        reviewOnly: parsed?.spec?.executorTrace?.reviewOnly === true,
         rawLength: raw.length,
         summary: summary?.textContent.trim() || ''
       };
@@ -579,6 +585,13 @@ const verifyHistoryAndJson = async () => {
     'audit detail must match the highest visible action history stage',
     { auditJson, expectedKind: expectedKindByStage[highestHistoryStage], historyRefs },
   );
+  if (highestHistoryStage === 'execution') {
+    assert(
+      auditJson.mutationStatus === 'review_recorded' && auditJson.reviewOnly,
+      'review-only Action Plan execution must be recorded as review_recorded, not mutation_succeeded',
+      { auditJson, historyRefs },
+    );
+  }
 
   return { auditJson, historyRefs, refClicked };
 };

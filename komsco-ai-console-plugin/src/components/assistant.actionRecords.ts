@@ -185,6 +185,34 @@ const REMEDIATION_REASON_LABEL_KO: Record<string, string> = {
   target_resource_unavailable: '대상 리소스를 다시 조회하지 못해 결과를 확인하지 못했습니다.',
 };
 
+const REVIEW_ONLY_ACTION_TOOLS = new Set([
+  'namespace_cleanup_review',
+  'pod_diagnostic_review',
+  'test_pod_create_review',
+]);
+
+export const isReviewOnlyToolName = (toolName: string | undefined): boolean =>
+  REVIEW_ONLY_ACTION_TOOLS.has(String(toolName || '').trim());
+
+export const isReviewOnlyActionRecord = (record: AiopsRecordView): boolean => {
+  const spec = getRecordSpecMap(record);
+  const executorTrace = asObjectMap(spec.executorTrace);
+  if (executorTrace?.reviewOnly === true) {
+    return true;
+  }
+
+  const plan = getSealedActionPlan(record);
+  const decision = getApprovalDecision(record);
+  const candidate = asObjectMap(spec.candidateActionRequest);
+  const action =
+    asObjectMap(plan?.action) ?? asObjectMap(decision?.action) ?? asObjectMap(candidate?.action);
+  const toolName =
+    (typeof action?.toolName === 'string' ? action.toolName : '') ||
+    (typeof executorTrace?.toolName === 'string' ? executorTrace.toolName : '');
+
+  return isReviewOnlyToolName(toolName);
+};
+
 const reviewOnlyExecutionDetail = (toolName: string, reason: string): string => {
   const text = `${toolName} ${reason}`.toLowerCase();
   if (/namespace.*cleanup|namespace_cleanup/.test(text)) {
@@ -238,7 +266,7 @@ export const getExecutionOutcomeSummary = (
   const reviewOnly = executorTrace?.reviewOnly === true;
 
   const title = reviewOnly
-    ? '검토 실행 기록이 남았습니다.'
+    ? '검토 기록이 남았습니다.'
     : isAutoPolicy
     ? toolName
       ? `자동으로 조치를 실행했습니다 (정책: ${toolName})`
@@ -380,7 +408,7 @@ export const actionRecordDedupeKey = (record: AiopsRecordView): string =>
 export const getPhaseTone = (
   phase: string,
 ): 'ok' | 'warn' | 'danger' | 'review' | 'neutral' => {
-  if (/verified|succeeded|completed|executed|approved|submitted/.test(phase)) {
+  if (/verified|succeeded|completed|executed|approved|submitted|review_recorded/.test(phase)) {
     return 'ok';
   }
   if (/failed|denied|expired|disabled|mismatch|stale/.test(phase)) {
@@ -404,6 +432,7 @@ const PHASE_LABEL_KO: Record<string, string> = {
   mutation_disabled: '실행 비활성',
   mutation_failed: '실행 실패',
   mutation_succeeded: '실행 완료',
+  review_recorded: '검토 기록 완료',
   pending: '대기 중',
   proposed: '제안됨',
   rejected: '거절됨',
@@ -429,6 +458,7 @@ const PHASE_LABEL_EN: Record<string, string> = {
   mutation_disabled: 'Execution disabled',
   mutation_failed: 'Execution failed',
   mutation_succeeded: 'Execution complete',
+  review_recorded: 'Review recorded',
   pending: 'Pending',
   proposed: 'Proposed',
   rejected: 'Rejected',
@@ -466,9 +496,15 @@ export const getActionRecordStageLabel = (
   const isKo = language === 'ko';
   const stage = getActionRecordStage(record);
   if (stage === 'execution') {
+    if (isReviewOnlyActionRecord(record)) {
+      return isKo ? '4단계 · 검토 기록 완료' : 'Step 4 · Review recorded';
+    }
     return isKo ? '4단계 · 실행 완료' : 'Step 4 · Executed';
   }
   if (stage === 'approval') {
+    if (isReviewOnlyActionRecord(record)) {
+      return isKo ? '3단계 · 기록 대기' : 'Step 3 · Waiting to record';
+    }
     return isKo ? '3단계 · 실행 대기' : 'Step 3 · Waiting to execute';
   }
   if (stage === 'plan') {
@@ -515,6 +551,7 @@ export const conversationActionRefFromRecord = (
       : undefined),
   recordKind: record.kind,
   recordName: getRecordName(record) || undefined,
+  reviewOnly: isReviewOnlyActionRecord(record) || undefined,
   stage: getActionRecordStage(record),
   targetKey: getRecordTargetLabel(record),
   toolName: getActionRecordToolName(record),
@@ -532,6 +569,11 @@ export const getActionRecordProof = (
   const approvalPlanDigest = getApprovalPlanDigest(record);
 
   if (planDigest) {
+    if (isReviewOnlyActionRecord(record)) {
+      return isKo
+        ? '검토 계획이 만들어졌습니다. 승인하면 클러스터 변경 없이 검토 기록을 남길 수 있습니다.'
+        : 'The review plan is ready. Approval records the review without changing the cluster.';
+    }
     if (executionMode === 'unrestricted') {
       return isKo
         ? '조치 계획이 만들어졌습니다. 실행하면 자동 승인 후 클러스터에 적용됩니다.'
@@ -548,11 +590,21 @@ export const getActionRecordProof = (
       return isKo ? '이 조치는 거절되었습니다.' : 'This action was rejected.';
     }
     if (status === 'approved') {
+      if (isReviewOnlyActionRecord(record)) {
+        return isKo
+          ? '승인이 완료됐습니다. 기록 버튼을 누르면 클러스터 변경 없이 검토 결과를 남깁니다.'
+          : 'Approval is complete. Use Record to save the review without changing the cluster.';
+      }
       return isKo
         ? '승인이 완료됐습니다. 실행 버튼을 누르면 클러스터에 적용됩니다.'
         : 'Approval is complete. Use Execute to apply it to the cluster.';
     }
     if (status === 'executed') {
+      if (isReviewOnlyActionRecord(record)) {
+        return isKo
+          ? '승인된 검토 결과가 감사 기록으로 남았습니다.'
+          : 'The approved review has been recorded in the audit trail.';
+      }
       return isKo
         ? '승인된 조치가 실행 완료되었습니다.'
         : 'The approved action has been executed.';
@@ -562,6 +614,11 @@ export const getActionRecordProof = (
       : `Approval status: ${phaseLabel(status, language)}`;
   }
   if (typeof spec.approvalId === 'string') {
+    if (isReviewOnlyActionRecord(record)) {
+      return isKo
+        ? '검토 결과가 감사 기록으로 남았습니다. 클러스터 변경은 실행하지 않았습니다.'
+        : 'The review result was recorded in the audit trail. No cluster change was executed.';
+    }
     return isKo ? '조치가 실행 처리되었습니다.' : 'The action was processed for execution.';
   }
   return isKo

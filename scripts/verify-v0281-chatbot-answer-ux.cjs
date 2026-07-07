@@ -1510,8 +1510,41 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
   await closeAndReopenEmptyAssistant();
   await setUiLanguageInUi(language);
   await setExecutionModeInUi(mode);
-  await setComposerValue(question);
-  await evaluate(`document.querySelector('.komsco-ai__send')?.click(); true;`);
+  let sendObserved = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await setComposerValue(question);
+    const clicked = await evaluate(`(() => {
+      const button = document.querySelector('.komsco-ai__send');
+      const textarea = document.querySelector('.komsco-ai__composer textarea');
+      const disabled = Boolean(button?.disabled);
+      const label = button?.getAttribute('aria-label') || '';
+      if (!button || disabled) {
+        return { ok: false, attempt: ${attempt}, disabled, label, textareaValue: textarea?.value || '' };
+      }
+      button.click();
+      return { ok: true, attempt: ${attempt}, disabled, label, textareaValue: textarea?.value || '' };
+    })()`);
+    assert(clicked?.ok, 'send button must accept the live test question click', clicked);
+    try {
+      sendObserved = await poll(
+        `(() => ({
+          assistantMessages: document.querySelectorAll('.komsco-ai__message--assistant').length,
+          loading: Boolean(document.querySelector('.komsco-ai__surface--responding')),
+          userMessages: document.querySelectorAll('.komsco-ai__message--user').length
+        }))()`,
+        (value) => value?.userMessages >= 1 || value?.loading,
+        `live UI question submit observed for ${label || mode} attempt ${attempt}`,
+        6000,
+      );
+      break;
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+      await sleep(250);
+    }
+  }
+  assert(sendObserved, 'live UI question submit must be observed before waiting for the answer');
 
   return poll(
     `(() => {
@@ -1642,6 +1675,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         'approval-local',
         'execution-local',
         'mutation_succeeded',
+        'review_recorded',
         'mutation_failed',
         'delete_namespace_after_approval',
         'Details (JSON)',
@@ -2877,6 +2911,7 @@ const verifyCompactViewportChrome = async () => {
         'approval-local',
         'execution-local',
         'mutation_succeeded',
+        'review_recorded',
         'mutation_failed'
       ].filter((term) => refs.some((el) => (el.textContent || '').includes(term) || (el.getAttribute('title') || '').includes(term)));
       const genericHistoryActionLabels = refs
@@ -4046,6 +4081,7 @@ const verifyConsoleAssistant = async () => {
       'approval-local',
       'execution-local',
       'mutation_succeeded',
+      'review_recorded',
       'mutation_failed'
     ].filter((term) => refs.some((el) => (el.textContent || '').includes(term) || (el.getAttribute('title') || '').includes(term)));
     const userFooterUserText = userFooter?.querySelector('strong')?.textContent?.replace(/\\s+/g, ' ').trim() || '';

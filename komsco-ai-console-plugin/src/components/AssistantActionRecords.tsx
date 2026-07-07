@@ -26,6 +26,7 @@ import {
   getRecordSpecMap,
   getRecordTargetLabel,
   getSealedActionPlan,
+  isReviewOnlyActionRecord,
   phaseLabel,
 } from './assistant.actionRecords';
 import type {
@@ -91,12 +92,18 @@ const primaryActionLabel = (action: AiopsRecordAction, language: UiLanguage = 'k
     return isKo ? 'Action Plan 생성' : 'Create Action Plan';
   }
   if (action.step === 'approve-plan') {
+    if (action.label && action.label !== '승인' && action.label !== '승인 요청') {
+      return isKo ? action.label : 'Approve review';
+    }
     return isKo ? '승인 요청' : 'Request approval';
   }
   if (action.step === 'approve-execute-plan') {
     return isKo ? '승인 후 실행' : 'Approve and execute';
   }
   if (action.step === 'execute-approval') {
+    if (action.label && action.label !== '실행') {
+      return isKo ? action.label : 'Record review';
+    }
     return isKo ? '실행' : 'Execute';
   }
   return action.label;
@@ -143,6 +150,11 @@ const actionFlowDescription = (
 
   const stage = highestActionStage(records);
   if (stage === 'execution') {
+    if (records.some(isReviewOnlyActionRecord)) {
+      return isKo
+        ? '검토 결과와 감사 기록을 표시합니다. 클러스터 변경은 실행하지 않았습니다.'
+        : 'Shows the review result and audit record. No cluster change was executed.';
+    }
     return isKo
       ? '실행 결과와 감사 기록을 표시합니다.'
       : 'Shows the execution result and audit record.';
@@ -714,7 +726,13 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
               return null;
             }
             const outcomeIcon = outcome.tone === 'ok' ? '✓' : outcome.tone === 'warn' ? '!' : '✕';
-            const outcomeStageLabel = language === 'ko' ? '4단계 · 실행 완료' : 'Step 4 · Executed';
+            const outcomeStageLabel = isReviewOnlyActionRecord(record)
+              ? language === 'ko'
+                ? '4단계 · 검토 기록 완료'
+                : 'Step 4 · Review recorded'
+              : language === 'ko'
+                ? '4단계 · 실행 완료'
+                : 'Step 4 · Executed';
             const outcomeTargetRoleLabel = actionCardTargetDisplayLabel('execution', record, language);
 
             return (

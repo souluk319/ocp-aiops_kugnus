@@ -148,7 +148,8 @@ const historyActionDetailLabel = (
     : toolLabel;
 };
 
-const actionStageLabel = (stage: ConversationActionRef['stage'], language: UiLanguage): string => {
+const actionStageLabel = (actionRef: ConversationActionRef, language: UiLanguage): string => {
+  const { stage } = actionRef;
   if (stage === 'plan') {
     return language === 'en' ? 'Plan' : '조치 계획';
   }
@@ -156,6 +157,9 @@ const actionStageLabel = (stage: ConversationActionRef['stage'], language: UiLan
     return language === 'en' ? 'Approval' : '승인';
   }
   if (stage === 'execution') {
+    if (actionRef.reviewOnly) {
+      return language === 'en' ? 'Record' : '기록';
+    }
     return language === 'en' ? 'Execution' : '실행';
   }
   return language === 'en' ? 'Candidate' : '조치 후보';
@@ -425,7 +429,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                       </div>
                     ) : (
                       actionRefs.map((actionRef) => {
-                        const stageLabel = actionStageLabel(actionRef.stage, uiLanguage);
+                        const stageLabel = actionStageLabel(actionRef, uiLanguage);
                         const statusLabel = compactActionLabel(actionRef.label);
                         const actionDetailLabel = historyActionDetailLabel(actionRef, uiLanguage);
 

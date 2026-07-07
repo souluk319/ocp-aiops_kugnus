@@ -149,6 +149,7 @@ export type ConversationActionRef = {
   planDigest?: string;
   recordKind?: string;
   recordName?: string;
+  reviewOnly?: boolean;
   stage: ConversationActionStage;
   targetKey: string;
   toolName?: string;

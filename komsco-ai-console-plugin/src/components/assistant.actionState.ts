@@ -11,6 +11,7 @@ import {
   getPlanDigest,
   getRecordSpecMap,
   hasExecutionForApproval,
+  isReviewOnlyToolName,
 } from './assistant.actionRecords';
 import type {
   AiopsExecutionMode,
@@ -146,7 +147,7 @@ export const getAiopsRecordAction = (
 
     const planSummary = getPlanSummary(record);
     const toolName = getActionRecordToolName(record);
-    const approvalOnlyReview = toolName === 'namespace_cleanup_review';
+    const approvalOnlyReview = isReviewOnlyToolName(toolName);
     if ((planSummary?.risk === 'medium' || planSummary?.risk === 'high') && !approvalOnlyReview) {
       return withModeGate({
         label: '승인 요청',
@@ -156,7 +157,7 @@ export const getAiopsRecordAction = (
     }
 
     return withModeGate({
-      label: approvalOnlyReview ? '승인 요청' : '승인',
+      label: approvalOnlyReview ? '검토 승인' : '승인',
       step: 'approve-plan',
     });
   }
@@ -181,7 +182,10 @@ export const getAiopsRecordAction = (
       });
     }
 
-    return withModeGate({ label: '실행', step: 'execute-approval' });
+    return withModeGate({
+      label: isReviewOnlyToolName(getActionRecordToolName(plan)) ? '검토 기록' : '실행',
+      step: 'execute-approval',
+    });
   }
 
   return null;

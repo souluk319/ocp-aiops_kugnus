@@ -135,6 +135,7 @@ const normalizeStoredActionRefs = (value: unknown): ConversationActionRef[] =>
             planDigest: typeof item.planDigest === 'string' ? item.planDigest : undefined,
             recordKind: typeof item.recordKind === 'string' ? item.recordKind : undefined,
             recordName: typeof item.recordName === 'string' ? item.recordName : undefined,
+            reviewOnly: item.reviewOnly === true,
             stage: stage as ConversationActionRef['stage'],
             targetKey,
             toolName: typeof item.toolName === 'string' ? item.toolName : undefined,

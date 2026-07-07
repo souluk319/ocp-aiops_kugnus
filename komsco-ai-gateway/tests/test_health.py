@@ -7693,6 +7693,29 @@ def test_action_candidate_plan_intent_maps_pod_to_eviction_action() -> None:
     assert intent["parameters"] == {"reason": "action_candidate_unhealthy_pod_eviction"}
 
 
+def test_review_only_execution_results_do_not_claim_mutation_success() -> None:
+    sealed_plan = {
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "name": "team-a",
+            "namespace": "team-a",
+            "uid": "namespace-uid",
+        },
+        "action": {
+            "toolName": "namespace_cleanup_review",
+            "normalizedParameters": {},
+        },
+    }
+
+    result = gateway_main.namespace_cleanup_review_execution_result(sealed_plan)
+
+    assert result["mutationOutcome"]["status"] == "review_recorded"
+    assert "no namespace deletion executed" in result["mutationOutcome"]["reason"]
+    assert result["executorTrace"]["reviewOnly"] is True
+    assert result["executorTrace"]["mutationSubmitted"] is False
+
+
 def test_action_access_review_request_is_derived_from_sealed_plan_target() -> None:
     subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
     proposal = build_action_proposal_record(

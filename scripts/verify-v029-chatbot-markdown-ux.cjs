@@ -19,6 +19,7 @@ const markdown = readFile('komsco-ai-console-plugin/src/components/AssistantMark
 const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
 const actionPlanButtons = readFile('komsco-ai-console-plugin/src/components/AssistantCreateActionPlanButtons.tsx');
 const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
+const actionRecordHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.actionRecords.ts');
 const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
 const header = readFile('komsco-ai-console-plugin/src/components/AssistantHeader.tsx');
 const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
@@ -30,6 +31,7 @@ const types = readFile('komsco-ai-console-plugin/src/components/assistant.types.
 const gatewayTypes = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
 const portalApp = readFile('komsco-ai-console-plugin/src/portal/PortalApp.tsx');
 const actionCandidatesSource = readFile('komsco-ai-console-plugin/src/components/assistant.actionCandidates.ts');
+const actionState = readFile('komsco-ai-console-plugin/src/components/assistant.actionState.ts');
 const commandDetection = readFile('komsco-ai-console-plugin/src/components/assistant.commandDetection.ts');
 const markdownPrepare = readFile('komsco-ai-console-plugin/src/components/assistant.markdownPrepare.ts');
 const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
@@ -253,6 +255,7 @@ assert(!css.includes('komsco-ai__history-action-group'), 'Removed history icon-s
 assert(historyPanel.includes('type="search"'), 'History panel must include conversation search');
 assert(historyPanel.includes('toggleConversationPinned'), 'History panel must expose pin/unpin actions');
 assert(historyPanel.includes('sortConversationActionRefs') && historyPanel.includes('ACTION_STAGE_RANK'), 'History action refs must be sorted by lifecycle stage and recency');
+assert(historyPanel.includes('actionRef.reviewOnly') && historyPanel.includes("'기록'"), 'History action refs must label review-only execution as a record, not ordinary execution');
 assert(historyPanel.includes('komsco-ai__history-item-pinned-label'), 'Pinned conversations must show a pinned state marker');
 assert(!historyPanel.includes('komsco-ai__history-item-pin${'), 'Unpinned history rows must not show a persistent pin icon');
 assert(historyPanel.includes('visibleConversationHistory'), 'History panel must sort/filter the rendered conversation list');
@@ -269,6 +272,10 @@ assert(evidenceFooter.includes("isKo ? '확인 결과 상세' : 'Evidence detail
 assert(!evidenceFooter.includes('근거 상세보기'), 'Evidence footer must not use legal-toned Korean wording');
 assert(actionRecords.includes("label: isKo ? '확인 결과' : 'Evidence'"), 'Action Plan card must label evidence as 확인 결과 in Korean');
 assert(!actionRecords.includes('근거 기반 조치 후보'), 'Action Plan card must not use legal-toned evidence wording');
+assert(actionRecordHelpers.includes('review_recorded'), 'Review-only Action Plan records must have a distinct review_recorded phase label');
+assert(actionRecordHelpers.includes('검토 기록 완료'), 'Review-only Action Plan records must not be labeled as ordinary execution completion');
+assert(actionRecordHelpers.includes('reviewOnly: isReviewOnlyActionRecord'), 'Conversation action refs must persist review-only state for history rendering');
+assert(actionState.includes('검토 기록'), 'Review-only Action Plan approval flow must render a record-review action label');
 assert(insightRail.includes("'확인 결과'"), 'Insight rail must use product-facing answer context copy');
 assert(!insightRail.includes('답변 근거'), 'Insight rail must not expose old answer evidence wording');
 assert(gateway.includes('코드블록 안에는 실행 가능한 명령만'), 'Gateway prompt must forbid prose inside code blocks');
