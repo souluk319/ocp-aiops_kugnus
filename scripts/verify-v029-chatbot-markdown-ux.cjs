@@ -176,6 +176,13 @@ assert(
 assert(css.includes('v0.2.9 layout lock'), 'Layout lock CSS marker must exist for composer/history regression checks');
 assert(css.includes('grid-template-rows: minmax(0, 1fr) auto !important'), 'Chat column must reserve a fixed composer row');
 assert(css.includes('padding: 6px 8px 8px !important'), 'Composer bottom padding must stay capped at 8px');
+assert(css.includes('v0.2.9 hard layout lock'), 'History-open hard layout lock marker must exist');
+assert(
+  css.includes('.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)') &&
+    css.includes('> .komsco-ai__history-sidebar') &&
+    css.includes('> .komsco-ai__panel'),
+  'History-open surface, sidebar, and panel must share one constrained grid row',
+);
 assert(css.includes('grid-template-areas') && css.includes('"history-user"'), 'History sidebar must reserve a fixed user footer grid area');
 assert(css.includes('grid-area: history-list') && css.includes('grid-area: history-user'), 'History list and user footer must occupy separate grid areas');
 assert(css.includes('max-height: calc(100dvh - var(--komsco-history-top'), 'History sidebar must cap height to the visible viewport');

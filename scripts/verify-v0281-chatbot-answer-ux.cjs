@@ -1326,6 +1326,24 @@ const installAssistantFixture = async () =>
       messageAnchor: 'assistant-message-1',
       updatedAt: Date.now() - 20000 - index * 1000
     }));
+    const longHistory = Array.from({ length: 22 }, (_, index) => {
+      const updatedAt = Date.now() - 40000 - index * 9000;
+      return {
+        id: 'v0281-fixture-session-long-' + index,
+        title: [
+          '최근 문제있었던 네임스페이스가있어?',
+          '이건 어떻게 조치할 수있어?',
+          '원인파악해줘',
+          'CrashLoopBackOff 상태인 Pod를 확인해줘',
+          '최근 OpenShift 경고 우선 확인할 항목'
+        ][index % 5],
+        updatedAt,
+        conversationId: 'v0281-fixture-conversation-long-' + index,
+        messages: olderMessages.map((message) => ({ ...message, timestamp: updatedAt })),
+        actionRefs: index % 3 === 0 ? olderRefs : [],
+        actionTargetKeys: index % 3 === 0 ? olderRefs.map((ref) => ref.targetKey) : []
+      };
+    });
     const history = [
       {
         id: 'v0281-fixture-session',
@@ -1344,7 +1362,8 @@ const installAssistantFixture = async () =>
         messages: olderMessages,
         actionRefs: olderRefs,
         actionTargetKeys: olderRefs.map((ref) => ref.targetKey)
-      }
+      },
+      ...longHistory
     ];
     localStorage.setItem(activeKey, JSON.stringify(snapshot));
     localStorage.setItem(historyKey, JSON.stringify(history));
@@ -2895,13 +2914,98 @@ const verifyCompactViewportChrome = async () => {
     10000,
   );
 
+  await setViewport(792, 891);
+  await openHistory();
+  const tallHistoryMetrics = await poll(
+    `(() => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const s = getComputedStyle(el);
+        return {
+          bottom: Math.round(r.bottom),
+          gridTemplateRows: s.gridTemplateRows,
+          height: Math.round(r.height),
+          left: Math.round(r.left),
+          maxHeight: s.maxHeight,
+          minHeight: s.minHeight,
+          overflowY: s.overflowY,
+          right: Math.round(r.right),
+          top: Math.round(r.top),
+          width: Math.round(r.width)
+        };
+      };
+      const surfaceRect = rect('.komsco-ai__surface');
+      const panelRect = rect('.komsco-ai__panel');
+      const sidebarRect = rect('.komsco-ai__history-sidebar');
+      const historyListRect = rect('.komsco-ai__history-list');
+      const userFooterRect = rect('.komsco-ai__history-user');
+      const composerRect = rect('.komsco-ai__composer-wrap');
+      const surfaceRowHeight = surfaceRect?.gridTemplateRows
+        ?.split(' ')
+        .map((part) => Number.parseFloat(part))
+        .find((value) => Number.isFinite(value)) ?? null;
+      const viewport = { height: window.innerHeight, width: window.innerWidth };
+      const composerBottomGapToSurface =
+        surfaceRect && composerRect ? Math.round(surfaceRect.bottom - composerRect.bottom) : null;
+      const panelBottomGapToSurface =
+        surfaceRect && panelRect ? Math.round(surfaceRect.bottom - panelRect.bottom) : null;
+      const listFooterGap =
+        historyListRect && userFooterRect ? Math.round(userFooterRect.top - historyListRect.bottom) : null;
+      const footerBottomInset =
+        sidebarRect && userFooterRect ? Math.round(sidebarRect.bottom - userFooterRect.bottom) : null;
+      const footerViewportBottomGap = userFooterRect ? Math.round(viewport.height - userFooterRect.bottom) : null;
+      return {
+        ok:
+          Boolean(surfaceRect && panelRect && sidebarRect && historyListRect && userFooterRect && composerRect) &&
+          surfaceRect.bottom <= viewport.height + 1 &&
+          sidebarRect.bottom <= surfaceRect.bottom + 1 &&
+          panelRect.bottom >= surfaceRect.bottom - 1 &&
+          panelRect.bottom <= surfaceRect.bottom + 1 &&
+          composerBottomGapToSurface !== null &&
+          composerBottomGapToSurface >= -1 &&
+          composerBottomGapToSurface <= 2 &&
+          panelBottomGapToSurface !== null &&
+          panelBottomGapToSurface >= -1 &&
+          panelBottomGapToSurface <= 2 &&
+          listFooterGap !== null &&
+          listFooterGap >= 0 &&
+          footerBottomInset !== null &&
+          footerBottomInset >= -1 &&
+          footerViewportBottomGap !== null &&
+          footerViewportBottomGap >= 0 &&
+          (surfaceRowHeight === null || surfaceRowHeight <= surfaceRect.height + 1),
+        composerBottomGapToSurface,
+        footerBottomInset,
+        footerViewportBottomGap,
+        historyListRect,
+        listFooterGap,
+        panelBottomGapToSurface,
+        panelRect,
+        sidebarRect,
+        surfaceRect,
+        surfaceRowHeight,
+        userFooterRect,
+        viewport
+      };
+    })()`,
+    (value) => value?.ok,
+    '792x891 history-open assistant layout without composer gap or lost user footer',
+    10000,
+  );
+
   const screenshotPath = path.join(screenshotDir, 'v0281-chatbot-compact.png');
   await captureScreenshot(screenshotPath);
+  const tallHistoryScreenshotPath = path.join(screenshotDir, 'v0281-chatbot-history-open-792x891.png');
+  await captureScreenshot(tallHistoryScreenshotPath);
 
   return {
     chromeMetrics,
     englishMetrics,
     historyMetrics,
+    tallHistoryMetrics,
+    tallHistoryScreenshotPath,
     screenshotPath,
   };
 };
@@ -3247,11 +3351,14 @@ const verifyConsoleAssistant = async () => {
       if (!response.ok) return { ok: false, status: response.status };
       const payload = await response.json();
       const records = payload?.spec?.records?.chatFeedback || [];
-      const latest = records[records.length - 1] || {};
+      const matching = records.find((record) =>
+        record?.spec?.rating === 'down' &&
+        record?.spec?.optionalComment === ${JSON.stringify(feedbackComment)}
+      );
+      const latest = matching || records[records.length - 1] || {};
       return {
         latest,
-        ok: latest?.spec?.rating === 'down' &&
-          latest?.spec?.optionalComment === ${JSON.stringify(feedbackComment)} &&
+        ok: Boolean(matching) &&
           typeof latest?.spec?.source === 'string' &&
           latest.spec.source.length > 0 &&
           latest.spec.source !== 'unknown'

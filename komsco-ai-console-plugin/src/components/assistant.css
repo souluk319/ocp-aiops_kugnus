@@ -8228,3 +8228,36 @@
   margin: 8px 0 0 !important;
   overflow: hidden;
 }
+
+/* v0.2.9 hard layout lock: history-open surface row must not grow past the visible frame. */
+.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen) {
+  grid-template-rows: minmax(0, 1fr) !important;
+  height: min(
+    var(--komsco-history-height, calc(100dvh - 16px)),
+    calc(100dvh - var(--komsco-history-top, 0px) - 16px)
+  ) !important;
+  max-height: calc(100dvh - var(--komsco-history-top, 0px) - 16px) !important;
+  min-height: 0 !important;
+}
+
+.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
+  > .komsco-ai__history-sidebar,
+.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
+  > .komsco-ai__panel {
+  align-self: stretch !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+}
+
+.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
+  > .komsco-ai__panel {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)
+  .komsco-ai__workspace {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
