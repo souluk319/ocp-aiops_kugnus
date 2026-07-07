@@ -18,8 +18,17 @@ const packageJson = JSON.parse(readFile('komsco-ai-console-plugin/package.json')
 const markdown = readFile('komsco-ai-console-plugin/src/components/AssistantMarkdown.tsx');
 const messageContent = readFile('komsco-ai-console-plugin/src/components/AssistantMessageContent.tsx');
 const actionPlanButtons = readFile('komsco-ai-console-plugin/src/components/AssistantCreateActionPlanButtons.tsx');
+const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
 const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
+const header = readFile('komsco-ai-console-plugin/src/components/AssistantHeader.tsx');
+const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
+const progressTimeline = readFile('komsco-ai-console-plugin/src/components/AssistantProgressTimeline.tsx');
+const evidenceFooter = readFile('komsco-ai-console-plugin/src/components/AssistantEvidenceFooter.tsx');
+const insightRail = readFile('komsco-ai-console-plugin/src/components/AssistantInsightRail.tsx');
+const copy = readFile('komsco-ai-console-plugin/src/components/assistant.copy.tsx');
 const types = readFile('komsco-ai-console-plugin/src/components/assistant.types.ts');
+const gatewayTypes = readFile('komsco-ai-console-plugin/src/services/aiGateway.ts');
+const portalApp = readFile('komsco-ai-console-plugin/src/portal/PortalApp.tsx');
 const actionCandidatesSource = readFile('komsco-ai-console-plugin/src/components/assistant.actionCandidates.ts');
 const commandDetection = readFile('komsco-ai-console-plugin/src/components/assistant.commandDetection.ts');
 const markdownPrepare = readFile('komsco-ai-console-plugin/src/components/assistant.markdownPrepare.ts');
@@ -40,6 +49,8 @@ assert(markdown.includes('prepareMarkdownContent'), 'AssistantMarkdown must norm
 assert(markdownPrepare.includes('isMarkdownHeadingLine'), 'Markdown preparation must reject markdown headings as command lines');
 assert(markdownPrepare.includes('repairFencedCommandBlocks'), 'Markdown preparation must repair malformed command fences');
 assert(markdownPrepare.includes('wrapStandaloneCommands'), 'Markdown preparation must promote standalone commands into command blocks');
+assert(markdownPrepare.includes('stripPublicWebReferenceLines'), 'Markdown preparation must strip public web references from default answers');
+assert(markdown.includes('isPublicWebReferenceHref'), 'Markdown links must suppress public web references in closed-network mode');
 assert(markdown.includes('data-aiops-command-card'), 'Command cards must expose a stable data attribute');
 assert(markdown.includes('data-command-risk'), 'Command cards must expose read-only/approval risk');
 assert(markdown.includes('approval-required'), 'Command cards must mark mutation-like commands as approval-required');
@@ -53,6 +64,14 @@ assert(types.includes('streaming?: boolean;'), 'Message type must include stream
 assert(launcher.includes('streaming: true'), 'Assistant stream start must mark the assistant message as streaming');
 assert(launcher.includes('markLastAssistantStreaming(prev, false)'), 'Assistant stream completion must clear streaming state');
 assert(launcher.includes('dedupeActionCandidates(matched)'), 'Action candidates must be deduped before rendering buttons');
+assert(launcher.includes('mergeConversationActionRefs'), 'Action refs must share one merge/dedupe path');
+assert(launcher.includes('setConversationHistory((prev) =>') && launcher.includes('actionRefs: mergeConversationActionRefs'), 'Created Action Plans must be reflected in conversation history immediately');
+assert(launcher.includes('podDiagnosticCandidateFromAnswer'), 'Answer-derived Pod diagnostic candidates must be available when the answer names a target Pod');
+assert(launcher.includes('targetRequiredDiagnosticCandidateFromAnswer'), 'Execution-enabled targetless answers must render a target-required plan candidate');
+assert(launcher.includes("sourceType: 'pod_diagnostic_review'"), 'Target-required and Pod diagnostic candidates must route to pod diagnostic review');
+assert(launcher.includes('.filter((candidate) => !candidate.planDisabledReason)'), 'Auto-propose must not submit target-required disabled candidates');
+assert(gatewayTypes.includes('planDisabledReason?: string;'), 'Action candidate type must carry a visible disabled reason');
+assert(types.includes('pinned?: boolean;'), 'Conversation history items must persist pinned state');
 assert(actionCandidatesSource.includes('candidateDedupeKey'), 'Action candidate dedupe key must be implemented');
 assert(actionCandidatesSource.includes('candidateActionType'), 'Action candidate dedupe must include action type');
 assert(actionCandidatesSource.includes('namespace') && actionCandidatesSource.includes('kind') && actionCandidatesSource.includes('name'), 'Action candidate dedupe must include target namespace/kind/name');
@@ -139,6 +158,39 @@ assert(
   'Screenshot heading must remain available as markdown heading after repair',
   repairedScreenshotMarkdown,
 );
+
+const closedNetworkMarkdown = prepare.prepareMarkdownContent(
+  [
+    '### 확인 결과',
+    'Diagnosis cluster: https://github.com/openshift/runbooks/blob/master/alerts/cluster.md',
+    'OpenShift docs: https://docs.openshift.com/container-platform/4.20/support/index.html',
+    '- API 서버: https://api.ocp.cywell.server:6443',
+    '```bash',
+    'curl https://github.com/openshift/runbooks/healthz',
+    '```',
+  ].join('\n'),
+  false,
+);
+assert(
+  !closedNetworkMarkdown.includes('github.com/openshift/runbooks/blob'),
+  'Default answer markdown must remove public GitHub runbook URLs',
+  closedNetworkMarkdown,
+);
+assert(
+  !closedNetworkMarkdown.includes('docs.openshift.com/container-platform'),
+  'Default answer markdown must remove public OpenShift documentation URLs',
+  closedNetworkMarkdown,
+);
+assert(
+  closedNetworkMarkdown.includes('https://api.ocp.cywell.server:6443'),
+  'Closed-network markdown filtering must keep cluster/internal API URLs',
+  closedNetworkMarkdown,
+);
+assert(
+  closedNetworkMarkdown.includes('curl https://github.com/openshift/runbooks/healthz'),
+  'Closed-network markdown filtering must not mutate command contents',
+  closedNetworkMarkdown,
+);
 assert(
   messageContent.includes('prepareMarkdownContent(stripDefaultEvidenceAppendix(content), false)'),
   'Runbook section parser must normalize malformed fences before splitting sections',
@@ -162,10 +214,15 @@ assert(!actionPlanButtons.includes('검토 대기 조치 후보'), 'Action Plan 
 assert(!/>Action Plan<\/span>/.test(actionPlanButtons), 'Action Plan candidate card heading must not be Action Plan alone');
 assert(actionPlanButtons.includes('data-aiops-action-candidate-count'), 'Action Plan candidate group must expose candidate count for regression checks');
 assert(actionPlanButtons.includes('data-aiops-action-candidates-expanded'), 'Action Plan candidate group must expose collapsed/expanded state');
+assert(actionPlanButtons.includes('planDisabledReason'), 'Action Plan candidate cards must show target-required disabled state');
+assert(actionPlanButtons.includes('대상 확인 필요'), 'Target-required Action Plan card must use a clear disabled button label');
+assert(actionPlanButtons.includes('komsco-ai__create-action-plan-disabled-reason'), 'Target-required Action Plan card must render the reason visibly');
 assert(actionPlanButtons.includes('Action Plan 후보 ${candidates.length}건'), 'Multiple Action Plan candidates must render a collapsed summary count');
 assert(actionPlanButtons.includes('우선 후보:'), 'Collapsed Action Plan candidate summary must show the primary candidate purpose');
 assert(actionPlanButtons.includes('펼쳐보기'), 'Collapsed Action Plan candidate summary must expose an expand control');
 assert(actionPlanButtons.includes('hidden={multiple && !expanded}'), 'Multiple Action Plan candidate cards must be hidden by default until expanded');
+assert(actionRecords.includes('ActionRecordAuditDetail'), 'Action record audit JSON detail must be a shared component');
+assert(actionRecords.includes('komsco-ai__answer-action-card') && actionRecords.includes('<ActionRecordAuditDetail language={language} record={record} />'), 'Answer Action Plan cards must keep audit JSON detail');
 assert(css.includes('.komsco-ai__create-action-plan-summary'), 'Action Plan candidate group summary CSS must exist');
 assert(css.includes('.komsco-ai__create-action-plan-list[hidden]'), 'Hidden Action Plan candidate list CSS must exist');
 assert(
@@ -183,17 +240,49 @@ assert(
     css.includes('> .komsco-ai__panel'),
   'History-open surface, sidebar, and panel must share one constrained grid row',
 );
-assert(css.includes('grid-template-areas') && css.includes('"history-user"'), 'History sidebar must reserve a fixed user footer grid area');
+assert(css.includes('grid-template-areas') && css.includes('"history-search"') && css.includes('"history-user"'), 'History sidebar must reserve search and fixed user footer grid areas');
 assert(css.includes('grid-area: history-list') && css.includes('grid-area: history-user'), 'History list and user footer must occupy separate grid areas');
 assert(css.includes('max-height: calc(100dvh - var(--komsco-history-top'), 'History sidebar must cap height to the visible viewport');
 assert(css.includes('overscroll-behavior: contain'), 'History list scroll must be contained so the footer is not pushed away');
+assert(historyPanel.includes('SquarePen'), 'History new chat control must use a compose icon, not a plain plus');
+assert(header.includes('PanelLeft') && header.includes('komsco-ai__sidebar-toggle'), 'Main header must own the sidebar toggle');
+assert(!historyPanel.includes('PanelLeft') && !historyPanel.includes('onCloseSidebar'), 'History rail must not duplicate the main sidebar toggle');
+assert(historyPanel.includes('komsco-ai__history-tabs') && historyPanel.includes('role="tablist"'), 'History/upload switching must use a text segmented control below the toolbar');
+assert(!historyPanel.includes('komsco-ai__history-action-group'), 'History toolbar must not duplicate chat/upload switching with extra icons');
+assert(!css.includes('komsco-ai__history-action-group'), 'Removed history icon-switch CSS must not linger');
+assert(historyPanel.includes('type="search"'), 'History panel must include conversation search');
+assert(historyPanel.includes('toggleConversationPinned'), 'History panel must expose pin/unpin actions');
+assert(historyPanel.includes('sortConversationActionRefs') && historyPanel.includes('ACTION_STAGE_RANK'), 'History action refs must be sorted by lifecycle stage and recency');
+assert(historyPanel.includes('komsco-ai__history-item-pinned-label'), 'Pinned conversations must show a pinned state marker');
+assert(!historyPanel.includes('komsco-ai__history-item-pin${'), 'Unpinned history rows must not show a persistent pin icon');
+assert(historyPanel.includes('visibleConversationHistory'), 'History panel must sort/filter the rendered conversation list');
+assert(copy.includes('searchHistory') && copy.includes('pinConversation') && copy.includes('unpinConversation'), 'History search and pin labels must be localized');
+assert(css.includes('.komsco-ai__history-search'), 'History search CSS must exist');
+assert(css.includes('.komsco-ai__history-tabs') && css.includes('.komsco-ai__history-tab--active'), 'History segmented tab CSS must exist');
+assert(css.includes('.komsco-ai__history-item-pinned-label'), 'Pinned state marker CSS must exist');
 
+assert(launcher.includes('최종 답변의 확인 결과를 정리했습니다.'), 'RCA context completion copy must be product-facing');
+assert(!launcher.includes('최종 답변에 사용한 근거를 연결했습니다.'), 'RCA context completion copy must not expose internal connection wording');
+assert(!progressTimeline.includes('답변 근거 연결 완료'), 'Progress timeline must not expose old evidence-link wording');
+assert(evidenceFooter.includes("isKo ? '확인 결과' : 'Evidence'"), 'Evidence footer title must use product-facing Korean copy');
+assert(evidenceFooter.includes("isKo ? '확인 결과 상세' : 'Evidence details'"), 'Evidence details summary must use product-facing Korean copy');
+assert(!evidenceFooter.includes('근거 상세보기'), 'Evidence footer must not use legal-toned Korean wording');
+assert(actionRecords.includes("label: isKo ? '확인 결과' : 'Evidence'"), 'Action Plan card must label evidence as 확인 결과 in Korean');
+assert(!actionRecords.includes('근거 기반 조치 후보'), 'Action Plan card must not use legal-toned evidence wording');
+assert(insightRail.includes("'확인 결과'"), 'Insight rail must use product-facing answer context copy');
+assert(!insightRail.includes('답변 근거'), 'Insight rail must not expose old answer evidence wording');
 assert(gateway.includes('코드블록 안에는 실행 가능한 명령만'), 'Gateway prompt must forbid prose inside code blocks');
 assert(gateway.includes('Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖'), 'Gateway prompt must keep tips/headings/lists outside code blocks');
-assert(gateway.includes('현재 판단`, `원인 후보`, `확인한 근거`, `조치 방법`, `추가 확인`'), 'Gateway prompt must define v0.2.9 answer order');
-assert(contracts.includes('"확인한 근거"'), 'RCA contract must use 확인한 근거');
+assert(gateway.includes('현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인`'), 'Gateway prompt must define v0.2.9 answer order');
+assert(gateway.includes('공용 웹 URL은 기본 답변에 출력하지 마세요'), 'Gateway prompt must forbid public web URLs in default closed-network answers');
+assert(contracts.includes('"확인 결과"'), 'RCA contract must use 확인 결과');
 assert(contracts.includes('"조치 방법"'), 'RCA contract must use 조치 방법');
+assert(!contracts.includes('"확인한 근거"'), 'RCA contract must not use old 확인한 근거 wording');
 assert(!contracts.includes('"확인한 증적"'), 'RCA contract must not use old 확인한 증적 wording');
+assert(portalApp.includes('확인 결과:'), 'Portal prompt must use 확인 결과 for attached context');
+assert(portalApp.includes('확인 결과, 원인 후보, Action Plan, 검증/롤백, 추가 확인'), 'Portal prompt must use product-facing answer order');
+assert(!portalApp.includes('확인한 근거'), 'Portal prompt must not use old 확인한 근거 wording');
+assert(!portalApp.includes('근거 상세보기'), 'Portal prompt must not use old evidence detail wording');
 
 const screenshotRegressionTerms = [
   '```bash\\nPod의 상태 정보',

@@ -769,7 +769,7 @@ def build_rca_context(
                 "format": "operations_rca_report",
                 "requiredSections": [
                     "원인 후보",
-                    "확인한 근거",
+                    "확인 결과",
                     "조치 방법",
                     "추가 확인",
                     "재발 방지",
@@ -1096,7 +1096,7 @@ def build_runtime_tool_plan(
         missing = [
             {
                 "type": "action_approval",
-                "reason": "변경 조치는 원인 후보와 조치 대상이 확인된 뒤 ActionProposal/SealedActionPlan으로 분리",
+                "reason": "변경 조치는 원인 후보와 조치 대상이 확인된 뒤 승인 가능한 조치 계획으로 분리",
             }
         ]
     elif (asks_action_followup or asks_action) and not (asks_pod and asks_restart):
@@ -1194,7 +1194,7 @@ def build_runtime_tool_plan(
                 "adapter": "OpenShift",
                 "verb": "get",
                 "evidence_type": "metric",
-                "reason": "최근 restart 증가량, CPU/Memory 압력 같은 metric 근거 확인",
+                "reason": "최근 restart 증가량, CPU/Memory 압력 같은 metric 확인",
             },
             {
                 "step": 9,
@@ -1203,7 +1203,7 @@ def build_runtime_tool_plan(
                 "adapter": "AI Gateway",
                 "verb": "get",
                 "evidence_type": "runbook",
-                "reason": "pgvector/RAG에 등록된 운영 Runbook을 검색해 RCA 조치 후보와 재발 방지 근거에 연결",
+                "reason": "pgvector/RAG에 등록된 운영 Runbook을 검색해 RCA 조치 후보와 재발 방지 참고 자료로 연결",
             },
         ]
         missing = [

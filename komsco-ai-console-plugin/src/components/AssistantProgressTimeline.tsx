@@ -88,12 +88,12 @@ export const rcaContextPhaseLabel = (phase?: string): string => {
     .trim()
     .toLowerCase();
   if (normalized === 'post_answer') {
-    return '답변 근거 연결 완료';
+    return '확인 결과 정리 완료';
   }
   if (normalized === 'pre_answer' || normalized === 'plan_ready') {
-    return '답변 근거 준비 완료';
+    return '확인 결과 준비 완료';
   }
-  return '답변 근거 연결 완료';
+  return '확인 결과 정리 완료';
 };
 
 const translateProductProgressText = (text: string, language: UiLanguage): string => {
@@ -111,7 +111,7 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     return `Checked ${namespaceCheckMatch[1]} namespace`;
   }
 
-  const ragCountMatch = text.match(/^문서 근거\s+(\d+)건 확인$/);
+  const ragCountMatch = text.match(/^참고 문서\s+(\d+)건 확인$/);
   if (ragCountMatch) {
     return `Checked ${ragCountMatch[1]} document sources`;
   }
@@ -126,12 +126,12 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/제품 접근 확인 완료/g, 'Product access confirmed')
     .replace(/제품 접근 확인/g, 'Product access confirmed')
     .replace(/정책 확인/g, 'Policy check')
-    .replace(/근거 collection allowed/g, 'Evidence collection allowed')
-    .replace(/근거 수집 허용/g, 'Evidence collection allowed')
-    .replace(/조회\/증거 수집 허용/g, 'Evidence collection allowed')
+    .replace(/확인 결과 collection allowed/g, 'Evidence collection allowed')
+    .replace(/확인 결과 수집 허용/g, 'Evidence collection allowed')
+    .replace(/조회\/증거 수집 허용/g, '조회 허용')
     .replace(/감사 레코드 기록/g, 'Audit record written')
     .replace(/감사 기록/g, 'Audit record')
-    .replace(/증거 수집 계획 검증 완료/g, 'Evidence plan validation complete')
+    .replace(/조회 계획 검증 완료/g, '조회 계획 검증 완료')
     .replace(/실행형 Tool Plan 검증 완료/g, 'Evidence plan validation complete')
     .replace(/요청 준비 완료/g, 'Request ready')
     .replace(/요청 준비/g, 'Request setup')
@@ -161,27 +161,32 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/답변 표시/g, 'Answer display')
     .replace(/답변을 화면에 표시하는 중입니다\./g, 'Displaying the answer.')
     .replace(/Evidence plan 검증 Complete/g, 'Evidence plan validation complete')
+    .replace(/증거 수집 계획 검증 완료/g, 'Evidence plan validation complete')
     .replace(/증거 수집 계획 생성/g, 'Evidence plan created')
     .replace(/증거 수집 계획 실패/g, 'Evidence plan failed')
     .replace(/증거 수집 계획/g, 'Evidence plan')
-    .replace(/답변 근거 연결 완료/g, 'Answer evidence linked')
-    .replace(/답변 근거 준비 완료/g, 'Answer evidence prepared')
-    .replace(/답변 근거 연결 실패/g, 'Answer evidence link failed')
-    .replace(/답변 근거/g, 'Answer evidence')
-    .replace(/근거 기록 완료/g, 'Evidence recorded')
-    .replace(/근거 기록 시작/g, 'Recording evidence')
-    .replace(/근거 기록/g, 'Evidence record')
-    .replace(/문서 근거 확인 시작/g, 'Checking document evidence')
-    .replace(/문서 근거/g, 'Document evidence')
-    .replace(/경고 근거 확인 시작/g, 'Checking alert evidence')
-    .replace(/경고 근거 수집 완료/g, 'Alert evidence collected')
-    .replace(/경고 근거/g, 'Alert evidence')
-    .replace(/노드 상태 근거 확인 시작/g, 'Checking node evidence')
-    .replace(/노드 상태 근거 수집 완료/g, 'Node evidence collected')
-    .replace(/노드 상태 근거/g, 'Node evidence')
+    .replace(/조회 계획 생성/g, 'Evidence plan created')
+    .replace(/조회 계획 실패/g, 'Evidence plan failed')
+    .replace(/조회 계획/g, 'Evidence plan')
+    .replace(/확인 결과 정리 완료/g, 'Answer context ready')
+    .replace(/확인 결과 준비 완료/g, 'Answer context prepared')
+    .replace(/확인 결과 정리 실패/g, 'Answer context failed')
+    .replace(/답변 확인 결과/g, 'Answer context')
+    .replace(/확인 결과/g, 'Answer context')
+    .replace(/확인 결과 기록 완료/g, 'Evidence recorded')
+    .replace(/확인 결과 기록 시작/g, 'Recording evidence')
+    .replace(/확인 결과 기록/g, 'Evidence record')
+    .replace(/참고 문서 확인 시작/g, 'Checking document sources')
+    .replace(/참고 문서/g, 'Document sources')
+    .replace(/경고 조회 결과 확인 시작/g, 'Checking alert data')
+    .replace(/경고 조회 결과 수집 완료/g, 'Alert data collected')
+    .replace(/경고 조회 결과/g, 'Alert data')
+    .replace(/노드 상태 조회 결과 확인 시작/g, 'Checking node data')
+    .replace(/노드 상태 조회 결과 수집 완료/g, 'Node data collected')
+    .replace(/노드 상태 조회 결과/g, 'Node data')
     .replace(/재시작 지표 확인 시작/g, 'Checking restart metrics')
     .replace(/재시작 지표 수집 완료/g, 'Restart metrics collected')
-    .replace(/재시작 지표 근거/g, 'Restart metric evidence')
+    .replace(/재시작 지표 확인 결과/g, 'Restart metric data')
     .replace(/오류 확인 필요/g, 'Needs error review')
     .replace(/오류 응답 수신/g, 'Error response received')
     .replace(/장기 실행 루프 유지 중/g, 'Keeping the run loop alive')
@@ -209,33 +214,33 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
     return translateProductProgressText(rcaContextPhaseLabel(phaseMatch[1]), language);
   }
   if (/^RCA\s*문맥\s*연결$/i.test(text)) {
-    return translateProductProgressText('답변 근거', language);
+    return translateProductProgressText('답변 확인 결과', language);
   }
   if (text === 'RCA 문맥 연결 실패') {
-    return translateProductProgressText('답변 근거 연결 실패', language);
+    return translateProductProgressText('확인 결과 정리 실패', language);
   }
   const legacyRcaDigestText = ['RCA Context', 'digest와', ['evidence', 'refs'].join(' ')].join(' ');
   if (text.includes(legacyRcaDigestText)) {
     return language === 'en'
-      ? 'Linked the evidence used in the final answer.'
-      : '최종 답변에 사용한 근거를 연결했습니다.';
+      ? 'Prepared the data used in the final answer.'
+      : '최종 답변의 확인 결과를 정리했습니다.';
   }
   if (text.includes('수집/누락/실패 근거를 RCA Context로 연결')) {
     return language === 'en'
       ? 'Prepared collected evidence and follow-up checks before answering.'
-      : '답변 전에 수집 근거와 추가 확인 항목을 정리했습니다.';
+      : '답변 전에 조회 결과와 추가 확인 항목을 정리했습니다.';
   }
   if (/^ev-[a-z0-9-]+\s+기록$/i.test(text)) {
-    return translateProductProgressText('근거 기록 완료', language);
+    return translateProductProgressText('확인 결과 기록 완료', language);
   }
   if (text === '증거 참조 기록 시작') {
-    return translateProductProgressText('근거 기록 시작', language);
+    return translateProductProgressText('확인 결과 기록 시작', language);
   }
   if (text === '증거 참조 기록') {
-    return translateProductProgressText('근거 기록', language);
+    return translateProductProgressText('확인 결과 기록', language);
   }
   if (text === 'Rag Context Evidence') {
-    return translateProductProgressText('문서 근거', language);
+    return translateProductProgressText('참고 문서', language);
   }
   if (text === 'oc read-only namespace inventory') {
     return translateProductProgressText('네임스페이스 사용 여부 조회', language);
@@ -254,20 +259,20 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
     return translateProductProgressText('요청 해석 완료', language);
   }
   if (text === 'RCA Context' || text === 'RCA Evidence Context' || text === 'RCA 근거 문맥') {
-    return translateProductProgressText('답변 근거', language);
+    return translateProductProgressText('답변 확인 결과', language);
   }
   if (text === 'Active Alerts Evidence') {
-    return translateProductProgressText('경고 근거', language);
+    return translateProductProgressText('경고 조회 결과', language);
   }
   if (text === 'Node Status Evidence') {
-    return translateProductProgressText('노드 상태 근거', language);
+    return translateProductProgressText('노드 상태 조회 결과', language);
   }
   if (text === 'Restart Metric Evidence') {
-    return translateProductProgressText('재시작 지표 근거', language);
+    return translateProductProgressText('재시작 지표 확인 결과', language);
   }
-  const ragSearchMatch = text.match(/^RAG 근거\s+(\d+)건\s+검색$/);
+  const ragSearchMatch = text.match(/^RAG\s+(?:근거|참고 문서)\s+(\d+)건\s+검색$/);
   if (ragSearchMatch) {
-    return translateProductProgressText(`문서 근거 ${ragSearchMatch[1]}건 확인`, language);
+    return translateProductProgressText(`참고 문서 ${ragSearchMatch[1]}건 확인`, language);
   }
 
   const normalized = text
@@ -280,37 +285,37 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
     .replace(/조회\/증거 수집 허용/g, 'Evidence collection allowed')
     .replace(/감사 레코드 기록/g, 'Audit record written')
     .replace(/감사 기록/g, 'Audit record')
-    .replace(/증거 수집 계획 검증 완료/g, 'Evidence plan validation complete')
-    .replace(/Node 상태 RCA 증거 수집 완료/g, '노드 상태 근거 수집 완료')
-    .replace(/Active Alert RCA 증거 수집 완료/g, '경고 근거 수집 완료')
+    .replace(/조회 계획 검증 완료/g, 'Evidence plan validation complete')
+    .replace(/Node 상태 RCA 증거 수집 완료/g, '노드 상태 조회 결과 수집 완료')
+    .replace(/Active Alert RCA 증거 수집 완료/g, '경고 조회 결과 수집 완료')
     .replace(/Restart metric RCA 증거 수집 완료/g, '재시작 지표 수집 완료')
     .replace(/oc read-only namespace inventory/gi, '네임스페이스 사용 여부 조회')
     .replace(/oc_test_pod_create_preflight/gi, '테스트 Pod 생성 사전 확인')
     .replace(/namespace and server preflight/gi, '대상 네임스페이스 및 서버 확인')
     .replace(/request intent classifier/gi, '요청 해석 확인')
-    .replace(/Node Status Evidence 시작/g, '노드 상태 근거 확인 시작')
-    .replace(/Active Alerts Evidence 시작/g, '경고 근거 확인 시작')
+    .replace(/Node Status Evidence 시작/g, '노드 상태 조회 결과 확인 시작')
+    .replace(/Active Alerts Evidence 시작/g, '경고 조회 결과 확인 시작')
     .replace(/Restart Metric Evidence 시작/g, '재시작 지표 확인 시작')
-    .replace(/Node 상태 근거 수집 완료/g, '노드 상태 근거 수집 완료')
-    .replace(/Active Alert 근거 수집 완료/g, '경고 근거 수집 완료')
+    .replace(/Node 상태 근거 수집 완료/g, '노드 상태 조회 결과 수집 완료')
+    .replace(/Active Alert 근거 수집 완료/g, '경고 조회 결과 수집 완료')
     .replace(/Restart metric 근거 수집 완료/g, '재시작 지표 수집 완료')
-    .replace(/문서 근거 시작/g, '문서 근거 확인 시작')
-    .replace(/Rag Context Evidence 시작/g, '문서 근거 확인 시작')
-    .replace(/Rag Context Evidence/g, '문서 근거')
-    .replace(/RCA Evidence Context/g, '답변 근거')
-    .replace(/RCA 근거 문맥/g, '답변 근거')
-    .replace(/Node Status 근거 시작/g, '노드 상태 근거 확인 시작')
-    .replace(/Active Alerts 근거 시작/g, '경고 근거 확인 시작')
+    .replace(/문서 근거 시작/g, '참고 문서 확인 시작')
+    .replace(/Rag Context Evidence 시작/g, '참고 문서 확인 시작')
+    .replace(/Rag Context Evidence/g, '참고 문서')
+    .replace(/RCA Evidence Context/g, '답변 확인 결과')
+    .replace(/RCA 근거 문맥/g, '답변 확인 결과')
+    .replace(/Node Status 근거 시작/g, '노드 상태 조회 결과 확인 시작')
+    .replace(/Active Alerts 근거 시작/g, '경고 조회 결과 확인 시작')
     .replace(/Restart Metric 근거 시작/g, '재시작 지표 확인 시작')
-    .replace(/문서 Context 근거 시작/g, '문서 근거 확인 시작')
-    .replace(/RCA 증거/g, '근거')
-    .replace(/실행형 Tool Plan/g, '증거 수집 계획')
-    .replace(/Tool Plan/g, '증거 수집 계획')
-    .replace(/RCA Context/g, '답변 근거')
-    .replace(/RCA\s*문맥/g, '답변 근거')
-    .replace(/\bEvidence\b/g, '근거')
+    .replace(/문서 Context 근거 시작/g, '참고 문서 확인 시작')
+    .replace(/RCA 증거/g, '확인 결과')
+    .replace(/실행형 Tool Plan/g, '조회 계획')
+    .replace(/Tool Plan/g, '조회 계획')
+    .replace(/RCA Context/g, '답변 확인 결과')
+    .replace(/RCA\s*문맥/g, '답변 확인 결과')
+    .replace(/\bEvidence\b/g, '확인 결과')
     .replace(/\bRag\b/g, '문서')
-    .replace(/evidence\s+refs/g, '근거')
+    .replace(/evidence\s+refs/g, '확인 결과')
     .replace(/digest/g, '연결 정보')
     .replace(/post_answer/g, '답변 완료 후')
     .replace(/pre_answer/g, '답변 전')

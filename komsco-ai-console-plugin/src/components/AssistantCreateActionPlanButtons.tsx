@@ -44,13 +44,19 @@ const actionCandidateProblemLabel = (candidate: AiopsActionCandidate): string =>
   if (/crashloop|restart/i.test(`${candidate.sourceType || ''} ${candidate.sourceFindingId || ''}`)) {
     return '워크로드 이상 징후';
   }
-  return candidate.evidence ? '근거 기반 조치 후보' : '운영 확인 필요';
+  if (/diagnostic|rca|evidence/i.test(`${candidate.sourceType || ''} ${candidate.sourceFindingId || ''}`)) {
+    return '문제 확인 필요';
+  }
+  return candidate.evidence ? '확인 결과 기반 조치 후보' : '운영 확인 필요';
 };
 
 const actionCandidateActionLabel = (candidate: AiopsActionCandidate): string => {
   const firstStep = candidate.recommendationSteps?.[0];
   if (firstStep) {
     return firstStep.replace(/\s*Action Plan\s*생성\s*/gi, '계획 생성');
+  }
+  if (candidate.planDisabledReason) {
+    return '대상 확인 후 계획 생성';
   }
   return candidate.executable === false ? '검토 계획 생성' : '승인 후 실행 준비';
 };
@@ -124,11 +130,12 @@ const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButton
         hidden={multiple && !expanded}
         id={groupId}
       >
-        {candidates.map((candidate) => {
-          const busy = candidate.id === busyCandidateId;
-          return (
-            <div className="komsco-ai__create-action-plan-row" key={candidate.id}>
-              <span className="komsco-ai__create-action-plan-meta">
+	        {candidates.map((candidate) => {
+	          const busy = candidate.id === busyCandidateId;
+	          const disabledReason = candidate.planDisabledReason;
+	          return (
+	            <div className="komsco-ai__create-action-plan-row" key={candidate.id}>
+	              <span className="komsco-ai__create-action-plan-meta">
                 <span className="komsco-ai__create-action-plan-eyebrow">
                   {isKo ? 'Action Plan 후보' : 'Action candidate'}
                 </span>
@@ -149,24 +156,43 @@ const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButton
                   <strong>{isKo ? '조치' : 'Action'}</strong>
                   <span>{isKo ? actionCandidateActionLabel(candidate) : 'Create approval-ready plan'}</span>
                 </span>
-                <span className="komsco-ai__create-action-plan-note">
-                  <strong>{isKo ? '승인 조건' : 'Approval'}</strong>
-                  <span>{isKo ? actionCandidateApprovalLabel(candidate) : 'No change before approval'}</span>
-                </span>
-              </span>
-              <Button
-                className="komsco-ai__action-button komsco-ai__create-action-plan-button"
-                isDisabled={busy}
-                isLoading={busy}
-                onClick={() => onCreatePlan(candidate)}
-                size="sm"
-                variant="secondary"
-                aria-label="Action Plan 생성"
-              >
-                {busy ? (isKo ? '생성 중' : 'Creating') : isKo ? 'Action Plan 생성' : 'Create Action Plan'}
-              </Button>
-            </div>
-          );
+	                <span className="komsco-ai__create-action-plan-note">
+	                  <strong>{isKo ? '승인 조건' : 'Approval'}</strong>
+	                  <span>{isKo ? actionCandidateApprovalLabel(candidate) : 'No change before approval'}</span>
+	                </span>
+	                {disabledReason && (
+	                  <span className="komsco-ai__create-action-plan-disabled-reason">
+	                    {isKo ? disabledReason : 'A target resource is required before creating a plan.'}
+	                  </span>
+	                )}
+	              </span>
+	              <Button
+	                className="komsco-ai__action-button komsco-ai__create-action-plan-button"
+	                isDisabled={busy || Boolean(disabledReason)}
+	                isLoading={busy}
+	                onClick={() => {
+	                  if (!disabledReason) {
+	                    onCreatePlan(candidate);
+	                  }
+	                }}
+	                size="sm"
+	                variant="secondary"
+	                aria-label={disabledReason || 'Action Plan 생성'}
+	              >
+	                {busy
+	                  ? isKo
+	                    ? '생성 중'
+	                    : 'Creating'
+	                  : disabledReason
+	                    ? isKo
+	                      ? '대상 확인 필요'
+	                      : 'Target required'
+	                    : isKo
+	                      ? 'Action Plan 생성'
+	                      : 'Create Action Plan'}
+	              </Button>
+	            </div>
+	          );
         })}
       </div>
     </div>

@@ -2,7 +2,7 @@ import * as React from 'react';
 
 import AssistantMarkdown from './AssistantMarkdown';
 import { normalizeAssistantDisplayText } from './assistant.display';
-import { prepareMarkdownContent } from './assistant.markdownPrepare';
+import { isPublicWebReferenceHref, prepareMarkdownContent } from './assistant.markdownPrepare';
 import { formatFileSize, getAttachmentPreviewUrl } from './assistant.attachments';
 import {
   cleanMarkdownLabel,
@@ -98,8 +98,8 @@ const RUNBOOK_SECTION_TITLES: Record<UiLanguage, Record<RunbookSectionId, string
     action: 'Action Plan',
     cause: '원인 후보',
     decisions: '판단 결과',
-    details: '근거 상세보기',
-    evidence: '확인한 근거',
+    details: '확인 자료 상세',
+    evidence: '확인 결과',
     followup: '추가 확인',
     impact: '영향 범위',
     summary: '현재 판단',
@@ -172,7 +172,7 @@ const RUNBOOK_SECTION_META: Record<
     },
     cause: {
       badge: '분석',
-      subtitle: '증상과 근거로 좁힌 원인 후보',
+      subtitle: '증상과 조회 결과로 좁힌 원인 후보',
       tone: 'mid',
     },
     decisions: {
@@ -182,11 +182,11 @@ const RUNBOOK_SECTION_META: Record<
     },
     details: {
       badge: '상세',
-      subtitle: '감사와 재검토를 위한 원문 근거',
+      subtitle: '재검토를 위한 원문 확인 자료',
       tone: 'neutral',
     },
     evidence: {
-      badge: '근거',
+      badge: '결과',
       subtitle: '클러스터에서 확인한 신호와 조회 결과',
       tone: 'low',
     },
@@ -243,7 +243,7 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
     return 'impact';
   }
   if (
-    /^(확인한 근거|실제 근거|근거|증거|관측 근거|확인 근거|confirmed evidence|query evidence|evidence|observed evidence)$/i.test(
+    /^(확인 결과|확인한 결과|조회 결과|확인한 조회 결과|확인한 근거|실제 근거|근거|증거|관측 근거|확인 근거|confirmed evidence|query evidence|evidence|observed evidence)$/i.test(
       heading,
     )
   ) {
@@ -291,7 +291,7 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
   ) {
     return 'terminal';
   }
-  if (/^(근거 상세보기|상세 근거|상세|원문 근거|evidence details|details|source evidence)$/i.test(heading)) {
+  if (/^(확인 자료 상세|확인 결과 상세|상세 확인 자료|근거 상세보기|상세 근거|상세|원문 근거|evidence details|details|source evidence)$/i.test(heading)) {
     return 'details';
   }
   return null;
@@ -753,6 +753,9 @@ export const renderFormattedContent = (
 
     const markdownReference = parseMarkdownLink(line);
     if (markdownReference) {
+      if (isPublicWebReferenceHref(markdownReference.href)) {
+        continue;
+      }
       flushLists();
       referenceItems.push(markdownReference);
       continue;
@@ -760,9 +763,13 @@ export const renderFormattedContent = (
 
     const reference = line.match(/^(.{2,120}?):\s+(https?:\/\/\S+)$/);
     if (reference) {
+      const href = reference[2].replace(/[),.;]+$/, '');
+      if (isPublicWebReferenceHref(href)) {
+        continue;
+      }
       flushLists();
       referenceItems.push({
-        href: reference[2].replace(/[),.;]+$/, ''),
+        href,
         label: cleanMarkdownLabel(reference[1]),
       });
       continue;

@@ -121,9 +121,9 @@ const buildAssistantPrompt = (context: AssistantLaunchContext): string => {
     context.severity ? `심각도: ${context.severity}` : '',
     context.reason ? `이유: ${context.reason}` : '',
     context.actionType ? `요청 작업: ${context.actionType}` : '',
-    evidence.length > 0 ? `근거: ${evidence.join(' / ')}` : '',
+    evidence.length > 0 ? `확인 결과: ${evidence.join(' / ')}` : '',
     '',
-    '답변 형식: 요약, 영향 범위, 확인한 근거, 원인 후보, Action Plan, 검증/롤백, 근거 상세보기 순서.',
+    '답변 형식: 요약, 영향 범위, 확인 결과, 원인 후보, Action Plan, 검증/롤백, 추가 확인 순서.',
   ]
     .filter((line) => line !== '')
     .join('\n');
@@ -714,8 +714,18 @@ const textValue = (value: unknown, fallback = '-'): string => {
   return JSON.stringify(value);
 };
 
-const localizeTelemetryText = (value: string): string =>
+const PUBLIC_WEB_URL_RE =
+  /\bhttps?:\/\/(?:github\.com|docs\.openshift\.com|docs\.redhat\.com|access\.redhat\.com)\/[^\s)]+/gi;
+
+const stripPublicWebUrls = (value: string): string =>
   value
+    .replace(/\s*See also\s+https?:\/\/(?:github\.com|docs\.openshift\.com|docs\.redhat\.com|access\.redhat\.com)\/[^\s)]+/gi, '')
+    .replace(PUBLIC_WEB_URL_RE, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+const localizeTelemetryText = (value: string): string =>
+  stripPublicWebUrls(value)
     .replace(/\blocal-aiops-fixture-ledger\b/gi, 'Gateway 검증 원장')
     .replace(/\brun-local-fixture\b/gi, 'Gateway 검증 실행')
     .replace(/\blocal-fixture\b/gi, 'Gateway 검증')

@@ -128,7 +128,7 @@ export const DocsHero: React.FC<{
     <div>
       <span className="komsco-ai-page__section-kicker">고객 문서</span>
       <h2>고객 문서 저장소</h2>
-      <p>고객 문서를 등록하고 검색 가능한 근거 조각과 권한 범위를 확인합니다.</p>
+      <p>고객 문서를 등록하고 검색 가능한 참조 조각과 권한 범위를 확인합니다.</p>
     </div>
     <div className="komsco-ai-page__docs-actions">
       <input
@@ -177,7 +177,7 @@ export const DocsMetrics: React.FC<{
       value={documentsLoading ? '...' : documents.length}
     />
     <MetricTile
-      detail="검색 가능한 근거 조각"
+      detail="검색 가능한 참조 조각"
       icon={<ProjectDiagramIcon />}
       label="검색 조각"
       tone={totalChunks > 0 ? 'success' : 'warning'}
@@ -302,7 +302,7 @@ export const DocsLayout: React.FC<{
           </div>
 
           <div className="komsco-ai-page__docs-safety">
-            원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 근거 미리보기만 표시합니다.
+            원본 전체 파일을 그대로 노출하지 않고, Gateway가 반환한 참조 미리보기만 표시합니다.
           </div>
 
           {previewLoading ? (

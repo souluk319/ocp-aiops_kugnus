@@ -185,26 +185,49 @@ const REMEDIATION_REASON_LABEL_KO: Record<string, string> = {
   target_resource_unavailable: '대상 리소스를 다시 조회하지 못해 결과를 확인하지 못했습니다.',
 };
 
+const reviewOnlyExecutionDetail = (toolName: string, reason: string): string => {
+  const text = `${toolName} ${reason}`.toLowerCase();
+  if (/namespace.*cleanup|namespace_cleanup/.test(text)) {
+    return 'Namespace 정리 검토가 실행 기록으로 남았습니다. 실제 namespace 삭제는 실행하지 않았습니다.';
+  }
+  if (/test.*pod.*creation|test_pod_create/.test(text)) {
+    return '테스트 Pod 생성 검토가 실행 기록으로 남았습니다. 실제 Pod 생성은 실행하지 않았습니다.';
+  }
+  if (/pod.*diagnostic|pod_diagnostic|diagnostic/.test(text)) {
+    return 'Pod 진단 검토가 실행 기록으로 남았습니다. Pod 삭제나 재시작은 실행하지 않았습니다.';
+  }
+  return '검토 실행 기록이 남았습니다. 클러스터 변경은 실행하지 않았습니다.';
+};
+
 export const getExecutionOutcomeSummary = (
   record: AiopsRecordView,
   aiopsStatus: AiopsRuntimeStatus | null,
 ): ExecutionOutcomeSummary | null => {
   const decision = getApprovalDecision(record);
-  if (!decision) {
+  const directSpec = getRecordSpecMap(record);
+  const directExecutionRecord =
+    !decision &&
+    (record.kind === 'ExecutionRecord' || Boolean(directSpec.mutationOutcome) || Boolean(directSpec.approvalId));
+
+  if (!decision && !directExecutionRecord) {
     return null;
   }
 
-  const approvalId = getApprovalId(record);
+  const approvalId = decision ? getApprovalId(record) : '';
   const executions = aiopsStatus?.spec.records.executionRecords ?? [];
-  const execution = findExecutionForApproval(executions, approvalId);
+  const execution = directExecutionRecord ? record : findExecutionForApproval(executions, approvalId);
   if (!execution) {
     return null;
   }
 
-  const isAutoPolicy = decision.decidedBy === 'auto-policy';
-  const decisionAction = asObjectMap(decision.action);
-  const toolName = typeof decisionAction?.toolName === 'string' ? decisionAction.toolName : '';
   const executionSpec = getRecordSpecMap(execution);
+  const executorTrace = asObjectMap(executionSpec.executorTrace);
+  const isAutoPolicy =
+    decision?.decidedBy === 'auto-policy' || executionSpec.decidedBy === 'auto-policy';
+  const decisionAction = asObjectMap(decision?.action);
+  const toolName = typeof decisionAction?.toolName === 'string' ? decisionAction.toolName : '';
+  const executionToolName =
+    toolName || (typeof executorTrace?.toolName === 'string' ? executorTrace.toolName : '');
   const mutationOutcome = asObjectMap(executionSpec.mutationOutcome);
   const remediationOutcome = asObjectMap(executionSpec.remediationOutcome);
   const mutationStatus = typeof mutationOutcome?.status === 'string' ? mutationOutcome.status : '';
@@ -212,8 +235,11 @@ export const getExecutionOutcomeSummary = (
     typeof remediationOutcome?.status === 'string' ? remediationOutcome.status : '';
   const remediationReason =
     typeof remediationOutcome?.reason === 'string' ? remediationOutcome.reason : '';
+  const reviewOnly = executorTrace?.reviewOnly === true;
 
-  const title = isAutoPolicy
+  const title = reviewOnly
+    ? '검토 실행 기록이 남았습니다.'
+    : isAutoPolicy
     ? toolName
       ? `자동으로 조치를 실행했습니다 (정책: ${toolName})`
       : '자동으로 조치를 실행했습니다.'
@@ -238,7 +264,10 @@ export const getExecutionOutcomeSummary = (
     return {
       tone: 'ok',
       title,
-      detail: REMEDIATION_REASON_LABEL_KO[remediationReason] || '문제 해결이 확인되었습니다.',
+      detail:
+        (reviewOnly ? reviewOnlyExecutionDetail(executionToolName, remediationReason) : '') ||
+        REMEDIATION_REASON_LABEL_KO[remediationReason] ||
+        '문제 해결이 확인되었습니다.',
     };
   }
   if (remediationStatus === 'verification_failed') {
@@ -246,6 +275,7 @@ export const getExecutionOutcomeSummary = (
       tone: 'warn',
       title,
       detail:
+        (reviewOnly ? reviewOnlyExecutionDetail(executionToolName, remediationReason) : '') ||
         REMEDIATION_REASON_LABEL_KO[remediationReason] ||
         '실행은 됐지만 해결 여부가 아직 확인되지 않았습니다.',
     };
@@ -255,6 +285,7 @@ export const getExecutionOutcomeSummary = (
     tone: 'warn',
     title,
     detail:
+      (reviewOnly ? reviewOnlyExecutionDetail(executionToolName, remediationReason) : '') ||
       REMEDIATION_REASON_LABEL_KO[remediationReason] ||
       '실행은 됐지만 이 조치 유형은 자동 확인을 지원하지 않습니다. 클러스터에서 직접 확인해 주세요.',
   };
@@ -284,6 +315,7 @@ export const getRecordTargetLabel = (record: AiopsRecordView): string => {
   const candidateActionRequest = spec.candidateActionRequest;
   const sealedActionPlan = spec.sealedActionPlan;
   const approvalDecision = spec.approvalDecision;
+  const executorTrace = spec.executorTrace;
   const target =
     directTarget && typeof directTarget === 'object'
       ? directTarget
@@ -292,9 +324,11 @@ export const getRecordTargetLabel = (record: AiopsRecordView): string => {
         : candidateActionRequest && typeof candidateActionRequest === 'object'
           ? (candidateActionRequest as Record<string, unknown>).target
           : sealedActionPlan && typeof sealedActionPlan === 'object'
-            ? (sealedActionPlan as Record<string, unknown>).target
-            : approvalDecision && typeof approvalDecision === 'object'
-              ? (approvalDecision as Record<string, unknown>).target
+          ? (sealedActionPlan as Record<string, unknown>).target
+          : approvalDecision && typeof approvalDecision === 'object'
+            ? (approvalDecision as Record<string, unknown>).target
+            : executorTrace && typeof executorTrace === 'object'
+              ? (executorTrace as Record<string, unknown>).target
               : undefined;
 
   if (!target || typeof target !== 'object') {
@@ -314,10 +348,12 @@ export const getActionRecordToolName = (record: AiopsRecordView): string => {
   const sealedAction = asObjectMap(sealedActionPlan?.action);
   const approvalDecision = asObjectMap(spec.approvalDecision);
   const approvalAction = asObjectMap(approvalDecision?.action);
+  const executorTrace = asObjectMap(spec.executorTrace);
   const toolName =
     candidateAction?.toolName ??
     sealedAction?.toolName ??
     approvalAction?.toolName ??
+    executorTrace?.toolName ??
     spec.action ??
     record.kind ??
     'action';
@@ -450,7 +486,12 @@ export const actionAnchorForMessageIndex = (messageIndex: number): string =>
 export const actionRefIdFromRecord = (record: AiopsRecordView): string =>
   [
     getRecordName(record) || record.kind || 'record',
-    getPlanDigest(record) || getApprovalPlanDigest(record) || getRecordPhase(record),
+    getPlanDigest(record) ||
+      getApprovalPlanDigest(record) ||
+      (typeof getRecordSpecMap(record).planDigest === 'string'
+        ? getRecordSpecMap(record).planDigest
+        : '') ||
+      getRecordPhase(record),
     getRecordTargetLabel(record),
     getActionRecordToolName(record),
   ]
@@ -466,7 +507,12 @@ export const conversationActionRefFromRecord = (
   id: actionRefIdFromRecord(record),
   label: getActionRecordStageLabel(record, executionMode),
   messageAnchor,
-  planDigest: getPlanDigest(record) || getApprovalPlanDigest(record) || undefined,
+  planDigest:
+    getPlanDigest(record) ||
+    getApprovalPlanDigest(record) ||
+    (typeof getRecordSpecMap(record).planDigest === 'string'
+      ? String(getRecordSpecMap(record).planDigest)
+      : undefined),
   recordKind: record.kind,
   recordName: getRecordName(record) || undefined,
   stage: getActionRecordStage(record),

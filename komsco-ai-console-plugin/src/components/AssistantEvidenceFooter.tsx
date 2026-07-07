@@ -5,6 +5,7 @@ import {
   evidenceStepStatusLabel,
   evidenceTypeLabel,
 } from './assistant.evidence';
+import { isPublicWebReferenceHref } from './assistant.markdownPrepare';
 import { extractRagAppendixRefs } from './assistant.render';
 import type { EvidenceFooter, UiLanguage } from './assistant.types';
 
@@ -27,7 +28,7 @@ const translateEvidenceDetailText = (
       'Check whether an existing proposal or sealed plan exists before approval or execution',
     'evidence-check 기본 정책과 mutation gate 상태 확인':
       'Check the default evidence policy and mutation gate state',
-    '근거 수집 단계': 'Evidence collection step',
+    '조회 결과 확인 단계': 'Evidence collection step',
     '추가 확인 필요': 'Needs more evidence',
   };
   if (exact[value]) {
@@ -40,7 +41,7 @@ const translateEvidenceDetailText = (
     .replace(/기존/g, 'existing')
     .replace(/존재 여부 확인/g, 'existence check')
     .replace(/상태 확인/g, 'state check')
-    .replace(/근거 수집/g, 'evidence collection')
+    .replace(/조회 결과 확인/g, 'evidence collection')
     .replace(/추가 확인/g, 'follow-up check');
 };
 
@@ -57,7 +58,9 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
   const collectedRefs = footer.collectedRefs.slice(0, 3);
   const missing = footer.missing.slice(0, 3);
   const queryPlan = footer.queryPlan.slice(0, 6);
-  const ragAppendixRefs = extractRagAppendixRefs(messageContent);
+  const ragAppendixRefs = extractRagAppendixRefs(messageContent).filter(
+    (ref) => !ref.sourceUri || !isPublicWebReferenceHref(ref.sourceUri),
+  );
   const evidenceSummary = compactEvidenceTypeSummary(footer.collectedRefs, language);
 
   return (
@@ -67,9 +70,9 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
       data-evidence-digest={footer.digest || ''}
     >
       <div className="komsco-ai__evidence-footer-head">
-        <span className="komsco-ai__evidence-title">{isKo ? '근거' : 'Evidence'}</span>
+        <span className="komsco-ai__evidence-title">{isKo ? '확인 결과' : 'Evidence'}</span>
         <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
-          {isKo ? `수집 ${footer.collectedCount}건` : `Collected ${footer.collectedCount}`}
+          {isKo ? `확인 ${footer.collectedCount}건` : `Collected ${footer.collectedCount}`}
         </span>
         {footer.missingCount > 0 && (
           <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
@@ -85,14 +88,14 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
         ragAppendixRefs.length > 0) && (
         <details className="komsco-ai__evidence-detail">
           <summary>
-            <span>{isKo ? '근거 상세보기' : 'Evidence details'}</span>
+            <span>{isKo ? '확인 결과 상세' : 'Evidence details'}</span>
           </summary>
           {ragAppendixRefs.length > 0 && (
             <div
               className="komsco-ai__rag-source-list"
-              aria-label={isKo ? '문서 근거' : 'Document evidence'}
+              aria-label={isKo ? '참고 문서' : 'Document evidence'}
             >
-              <strong>{isKo ? '문서 근거' : 'Document evidence'}</strong>
+              <strong>{isKo ? '참고 문서' : 'Document evidence'}</strong>
               {ragAppendixRefs.map((ref, index) => (
                 <div className="komsco-ai__rag-source-item" key={`${ref.title}-${index}`}>
                   <span>{ref.title}</span>
@@ -105,7 +108,7 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
           {collectedRefs.length > 0 && (
             <div
               className="komsco-ai__evidence-list"
-              aria-label={isKo ? '수집된 답변 근거' : 'Collected answer evidence'}
+              aria-label={isKo ? '확인한 결과' : 'Collected answer evidence'}
             >
               {collectedRefs.map((ref, index) => (
                 <div
@@ -114,7 +117,7 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
                 >
                   <strong>{evidenceTypeLabel(ref.type, language)}</strong>
                   <span>
-                    {ref.summary || ref.sourceType || (isKo ? '근거 수집 완료' : 'Evidence collected')}
+                    {ref.summary || ref.sourceType || (isKo ? '확인 완료' : 'Evidence collected')}
                   </span>
                 </div>
               ))}
@@ -124,7 +127,7 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
           {missing.length > 0 && (
             <div
               className="komsco-ai__evidence-missing"
-              aria-label={isKo ? '추가 확인 필요 근거' : 'Evidence still needed'}
+              aria-label={isKo ? '추가 확인 필요 항목' : 'Evidence still needed'}
             >
               {missing.map((item, index) => (
                 <span key={`${item.type || 'missing'}-${index}`}>
@@ -145,7 +148,7 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
                 <strong>{evidenceTypeLabel(step.evidenceType || step.tool, language)}</strong>
                 <span>
                   {translateEvidenceDetailText(step.reason, language) ||
-                    (isKo ? '근거 수집 단계' : 'Evidence collection step')}
+                    (isKo ? '조회 결과 확인 단계' : 'Evidence collection step')}
                 </span>
                 <code>{evidenceStepStatusLabel(step.status, language)}</code>
               </li>

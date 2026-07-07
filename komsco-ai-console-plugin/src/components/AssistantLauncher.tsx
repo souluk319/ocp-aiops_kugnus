@@ -220,6 +220,92 @@ const flushReactSync = (callback: () => void) => {
 
   callback();
 };
+
+type AiopsRuntimeRecordUpdates = Partial<AiopsRuntimeStatus['spec']['records']>;
+
+const mergeAiopsRecordList = (
+  current: AiopsRecord[] | undefined,
+  incoming: AiopsRecord[] | undefined,
+  replaceExisting = true,
+): AiopsRecord[] => {
+  if (!incoming?.length) {
+    return current ?? [];
+  }
+  const next = [...(current ?? [])];
+  incoming.forEach((record) => {
+    const recordName = getRecordName(record);
+    const existingIndex = recordName
+      ? next.findIndex((item) => getRecordName(item) === recordName)
+      : -1;
+    if (existingIndex >= 0) {
+      if (replaceExisting) {
+        next[existingIndex] = record;
+      }
+    } else {
+      next.unshift(record);
+    }
+  });
+  return next;
+};
+
+const mergeAiopsRecordUpdates = (
+  current: AiopsRuntimeRecordUpdates,
+  incoming: AiopsRuntimeRecordUpdates,
+  replaceExisting = true,
+): AiopsRuntimeRecordUpdates => ({
+  ...current,
+  actionProposals: mergeAiopsRecordList(
+    current.actionProposals,
+    incoming.actionProposals,
+    replaceExisting,
+  ),
+  approvalDecisions: mergeAiopsRecordList(
+    current.approvalDecisions,
+    incoming.approvalDecisions,
+    replaceExisting,
+  ),
+  diagnosticRequests: mergeAiopsRecordList(
+    current.diagnosticRequests,
+    incoming.diagnosticRequests,
+    replaceExisting,
+  ),
+  executionRecords: mergeAiopsRecordList(
+    current.executionRecords,
+    incoming.executionRecords,
+    replaceExisting,
+  ),
+  sealedActionPlans: mergeAiopsRecordList(
+    current.sealedActionPlans,
+    incoming.sealedActionPlans,
+    replaceExisting,
+  ),
+  auditRecords: mergeAiopsRecordList(current.auditRecords, incoming.auditRecords, replaceExisting),
+  chatFeedback: mergeAiopsRecordList(current.chatFeedback, incoming.chatFeedback, replaceExisting),
+  chatTranscripts: mergeAiopsRecordList(
+    current.chatTranscripts,
+    incoming.chatTranscripts,
+    replaceExisting,
+  ),
+});
+
+const mergeAiopsRecordsIntoStatus = (
+  status: AiopsRuntimeStatus,
+  updates: AiopsRuntimeRecordUpdates,
+  replaceExisting = true,
+): AiopsRuntimeStatus => {
+  const current = status.spec.records;
+  return {
+    ...status,
+    spec: {
+      ...status.spec,
+      records: {
+        ...current,
+        ...mergeAiopsRecordUpdates(current, updates, replaceExisting),
+      },
+    },
+  };
+};
+
 const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
   spec: {
     capabilities: {
@@ -757,6 +843,157 @@ const mergeUploadedDocuments = (
   return Array.from(merged.values());
 };
 
+const KUBERNETES_NAME_PATTERN = '[a-z0-9](?:[-a-z0-9]*[a-z0-9])?';
+
+const answerTextForCandidateParsing = (content: string): string =>
+  content.replace(/https?:\/\/\S+/gi, ' ');
+
+const firstPodTargetFromAnswer = (
+  content: string,
+): { namespace: string; name: string } | undefined => {
+  const source = answerTextForCandidateParsing(content);
+  const namespaceThenPod = source.match(
+    new RegExp(
+      `\\b(${KUBERNETES_NAME_PATTERN})\\s*/\\s*Pod\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`,
+      'i',
+    ),
+  );
+  if (namespaceThenPod?.[1] && namespaceThenPod[2]) {
+    return { namespace: namespaceThenPod[1], name: namespaceThenPod[2] };
+  }
+
+  const podThenNamespace = source.match(
+    new RegExp(
+      `\\bPod\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?.{0,100}\\b(?:namespace|네임스페이스)\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`,
+      'i',
+    ),
+  );
+  if (podThenNamespace?.[1] && podThenNamespace[2]) {
+    return { namespace: podThenNamespace[2], name: podThenNamespace[1] };
+  }
+
+  if (!/(?:\bPod\b|파드)/i.test(source)) {
+    return undefined;
+  }
+
+  const slashTargetPattern = new RegExp(
+    `\\b(${KUBERNETES_NAME_PATTERN})/(${KUBERNETES_NAME_PATTERN})\\b`,
+    'gi',
+  );
+  const slashTarget = slashTargetPattern.exec(source);
+  return slashTarget?.[1] && slashTarget[2]
+    ? { namespace: slashTarget[1], name: slashTarget[2] }
+    : undefined;
+};
+
+const podDiagnosticCandidateFromAnswer = (content: string): AiopsActionCandidate | undefined => {
+  const target = firstPodTargetFromAnswer(content);
+  if (!target) {
+    return undefined;
+  }
+
+  return {
+    approvalRequired: true,
+    blockedActions: ['delete', 'patch', 'apply', 'scale', 'exec'],
+    blockedReasons: ['approval-required', 'review-only-plan'],
+    confidence: 'medium',
+    evidence: `${target.namespace}/${target.name} Pod 진단 확인이 필요합니다.`,
+    executable: false,
+    executionPolicy: {
+      executionEnabled: false,
+      mode: 'review-only',
+      mutationVerbsDisabled: true,
+      proposalOnly: true,
+    },
+    expectedImpact:
+      'Pod 로그, 이전 로그, Event 조회 계획을 승인 흐름으로 고정합니다. 이 버튼 자체는 변경을 실행하지 않습니다.',
+    id: `chat-pod-diagnostic-${target.namespace}-${target.name}`,
+    priority: 36,
+    prerequisiteChecks: ['대상 Pod 존재 확인', '이전 로그와 Event 조회 결과 확인'],
+    recommendationSteps: ['Pod 진단 조회 계획 작성', '승인 게이트 통과', '로그/Event 결과로 원인 후보 확인'],
+    riskLabel: '낮음',
+    riskLevel: 'low',
+    sourceFindingId: `pod-diagnostic-${target.namespace}-${target.name}`,
+    sourceType: 'pod_diagnostic_review',
+    statusLabel: '승인 필요',
+    target: {
+      apiVersion: 'v1',
+      kind: 'Pod',
+      name: target.name,
+      namespace: target.namespace,
+    },
+    title: 'Pod 진단 확인 플랜',
+    verificationChecks: ['생성 전 Pod가 같은 namespace에 있는지 확인', '조회 계획에 변경 작업이 없는지 확인'],
+  };
+};
+
+const targetRequiredDiagnosticCandidateFromAnswer = (
+  content: string,
+): AiopsActionCandidate | undefined => {
+  const source = answerTextForCandidateParsing(content);
+  if (
+    /저는\s*AIOps\s*for\s*OCP입니다|AIOps\s*for\s*OCP\s*역할\s*안내|전문\s*AIOps\s*모델|I am an AIOps model|AIOps for OCP guidance/i.test(
+      source,
+    )
+  ) {
+    return undefined;
+  }
+
+  const hasOperationalSection =
+    /(현재 판단|확인 결과|판단 결과|조치 방법|추가 확인|터미널 확인 명령|승인 필요 후보|CrashLoopBackOff|ImagePullBackOff|KubePodNotReady)/i.test(
+      source,
+    );
+  const hasActionIntent =
+    /(Action Plan|조치|진단|확인|복구|rollout|restart|rollback|장애|오류|에러|failed|failure)/i.test(
+      source,
+    );
+  if (!hasOperationalSection || !hasActionIntent) {
+    return undefined;
+  }
+
+  const operationalAnswer =
+    /(현재 판단|확인 결과|판단 결과|원인 후보|조치 방법|추가 확인|CrashLoopBackOff|Pod|파드|Namespace|네임스페이스|Event|이벤트|장애|오류|에러|failed|error|failure)/i.test(
+      source,
+    ) &&
+    /(Action Plan|조치|진단|확인|복구|rollout|restart|rollback)/i.test(source);
+  if (!operationalAnswer) {
+    return undefined;
+  }
+
+  return {
+    approvalRequired: true,
+    blockedActions: ['create', 'delete', 'patch', 'apply', 'scale', 'exec'],
+    blockedReasons: ['target-required', 'review-only-plan'],
+    confidence: 'low',
+    evidence: '답변에 조치 흐름은 있으나 대상 리소스가 아직 확정되지 않았습니다.',
+    executable: false,
+    executionPolicy: {
+      executionEnabled: false,
+      mode: 'review-only',
+      mutationVerbsDisabled: true,
+      proposalOnly: true,
+    },
+    expectedImpact:
+      '대상 Pod, Deployment, Namespace가 확인되기 전에는 변경 계획을 만들지 않습니다.',
+    id: 'chat-target-required-diagnostic-review',
+    planDisabledReason: '대상 Pod 또는 namespace가 확인되어야 Action Plan을 생성할 수 있습니다.',
+    priority: 12,
+    prerequisiteChecks: ['대상 리소스 이름 확인', 'namespace 확인', '조회 결과 연결'],
+    recommendationSteps: ['대상 리소스 확인', '상세/Event/로그 조회 계획으로 전환'],
+    riskLabel: '낮음',
+    riskLevel: 'low',
+    sourceFindingId: 'target-required-diagnostic-review',
+    sourceType: 'pod_diagnostic_review',
+    statusLabel: '대상 확인 필요',
+    target: {
+      apiVersion: 'v1',
+      kind: 'Pod',
+    },
+    title: '문제 확인 플랜',
+    verificationChecks: ['대상 리소스가 확인되면 다시 Action Plan 생성'],
+  };
+};
+
 const matchActionCandidatesForMessage = (
   content: string,
   candidates: AiopsActionCandidate[],
@@ -771,9 +1008,16 @@ const matchActionCandidatesForMessage = (
   });
   if (!testPodCreateNames.length) {
     const namespaceCleanupNames = namespaceCleanupCandidateNamesFromAnswer(content);
-    namespaceCleanupNames.forEach((name) => {
-      matched.push(namespaceCleanupCandidateFromAnswer(name));
-    });
+	    namespaceCleanupNames.forEach((name) => {
+	      matched.push(namespaceCleanupCandidateFromAnswer(name));
+	    });
+	  }
+  if (matched.length === 0) {
+    const diagnosticCandidate =
+      podDiagnosticCandidateFromAnswer(content) ?? targetRequiredDiagnosticCandidateFromAnswer(content);
+    if (diagnosticCandidate) {
+      matched.push(diagnosticCandidate);
+    }
   }
 
   return dedupeActionCandidates(matched);
@@ -873,7 +1117,7 @@ const namespaceCleanupCandidateFromAnswer = (namespace: string): AiopsActionCand
   id: `chat-namespace-cleanup-${namespace}`,
   priority: 40,
   prerequisiteChecks: ['소유자 확인', 'PVC/Route 잔존 여부 확인', '백업 필요 여부 확인'],
-  recommendationSteps: ['namespace 사용 근거 재확인', '정리 검토 Action Plan 생성', '별도 삭제 승인 정책 확인'],
+  recommendationSteps: ['namespace 사용 신호 재확인', '정리 검토 Action Plan 생성', '별도 삭제 승인 정책 확인'],
   riskLabel: '중간',
   riskLevel: 'medium',
   sourceFindingId: `namespace-cleanup-${namespace}`,
@@ -894,6 +1138,31 @@ const namespaceCleanupCandidateFromAnswer = (namespace: string): AiopsActionCand
 // compared as the same session-tracked key.
 const targetKeyFromParts = (namespace?: string, name?: string): string =>
   namespace ? `${namespace}/${name ?? ''}` : (name ?? '');
+
+const getAnyPlanDigest = (record: AiopsRecordView): string => {
+  const spec = getRecordSpecMap(record);
+  return (
+    getPlanDigest(record) ||
+    getApprovalPlanDigest(record) ||
+    (typeof spec.planDigest === 'string' ? spec.planDigest : '')
+  );
+};
+
+const highestLifecycleRecordForPlanDigest = (
+  status: AiopsRuntimeStatus | null,
+  planDigest: string,
+): AiopsRecordView | undefined => {
+  if (!status || !planDigest) {
+    return undefined;
+  }
+  const records = status.spec.records;
+  return (
+    records.executionRecords.find((record) => getAnyPlanDigest(record) === planDigest) ??
+    records.approvalDecisions.find((record) => getAnyPlanDigest(record) === planDigest) ??
+    records.sealedActionPlans.find((record) => getAnyPlanDigest(record) === planDigest) ??
+    records.actionProposals.find((record) => getAnyPlanDigest(record) === planDigest)
+  );
+};
 
 const approvalRecordWithExecutedStatus = (
   approval: AiopsRecordView,
@@ -940,6 +1209,58 @@ const conversationActionRefFromCandidate = (
     updatedAt: Date.now(),
   };
 };
+
+const mergeConversationActionRefs = (
+  refs: ConversationActionRef[],
+  ref: ConversationActionRef,
+): ConversationActionRef[] => {
+  const next = [...refs];
+  const existingIndex = next.findIndex(
+    (item) =>
+      item.id === ref.id ||
+      (item.targetKey === ref.targetKey &&
+        item.toolName === ref.toolName &&
+        item.messageAnchor === ref.messageAnchor &&
+        (item.planDigest === ref.planDigest || !item.planDigest || !ref.planDigest)),
+  );
+
+  if (existingIndex >= 0) {
+    const existing = next[existingIndex];
+    const existingRank = ACTION_STAGE_RANK[existing.stage] ?? 0;
+    const incomingRank = ACTION_STAGE_RANK[ref.stage] ?? 0;
+    if (existingRank > incomingRank) {
+      next[existingIndex] = {
+        ...existing,
+        messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
+        updatedAt: Date.now(),
+      };
+      return next;
+    }
+    next[existingIndex] = {
+      ...existing,
+      ...ref,
+      messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
+      updatedAt: Date.now(),
+    };
+    return next;
+  }
+
+  return [{ ...ref, updatedAt: Date.now() }, ...next].slice(0, 12);
+};
+
+const actionRefTimestamp = (ref: ConversationActionRef): number =>
+  ref.updatedAt || new Date(String(ref.createdAt ?? 0)).getTime() || 0;
+
+const sortConversationActionRefsForDisplay = (
+  refs: ConversationActionRef[],
+): ConversationActionRef[] =>
+  [...refs].sort((a, b) => {
+    const stageDelta = (ACTION_STAGE_RANK[b.stage] ?? 0) - (ACTION_STAGE_RANK[a.stage] ?? 0);
+    if (stageDelta !== 0) {
+      return stageDelta;
+    }
+    return actionRefTimestamp(b) - actionRefTimestamp(a);
+  });
 
 const actionRecordDisplayRank = (
   record: AiopsRecordView,
@@ -997,12 +1318,14 @@ const latestAnswerActionRecords = (
   const anchorRefs = messageAnchor
     ? actionRefs.filter((ref) => ref.messageAnchor === messageAnchor)
     : [];
+  const scopedActionRefs =
+    anchorRefs.length > 0 ? anchorRefs : actionRefs.length === 1 ? actionRefs : [];
   const mentionedRecordNames = new Set(
     Array.from(messageContent.matchAll(/\b(?:proposal|plan|approval|execution)-[a-z0-9-]+/gi))
       .map((match) => match[0].toLowerCase()),
   );
 
-  if (anchorRefs.length === 0 && mentionedRecordNames.size === 0) {
+  if (scopedActionRefs.length === 0 && mentionedRecordNames.size === 0) {
     return [];
   }
 
@@ -1017,7 +1340,7 @@ const latestAnswerActionRecords = (
         return true;
       }
 
-      const matchesAnchorRef = anchorRefs.some((ref) => {
+      const matchesAnchorRef = scopedActionRefs.some((ref) => {
         const refCreatedAt = ref.createdAt ? new Date(ref.createdAt).getTime() || 0 : 0;
         const recordCreatedAt = actionRecordCreatedAt(record);
         if (ref.recordName && getRecordName(record) === ref.recordName) {
@@ -1028,9 +1351,15 @@ const latestAnswerActionRecords = (
         }
         if (
           ref.planDigest &&
-          (getPlanDigest(record) === ref.planDigest || getApprovalPlanDigest(record) === ref.planDigest)
+          getAnyPlanDigest(record) === ref.planDigest
         ) {
           return true;
+        }
+        if (
+          (ACTION_STAGE_RANK[getActionRecordStage(record)] ?? 0) <
+          (ACTION_STAGE_RANK[ref.stage] ?? 0)
+        ) {
+          return false;
         }
         return (
           ref.targetKey === getRecordTargetLabel(record) &&
@@ -1396,6 +1725,7 @@ const mergeStoredActiveConversationIntoHistory = (
     updatedAt: Date.now(),
     conversationId: activeConversation.conversationId,
     messages: activeConversation.messages,
+    pinned: existing?.pinned,
     actionRefs: activeConversation.actionRefs,
     actionTargetKeys: activeConversation.actionTargetKeys,
   };
@@ -1427,6 +1757,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [authSubject, setAuthSubject] = React.useState<AuthSubject | null>(null);
   const [authSubjectError, setAuthSubjectError] = React.useState('');
   const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
+  const optimisticAiopsRecordsRef = React.useRef<AiopsRuntimeRecordUpdates>({});
   // Guards against an out-of-order response (e.g. the 10s poller firing right
   // before a post-action refresh) silently overwriting fresher status with
   // stale data — only the response to the most recently issued request wins.
@@ -1992,41 +2323,40 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, []);
 
   const upsertSessionActionRef = React.useCallback((ref: ConversationActionRef) => {
-    setSessionActionRefs((prev) => {
-      const next = [...prev];
-      const existingIndex = next.findIndex(
-        (item) =>
-          item.id === ref.id ||
-          (item.targetKey === ref.targetKey &&
-            item.toolName === ref.toolName &&
-            item.messageAnchor === ref.messageAnchor &&
-            (item.planDigest === ref.planDigest || !item.planDigest || !ref.planDigest)),
+    setSessionActionRefs((prev) => mergeConversationActionRefs(prev, ref));
+
+    const snapshotMessages = messagesRef.current;
+    if (snapshotMessages.length === 0) {
+      return;
+    }
+
+    setConversationHistory((prev) => {
+      const existing = prev.find((conversation) => conversation.id === activeSessionId);
+      const actionTargetKeys = Array.from(
+        new Set(
+          [
+            ...(existing?.actionTargetKeys ?? []),
+            ref.targetKey,
+          ].filter((targetKey): targetKey is string => Boolean(targetKey)),
+        ),
       );
+      const item: ConversationHistoryItem = {
+        id: activeSessionId,
+        title: existing?.title || getConversationTitle(snapshotMessages, uiLanguage),
+        updatedAt: Date.now(),
+        conversationId,
+        messages: snapshotMessages,
+        pinned: existing?.pinned,
+        actionRefs: mergeConversationActionRefs(existing?.actionRefs ?? [], ref),
+        actionTargetKeys,
+      };
 
-      if (existingIndex >= 0) {
-        const existing = next[existingIndex];
-        const existingRank = ACTION_STAGE_RANK[existing.stage] ?? 0;
-        const incomingRank = ACTION_STAGE_RANK[ref.stage] ?? 0;
-        if (existingRank > incomingRank) {
-          next[existingIndex] = {
-            ...existing,
-            messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
-            updatedAt: Date.now(),
-          };
-          return next;
-        }
-        next[existingIndex] = {
-          ...existing,
-          ...ref,
-          messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
-          updatedAt: Date.now(),
-        };
-        return next;
-      }
-
-      return [{ ...ref, updatedAt: Date.now() }, ...next].slice(0, 12);
+      return [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(
+        0,
+        MAX_STORED_CONVERSATIONS,
+      );
     });
-  }, []);
+  }, [activeSessionId, conversationId, uiLanguage]);
 
   const saveCurrentConversation = React.useCallback(
     (options: {
@@ -2044,16 +2374,27 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       setConversationHistory((prev) => {
         const existing = prev.find((conversation) => conversation.id === activeSessionId);
+        const mergedActionRefs = sessionActionRefs.reduce(
+          (refs, ref) => mergeConversationActionRefs(refs, ref),
+          existing?.actionRefs ?? [],
+        );
+        const mergedActionTargetKeys = Array.from(
+          new Set([
+            ...(existing?.actionTargetKeys ?? []),
+            ...Array.from(sessionActionTargetKeys),
+          ]),
+        );
         const item: ConversationHistoryItem = {
           id: activeSessionId,
           title: getConversationTitle(snapshotMessages, uiLanguage),
           updatedAt:
             options.preserveUpdatedAt && existing ? existing.updatedAt : Date.now(),
-          conversationId: snapshotConversationId,
-          messages: snapshotMessages,
-          actionRefs: sessionActionRefs,
-          actionTargetKeys: Array.from(sessionActionTargetKeys),
-        };
+		          conversationId: snapshotConversationId,
+		          messages: snapshotMessages,
+		          pinned: existing?.pinned,
+		          actionRefs: mergedActionRefs,
+		          actionTargetKeys: mergedActionTargetKeys,
+		        };
 
         if (existing && options.promote === false) {
           return prev.map((conversation) =>
@@ -2162,6 +2503,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       setOpenHistoryMenuId(null);
       setHistoryPanelView('chats');
+      setSessionActionRefs(conversation.actionRefs ?? []);
+      setSessionActionTargetKeys(new Set(conversation.actionTargetKeys ?? []));
 
       if (conversation.id !== activeSessionId) {
         loadConversation(conversation);
@@ -2184,10 +2527,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [activeSessionId, startNewConversation],
   );
 
-  const renameConversation = React.useCallback((conversationHistoryId: string, title: string) => {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      return;
+	  const renameConversation = React.useCallback((conversationHistoryId: string, title: string) => {
+	    const trimmed = title.trim();
+	    if (!trimmed) {
+	      return;
     }
     setConversationHistory((prev) =>
       prev.map((conversation) =>
@@ -2195,10 +2538,20 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           ? { ...conversation, title: trimmed }
           : conversation,
       ),
-    );
-  }, []);
+	    );
+	  }, []);
 
-  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
+	  const toggleConversationPinned = React.useCallback((conversationHistoryId: string) => {
+	    setConversationHistory((prev) =>
+	      prev.map((conversation) =>
+	        conversation.id === conversationHistoryId
+	          ? { ...conversation, pinned: !conversation.pinned }
+	          : conversation,
+	      ),
+	    );
+	  }, []);
+
+	  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
     const body = bodyRef.current;
     if (body) {
       body.scrollTo({ top: body.scrollHeight, behavior });
@@ -2411,16 +2764,23 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     try {
       const status = await fetchAiopsStatus();
       if (seq !== aiopsStatusRequestSeqRef.current) {
-        return;
+        return null;
       }
 
-      setAiopsStatus(status);
+      const mergedStatus = mergeAiopsRecordsIntoStatus(
+        status,
+        optimisticAiopsRecordsRef.current,
+        false,
+      );
+      setAiopsStatus(mergedStatus);
       setAiopsStatusError('');
+      return mergedStatus;
     } catch (error) {
       if (seq !== aiopsStatusRequestSeqRef.current) {
-        return;
+        return null;
       }
       setAiopsStatusError(error instanceof Error ? error.message : 'AIOps status request failed.');
+      return null;
     }
   }, []);
 
@@ -2448,55 +2808,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }, []);
 
   const upsertAiopsRuntimeRecords = React.useCallback(
-    (updates: Partial<AiopsRuntimeStatus['spec']['records']>) => {
-      const mergeRecords = (
-        current: AiopsRecord[] | undefined,
-        incoming: AiopsRecord[] | undefined,
-      ): AiopsRecord[] => {
-        if (!incoming?.length) {
-          return current ?? [];
-        }
-        const next = [...(current ?? [])];
-        incoming.forEach((record) => {
-          const recordName = getRecordName(record);
-          const existingIndex = recordName
-            ? next.findIndex((item) => getRecordName(item) === recordName)
-            : -1;
-          if (existingIndex >= 0) {
-            next[existingIndex] = record;
-          } else {
-            next.unshift(record);
-          }
-        });
-        return next;
-      };
-
+    (updates: AiopsRuntimeRecordUpdates) => {
+      optimisticAiopsRecordsRef.current = mergeAiopsRecordUpdates(
+        optimisticAiopsRecordsRef.current,
+        updates,
+      );
       setAiopsStatus((prev) => {
         const base = prev ?? createPendingAiopsStatus();
-        const current = base.spec.records;
-        return {
-          ...base,
-          spec: {
-            ...base.spec,
-            records: {
-              ...current,
-              actionProposals: mergeRecords(current.actionProposals, updates.actionProposals),
-              approvalDecisions: mergeRecords(current.approvalDecisions, updates.approvalDecisions),
-              diagnosticRequests: mergeRecords(current.diagnosticRequests, updates.diagnosticRequests),
-              executionRecords: mergeRecords(current.executionRecords, updates.executionRecords),
-              sealedActionPlans: mergeRecords(current.sealedActionPlans, updates.sealedActionPlans),
-              ...(updates.auditRecords
-                ? { auditRecords: mergeRecords(current.auditRecords, updates.auditRecords) }
-                : {}),
-              ...(updates.chatFeedback
-                ? { chatFeedback: mergeRecords(current.chatFeedback, updates.chatFeedback) }
-                : {}),
-              ...(updates.chatTranscripts
-                ? { chatTranscripts: mergeRecords(current.chatTranscripts, updates.chatTranscripts) }
-                : {}),
-            },
-          },
-        };
+        return mergeAiopsRecordsIntoStatus(base, updates);
       });
     },
     [],
@@ -2684,11 +3003,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     ],
   );
 
-  const handleCreateActionPlanFromChat = React.useCallback(
-    async (candidate: AiopsActionCandidate) => {
-      if (busyActionCandidateIdRef.current) {
-        return;
-      }
+	  const handleCreateActionPlanFromChat = React.useCallback(
+	    async (candidate: AiopsActionCandidate) => {
+	      if (candidate.planDisabledReason) {
+	        setAiopsActionNotice('');
+	        setAiopsActionError(candidate.planDisabledReason);
+	        return;
+	      }
+	      if (busyActionCandidateIdRef.current) {
+	        return;
+	      }
       busyActionCandidateIdRef.current = candidate.id;
       setBusyActionCandidateId(candidate.id);
       setAiopsActionError('');
@@ -2713,7 +3037,19 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               )
             : conversationActionRefFromCandidate(candidate, actionMessageAnchor),
         );
-        await refreshAiopsRuntimeStatus();
+        const refreshedStatus = await refreshAiopsRuntimeStatus();
+        const linkedPlanDigest =
+          result.spec?.planDigest || (result.spec?.plan ? getPlanDigest(result.spec.plan) : '');
+        const highestRecord = highestLifecycleRecordForPlanDigest(refreshedStatus, linkedPlanDigest);
+        if (highestRecord) {
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              highestRecord,
+              executionMode,
+              actionMessageAnchor,
+            ),
+          );
+        }
       } catch (error) {
         setAiopsActionError(aiopsActionErrorMessage(error));
       } finally {
@@ -3521,16 +3857,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             upsertProgressStep({
               detail:
                 event.status === 'success'
-                  ? '질문을 증거 수집 계획으로 분해하고 필요한 확인 순서를 고정했습니다.'
-                  : '질문별 증거 수집 계획 검증에 실패했습니다. 답변은 부족한 근거를 명시해야 합니다.',
+                  ? '질문을 조회 계획으로 분해하고 필요한 확인 순서를 고정했습니다.'
+                  : '질문별 조회 계획 검증에 실패했습니다. 답변은 부족한 확인 결과를 명시해야 합니다.',
               elapsedMs: 0,
               endedAt: now,
               id: RCA_PLAN_STEP_ID,
               name: 'runtime_tool_plan',
               startedAt: now,
               status: event.status === 'success' ? 'completed' : 'failed',
-              summary: event.status === 'success' ? '증거 수집 계획 생성' : '증거 수집 계획 실패',
-              title: '증거 수집 계획',
+              summary: event.status === 'success' ? '조회 계획 생성' : '조회 계획 실패',
+              title: '조회 계획',
             });
             setAiopsStatus((prev) => {
               const base = prev ?? createPendingAiopsStatus();
@@ -3566,8 +3902,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             upsertProgressStep({
               detail:
                 event.phase === 'post_answer'
-                  ? '최종 답변에 사용한 근거를 연결했습니다.'
-                  : '답변 전에 수집 근거와 추가 확인 항목을 정리했습니다.',
+                  ? '최종 답변의 확인 결과를 정리했습니다.'
+                  : '답변 전에 조회 결과와 추가 확인 항목을 정리했습니다.',
               elapsedMs: 0,
               endedAt: now,
               id: `${RCA_CONTEXT_STEP_ID}-${event.phase || 'unknown'}`,
@@ -3577,8 +3913,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               summary:
                 event.status === 'success'
                   ? rcaContextPhaseLabel(event.phase)
-                  : '답변 근거 연결 실패',
-              title: '답변 근거',
+                  : '확인 결과 정리 실패',
+              title: '확인 결과',
             });
             setMessages((prev) => attachEvidenceFooterToLastAssistant(prev, evidenceFooter));
             setAiopsStatus((prev) => {
@@ -3720,10 +4056,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             latestAssistantContent,
             actionCandidatesRef.current,
           );
-          matched.forEach((candidate) => {
-            void handleCreateActionPlanFromChat(candidate);
-          });
-        }
+	          matched
+	            .filter((candidate) => !candidate.planDisabledReason)
+	            .forEach((candidate) => {
+	              void handleCreateActionPlanFromChat(candidate);
+	            });
+	        }
         if (runCompleted) {
           void onRunComplete?.();
         }
@@ -3817,6 +4155,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setOpen(false);
   }, [lockOpen, startNewConversation]);
 
+  const effectiveSessionActionRefs = React.useMemo(() => {
+    const activeHistoryRefs =
+      conversationHistory.find((conversation) => conversation.id === activeSessionId)?.actionRefs ??
+      [];
+
+    return activeHistoryRefs.reduce(
+      (refs, ref) => mergeConversationActionRefs(refs, ref),
+      sessionActionRefs,
+    );
+  }, [activeSessionId, conversationHistory, sessionActionRefs]);
+
   const historySidebar = historySidebarOpen ? (
     <AssistantHistoryPanel
       activeSessionId={activeSessionId}
@@ -3835,19 +4184,20 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       historySidebarStyle={historySidebarStyle}
       productIcon={aiopsIcon}
       loadConversation={loadConversation}
-      loading={loading}
-      onActionRefSelect={handleHistoryActionRefSelect}
-      openHistoryMenuId={openHistoryMenuId}
-      renameConversation={renameConversation}
+	      loading={loading}
+	      onActionRefSelect={handleHistoryActionRefSelect}
+	      openHistoryMenuId={openHistoryMenuId}
+	      renameConversation={renameConversation}
       renamingHistoryId={renamingHistoryId}
       renamingHistoryTitle={renamingHistoryTitle}
       setHistoryMenuAnchor={setHistoryMenuAnchor}
       setHistoryPanelView={setHistoryPanelView}
       setOpenHistoryMenuId={setOpenHistoryMenuId}
-      setRenamingHistoryId={setRenamingHistoryId}
-      setRenamingHistoryTitle={setRenamingHistoryTitle}
-      startNewConversation={startNewConversation}
-      uiLanguage={uiLanguage}
+	      setRenamingHistoryId={setRenamingHistoryId}
+	      setRenamingHistoryTitle={setRenamingHistoryTitle}
+	      startNewConversation={startNewConversation}
+	      toggleConversationPinned={toggleConversationPinned}
+	      uiLanguage={uiLanguage}
       uploadedDocuments={uploadedDocuments}
       uploadedDocumentsError={uploadedDocumentsError}
       uploadedDocumentsLoading={uploadedDocumentsLoading}
@@ -3960,11 +4310,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 executionMode,
                                 message.content,
                                 messageActionAnchor,
-                                sessionActionRefs,
+                                effectiveSessionActionRefs,
                               )
                             : [];
+                        const exactAnswerActionRefs =
+                          isLatestAssistantMessage && hasContent && messageActionAnchor
+                            ? effectiveSessionActionRefs.filter(
+                                (ref) => ref.messageAnchor === messageActionAnchor,
+                              )
+                            : [];
+                        const answerActionRefs =
+                          exactAnswerActionRefs.length > 0
+                            ? sortConversationActionRefsForDisplay(exactAnswerActionRefs).slice(0, 3)
+                            : isLatestAssistantMessage && hasContent
+                              ? sortConversationActionRefsForDisplay(effectiveSessionActionRefs).slice(0, 3)
+                              : [];
                         const candidateActionRecords =
-                          isLatestAssistantMessage && hasContent && answerActionRecords.length === 0
+                          isLatestAssistantMessage &&
+                          hasContent &&
+                          answerActionRecords.length === 0 &&
+                          answerActionRefs.length === 0
                             ? actionRecordsForMatchedCandidates(
                                 aiopsStatus,
                                 executionMode,
@@ -3973,12 +4338,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                             : [];
                         const resolvedAnswerActionRecords =
                           answerActionRecords.length > 0 ? answerActionRecords : candidateActionRecords;
-                        const answerActionRefs =
-                          isLatestAssistantMessage && hasContent && messageActionAnchor
-                            ? sessionActionRefs
-                                .filter((ref) => ref.messageAnchor === messageActionAnchor)
-                                .slice(0, 3)
-                            : [];
                         const showCreateActionPlanButtons =
                           matchedActionCandidates.length > 0 &&
                           resolvedAnswerActionRecords.length === 0 &&

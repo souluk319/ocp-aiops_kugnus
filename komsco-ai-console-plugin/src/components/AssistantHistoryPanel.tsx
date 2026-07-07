@@ -1,11 +1,14 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
+import {
+  Pin,
+  Search,
+  SquarePen,
+} from 'lucide-react';
 
 import {
   CoolCheckIcon,
   CoolClockIcon,
-  CoolComposeIcon,
-  CoolDocumentIcon,
   CoolListChecklistIcon,
   CoolMoreIcon,
   CoolPencilIcon,
@@ -21,7 +24,7 @@ import type {
   UiLanguage,
 } from './assistant.types';
 import type { AssistantCopy } from './assistant.copy';
-import { getActionToolLabel } from './assistant.actionRecords';
+import { ACTION_STAGE_RANK, getActionToolLabel } from './assistant.actionRecords';
 import AssistantUploadedDocuments from './AssistantUploadedDocuments';
 
 type HistoryMenuAnchor = {
@@ -61,6 +64,7 @@ type AssistantHistoryPanelProps = {
   setRenamingHistoryId: React.Dispatch<React.SetStateAction<string | null>>;
   setRenamingHistoryTitle: React.Dispatch<React.SetStateAction<string>>;
   startNewConversation: () => void;
+  toggleConversationPinned: (conversationHistoryId: string) => void;
   uiLanguage: UiLanguage;
   uploadedDocuments: RagUploadedDocument[];
   uploadedDocumentsError: string;
@@ -109,6 +113,20 @@ const HistoryActionStageIcon: React.FC<{ stage: ConversationActionRef['stage'] }
 
 const compactActionLabel = (label: string): string => label.replace(/^\d+단계\s*·\s*/, '');
 
+const actionRefTimestamp = (actionRef: ConversationActionRef): number =>
+  actionRef.updatedAt || new Date(String(actionRef.createdAt ?? 0)).getTime() || 0;
+
+const sortConversationActionRefs = (
+  actionRefs: ConversationActionRef[],
+): ConversationActionRef[] =>
+  [...actionRefs].sort((a, b) => {
+    const stageDelta = (ACTION_STAGE_RANK[b.stage] ?? 0) - (ACTION_STAGE_RANK[a.stage] ?? 0);
+    if (stageDelta !== 0) {
+      return stageDelta;
+    }
+    return actionRefTimestamp(b) - actionRefTimestamp(a);
+  });
+
 const isInternalActionTargetLabel = (targetKey: string | undefined): boolean =>
   /^(proposal|plan|approval|execution)-local\b/i.test(String(targetKey || '')) ||
   /^(ActionProposalRecord|SealedActionPlanRecord|ApprovalDecisionRecord|ExecutionRecord)$/i.test(
@@ -132,7 +150,7 @@ const historyActionDetailLabel = (
 
 const actionStageLabel = (stage: ConversationActionRef['stage'], language: UiLanguage): string => {
   if (stage === 'plan') {
-    return 'Action Plan';
+    return language === 'en' ? 'Plan' : '조치 계획';
   }
   if (stage === 'approval') {
     return language === 'en' ? 'Approval' : '승인';
@@ -172,13 +190,36 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   setRenamingHistoryId,
   setRenamingHistoryTitle,
   startNewConversation,
+  toggleConversationPinned,
   uiLanguage,
   uploadedDocuments,
   uploadedDocumentsError,
   uploadedDocumentsLoading,
 }) => {
   const [openActionHistoryId, setOpenActionHistoryId] = React.useState<string | null>(null);
+  const [historySearch, setHistorySearch] = React.useState('');
+  const historySearchRef = React.useRef<HTMLInputElement | null>(null);
   const historyUserLabel = getHistoryUserLabel(authSubject, authSubjectError, uiLanguage);
+  const normalizedHistorySearch = historySearch.trim().toLocaleLowerCase();
+  const visibleConversationHistory = React.useMemo(() => {
+    const filtered = normalizedHistorySearch
+      ? conversationHistory.filter((conversation) => {
+          const haystack = [
+            conversation.title,
+            ...(conversation.messages ?? []).slice(-6).map((message) => message.content),
+          ]
+            .join('\n')
+            .toLocaleLowerCase();
+          return haystack.includes(normalizedHistorySearch);
+        })
+      : conversationHistory;
+
+    return [...filtered].sort(
+      (a, b) =>
+        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+        b.updatedAt - a.updatedAt,
+    );
+  }, [conversationHistory, normalizedHistorySearch]);
 
   return (
   <aside
@@ -193,52 +234,75 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
       <div className="komsco-ai__history-brand">
         <img alt="AIOps for OCP" className="komsco-ai__history-logo" src={productIcon} />
       </div>
-      <div className="komsco-ai__history-actions-right">
-        <button
-          aria-label={copy.newChat}
-          className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
+	      <div className="komsco-ai__history-actions-right">
+	        <button
+	          aria-label={copy.newChat}
+	          className="komsco-ai__history-action-button komsco-ai__history-action-button--primary"
           onClick={() => {
             startNewConversation();
             setHistoryPanelView('chats');
           }}
-          title={copy.newChat}
-          type="button"
-        >
-          <CoolComposeIcon />
-        </button>
-        <div className="komsco-ai__history-action-group" role="group" aria-label={copy.sidebar}>
-          <button
-            aria-label={copy.openHistoryPanel}
-            aria-pressed={historyPanelView === 'chats'}
-            className={`komsco-ai__history-action-button${
-              historyPanelView === 'chats' ? ' komsco-ai__history-action-button--active' : ''
-            }`}
-            onClick={() => setHistoryPanelView('chats')}
-            title={copy.openHistoryPanel}
-            type="button"
-          >
-            <CoolClockIcon />
-          </button>
-          <button
-            aria-label={copy.openUploadedDocs}
-            aria-pressed={historyPanelView === 'uploads'}
-            className={`komsco-ai__history-action-button${
-              historyPanelView === 'uploads' ? ' komsco-ai__history-action-button--active' : ''
-            }`}
-            onClick={() => setHistoryPanelView('uploads')}
-            title={copy.openUploadedDocs}
-            type="button"
-          >
-            <CoolDocumentIcon />
-          </button>
-        </div>
-      </div>
-    </div>
-    <div className="komsco-ai__history-title">
-      {historyPanelView === 'uploads' ? <CoolDocumentIcon /> : <CoolClockIcon />}
-      <span>{historyPanelView === 'uploads' ? copy.uploadedDocs : copy.history}</span>
-    </div>
-    {historyPanelView === 'uploads' ? (
+	          title={copy.newChat}
+	          type="button"
+	        >
+	          <SquarePen aria-hidden="true" strokeWidth={1.8} />
+	        </button>
+	        {historyPanelView === 'chats' && (
+	          <button
+	            aria-label={copy.searchHistory}
+	            className="komsco-ai__history-action-button"
+	            onClick={() => historySearchRef.current?.focus()}
+	            title={copy.searchHistory}
+	            type="button"
+	          >
+	            <Search aria-hidden="true" strokeWidth={1.8} />
+	          </button>
+	        )}
+	      </div>
+	    </div>
+	    <div className="komsco-ai__history-tabs" role="tablist" aria-label={copy.sidebar}>
+	      <button
+	        aria-selected={historyPanelView === 'chats'}
+	        className={`komsco-ai__history-tab${
+	          historyPanelView === 'chats' ? ' komsco-ai__history-tab--active' : ''
+	        }`}
+	        onClick={() => setHistoryPanelView('chats')}
+	        role="tab"
+	        type="button"
+	      >
+	        {copy.history}
+	      </button>
+	      <button
+	        aria-selected={historyPanelView === 'uploads'}
+	        className={`komsco-ai__history-tab${
+	          historyPanelView === 'uploads' ? ' komsco-ai__history-tab--active' : ''
+	        }`}
+	        onClick={() => setHistoryPanelView('uploads')}
+	        role="tab"
+	        type="button"
+	      >
+	        {copy.uploadedDocs}
+	      </button>
+	    </div>
+	    {historyPanelView === 'chats' && (
+	      <label className="komsco-ai__history-search">
+	        <Search aria-hidden="true" strokeWidth={1.8} />
+	        <input
+	          aria-label={copy.searchHistory}
+	          onChange={(event) => setHistorySearch(event.target.value)}
+	          onKeyDown={(event) => {
+	            if (event.key === 'Escape') {
+	              setHistorySearch('');
+	            }
+	          }}
+	          placeholder={copy.searchHistory}
+	          ref={historySearchRef}
+	          type="search"
+	          value={historySearch}
+	        />
+	      </label>
+	    )}
+	    {historyPanelView === 'uploads' ? (
       <div className="komsco-ai__history-list komsco-ai__history-list--uploads">
         {uploadedDocumentsLoading && uploadedDocuments.length === 0 ? (
           <div className="komsco-ai__history-empty">{copy.uploadedDocsLoading}</div>
@@ -254,23 +318,27 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
         )}
       </div>
     ) : (
-      <div className="komsco-ai__history-list" onScroll={() => setOpenHistoryMenuId(null)}>
-        {conversationHistory.length === 0 ? (
-          <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
-        ) : (
-          conversationHistory.map((conversation) => {
-            const isRenaming = renamingHistoryId === conversation.id;
-            const actionRefs = conversation.actionRefs ?? [];
-            const actionHistoryOpen = openActionHistoryId === conversation.id;
-            const menuOpen = openHistoryMenuId === conversation.id;
+	      <div className="komsco-ai__history-list" onScroll={() => setOpenHistoryMenuId(null)}>
+	        {conversationHistory.length === 0 ? (
+	          <div className="komsco-ai__history-empty">{copy.emptyHistory}</div>
+	        ) : visibleConversationHistory.length === 0 ? (
+	          <div className="komsco-ai__history-empty">{copy.emptyHistorySearch}</div>
+	        ) : (
+	          visibleConversationHistory.map((conversation) => {
+	            const isRenaming = renamingHistoryId === conversation.id;
+	            const actionRefs = sortConversationActionRefs(conversation.actionRefs ?? []);
+	            const actionHistoryOpen = openActionHistoryId === conversation.id;
+	            const menuOpen = openHistoryMenuId === conversation.id;
 
             return (
               <div
-                className={`komsco-ai__history-item-row${
-                  conversation.id === activeSessionId ? ' komsco-ai__history-item-row--active' : ''
-                }${actionHistoryOpen ? ' komsco-ai__history-item-row--actions-open' : ''}`}
-                key={conversation.id}
-              >
+	                className={`komsco-ai__history-item-row${
+	                  conversation.id === activeSessionId ? ' komsco-ai__history-item-row--active' : ''
+	                }${conversation.pinned ? ' komsco-ai__history-item-row--pinned' : ''}${
+	                  actionHistoryOpen ? ' komsco-ai__history-item-row--actions-open' : ''
+	                }`}
+	                key={conversation.id}
+	              >
                 <div className="komsco-ai__history-item-main">
                   {isRenaming ? (
                     <input
@@ -299,14 +367,22 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                       disabled={loading}
                       onClick={() => loadConversation(conversation)}
                       title={conversation.title}
-                      type="button"
-                    >
-                      <span>{conversation.title}</span>
-                      <small>{formatHistoryTime(conversation.updatedAt, uiLanguage)}</small>
-                    </button>
-                  )}
-                  <div
-                    className="komsco-ai__history-item-menu"
+	                      type="button"
+	                    >
+	                      <span>{conversation.title}</span>
+	                      <small>
+	                        {conversation.pinned && (
+	                          <span className="komsco-ai__history-item-pinned-label">
+	                            <Pin aria-hidden="true" strokeWidth={1.8} />
+	                            {copy.pinnedConversation}
+	                          </span>
+	                        )}
+	                        {formatHistoryTime(conversation.updatedAt, uiLanguage)}
+	                      </small>
+	                    </button>
+	                  )}
+	                  <div
+	                    className="komsco-ai__history-item-menu"
                     ref={menuOpen ? historyMenuRef : undefined}
                   >
                     <button
@@ -348,28 +424,32 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                           : '저장된 조치내역이 없습니다.'}
                       </div>
                     ) : (
-                      actionRefs.map((actionRef) => (
-                        <button
-                          className="komsco-ai__history-action-ref"
-                          data-action-stage={actionRef.stage}
-                          disabled={loading}
-                          key={actionRef.id}
-                          onClick={() => onActionRefSelect(conversation, actionRef)}
-                          title={`${actionStageLabel(actionRef.stage, uiLanguage)} · ${compactActionLabel(
-                            actionRef.label,
-                          )} · ${historyActionDetailLabel(actionRef, uiLanguage)}`}
-                          type="button"
-                        >
-                          <HistoryActionStageIcon stage={actionRef.stage} />
-                          <span className="komsco-ai__history-action-ref-copy">
-                            <span className="komsco-ai__history-action-ref-stage">
-                              {actionStageLabel(actionRef.stage, uiLanguage)}
+                      actionRefs.map((actionRef) => {
+                        const stageLabel = actionStageLabel(actionRef.stage, uiLanguage);
+                        const statusLabel = compactActionLabel(actionRef.label);
+                        const actionDetailLabel = historyActionDetailLabel(actionRef, uiLanguage);
+
+                        return (
+                          <button
+                            className="komsco-ai__history-action-ref"
+                            data-action-stage={actionRef.stage}
+                            disabled={loading}
+                            key={actionRef.id}
+                            onClick={() => onActionRefSelect(conversation, actionRef)}
+                            title={`${actionDetailLabel} · ${statusLabel} · ${stageLabel}`}
+                            type="button"
+                          >
+                            <HistoryActionStageIcon stage={actionRef.stage} />
+                            <span className="komsco-ai__history-action-ref-copy">
+                              <span className="komsco-ai__history-action-ref-stage">
+                                {stageLabel}
+                              </span>
+                              <strong>{actionDetailLabel}</strong>
+                              <small>{statusLabel}</small>
                             </span>
-                            <strong>{compactActionLabel(actionRef.label)}</strong>
-                            <small>{historyActionDetailLabel(actionRef, uiLanguage)}</small>
-                          </span>
-                        </button>
-                      ))
+                          </button>
+                        );
+                      })
                     )}
                   </div>
                 )}
@@ -385,10 +465,22 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                         right: historyMenuAnchor.right,
                         top: historyMenuAnchor.top,
                       }}
-                    >
-                      <button
-                        className="komsco-ai__history-item-menu-item"
-                        onClick={() => {
+	                    >
+	                      <button
+	                        className="komsco-ai__history-item-menu-item"
+	                        onClick={() => {
+	                          setOpenHistoryMenuId(null);
+	                          toggleConversationPinned(conversation.id);
+	                        }}
+	                        role="menuitem"
+	                        type="button"
+	                      >
+	                        <Pin />
+	                        {conversation.pinned ? copy.unpinConversation : copy.pinConversation}
+	                      </button>
+	                      <button
+	                        className="komsco-ai__history-item-menu-item"
+	                        onClick={() => {
                           setOpenHistoryMenuId(null);
                           setRenamingHistoryId(conversation.id);
                           setRenamingHistoryTitle(conversation.title);

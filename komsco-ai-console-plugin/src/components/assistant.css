@@ -1860,6 +1860,45 @@
   overflow-wrap: anywhere;
 }
 
+.komsco-ai__action-plan-decision {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 9px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.komsco-ai__action-plan-decision-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 0.24fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.komsco-ai__action-plan-decision-row span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f2f57;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.komsco-ai__action-plan-decision-row p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #334155;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .komsco-ai__action-button {
   display: inline-flex;
   flex-shrink: 0;
@@ -2401,6 +2440,21 @@
 
 .komsco-ai__create-action-plan-note {
   color: #7f1d1d;
+}
+
+.komsco-ai__create-action-plan-disabled-reason {
+  min-width: 0;
+  padding: 5px 7px;
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: #92400e;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
 }
 
 .komsco-ai__create-action-plan .komsco-ai__create-action-plan-button {
@@ -3986,16 +4040,6 @@
   margin-inline-start: auto;
 }
 
-.komsco-ai__history-action-group {
-  display: inline-flex;
-  gap: 2px;
-  align-items: center;
-  padding: 2px;
-  background: #f1f2f5;
-  border: 1px solid #eef0f3;
-  border-radius: 10px;
-}
-
 .komsco-ai__history-action-button {
   display: inline-flex;
   align-items: center;
@@ -4025,25 +4069,11 @@
   border-color: transparent;
 }
 
-.komsco-ai__history-action-group .komsco-ai__history-action-button {
-  width: 28px;
-  height: 28px;
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-
 .komsco-ai__history-action-button:hover:not(:disabled),
 .komsco-ai__history-action-button--active {
   color: #14151a;
   background: #fff;
   border-color: #eef0f3;
-}
-
-.komsco-ai__history-action-group .komsco-ai__history-action-button--active {
-  background: #fff;
-  border-color: #eef0f3;
-  box-shadow: 0 1px 2px rgb(15 23 42 / 10%);
 }
 
 .komsco-ai__history-action-button:disabled {
@@ -4137,6 +4167,74 @@
 .komsco-ai__history-title svg {
   width: 11px;
   height: 11px;
+}
+
+.komsco-ai__history-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  min-width: 0;
+  padding: 2px;
+  background: #eef2f7;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+}
+
+.komsco-ai__history-tab {
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1;
+  color: #64748b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+
+.komsco-ai__history-tab:hover,
+.komsco-ai__history-tab--active {
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 10%);
+}
+
+.komsco-ai__history-search {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 8px;
+  color: #64748b;
+  background: #fff;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+}
+
+.komsco-ai__history-search svg {
+  width: 14px;
+  height: 14px;
+}
+
+.komsco-ai__history-search input {
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--komsco-ink-900);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+.komsco-ai__history-search input::placeholder {
+  color: #94a3b8;
 }
 
 .komsco-ai__history-list {
@@ -5207,6 +5305,23 @@
   overflow: hidden;
 }
 
+.komsco-ai__history-item-pinned-label {
+  display: inline-flex !important;
+  gap: 3px;
+  align-items: center;
+  width: auto;
+  max-width: 78px;
+  margin-inline-end: 5px;
+  color: #174ea6;
+  vertical-align: middle;
+}
+
+.komsco-ai__history-item-pinned-label svg {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+}
+
 .komsco-ai__history-item-row .komsco-ai__history-item {
   width: 100%;
   min-width: 0;
@@ -5374,12 +5489,14 @@
 .komsco-ai__surface .komsco-ai__history-sidebar,
 .komsco-ai--embedded .komsco-ai__history-sidebar {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   min-height: 0;
 }
 
 .komsco-ai__history-actions,
 .komsco-ai__history-title,
+.komsco-ai__history-tabs,
+.komsco-ai__history-search,
 .komsco-ai__history-user {
   min-height: 0;
 }
@@ -6958,12 +7075,6 @@
   height: 39px;
 }
 
-.komsco-ai__history-action-group {
-  background: rgb(255 255 255 / 66%);
-  border: 1px solid rgb(219 227 238 / 75%);
-  border-radius: 12px;
-}
-
 .komsco-ai__history-action-button {
   color: #475569;
   background: transparent;
@@ -8106,9 +8217,10 @@
   grid-template-areas:
     "history-header"
     "history-title"
+    "history-search"
     "history-list"
     "history-user" !important;
-  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto !important;
   min-height: 0 !important;
   height: min(var(--komsco-history-height, calc(100dvh - 32px)), calc(100dvh - var(--komsco-history-top, 16px) - 16px)) !important;
   max-height: calc(100dvh - var(--komsco-history-top, 16px) - 16px) !important;
@@ -8119,8 +8231,13 @@
   grid-area: history-header;
 }
 
-.komsco-ai__history-title {
+.komsco-ai__history-title,
+.komsco-ai__history-tabs {
   grid-area: history-title;
+}
+
+.komsco-ai__history-search {
+  grid-area: history-search;
 }
 
 .komsco-ai__history-list,
@@ -8200,9 +8317,10 @@
   grid-template-areas:
     "history-header"
     "history-title"
+    "history-search"
     "history-list"
     "history-user" !important;
-  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto !important;
   height: min(var(--komsco-history-height, calc(100dvh - 32px)), calc(100dvh - var(--komsco-history-top, 16px) - 16px)) !important;
   max-height: calc(100dvh - var(--komsco-history-top, 16px) - 16px) !important;
   min-height: 0 !important;

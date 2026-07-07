@@ -17,7 +17,7 @@ export const cleanMarkdownLabel = (label: string): string =>
 export const stripDefaultEvidenceAppendix = (content: string): string => {
   const lines = content.split('\n');
   const appendixIndex = lines.findIndex((line) =>
-    /^\s*\[?\s*RAG\s*근거\s*\]?\s*$/i.test(line.trim()),
+    /^\s*\[?\s*(?:RAG\s*근거|참고\s*문서)\s*\]?\s*$/i.test(line.trim()),
   );
 
   if (appendixIndex < 0) {
@@ -30,7 +30,7 @@ export const stripDefaultEvidenceAppendix = (content: string): string => {
 export const extractRagAppendixRefs = (content: string): RagAppendixRef[] => {
   const lines = content.split('\n');
   const appendixIndex = lines.findIndex((line) =>
-    /^\s*\[?\s*RAG\s*근거\s*\]?\s*$/i.test(line.trim()),
+    /^\s*\[?\s*(?:RAG\s*근거|참고\s*문서)\s*\]?\s*$/i.test(line.trim()),
   );
 
   if (appendixIndex < 0) {

@@ -13,10 +13,22 @@ GATEWAY_MAIN = ROOT / "komsco-ai-gateway" / "komsco_ai_gateway" / "main.py"
 AIOPS_CONTRACTS = ROOT / "komsco-ai-gateway" / "komsco_ai_gateway" / "aiops_contracts.py"
 GATEWAY_TESTS = ROOT / "komsco-ai-gateway" / "tests" / "test_health.py"
 ASSISTANT = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantLauncher.tsx"
+ASSISTANT_HEADER = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantHeader.tsx"
+ASSISTANT_EVIDENCE = (
+    ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantEvidenceFooter.tsx"
+)
+ASSISTANT_EVIDENCE_HELPERS = (
+    ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.evidence.ts"
+)
+ASSISTANT_RENDER = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.render.tsx"
 ASSISTANT_PROGRESS = (
     ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantProgressTimeline.tsx"
 )
+ASSISTANT_MODE_TOGGLE = (
+    ROOT / "komsco-ai-console-plugin" / "src" / "components" / "AssistantExecutionModeToggle.tsx"
+)
 ASSISTANT_CONSTANTS = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.constants.tsx"
+ASSISTANT_STORAGE = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.storage.ts"
 ASSISTANT_TYPES = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.types.ts"
 ASSISTANT_CSS = ROOT / "komsco-ai-console-plugin" / "src" / "components" / "assistant.css"
 PAGES = ROOT / "komsco-ai-console-plugin" / "src" / "pages" / "AiopsPages.tsx"
@@ -85,8 +97,10 @@ def require_ignored(path: str, label: str) -> None:
 def main() -> None:
     require(CONTRACT, "Tool Plan JSON은 내부 작전서", "contract locks internal tool plan")
     require(CONTRACT, "원인 후보", "contract requires human RCA section")
-    require(CONTRACT, "확인한 증적", "contract requires evidence section")
-    require(CONTRACT, "권장 조치", "contract requires remediation section")
+    require(CONTRACT, "확인 결과", "contract requires evidence section")
+    require(CONTRACT, "조치 방법", "contract requires remediation section")
+    reject(CONTRACT, "확인한 증적", "contract does not use old evidence wording")
+    reject(CONTRACT, "권장 조치", "contract does not use old remediation wording")
     require(CONTRACT, "추가 확인", "contract requires follow-up section")
     require(CONTRACT, "재발 방지", "contract requires prevention section")
     require(CONTRACT, "읽기 전용", "contract keeps read-only mode")
@@ -122,7 +136,10 @@ def main() -> None:
     require(GATEWAY_MAIN, "page_context_is_pod_workload(req)", "Gateway limits grounded renderer to current Pod screen context")
     require(GATEWAY_MAIN, "source\": \"gateway_evidence_renderer\"", "Gateway streams grounded evidence answer")
     require(GATEWAY_MAIN, "evidence-grounded-pod-rca-v0.2.2", "Gateway stamps grounded answer contract")
-    require(GATEWAY_MAIN, "조치 레코드가 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시", "Gateway states when no action record was created")
+    require(GATEWAY_MAIN, "실행 기록이 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시", "Gateway states when no action record was created")
+    require(GATEWAY_MAIN, "승인 가능한 조치 계획으로 정리", "Gateway action fallback uses product wording")
+    reject(GATEWAY_MAIN, "typed ActionProposal/SealedActionPlan", "Gateway default action fallback hides typed action internals")
+    reject(GATEWAY_MAIN, "ActionProposal/SealedActionPlan/Approval/ExecutionRecord는 `0건`", "Gateway default RCA fallback hides lifecycle kind names")
     require(GATEWAY_MAIN, '"answerMode": answer_mode', "transcript stores answerMode")
     require(GATEWAY_MAIN, '"assistantAnswer"', "transcript stores assistantAnswer")
     require(GATEWAY_MAIN, '"toolPlanDigest": tool_plan_digest', "transcript stores toolPlanDigest")
@@ -133,19 +150,19 @@ def main() -> None:
     reject(GATEWAY_MAIN, 'f"- Tool Plan:', "default action text does not print Tool Plan line")
 
     require(ASSISTANT_TYPES, "export type EvidenceFooterQueryStep", "console defines query step type")
-    require(ASSISTANT, "EvidenceFooterQueryStep", "console uses query step type")
-    require(ASSISTANT, "queryPlan", "console builds queryPlan for Evidence footer")
-    require(ASSISTANT, "근거 상세보기", "console has Evidence detail toggle")
-    require(ASSISTANT, "조회 계획", "console labels human query plan")
-    require(ASSISTANT, "stripDefaultEvidenceAppendix", "console hides raw RAG appendix from default chat body")
-    require(ASSISTANT, "extractRagAppendixRefs", "console moves raw RAG appendix into evidence detail")
-    require(ASSISTANT, "문서 근거", "console labels RAG appendix as document evidence")
-    require(ASSISTANT, "compactEvidenceTypeSummary", "console keeps evidence footer compact by default")
-    require(ASSISTANT, "evidenceStepStatusLabel", "console translates evidence detail statuses")
-    require(ASSISTANT, "rcaContextPhaseLabel", "console translates RCA stream phases")
-    require(ASSISTANT_PROGRESS, "답변 근거 연결 완료", "console uses product wording for RCA phase")
+    require(ASSISTANT_EVIDENCE_HELPERS, "EvidenceFooterQueryStep", "console uses query step type")
+    require(ASSISTANT_EVIDENCE_HELPERS, "queryPlan", "console builds queryPlan for Evidence footer")
+    require(ASSISTANT_EVIDENCE, "확인 결과 상세", "console has Evidence detail toggle")
+    require(ASSISTANT_EVIDENCE, "조회 계획", "console labels human query plan")
+    require(ASSISTANT_RENDER, "stripDefaultEvidenceAppendix", "console hides raw RAG appendix from default chat body")
+    require(ASSISTANT_EVIDENCE, "extractRagAppendixRefs", "console moves raw RAG appendix into evidence detail")
+    require(ASSISTANT_EVIDENCE, "참고 문서", "console labels RAG appendix as document evidence")
+    require(ASSISTANT_EVIDENCE, "compactEvidenceTypeSummary", "console keeps evidence footer compact by default")
+    require(ASSISTANT_EVIDENCE, "evidenceStepStatusLabel", "console translates evidence detail statuses")
+    require(ASSISTANT_PROGRESS, "rcaContextPhaseLabel", "console translates RCA stream phases")
+    require(ASSISTANT_PROGRESS, "확인 결과 정리 완료", "console uses product wording for RCA phase")
     require(ASSISTANT_PROGRESS, "productProgressText", "console sanitizes stored progress wording")
-    require(ASSISTANT, "normalized === 'not_attempted'", "console hides raw not_attempted status")
+    require(ASSISTANT_EVIDENCE_HELPERS, "normalized === 'not_attempted'", "console hides raw not_attempted status")
     reject(ASSISTANT, "RCA 문맥 연결:", "console does not expose raw RCA phase wording")
     reject(ASSISTANT, "RCA Context digest", "console does not expose raw RCA context digest wording")
     reject(ASSISTANT, "evidence refs", "console does not expose raw evidence refs wording")
@@ -209,14 +226,15 @@ def main() -> None:
         "export type AiopsExecutionMode = 'read-only' | 'execute' | 'unrestricted';",
         "console keeps three modes",
     )
-    require(ASSISTANT, "읽기 전용", "console keeps read-only label")
-    require(ASSISTANT, "실행 가능", "console keeps execute label")
-    require(ASSISTANT, "실행 무제한", "console keeps unrestricted label")
-    require(ASSISTANT, 'title="실험 무제한 모드"', "console keeps unrestricted button selectable")
+    require(ASSISTANT_MODE_TOGGLE, "읽기 전용", "console keeps read-only label")
+    require(ASSISTANT_MODE_TOGGLE, "실행 가능", "console keeps execute label")
+    require(ASSISTANT_MODE_TOGGLE, "실행 무제한", "console keeps unrestricted label")
+    require(ASSISTANT_MODE_TOGGLE, "unrestrictedTitle", "console keeps unrestricted button selectable")
     reject(ASSISTANT, "setExecutionMode('execute');", "console does not auto-demote unrestricted mode")
     require(ASSISTANT, "setHistorySidebarOpen(false);", "console closes history sidebar with assistant")
     require(ASSISTANT, "setHistoryDrawerBounds({});", "console clears detached history drawer bounds")
-    require(ASSISTANT, "assistantVisible && historySidebar", "console does not render sidebar portal after close")
+    require(ASSISTANT, "{assistantVisible && (", "console gates assistant surface by visibility")
+    require(ASSISTANT, "{historySidebar}", "console renders history sidebar only inside assistant surface")
     require(ASSISTANT, "AssistantSurfacePortal", "console portals floating assistant out of OKD stacking context")
     require(ASSISTANT, "komsco-ai--portal", "console marks portaled assistant surface")
     reject(ASSISTANT, "OLS 스트림 중계", "console does not show stream relay jargon")
@@ -229,12 +247,26 @@ def main() -> None:
     require(ASSISTANT, "readStoredUiLanguage", "console restores language selection")
     require(ASSISTANT, "writeStoredUiLanguage(uiLanguage)", "console stores language selection")
     require(ASSISTANT, 'data-ui-language={uiLanguage}', "console exposes current language state")
-    require(ASSISTANT, "uiLanguage === 'ko' ? 'KR' : 'EN'", "console language button shows current language")
+    require(ASSISTANT_HEADER, "uiLanguage === 'ko' ? 'KR' : 'EN'", "console language button shows current language")
     require(ASSISTANT, "readStoredConversationHistory", "console restores conversation history")
     require(ASSISTANT, "readStoredActiveConversation", "console restores active conversation")
     require(ASSISTANT, "writeStoredConversationHistory(conversationHistory)", "console persists conversation history")
     require(ASSISTANT, "writeStoredActiveConversation({", "console persists active conversation")
-    require(ASSISTANT, "const { attachments: _attachments, ...storedMessage }", "console strips raw attachments from stored messages")
+    require(
+        ASSISTANT_STORAGE,
+        "const { attachments: _attachments, ...storedMessage }",
+        "console strips raw attachments from stored messages",
+    )
+    require(
+        ASSISTANT_STORAGE,
+        "messages: conversation.messages.map(sanitizeMessageForStorage)",
+        "console strips raw attachments before persisting history",
+    )
+    require(
+        ASSISTANT_STORAGE,
+        "messages: snapshot.messages.map(sanitizeMessageForStorage)",
+        "console strips raw attachments before persisting active conversation",
+    )
     require(ASSISTANT_CSS, "font-size: 14.5px;", "assistant answer body uses readable font size")
     require(ASSISTANT_CSS, "line-height: 1.7;", "assistant answer body uses readable line height")
     require(ASSISTANT_CSS, "z-index: 2147483646;", "assistant overlay sits above OKD chrome")

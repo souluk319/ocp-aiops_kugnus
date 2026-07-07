@@ -27,7 +27,12 @@ export type AssistantCopy = {
   systemLabel: string;
   answerCopy: string;
   answerCopied: string;
+  emptyHistorySearch: string;
+  pinConversation: string;
+  pinnedConversation: string;
+  searchHistory: string;
   scrollToLatest: string;
+  unpinConversation: string;
   uploadedDocs: string;
   uploadedDocsError: string;
   uploadedDocsLoading: string;
@@ -50,7 +55,7 @@ export const TASK_MODE_EMPTY_COPY: Record<
   troubleshooting: {
     ko: {
       title: '문제 원인을 점검합니다',
-      text: 'Event, Pod, Operator, Metrics 근거를 모아 원인 후보와 다음 확인 절차를 정리합니다.',
+      text: 'Event, Pod, Operator, Metrics 확인 결과를 모아 원인 후보와 다음 확인 절차를 정리합니다.',
     },
     en: {
       title: 'Troubleshoot an issue',
@@ -87,7 +92,12 @@ export const UI_COPY: Record<UiLanguage, AssistantCopy> = {
     systemLabel: '시스템',
     answerCopy: '복사',
     answerCopied: '복사됨',
+    emptyHistorySearch: '검색 결과가 없습니다.',
+    pinConversation: '상단 고정',
+    pinnedConversation: '상단 고정됨',
+    searchHistory: '대화 검색',
     scrollToLatest: '최신 답변으로 이동',
+    unpinConversation: '상단 고정 해제',
     uploadedDocs: '업로드 문서',
     uploadedDocsError: '업로드 문서 목록을 불러오지 못했습니다.',
     uploadedDocsLoading: '업로드 문서를 확인하는 중입니다.',
@@ -120,7 +130,12 @@ export const UI_COPY: Record<UiLanguage, AssistantCopy> = {
     systemLabel: 'System',
     answerCopy: 'Copy',
     answerCopied: 'Copied',
+    emptyHistorySearch: 'No matching conversations.',
+    pinConversation: 'Pin chat',
+    pinnedConversation: 'Pinned',
+    searchHistory: 'Search chats',
     scrollToLatest: 'Jump to latest answer',
+    unpinConversation: 'Unpin chat',
     uploadedDocs: 'Uploaded documents',
     uploadedDocsError: 'Unable to load uploaded documents.',
     uploadedDocsLoading: 'Checking uploaded documents.',

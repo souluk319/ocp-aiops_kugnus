@@ -439,6 +439,26 @@ const localSealedPlanRecord = (actionType = 'crashloop') => {
           source: isNamespaceCleanup ? 'oc' : isTestPods ? 'chat' : 'local-fixture',
         },
       ],
+      expectedImpact: isNamespaceCleanup
+        ? '정리 후보를 승인 검토 계획으로 고정합니다. 이 후보 자체는 namespace 삭제를 실행하지 않습니다.'
+        : isTestPods
+        ? `${target.name} namespace에 테스트 Pod ${LOCAL_TEST_POD_COUNT}개 생성 계획을 검토합니다.`
+        : '대상 Deployment 1개가 재시작될 수 있으며, 준비 상태가 회복되는지 확인합니다.',
+      prerequisiteChecks: isNamespaceCleanup
+        ? ['소유자 확인', 'PVC/Route 잔존 여부 재확인', '백업 필요 여부 확인']
+        : isTestPods
+        ? ['대상 namespace 존재 확인', '테스트 목적 확인', '정리 방법 확인']
+        : ['대상 Deployment와 namespace 확인', '최근 Event와 로그 확인'],
+      problemSummary: isNamespaceCleanup
+        ? '사용 신호가 낮은 namespace 정리 후보'
+        : isTestPods
+        ? '실전형 시나리오 테스트를 위한 테스트 Pod 생성 검토'
+        : 'CrashLoopBackOff 또는 Ready 불량 워크로드 조치 검토',
+      recommendationSteps: isNamespaceCleanup
+        ? ['namespace 사용 신호 재확인', '정리 검토 Action Plan 생성', '별도 삭제 승인 정책 확인']
+        : isTestPods
+        ? ['테스트 Pod 생성 계획 작성', '승인 게이트 통과', '생성 후 label 기준 조회로 검증']
+        : ['Pod 로그와 Event 확인', '승인 후 rollout restart 실행', 'Ready replica 회복 확인'],
       runbookRefs: [
         {
           title: isNamespaceCleanup
@@ -448,6 +468,11 @@ const localSealedPlanRecord = (actionType = 'crashloop') => {
               : 'Deployment restart runbook',
         },
       ],
+      verificationChecks: isNamespaceCleanup
+        ? ['Action Plan 생성 후에도 namespace가 존재하는지 확인', '삭제 실행 기록이 없는지 확인']
+        : isTestPods
+        ? [`label app=${LOCAL_TEST_POD_NAME_PREFIX} 기준 Pod ${LOCAL_TEST_POD_COUNT}개 조회`]
+        : ['Deployment ready replica가 1/1인지 확인', 'restart 증가가 멈췄는지 확인'],
     },
     digest: {
       planDigest,
@@ -655,7 +680,7 @@ const executionModeSentence = (executionMode, language = 'ko') => {
   if (executionMode === 'execute') {
     return '실행 가능 모드: 조회 후 승인 가능한 Action Plan 후보를 만들 수 있습니다. 승인 전 변경은 실행하지 않습니다.';
   }
-  return '읽기 전용 모드: 조회와 근거 수집만 수행하고 변경 작업은 만들지 않습니다.';
+  return '읽기 전용 모드: 조회와 확인 결과 정리만 수행하고 변경 작업은 만들지 않습니다.';
 };
 
 const clarificationModeSentence = (executionMode, language = 'ko') => {
@@ -674,7 +699,7 @@ const clarificationModeSentence = (executionMode, language = 'ko') => {
   if (executionMode === 'execute') {
     return '실행 가능 모드: 요청이 명확해지기 전에는 승인이나 실행을 만들지 않습니다.';
   }
-  return '읽기 전용 모드: 조회와 근거 수집만 수행하고 변경 작업은 만들지 않습니다.';
+  return '읽기 전용 모드: 조회와 확인 결과 정리만 수행하고 변경 작업은 만들지 않습니다.';
 };
 
 const actionPolicyModeForExecutionMode = (executionMode, canProposeAction) => {
@@ -1212,7 +1237,7 @@ const namespaceInventoryAnswer = (inventory, executionMode = 'read-only', langua
     isEn ? '## Current Assessment' : '## 현재 판단',
     modeLine,
     '',
-    isEn ? '## Query Evidence' : '## 조회 근거',
+    isEn ? '## Query Results' : '## 조회 결과',
     isEn ? `- API server: ${inventory.server}` : `- API 서버: ${inventory.server}`,
     isEn
       ? `- Accessible namespaces: ${inventory.totalNamespaces}`
@@ -1222,7 +1247,7 @@ const namespaceInventoryAnswer = (inventory, executionMode = 'read-only', langua
       : `- 조회 범위: ${inventory.requestedNames.length ? inventory.requestedNames.join(', ') : '첫 12개 namespace'}`,
     '',
     isEn ? '## Namespace Decisions' : '## 네임스페이스별 판단',
-    isEn ? '| Namespace | Decision | Evidence | Next Step |' : '| Namespace | 판단 | 근거 | 다음 조치 |',
+    isEn ? '| Namespace | Decision | Evidence | Next Step |' : '| Namespace | 판단 | 확인 결과 | 다음 조치 |',
     '|---|---|---|---|',
   ];
 
@@ -1422,7 +1447,7 @@ const openShiftSignalAnswer = (inventory, language = 'ko') => {
       ? 'The Copilot summarized recent warnings and priority checks using live `oc` read-only queries. No change was executed.'
       : '실제 `oc` 읽기 전용 조회로 최근 경고와 우선 확인 대상을 정리했습니다. 변경은 실행하지 않았습니다.',
     '',
-    isEn ? '## Query Evidence' : '## 조회 근거',
+    isEn ? '## Query Results' : '## 조회 결과',
     isEn ? `- API server: ${inventory.server}` : `- API 서버: ${inventory.server}`,
     isEn ? `- Warning events: ${inventory.totals.warningEvents}` : `- Warning event: ${inventory.totals.warningEvents}개`,
     isEn ? `- Operator issues: ${inventory.totals.operatorIssues}` : `- Operator 이상: ${inventory.totals.operatorIssues}개`,
@@ -1440,7 +1465,7 @@ const openShiftSignalAnswer = (inventory, language = 'ko') => {
         : '- 현재 접근 가능한 범위에서 우선 확인할 Warning event, Operator issue, Pod issue가 보이지 않습니다.',
     );
   } else {
-    lines.push(isEn ? '| Type | Target | Evidence | Next Check |' : '| 구분 | 대상 | 근거 | 다음 확인 |');
+    lines.push(isEn ? '| Type | Target | Evidence | Next Check |' : '| 구분 | 대상 | 확인 결과 | 다음 확인 |');
     lines.push('|---|---|---|---|');
     for (const item of inventory.rows.operators.slice(0, 4)) {
       lines.push(
@@ -1565,7 +1590,7 @@ const testPodCreateAnswer = (request, preflight, executionMode = 'read-only', la
     isEn ? `- requested count: \`${requestedCount}\`` : `- 생성 수량: \`${requestedCount}\``,
     isEn ? `- plan target: \`${targetLabel}\`` : `- 계획 대상: \`${targetLabel}\``,
     '',
-    isEn ? '## Confirmed Evidence' : '## 확인한 근거',
+    isEn ? '## Confirmed Evidence' : '## 확인 결과',
     isEn ? `- API server: ${preflight.server || 'check failed'}` : `- API 서버: ${preflight.server || '확인 실패'}`,
     isEn ? `- namespace preflight: ${preflightLabel}` : `- namespace 사전 확인: ${preflightLabel}`,
   ];
@@ -1737,7 +1762,7 @@ const casualLocalChatAnswer = (executionMode, language = 'ko') => {
   }
   return [
     '저는 AIOps for OCP입니다.',
-    'OCP(OpenShift Container Platform)를 위한 전문 AIOps 모델로, 운영 상태를 근거 기반으로 확인하고 원인 후보 정리, Action Plan 작성, 승인 후 실행 검증까지 도와드립니다.',
+    'OCP(OpenShift Container Platform)를 위한 전문 AIOps 모델로, 운영 상태를 조회 결과 기반으로 확인하고 원인 후보 정리, Action Plan 작성, 승인 후 실행 검증까지 도와드립니다.',
     '네임스페이스, 파드, 디플로이먼트, 경고 메시지 중 확인할 대상을 알려주시면 바로 이어서 보겠습니다.',
   ].join('\n');
 };
@@ -1753,7 +1778,7 @@ const generalConceptLocalAnswer = (language = 'ko') => {
   return [
     'OpenShift는 Red Hat의 Kubernetes 기반 컨테이너 플랫폼입니다.',
     '애플리케이션 배포, 네트워크/스토리지 연결, 보안 정책, 운영 자동화를 콘솔과 API에서 관리할 수 있게 해줍니다.',
-    'AIOps for OCP에서는 OpenShift의 네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, 경고 상태를 근거 기반으로 확인하고 Action Plan과 승인 후 검증까지 연결합니다.',
+    'AIOps for OCP에서는 OpenShift의 네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, 경고 상태를 조회 결과 기반으로 확인하고 Action Plan과 승인 후 검증까지 연결합니다.',
   ].join('\n');
 };
 
@@ -2141,7 +2166,7 @@ const streamLocalChat = async (req, res) => {
     },
   };
   const evidenceStatus = [
-    { label: '수집 근거', status: 'ok', value: '2' },
+    { label: '확인 결과', status: 'ok', value: '2' },
     { label: '추가 확인', status: 'warn', value: '1' },
     {
       label: 'Action Plan',
@@ -2183,14 +2208,14 @@ const streamLocalChat = async (req, res) => {
           '## 현재 판단',
           crashloopActionCapableMode
             ? `${executionModeSentence(executionMode, uiLanguage)} CrashLoopBackOff 복구 조치는 승인 가능한 Action Plan 후보로 정리할 수 있습니다.`
-            : `${executionModeSentence(executionMode, uiLanguage)} CrashLoopBackOff 복구 조치는 조회와 근거 정리까지만 표시합니다.`,
+            : `${executionModeSentence(executionMode, uiLanguage)} CrashLoopBackOff 복구 조치는 조회와 확인 결과 정리까지만 표시합니다.`,
           '',
           '## 영향 범위',
           '- 대상: Deployment 1개',
           '- 현재 상태: ready replica 0/1',
           '- 사용자 영향: 해당 Deployment가 제공하는 기능 일부 중단 가능',
           '',
-          '## 확인한 근거',
+          '## 확인 결과',
           '- `KubePodNotReady` 경고가 firing 상태입니다.',
           '- 대상 Deployment 1개가 `0/1 ready` 상태입니다.',
           '',
@@ -2213,8 +2238,8 @@ const streamLocalChat = async (req, res) => {
     runId,
     stage: 'started',
     message: crashloopActionCapableMode
-      ? 'CrashLoopBackOff 근거와 Action Plan 후보 확인을 시작했습니다.'
-      : 'CrashLoopBackOff 근거를 읽기 전용으로 확인합니다.',
+      ? 'CrashLoopBackOff 확인 결과와 Action Plan 후보 확인을 시작했습니다.'
+      : 'CrashLoopBackOff 상태를 읽기 전용으로 확인합니다.',
   });
   sse(res, {
     type: 'tool_call',
@@ -2274,7 +2299,7 @@ const streamLocalChat = async (req, res) => {
     type: 'run_status',
     runId,
     stage: 'completed',
-    message: 'CrashLoopBackOff 근거 연결과 조치 가능성 확인을 완료했습니다.',
+    message: 'CrashLoopBackOff 확인 결과와 조치 가능성 검토를 완료했습니다.',
   });
   endChatStream(res);
 };
@@ -2500,7 +2525,7 @@ const aiopsStatus = () => ({
         localOnly: true,
       },
       evidenceStatus: [
-        { label: '수집 근거', status: 'ok', value: '2' },
+        { label: '확인 결과', status: 'ok', value: '2' },
         { label: '추가 확인', status: 'warn', value: '1' },
         { label: 'Action Plan', status: 'ok', value: '가능' },
       ],
@@ -2896,10 +2921,8 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const actionType = actionTypeFromProposalId(body.proposalId) || 'crashloop';
     const record = localSealedPlanRecord(actionType);
-    if (actionType === 'test-pods' || actionType === 'namespace-cleanup') {
-      LOCAL_ACTION_PROPOSALS.set(proposalIdForAction(actionType), localProposalRecord(actionType));
-      LOCAL_SEALED_PLANS.set(record.metadata.name, record);
-    }
+    LOCAL_ACTION_PROPOSALS.set(proposalIdForAction(actionType), localProposalRecord(actionType));
+    LOCAL_SEALED_PLANS.set(record.metadata.name, record);
     json(res, 200, {
       apiVersion: 'aiops.komsco/v1',
       kind: 'SealedActionPlan',
@@ -2913,10 +2936,8 @@ const server = http.createServer(async (req, res) => {
     const actionType = actionTypeFromCandidateId(body.candidateId) || 'crashloop';
     const proposal = localProposalRecord(actionType);
     const plan = localSealedPlanRecord(actionType);
-    if (actionType === 'test-pods' || actionType === 'namespace-cleanup') {
-      LOCAL_ACTION_PROPOSALS.set(proposal.metadata.name, proposal);
-      LOCAL_SEALED_PLANS.set(plan.metadata.name, plan);
-    }
+    LOCAL_ACTION_PROPOSALS.set(proposal.metadata.name, proposal);
+    LOCAL_SEALED_PLANS.set(plan.metadata.name, plan);
     json(res, 200, {
       apiVersion: 'aiops.komsco/v1',
       kind: 'ActionCandidatePlan',
@@ -2972,6 +2993,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (
       ['medium', 'high'].includes(riskForAction(actionType)) &&
+      actionType !== 'namespace-cleanup' &&
       body.approvalScope !== 'lab-auto-unrestricted'
     ) {
       json(res, 409, {

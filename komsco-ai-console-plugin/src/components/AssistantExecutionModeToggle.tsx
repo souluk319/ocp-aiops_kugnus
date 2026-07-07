@@ -28,7 +28,7 @@ const AssistantExecutionModeToggle: React.FC<AssistantExecutionModeToggleProps> 
     readOnlyLabel: isKo ? '읽기 전용' : 'Read only',
     readOnlyAria: isKo ? '읽기 전용 모드' : 'Read-only mode',
     readOnlyTitle: isKo
-      ? '조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.'
+      ? '조회와 확인 결과 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.'
       : 'Collects evidence only. It does not create plans, approvals, or executions.',
     executeLabel: isKo ? '실행 가능' : 'Execute',
     executeAria: isKo ? '승인 후 실행 모드' : 'Approval-gated execution mode',

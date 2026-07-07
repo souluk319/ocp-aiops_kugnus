@@ -554,7 +554,7 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
                 "eventName": "pod_status_evidence",
                 "eventStatus": "success",
                 "sourceType": "gateway-preflight-evidence",
-                "summary": "Pod 상태/재시작 증거 수집 완료",
+                "summary": "Pod 상태/재시작 조회 결과 수집 완료",
             }
         ],
         page_context={"namespace": "default", "resourceKind": "Pod"},
@@ -583,7 +583,7 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
         "unrestricted",
     ]
     assert "원인 후보" in context["analysisPlan"]["answerContract"]["requiredSections"]
-    assert "확인한 근거" in context["analysisPlan"]["answerContract"]["requiredSections"]
+    assert "확인 결과" in context["analysisPlan"]["answerContract"]["requiredSections"]
     step_status = {
         item["evidenceType"]: item
         for item in context["analysisPlan"]["evidenceCollectionSteps"]
@@ -657,7 +657,7 @@ def test_rca_context_tracks_node_alert_metric_status_without_stale_missing() -> 
                 "eventStatus": "success",
                 "sourcePath": "/api/v1/nodes",
                 "sourceType": "gateway-preflight-evidence",
-                "summary": "Node 상태 RCA 증거 수집 완료",
+                "summary": "Node 상태 RCA 조회 결과 수집 완료",
             },
             {
                 "collectedAt": "2026-06-24T00:00:01Z",
@@ -681,7 +681,7 @@ def test_rca_context_tracks_node_alert_metric_status_without_stale_missing() -> 
                 "missingReason": "Prometheus query failed",
                 "sourcePath": "/api/v1/query?query=increase",
                 "sourceType": "gateway-preflight-evidence",
-                "summary": "Restart metric RCA 증거 수집 불가",
+                "summary": "Restart metric RCA 조회 결과 수집 불가",
             },
         ],
         run_id="run-rca-status",
@@ -720,7 +720,7 @@ def test_rca_context_classifies_clusteroperator_detail_before_pod_status_name() 
                 "eventName": "pod_status_evidence",
                 "eventStatus": "success",
                 "sourceType": "gateway-preflight-evidence",
-                "summary": "Pod 상태/재시작 증거 수집 완료",
+                "summary": "Pod 상태/재시작 조회 결과 수집 완료",
             }
         ],
         run_id="run-test",
@@ -765,7 +765,7 @@ def test_runtime_safety_contract_counts_rca_collected_refs_as_evidence() -> None
                 "contentDigest": "sha256:clusteroperator",
                 "eventStatus": "success",
                 "sourceType": "gateway-preflight-evidence",
-                "summary": "clusteroperator 상태 증거 수집 완료",
+                "summary": "clusteroperator 상태 조회 결과 수집 완료",
             }
         ],
         run_id="run-test",
@@ -1741,7 +1741,7 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
             "evidenceType": "node",
             "sourcePath": "/api/v1/nodes",
             "status": "success",
-            "summary": "Node 상태 RCA 증거 수집 완료",
+            "summary": "Node 상태 RCA 조회 결과 수집 완료",
         }
 
     async def fake_alert_evidence(_authorization: str) -> dict:
@@ -1761,7 +1761,7 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
             "missingReason": "Prometheus query failed",
             "sourcePath": "/api/v1/query?query=increase",
             "status": "error",
-            "summary": "Restart metric RCA 증거 수집 불가",
+            "summary": "Restart metric RCA 조회 결과 수집 불가",
         }
 
     async def fake_official_restart_evidence(
@@ -1779,7 +1779,7 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
                 "name": "official_namespace_restart_event_evidence",
                 "sourcePath": "/api/v1/namespaces/default/events?limit=200",
                 "status": "success",
-                "summary": "공식 Pod 재시작 namespace Event 증거 수집 완료",
+                "summary": "공식 Pod 재시작 namespace Event 조회 결과 수집 완료",
             },
             {
                 "type": "tool_result",
@@ -1789,7 +1789,7 @@ def test_chat_stream_collects_stage3_node_alert_metric_evidence_before_answer(mo
                 "name": "official_namespace_restart_snapshot",
                 "sourcePath": "/api/v1/namespaces/default/pods?limit=200",
                 "status": "success",
-                "summary": "공식 Pod 재시작 namespace snapshot 증거 수집 완료",
+                "summary": "공식 Pod 재시작 namespace snapshot 조회 결과 수집 완료",
             },
             {
                 "type": "tool_result",
@@ -1974,7 +1974,10 @@ def test_chat_stream_ops_question_connects_plan_evidence_final_text_and_action_c
         assert post_answer_events
         action_candidates = post_answer_events[-1]["context"]["rcaResult"]["action_candidates"]
         assert any("resource limit" in candidate for candidate in action_candidates)
-        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in events[
+        assert "Action Plan" in events[
+            action_contract_index
+        ]["content"]
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" not in events[
             action_contract_index
         ]["content"]
 
@@ -2471,9 +2474,9 @@ def test_policy_check_progress_copy_uses_operator_language() -> None:
     evidence_check_policy = classify_request_policy("최근 에러로그 20건 가져와봐")
     action_policy = classify_request_policy("web-api 파드 3개로 올려줘")
 
-    assert policy_check_summary(evidence_check_policy) == "조회/증거 수집 허용"
+    assert policy_check_summary(evidence_check_policy) == "조회 허용"
     assert "Evidence-check evidence allowed" not in policy_check_summary(evidence_check_policy)
-    assert "정책 결정: 조회/증거 수집 허용" in summarize_policy_detail(evidence_check_policy)
+    assert "정책 결정: 조회 허용" in summarize_policy_detail(evidence_check_policy)
     assert "내부 결정값: allow_evidence_collection" in summarize_policy_detail(evidence_check_policy)
     assert policy_check_summary(action_policy) == "조치 요청은 Action Plan 경로로 처리"
     assert "Action proposal only" not in policy_check_summary(action_policy)
@@ -3040,11 +3043,13 @@ def test_build_aiops_answer_contract_exposes_action_path() -> None:
     )
 
     assert "## 승인 대기 조치" in text
-    assert "Tool Plan: `pod_restart_rca`" in text
-    assert "RCA Context: 수집 근거 1건" in text
-    assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in text
-    assert "/v1/actions/rejections" in text
-    assert "rejected" in text
+    assert "조회 계획: `pod_restart_rca`" in text
+    assert "확인 결과: 수집 1건" in text
+    assert "Action Plan" in text
+    assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" not in text
+    assert "RCA Context" not in text
+    assert "/v1/actions/rejections" not in text
+    assert "거절하면 실행은 차단" in text
 
 
 def test_build_aiops_answer_contract_omits_action_text_for_evidence_check_analysis() -> None:
@@ -3157,9 +3162,9 @@ def test_build_ols_query_context_profile_includes_gateway_evidence(monkeypatch) 
 
     assert "Verified operational context:" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
-    assert "## RCA 보고서" in query
+    assert "RCA 또는 운영 상태 질문에는 가능한 경우 아래 순서를 사용하세요" in query
     assert "현재 판단" in query
-    assert "확인한 근거" in query
+    assert "확인 결과" in query
     assert "추가 확인" in query
     monkeypatch.setattr(gateway_main, "OLS_QUERY_PROFILE", "minimal")
 
@@ -3168,8 +3173,12 @@ def test_action_proposal_fallback_is_non_empty_and_requests_target() -> None:
     policy = classify_request_policy("Pod 하나 재시작해줘")
     fallback = build_action_proposal_fallback(ChatRequest(message="Pod 하나 재시작해줘"), policy)
 
-    assert "Phase 5 Action Execution" in fallback
-    assert "Approval API와 Action Executor" in fallback
+    assert "승인 필요한 조치 계획 검토" in fallback
+    assert "승인 전 실행 차단" in fallback
+    assert "운영자 승인 후 실행 기록을 남기는 경로" in fallback
+    assert "Phase 5 Action Execution" not in fallback
+    assert "Approval API와 Action Executor" not in fallback
+    assert "ActionProposal/SealedActionPlan" not in fallback
     assert "namespace" in fallback
     assert "Pod 또는 관리 객체" in fallback
 
@@ -3190,7 +3199,7 @@ def test_empty_answer_fallback_includes_question_and_tool_summary() -> None:
 
     assert "## RCA 보고서" in fallback
     assert "### 현재 판단" in fallback
-    assert "### 확인한 근거" in fallback
+    assert "### 확인 결과" in fallback
     assert "### 원인 후보" in fallback
     assert "### 조치 방법" in fallback
     assert "### 추가 확인" in fallback
@@ -3223,7 +3232,7 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "## RCA 보고서" in fallback
     assert "### 원인 후보" in fallback
     assert "### 추가 확인" in fallback
-    assert "Gateway가 수집한 증거 기준" in fallback
+    assert "Gateway 조회 결과 기준" in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
 
@@ -3593,7 +3602,7 @@ def test_chat_stream_retries_empty_ols_answer_before_fallback(monkeypatch) -> No
         gateway_main.update_ols_stream_status("succeeded", context_digest=context_digest)
         yield {
             "type": "text",
-            "content": "## RCA 보고서\n\n### 현재 판단\n재시도 후 Lightspeed 답변입니다.\n\n### 확인한 근거\nGateway evidence.",
+            "content": "## RCA 보고서\n\n### 현재 판단\n재시도 후 Lightspeed 답변입니다.\n\n### 확인 결과\nGateway evidence.",
         }
         yield {"type": "end", "conversationId": "conversation-answer"}
 
@@ -3736,7 +3745,7 @@ def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_ta
         gateway_evidence,
     )
 
-    assert "Gateway가 수집한 Kubernetes 증거 기준" in fallback
+    assert "Gateway가 수집한 Kubernetes 확인 결과 기준" in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
     assert "... truncated ..." not in fallback
@@ -3768,7 +3777,7 @@ def test_grounded_pod_screen_rca_uses_evidence_renderer_instead_of_generic_answe
 
     answer = build_grounded_aiops_answer(
         ChatRequest(
-            message="현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 근거와 원인 후보, 승인 가능한 조치 후보를 정리해줘.",
+            message="현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인 결과와 원인 후보, 승인 가능한 조치 후보를 정리해줘.",
             pageContext={"resourceKind": "Pod", "namespace": "team-a", "resourceName": "sample-crashy-6fd7d7cfd7-r4nd0"},
         ),
         {"task_type": "pod_screen_rca"},
@@ -3776,12 +3785,14 @@ def test_grounded_pod_screen_rca_uses_evidence_renderer_instead_of_generic_answe
     )
 
     assert answer is not None
-    assert "Gateway가 수집한 Kubernetes 증거 기준" in answer
+    assert "Gateway가 수집한 Kubernetes 확인 결과 기준" in answer
     assert "sample-crashy-6fd7d7cfd7-r4nd0" in answer
     assert "raise SystemExit('boom')" in answer
     assert "즉시 종료" in answer
-    assert "ActionProposal/SealedActionPlan/Approval/ExecutionRecord는 `0건`" in answer
-    assert "조치 레코드가 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시" in answer
+    assert "조치 후보, 조치 계획, 승인, 실행 기록을 만들지 않았습니다" in answer
+    assert "실행 기록이 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시" in answer
+    assert "ActionProposal/SealedActionPlan/Approval/ExecutionRecord" not in answer
+    assert "조치 레코드" not in answer
     assert "DB, API" not in answer
 
 
@@ -4616,7 +4627,7 @@ def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
             for index, event in enumerate(events)
             if isinstance(event, dict)
             and event.get("type") == "text"
-            and "plan-execute-mode" in event.get("content", "")
+            and "자연어 조치 요청을 승인 가능한 Action Plan으로 정리했습니다." in event.get("content", "")
         )
         post_answer_index = next(
             index
@@ -4654,11 +4665,13 @@ def test_chat_stream_execute_mode_action_plan_response_has_post_answer_rca(
         assert plan_results[0]["result"]["planDigest"] == "sha256:execute-mode-plan"
         assert plan_results
         assert plan_results[0]["status"] == "success"
-        assert "plan-execute-mode" in response.text
-        assert "sha256:execute-mode-plan" in response.text
-        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in response.text
-        assert "natural_action_execute" not in response.text
-        assert "lightspeed_stream" not in response.text
+        answer_text = events[answer_index]["content"]
+        assert "자연어 조치 요청을 승인 가능한 Action Plan으로 정리했습니다." in answer_text
+        assert "plan-execute-mode" not in answer_text
+        assert "sha256:execute-mode-plan" not in answer_text
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" not in answer_text
+        assert "natural_action_execute" not in answer_text
+        assert "lightspeed_stream" not in answer_text
         context = assert_post_answer_rca_before_done(events)
         assert context["confidence"]["level"] == "insufficient_evidence"
 
@@ -4772,7 +4785,13 @@ def test_chat_action_plan_can_continue_through_standard_approval_api(monkeypatch
         execution_record = next(iter(EXECUTION_RECORDS.values()))
         assert execution_record["spec"]["planId"] == plan_result["planId"]
         assert execution_record["spec"]["planDigest"] == plan_result["planDigest"]
-        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in chat_response.text
+        visible_text = "\n".join(
+            event.get("content", "")
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        )
+        assert "Action Plan" in visible_text
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" not in visible_text
         context = assert_post_answer_rca_before_done(events)
         assert context["metadata"]["phase"] == "post_answer"
 
@@ -5288,10 +5307,11 @@ def test_chat_stream_execute_action_request_emits_plan_and_post_answer_rca_conte
             event.get("answerContract") == "natural-action-plan-v0.2.1"
             for event in text_events
         )
-        assert "실행 계획까지 생성했습니다" in response.text
-        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" in response.text
-        assert "natural_action_execute" not in response.text
-        assert "lightspeed_stream" not in response.text
+        visible_text = "\n".join(event.get("content", "") for event in text_events)
+        assert "자연어 조치 요청을 승인 가능한 Action Plan으로 정리했습니다." in visible_text
+        assert "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord" not in visible_text
+        assert "natural_action_execute" not in visible_text
+        assert "lightspeed_stream" not in visible_text
         assert len(ACTION_PROPOSALS) == 1
         assert len(SEALED_ACTION_PLANS) == 1
         assert len(APPROVAL_DECISIONS) == 0
@@ -6684,7 +6704,7 @@ def test_build_evidence_reference_events_supports_gateway_preflight_source() -> 
         "type": "tool_result",
         "name": "pod_status_evidence",
         "status": "success",
-        "summary": "Pod 상태/재시작 증거 수집 완료",
+        "summary": "Pod 상태/재시작 조회 결과 수집 완료",
         "detail": "Gateway-collected Pod status evidence",
     }
 
@@ -6700,7 +6720,7 @@ def test_build_evidence_reference_events_supports_gateway_preflight_source() -> 
     assert events[0]["name"] == "evidence_ref"
     assert events[1]["type"] == "tool_result"
     assert events[1]["result"]["sourceType"] == "gateway-preflight-evidence"
-    assert events[1]["result"]["summary"] == "Pod 상태/재시작 증거 수집 완료"
+    assert events[1]["result"]["summary"] == "Pod 상태/재시작 조회 결과 수집 완료"
 
 
 def test_can_subject_read_record_requires_same_observed_identity() -> None:
@@ -8296,7 +8316,7 @@ def test_break_glass_api_rejects_arbitrary_command_input_and_records_request() -
     asyncio.run(run())
 
 
-def test_rag_context_detail_and_answer_citation_show_sources_without_raw_dump() -> None:
+def test_rag_context_detail_and_answer_citation_hide_source_uri_and_scores() -> None:
     results = [
         {
             "contentPreview": "업로드 문서 preview",
@@ -8311,10 +8331,16 @@ def test_rag_context_detail_and_answer_citation_show_sources_without_raw_dump() 
     detail = build_rag_context_detail(results, "ok")
     citation = build_rag_answer_citation_text(results)
 
-    assert "Gateway-collected RAG evidence" in detail
+    assert "Gateway-collected local document evidence" in detail
     assert "ops.md" in detail
     assert "user-upload" in detail
     assert "업로드 문서 preview" in detail
-    assert "[ RAG 근거 ]" in citation
-    assert "upload://user-upload:abc123/ops.md#chunk-0" in citation
+    assert "[ 참고 자료 ]" in citation
+    assert "ops.md" in citation
+    assert "upload://user-upload:abc123/ops.md#chunk-0" not in detail
+    assert "upload://user-upload:abc123/ops.md#chunk-0" not in citation
+    assert "score=" not in citation
+    assert "0.91" not in detail
+    assert "0.91" not in citation
+    assert "source:" not in citation
     assert "rawContent" not in citation

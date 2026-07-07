@@ -289,7 +289,7 @@ const actionCandidateLifecycle = (
       disabledReason:
         'ImagePullBackOff는 Pod eviction으로 해결하지 않습니다. 이미지 이름, registry 접근, pull secret을 먼저 확인해야 합니다.',
       label: '실행 보류',
-      phaseLabel: '근거 확인 필요',
+      phaseLabel: '확인 필요',
       proof: '이미지 pull 실패는 eviction 실행 후보에서 제외했습니다.',
     };
   }
@@ -315,7 +315,7 @@ const actionCandidateLifecycle = (
       action: 'done',
       disabledReason: '이미 실행 기록이 있습니다.',
       label: '완료',
-      phaseLabel: 'ExecutionRecord',
+      phaseLabel: '실행 완료',
       proof: `${recordName(execution)} · ${recordPhase(execution)}`,
     };
   }
@@ -369,12 +369,12 @@ export const OperatorFlowBoard: React.FC<{ data: AiopsDashboardData }> = ({ data
   const rcaStatus = status?.spec.safetyContract?.rcaContextStatus?.status;
   const rcaStatusLabel =
     rcaStatus === 'ready'
-      ? 'RCA 근거 준비됨'
+      ? 'RCA 확인 결과 준비됨'
       : rcaStatus === 'missing_question'
-        ? '질문 후 RCA 근거 생성'
+        ? '질문 후 RCA 확인 결과 생성'
         : statusLoaded
-          ? 'RCA 근거 확인 중'
-          : '질문 후 RCA 근거 생성';
+          ? 'RCA 확인 결과 확인 중'
+          : '질문 후 RCA 확인 결과 생성';
   const flowItems = [
     {
       detail: summary ? `${summary.nodes.ready}/${summary.nodes.total} ready` : '상태 수집 중',
@@ -393,9 +393,9 @@ export const OperatorFlowBoard: React.FC<{ data: AiopsDashboardData }> = ({ data
       value: overviewLoaded ? (anomalies?.statusLabel ?? '이상 징후 확인 중') : '이상 징후 수집 중',
     },
     {
-      detail: statusLoaded ? `수집 근거 ${collectedEvidence}건` : '근거 상태 확인 중',
+      detail: statusLoaded ? `확인 결과 ${collectedEvidence}건` : '확인 결과 상태 확인 중',
       icon: <ClipboardCheckIcon />,
-      label: 'RCA 근거',
+      label: 'RCA 확인 결과',
       tone: collectedEvidence > 0 ? 'info' : 'warning',
       value: rcaStatusLabel,
     },
@@ -504,7 +504,7 @@ export const actionCandidateMatchesFinding = (
   );
 };
 
-const findingEvidenceText = (finding: AiopsAnomalyFinding, fallback = '근거 수집 중'): string =>
+const findingEvidenceText = (finding: AiopsAnomalyFinding, fallback = '확인 결과 수집 중'): string =>
   normalizeFindingDisplayText(
     safeEvidenceText(finding.evidence || finding.message, fallback),
     finding,
@@ -532,15 +532,15 @@ const buildFindingDemoPrompt = (
     `대상: ${target}`,
     `심각도: ${finding.severity}`,
     `원인 후보: ${finding.candidateCause || finding.reason || '추가 확인 필요'}`,
-    `현재 근거: ${findingEvidenceText(finding)}`,
+    `현재 확인 결과: ${findingEvidenceText(finding)}`,
     `다음 확인: ${findingNextCheckText(finding)}`,
     candidateLine,
     '',
     '답변 형식:',
-    '1. 확인된 근거',
+    '1. 확인 결과',
     '2. 가능한 원인 후보',
-    '3. 추가 확인 필요 근거',
-    '4. 먼저 확인할 증거와 순서',
+    '3. 추가 확인 필요 항목',
+    '4. 먼저 확인할 조회 항목과 순서',
     '5. 실행 계획이 필요하면 승인 조건과 되돌림 기준',
     '',
     '주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. 실제 변경은 계획, 승인, 검증 조건을 거쳐야 한다.',
@@ -598,7 +598,7 @@ export const buildActionCandidatePrompt = (
       `조치 후보: ${candidate.title}`,
       `대상: ${targetLabel}`,
       `위험도: ${candidate.riskLabel || candidate.riskLevel || '확인 필요'}`,
-      `근거: ${candidate.evidence || '근거 확인 필요'}`,
+      `확인 결과: ${candidate.evidence || '확인 결과 필요'}`,
       `선행 확인: ${candidate.prerequisiteChecks?.[0] || '대상 리소스 상태 확인'}`,
       `예상 영향: ${candidate.expectedImpact || '영향 범위 확인 필요'}`,
       '',
@@ -638,7 +638,7 @@ export const AnomalySummaryBoard: React.FC<{
             <span>Cywell AI 이상 징후</span>
             <strong>overview 수집 중</strong>
           </div>
-          <code>증거 수집</code>
+          <code>조회 중</code>
         </div>
         <p>회사 OCP의 Alert, Pod, Operator, Event, 재시작 지표를 읽는 중입니다.</p>
       </section>
@@ -696,7 +696,7 @@ export const AnomalySummaryBoard: React.FC<{
                   <dd>{anomalyResourceLabel(finding)}</dd>
                   <dt>원인 후보</dt>
                   <dd>{finding.candidateCause || finding.reason || '추가 확인 필요'}</dd>
-                  <dt>근거</dt>
+                  <dt>확인 결과</dt>
                   <dd>{findingEvidenceText(finding)}</dd>
                   <dt>다음 확인</dt>
                   <dd>{findingNextCheckText(finding, '관련 리소스 상태와 이벤트 확인')}</dd>
@@ -878,7 +878,7 @@ export const ActionCandidateBoard: React.FC<{
                   <dt>상태</dt>
                   <dd>{lifecycle.phaseLabel}</dd>
                   <dt>조치 방향</dt>
-                  <dd>{candidate.recommendationSteps?.[0] || '근거 확인 후 승인 계획 생성'}</dd>
+                  <dd>{candidate.recommendationSteps?.[0] || '확인 결과 검토 후 승인 계획 생성'}</dd>
                   <dt>선행 확인</dt>
                   <dd>{candidate.prerequisiteChecks?.[0] || '관련 리소스 상태와 이벤트 확인'}</dd>
                   <dt>예상 영향</dt>
@@ -910,10 +910,10 @@ export const ActionCandidateBoard: React.FC<{
                   <Button
                     isInline
                     onClick={() => onPlanCandidate?.(candidate)}
-                    title="이 후보를 챗봇 질문으로 보내 근거 설명을 다시 확인합니다."
+                    title="이 후보를 챗봇 질문으로 보내 확인 결과 설명을 다시 확인합니다."
                     variant="link"
                   >
-                    근거 다시 묻기
+                    확인 결과 다시 묻기
                   </Button>
                 </div>
               </article>
@@ -930,7 +930,7 @@ export const ActionCandidateBoard: React.FC<{
             <strong>
               {candidateStatus === 'normal'
                 ? '현재 제안할 조치 후보 없음'
-                : '조치 후보를 만들 만큼 근거가 충분하지 않음'}
+                : '조치 후보를 만들 만큼 확인 결과가 충분하지 않음'}
             </strong>
             <span>
               {actionCandidates?.statusLabel ??

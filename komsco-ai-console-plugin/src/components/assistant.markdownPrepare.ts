@@ -5,6 +5,13 @@ const FENCE_RE = /^\s*```([A-Za-z0-9_-]+)?\s*$/;
 const CLOSE_FENCE_RE = /^\s*```\s*$/;
 const STANDALONE_COMMAND_RE = /^(?:\$+\s*)?(oc|kubectl|curl|docker|podman|helm)\b/;
 const CONTINUATION_RE = /^(\\|&&|\|\||--[A-Za-z0-9][A-Za-z0-9-]*\b)/;
+const URL_RE = /https?:\/\/[^\s)\]]+/gi;
+const PUBLIC_WEB_REFERENCE_HOSTS = new Set([
+  'access.redhat.com',
+  'docs.openshift.com',
+  'docs.redhat.com',
+  'github.com',
+]);
 
 export const isCommandLanguage = (language?: string): boolean =>
   Boolean(language && COMMAND_LANGUAGES.has(language.toLowerCase()));
@@ -38,6 +45,41 @@ export const isCommandBlock = (code: string, language?: string): boolean => {
     return lines.some(isExecutableCommandLine);
   }
   return lines.every(isExecutableCommandLine);
+};
+
+export const isPublicWebReferenceHref = (href: string): boolean => {
+  try {
+    const hostname = new URL(href).hostname.toLowerCase().replace(/^www\./, '');
+    return PUBLIC_WEB_REFERENCE_HOSTS.has(hostname);
+  } catch {
+    return false;
+  }
+};
+
+const hasPublicWebReference = (line: string): boolean => {
+  const matches = line.match(URL_RE) ?? [];
+  return matches.some(isPublicWebReferenceHref);
+};
+
+export const stripPublicWebReferenceLines = (content: string): string => {
+  const output: string[] = [];
+  let inFence = false;
+
+  content.split('\n').forEach((line) => {
+    if (FENCE_RE.test(line)) {
+      inFence = !inFence;
+      output.push(line);
+      return;
+    }
+
+    if (!inFence && hasPublicWebReference(line) && !isExecutableCommandLine(line.trim())) {
+      return;
+    }
+
+    output.push(line);
+  });
+
+  return output.join('\n');
 };
 
 const countFenceMarkers = (content: string): number =>
@@ -170,7 +212,9 @@ const wrapStandaloneCommands = (content: string): string => {
 };
 
 export const prepareMarkdownContent = (content: string, streaming: boolean): string => {
-  const fixedClosers = fixSingleBacktickClosers(content.replace(/\r\n/g, '\n'));
+  const fixedClosers = fixSingleBacktickClosers(
+    stripPublicWebReferenceLines(content.replace(/\r\n/g, '\n')),
+  );
   const repaired = wrapStandaloneCommands(repairFencedCommandBlocks(fixedClosers));
   if (!streaming || countFenceMarkers(repaired) % 2 === 0) {
     return repaired;

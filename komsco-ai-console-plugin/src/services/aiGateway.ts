@@ -193,6 +193,7 @@ export type AiopsActionCandidate = {
   mutationSubmitted?: boolean;
   priority?: number;
   prerequisiteChecks?: string[];
+  planDisabledReason?: string;
   recommendationSteps?: string[];
   riskLabel?: string;
   riskLevel?: 'high' | 'medium' | 'low' | string;
@@ -996,7 +997,11 @@ export async function createActionCandidatePlan(
   return postGatewayJson<AiopsActionCandidatePlanResult>('/candidate-plans', {
     candidateId: candidate.id,
     evidenceRefs: candidate.evidenceRefs ?? [],
+    expectedImpact: candidate.expectedImpact,
     incidentId: context?.incidentId,
+    prerequisiteChecks: candidate.prerequisiteChecks ?? [],
+    problemSummary: candidate.evidence || candidate.statusLabel || candidate.title,
+    recommendationSteps: candidate.recommendationSteps ?? [],
     runId: context?.runId,
     sourceFindingId: candidate.sourceFindingId,
     sourceType: candidate.sourceType,
@@ -1015,6 +1020,7 @@ export async function createActionCandidatePlan(
       namespace: target.namespace,
     },
     title: candidate.title,
+    verificationChecks: candidate.verificationChecks ?? [],
   });
 }
 

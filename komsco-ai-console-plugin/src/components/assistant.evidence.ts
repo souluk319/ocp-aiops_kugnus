@@ -41,7 +41,7 @@ const normalizeEvidenceQueryStep = (
 ): EvidenceFooterQueryStep => ({
   adapter: safeEvidenceText(value.adapter),
   evidenceType: safeEvidenceText(value.evidenceType || value.evidence_type, 'evidence'),
-  reason: safeEvidenceText(value.reason || '근거 수집 단계'),
+  reason: safeEvidenceText(value.reason || '조회 결과 확인 단계'),
   status: safeEvidenceText(value.status || 'planned'),
   step: safeEvidenceText(value.step),
   tool: safeEvidenceText(value.tool || value.official_tool, 'tool'),
@@ -112,9 +112,9 @@ export const buildEvidenceCopyText = (
   const isKo = language === 'ko';
   const lines = [
     '',
-    isKo ? '[근거 요약]' : '[Evidence Summary]',
+    isKo ? '[확인 결과 요약]' : '[Evidence Summary]',
     isKo
-      ? `- 수집 근거: ${footer.collectedCount}건`
+      ? `- 확인 결과: ${footer.collectedCount}건`
       : `- Collected evidence: ${footer.collectedCount}`,
     isKo
       ? `- 추가 확인: ${footer.missingCount}건`
@@ -124,7 +124,7 @@ export const buildEvidenceCopyText = (
   footer.collectedRefs.slice(0, 3).forEach((ref) => {
     lines.push(
       `- ${evidenceTypeLabel(ref.type, language)}: ${
-        ref.summary || (isKo ? '근거 수집 완료' : 'Evidence collected')
+        ref.summary || (isKo ? '확인 완료' : 'Evidence collected')
       }`,
     );
   });
@@ -133,7 +133,7 @@ export const buildEvidenceCopyText = (
     lines.push(
       isKo
         ? `- 조회 계획: ${evidenceTypeLabel(step.evidenceType || step.tool, language)} ${
-            step.reason || '근거 수집 단계'
+            step.reason || '조회 결과 확인 단계'
           }`
         : `- Query plan: ${evidenceTypeLabel(step.evidenceType || step.tool, language)} ${
             step.reason || 'Evidence collection step'
@@ -198,9 +198,9 @@ export const evidenceTypeLabel = (type?: string, language: UiLanguage = 'ko'): s
     return 'OpenShift';
   }
   if (!normalized) {
-    return isKo ? '근거' : 'Evidence';
+    return isKo ? '확인 결과' : 'Evidence';
   }
-  return type || (isKo ? '근거' : 'Evidence');
+  return type || (isKo ? '확인 결과' : 'Evidence');
 };
 
 export const evidenceStepStatusLabel = (
@@ -212,7 +212,7 @@ export const evidenceStepStatusLabel = (
     .toLowerCase();
   const isKo = language === 'ko';
   if (normalized === 'collected' || normalized === 'success' || normalized === 'succeeded') {
-    return isKo ? '수집됨' : 'Collected';
+    return isKo ? '확인됨' : 'Collected';
   }
   if (normalized === 'not_attempted' || normalized === 'planned' || normalized === 'pending') {
     return isKo ? '대기' : 'Pending';
@@ -229,7 +229,7 @@ export const rcaStatusLabel = (status?: string, language: UiLanguage = 'ko'): st
     .toLowerCase();
   const isKo = language === 'ko';
   if (normalized === 'available' || normalized === 'success' || normalized === 'ready') {
-    return isKo ? '연결됨' : 'Connected';
+    return isKo ? '정리됨' : 'Ready';
   }
   if (normalized === 'failed' || normalized === 'error') {
     return isKo ? '확인 필요' : 'Needs check';
@@ -245,7 +245,7 @@ export const compactEvidenceTypeSummary = (
     ...new Set(refs.map((ref) => evidenceTypeLabel(ref.type, language)).filter(Boolean)),
   ];
   if (labels.length === 0) {
-    return language === 'ko' ? '수집 근거 없음' : 'No collected evidence';
+    return language === 'ko' ? '확인 결과 없음' : 'No collected evidence';
   }
 
   return labels.slice(0, 4).join(', ');

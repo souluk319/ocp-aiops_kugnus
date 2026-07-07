@@ -84,13 +84,22 @@ export const getAiopsRecordAction = (
   const spec = getRecordSpecMap(record);
   const kind = record.kind ?? '';
   const records = aiopsStatus?.spec.records;
-  const modeDisabledReason = !canUseActionExecution(aiopsStatus)
-    ? 'Gateway 실행 기능 미구성'
-    : '';
+  const modeDisabledReason = !executionModeAllowsActions(executionMode)
+    ? '읽기 전용 모드에서는 승인·실행 불가'
+    : !canUseActionExecution(aiopsStatus)
+      ? 'Gateway 실행 기능 미구성'
+      : '';
+  const cleanAction = (action: AiopsRecordAction): AiopsRecordAction => {
+    if (action.disabledReason !== undefined) {
+      return action;
+    }
+    const { disabledReason: _disabledReason, ...rest } = action;
+    return rest;
+  };
   const withModeGate = (action: AiopsRecordAction): AiopsRecordAction =>
     modeDisabledReason
       ? { ...action, disabledReason: action.disabledReason ?? modeDisabledReason }
-      : action;
+      : cleanAction(action);
   const unrestrictedDisabledReason =
     executionMode === 'unrestricted' && !canUseUnrestrictedCommands(aiopsStatus)
       ? 'Gateway가 실행 무제한 capability를 허용하지 않았습니다'
@@ -121,18 +130,7 @@ export const getAiopsRecordAction = (
     const approvalStatus = String(approvalDecision?.status ?? '');
 
     if (approvalStatus === 'approved') {
-      const approvalId = approval ? getApprovalId(approval) : '';
-      if (hasExecutionForApproval(records?.executionRecords ?? [], approvalId)) {
-        return null;
-      }
-      return withModeGate({
-        label: '실행',
-        step: 'execute-approval',
-        disabledReason:
-          executionMode === 'read-only'
-            ? '읽기 전용 모드에서는 승인된 조치도 실행하지 않습니다'
-            : undefined,
-      });
+      return null;
     }
     if (approvalStatus === 'executed' || approvalStatus === 'rejected') {
       return null;

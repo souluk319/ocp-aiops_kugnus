@@ -14,8 +14,8 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 
 ```text
 원인 후보
-확인한 증적
-권장 조치
+확인 결과
+조치 방법
 추가 확인
 재발 방지
 ```
@@ -24,9 +24,9 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 
 | 영역 | 보여줄 내용 | 보여주지 않을 내용 |
 | --- | --- | --- |
-| 기본 챗봇 답변 | 사람용 RCA, 근거 요약, 권장 조치 | raw Tool Plan JSON, raw RcaContext JSON |
+| 기본 챗봇 답변 | 사람용 RCA, 확인 결과 요약, 조치 방법 | raw Tool Plan JSON, raw RcaContext JSON |
 | 답변 Evidence footer | 수집/추가 확인 count, evidence ref, 상세 보기의 사람용 조회 계획 | 내부 JSON 원문 |
-| 상세 보기 | `조회 계획` 목록: 어떤 근거를 어떤 이유로 조회했는지 | raw Tool Plan JSON |
+| 상세 보기 | `조회 계획` 목록: 어떤 항목을 어떤 이유로 조회했는지 | raw Tool Plan JSON |
 | Audit/개발자 화면 | 원본 `ToolPlan JSON`, 원본 `RcaContext JSON` | 없음 |
 | Chat transcript | `assistantAnswer`, `toolPlanDigest`, `rcaContextDigest`, `evidenceRefs`, `answerMode` | Secret/token/raw credential |
 | 콘솔 대화 목록 | 같은 브라우저 새로고침 후 복원되는 현재 대화와 최근 대화 | 첨부 이미지 원본 데이터 |
@@ -39,7 +39,7 @@ KOMSCO AI Agent는 매 질문마다 내부 `ToolPlan`을 만들고 Gateway가 To
 
 세 모드는 모두 유지한다.
 
-- `읽기 전용`: 증거 수집과 RCA만 수행한다. 조치 요청도 계획/승인/실행 레코드를 만들지 않는다.
+- `읽기 전용`: 조회와 확인 결과 수집, RCA만 수행한다. 조치 요청도 계획/승인/실행 기록을 만들지 않는다.
 - `실행 가능`: 조치 요청 시 `ActionProposal -> SealedActionPlan`까지 만든다. 실행은 승인 이후에만 가능하다.
 - `실행 무제한`: 실험/개발용 확장 모드이다. UI 선택은 항상 가능해야 하며, Gateway capability가 꺼져 있으면 실행 시점에 서버가 거절 사유를 반환한다. UI가 선택 직후 임의로 `실행 가능`으로 되돌리면 안 된다.
 

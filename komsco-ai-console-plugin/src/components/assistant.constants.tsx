@@ -23,7 +23,7 @@ export const QUICK_PROMPTS = [
     label: '최근 경고',
     labelEn: 'Recent alerts',
     prompt:
-      '최근 OpenShift 경고와 우선 확인할 항목을 실제 근거와 추가 확인 필요 항목으로 구분해서 정리해줘.',
+      '최근 OpenShift 경고와 우선 확인할 항목을 확인 결과와 추가 확인 필요 항목으로 구분해서 정리해줘.',
     promptEn:
       'Separate recent OpenShift alerts into confirmed evidence and items that still need verification.',
   },
@@ -32,7 +32,7 @@ export const QUICK_PROMPTS = [
     label: '화면 진단',
     labelEn: 'Screen diagnosis',
     prompt:
-      '현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 증적과 원인 후보, 승인 가능한 조치 후보를 정리해줘.',
+      '현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인 결과와 원인 후보, 승인 가능한 조치 후보를 정리해줘.',
     promptEn:
       'Run safe checks for the current resource and summarize evidence, likely causes, and approval-ready actions.',
   },
@@ -201,7 +201,7 @@ export const TOOL_LABELS: Record<string, string> = {
   policy_check: '정책 확인',
   product_access_review: '제품 접근 권한 확인',
   request_intent_classifier: '요청 해석 확인',
-  runtime_tool_plan: '증거 수집 계획',
+  runtime_tool_plan: '조회 계획',
   security_boundary: '보안 경계 확인',
   show_timeseries: '시계열 차트 준비',
   subject_review: '사용자 주체 확인',
@@ -211,21 +211,25 @@ export const TOOL_LABELS: Record<string, string> = {
 export const ACTION_POLICY_LABELS: Record<string, string> = {
   delete_namespace_after_approval: '네임스페이스 정리',
   evict_one_unhealthy_controller_owned_pod: '비정상 Pod 축출(재생성 유도)',
+  namespace_cleanup_review: '네임스페이스 정리 검토',
   pod_diagnostic_review: 'Pod 원인 확인 플랜',
   rollout_restart_deployment: '배포 롤아웃 재시작',
   rollback_deployment_to_revision: '이전 리비전으로 롤백',
   set_replicas_within_bounds: '레플리카 수 조정',
   set_hpa_bounds: '오토스케일러(HPA) 범위 조정',
+  test_pod_create_review: '테스트 Pod 생성 검토',
 };
 
 export const ACTION_POLICY_LABELS_EN: Record<string, string> = {
   delete_namespace_after_approval: 'Namespace cleanup',
   evict_one_unhealthy_controller_owned_pod: 'Evict unhealthy Pod',
+  namespace_cleanup_review: 'Namespace cleanup review',
   pod_diagnostic_review: 'Pod diagnostic plan',
   rollout_restart_deployment: 'Rollout restart Deployment',
   rollback_deployment_to_revision: 'Roll back Deployment',
   set_hpa_bounds: 'Adjust HPA bounds',
   set_replicas_within_bounds: 'Adjust replicas',
+  test_pod_create_review: 'Test Pod creation review',
 };
 
 export const RISK_LABEL_KO: Record<string, { label: string; tone: 'ok' | 'warn' | 'danger' }> = {

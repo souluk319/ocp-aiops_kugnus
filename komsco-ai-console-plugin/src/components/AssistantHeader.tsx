@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Button } from '@patternfly/react-core';
+import { PanelLeft } from 'lucide-react';
 
 import type { ClusterSummary } from '../services/aiGateway';
 import type { AiopsExecutionMode, UiLanguage } from './assistant.types';
@@ -11,7 +12,6 @@ import {
   CoolExpandIcon,
   CoolLockIcon,
   CoolLockOpenIcon,
-  CoolMenuIcon,
   CoolShrinkIcon,
 } from './coolicons';
 
@@ -64,7 +64,7 @@ const AssistantHeader: React.FC<AssistantHeaderProps> = ({
       title={copy.openSidebar}
       variant="plain"
     >
-      <CoolMenuIcon />
+      <PanelLeft aria-hidden="true" strokeWidth={1.8} />
     </Button>
     <div className="komsco-ai__brand">
       <span className="komsco-ai__title">AIOps for OCP</span>

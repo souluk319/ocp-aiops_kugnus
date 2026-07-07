@@ -161,6 +161,7 @@ export type ConversationHistoryItem = {
   updatedAt: number;
   conversationId?: string;
   messages: Message[];
+  pinned?: boolean;
   actionRefs?: ConversationActionRef[];
   actionTargetKeys?: string[];
 };

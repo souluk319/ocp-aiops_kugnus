@@ -161,11 +161,11 @@ const sourceReview = () => {
     'assistant formatted content controls must localize code and attachment actions in English mode',
   );
   assert(
-    launcher.includes('buildEvidenceCopyText(') &&
+      launcher.includes('buildEvidenceCopyText(') &&
       launcher.includes('uiLanguage') &&
       launcher.includes('language={uiLanguage}') &&
-      evidenceFooter.includes("isKo ? '근거' : 'Evidence'") &&
-      evidenceFooter.includes("isKo ? '근거 상세보기' : 'Evidence details'") &&
+      evidenceFooter.includes("isKo ? '확인 결과' : 'Evidence'") &&
+      evidenceFooter.includes("isKo ? '확인 결과 상세' : 'Evidence details'") &&
       toolPlanFooter.includes("isKo ? '조회 계획' : 'Query plan'") &&
       toolPlanFooter.includes("isKo ? '조회 계획 상세보기' : 'Query plan details'"),
     'assistant evidence and tool-plan footers must localize visible details in English mode',
@@ -1286,7 +1286,7 @@ const installAssistantFixture = async () =>
       '영향 범위',
       '- marketplace catalog 기능과 API 응답 지연 가능성이 있습니다.',
       '',
-      '확인한 근거',
+      '확인 결과',
       '- Alert: KubePodNotReady / severity=warning',
       '- Metric: restart increase observed',
       '',
@@ -1296,14 +1296,14 @@ const installAssistantFixture = async () =>
       'Action Plan',
       '- 대상: komsco-ai-dev/aiops-scenario-1-crashloop',
       '- 실행 전 검증: Events, logs, rollout 상태 확인',
-      '- 승인 조건: 근거가 수집되고 영향/롤백 경로가 확인된 경우',
+      '- 승인 조건: 확인 결과가 정리되고 영향/롤백 경로가 확인된 경우',
       '',
       '검증/롤백',
       '- 실행 후 Ready 상태와 restart 증가 중단 여부를 확인합니다.',
       '- 실패하면 이전 ReplicaSet 또는 수동 확인 절차로 전환합니다.',
       '',
-      '근거 상세보기',
-      '- 문서 근거와 운영 증거는 상세 안에서만 확인합니다.'
+      '확인 결과 상세',
+      '- 참고 문서와 운영 조회 결과는 상세 안에서만 확인합니다.'
     ].join('\\n');
     const messages = [
       { role: 'user', content: '최근 OpenShift 경고를 운영자가 볼 수 있게 정리해줘.', timestamp: Date.now() - 10000 },
@@ -1619,7 +1619,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         'Cluster status',
         'Operator issues',
         'AIOps execution status',
-        'Answer evidence',
+        'Answer context',
         'Answer feedback',
         'Copy feedback JSON',
         'Recent diagnostics',
@@ -1779,7 +1779,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
             progressText.includes('요청 해석 확인') ||
             progressText.includes('네임스페이스 사용 여부 확인') ||
             progressText.includes('테스트 Pod 생성 사전 확인') ||
-            progressText.includes('증거 수집 계획')
+            progressText.includes('조회 계획')
           ),
         progressUsesEnglishOperatorLabels:
           progressText.length > 0 &&
@@ -1992,7 +1992,7 @@ const verifyLiveCasualAnswers = async () => {
         !item.hasScenarioLeak &&
         item.rawProgressTerms.length === 0 &&
         item.rawRailTerms.length === 0 &&
-        !/요청 해석|네임스페이스 사용 여부|테스트 Pod 생성|증거 수집|Action Plan|Request interpretation|Namespace usage|Test Pod creation|Evidence plan/.test(
+        !/요청 해석|네임스페이스 사용 여부|테스트 Pod 생성|증거 수집|조회 계획|Action Plan|Request interpretation|Namespace usage|Test Pod creation|Evidence plan/.test(
           item.progressText,
         ) &&
         item.actionPlanButtons.length === 0 &&
@@ -2059,7 +2059,6 @@ const verifyLiveCasualAnswers = async () => {
 };
 
 const verifyLiveActionPlanClickThrough = async () => {
-  const namespacePlanDigest = 'sha256:local-namespace-cleanup-plan-v1';
   const statusSnapshot = async () =>
     evaluate(`(async () => {
       const response = await fetch('/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status');
@@ -2067,6 +2066,11 @@ const verifyLiveActionPlanClickThrough = async () => {
       const payload = await response.json();
       const records = payload?.spec?.records || {};
       return {
+        approvals: (records.approvalDecisions || []).map((record) => ({
+          name: record?.metadata?.name || '',
+          planDigest: record?.spec?.approvalDecision?.planDigest || '',
+          status: record?.spec?.approvalDecision?.status || ''
+        })),
         approvalCount: (records.approvalDecisions || []).length,
         executionCount: (records.executionRecords || []).length,
         executions: (records.executionRecords || []).map((record) => ({
@@ -2080,39 +2084,42 @@ const verifyLiveActionPlanClickThrough = async () => {
         ok: true,
         planCount: (records.sealedActionPlans || []).length,
         plans: (records.sealedActionPlans || []).map((record) => ({
-          digest: record?.spec?.sealedActionPlan?.planDigest || record?.spec?.planDigest || '',
+          digest: record?.spec?.sealedActionPlan?.digest?.planDigest || record?.spec?.planDigest || '',
           name: record?.metadata?.name || '',
           targetName: record?.spec?.sealedActionPlan?.target?.name || record?.spec?.target?.name || ''
         }))
       };
     })()`);
 
+  const latestLifecycleRecordJson = async (stage) =>
+    evaluate(`(() => {
+      const stage = ${JSON.stringify(stage || '')};
+      const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+      const scoped = latest?.querySelector(stage
+        ? '[data-action-lifecycle-stage="' + stage + '"] .komsco-ai__rail-command-detail pre'
+        : '.komsco-ai__rail-command-detail pre');
+      const candidates = scoped ? [scoped] : Array.from(latest?.querySelectorAll('.komsco-ai__rail-command-detail pre') || []);
+      for (const node of candidates) {
+        try {
+          const parsed = JSON.parse(node.textContent || '{}');
+          const sealed = parsed?.spec?.sealedActionPlan || {};
+          const digest = sealed?.digest?.planDigest || parsed?.spec?.planDigest || '';
+          if (digest) {
+            return {
+              kind: parsed?.kind || '',
+              name: parsed?.metadata?.name || '',
+              planDigest: digest,
+              planId: sealed?.metadata?.planId || parsed?.metadata?.name || '',
+              targetName: sealed?.target?.name || parsed?.spec?.target?.name || ''
+            };
+          }
+        } catch (_error) {}
+      }
+      return null;
+    })()`);
+
   const before = await statusSnapshot();
   assert(before?.ok, 'Action Plan click-through must read AIOps status before starting', before);
-  const beforeAlreadyExecuted = before.executions.some(
-    (execution) =>
-      execution.planDigest === namespacePlanDigest &&
-      /namespace cleanup/i.test(execution.mutationReason || ''),
-  );
-  if (beforeAlreadyExecuted) {
-    const repeatedAnswer = await sendLiveQuestion({
-      label: 'namespace cleanup Action Plan idempotent existing execution',
-      mode: 'execute',
-      question: NAMESPACE_CLEANUP_QUESTION,
-    });
-    assert(
-      repeatedAnswer.textIncludesActionPlanCandidate &&
-        (repeatedAnswer.actionPlanButtons.includes('Action Plan 생성') ||
-          repeatedAnswer.answerLifecycleStages.includes('execution')),
-      'existing namespace cleanup execution must not fail the Action Plan click-through gate',
-      { before, repeatedAnswer },
-    );
-    return {
-      before,
-      idempotentExistingExecution: true,
-      repeatedAnswer,
-    };
-  }
 
   const answer = await sendLiveQuestion({
     label: 'namespace cleanup Action Plan click-through',
@@ -2190,13 +2197,21 @@ const verifyLiveActionPlanClickThrough = async () => {
     'Action Plan CTA click creates an approval-ready plan in the answer',
     30000,
   );
+  const createdPlan = await latestLifecycleRecordJson('plan');
+  assert(
+    createdPlan?.planId && createdPlan?.planDigest,
+    'Action Plan CTA click must render a sealed plan audit record with planId and planDigest',
+    { planReady, createdPlan },
+  );
 
   const planStatus = await statusSnapshot();
   assert(
-    planStatus?.plans?.some((plan) => plan.name === 'plan-local-namespace-cleanup') &&
+    planStatus?.plans?.some(
+      (plan) => plan.name === createdPlan.planId && plan.digest === createdPlan.planDigest,
+    ) &&
       planStatus.planCount >= before.planCount,
-    'Action Plan CTA click must create or refresh the namespace cleanup sealed plan record',
-    { before, planReady, planStatus },
+    'Action Plan CTA click must create a sealed plan record for the rendered plan digest',
+    { before, createdPlan, planReady, planStatus },
   );
 
   const approveClick = await evaluate(`(() => {
@@ -2229,9 +2244,13 @@ const verifyLiveActionPlanClickThrough = async () => {
 
   const approvalStatus = await statusSnapshot();
   assert(
-    approvalStatus?.approvalCount > before.approvalCount,
-    'approval click must add an approval decision record',
-    { approvalReady, approvalStatus, before },
+    approvalStatus?.approvals?.some(
+      (approval) =>
+        approval.planDigest === createdPlan.planDigest &&
+        ['approved', 'executed'].includes(approval.status),
+    ),
+    'approval click must add an approval decision record for the rendered plan digest',
+    { approvalReady, approvalStatus, before, createdPlan },
   );
 
   const executeClick = await evaluate(`(() => {
@@ -2253,7 +2272,7 @@ const verifyLiveActionPlanClickThrough = async () => {
       const records = payload?.spec?.records || {};
       const executions = records.executionRecords || [];
       const matched = executions.find((record) =>
-        (record?.spec?.planDigest === ${JSON.stringify(namespacePlanDigest)}) &&
+        (record?.spec?.planDigest === ${JSON.stringify(createdPlan.planDigest)}) &&
         String(record?.spec?.mutationOutcome?.reason || '').includes('namespace cleanup')
       );
       const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
@@ -2358,10 +2377,12 @@ const verifyLiveActionPlanClickThrough = async () => {
         };
       })()`,
       (value) =>
-        value?.hasExecutionCard &&
-        !value?.hasApproveButton &&
-        (value?.actionPlanButtons || []).length === 0,
-      'repeated Action Plan CTA must resolve to an executed lifecycle card, not an empty or stale button state',
+        (value?.actionPlanButtons || []).length === 0 &&
+        (
+          (value?.hasExecutionCard && !value?.hasApproveButton) ||
+          (value?.hasApproveButton && value?.cards?.some((card) => card.stage === 'plan'))
+        ),
+      'repeated Action Plan CTA must resolve to either a fresh approval-ready plan or an executed lifecycle card',
       30000,
     );
   }
@@ -2858,6 +2879,19 @@ const verifyCompactViewportChrome = async () => {
         'mutation_succeeded',
         'mutation_failed'
       ].filter((term) => refs.some((el) => (el.textContent || '').includes(term) || (el.getAttribute('title') || '').includes(term)));
+      const genericHistoryActionLabels = refs
+        .filter((el) => {
+          const stage = el.querySelector('.komsco-ai__history-action-ref-stage')?.textContent.trim() || '';
+          const primary = el.querySelector('strong')?.textContent.trim() || '';
+          return (
+            stage === 'Action Plan' ||
+            /^(승인 필요|실행 완료|후보 접수|Candidate received|Approval required|Executed)$/i.test(primary)
+          );
+        })
+        .map((el) => el.textContent.replace(/\\s+/g, ' ').trim());
+      const purposeActionLabels = refs
+        .map((el) => el.querySelector('strong')?.textContent.trim() || '')
+        .filter((label) => /정리|Pod|Namespace|review|plan/i.test(label));
       const userFooterText = userFooter?.textContent?.replace(/\\s+/g, ' ').trim() || '';
       const userFooterHasInternalFixture = /local-aiops|\\.invalid|local-admin|fixture/i.test(userFooterText);
       const userFooterHasExpectedIdentity =
@@ -2892,11 +2926,15 @@ const verifyCompactViewportChrome = async () => {
           overflowingRefs.length === 0 &&
           overflowingRows.length === 0 &&
           rawHistoryTerms.length === 0 &&
+          genericHistoryActionLabels.length === 0 &&
+          purposeActionLabels.length >= 1 &&
           !userFooterHasInternalFixture &&
           userFooterHasExpectedIdentity,
         overflowingRefs,
         overflowingRows,
         rawHistoryTerms,
+        genericHistoryActionLabels,
+        purposeActionLabels,
         historyListFooterGap,
         historyListRect,
         sidebarRect,
@@ -3037,8 +3075,34 @@ const verifyConsoleAssistant = async () => {
     const content = document.querySelector('.komsco-ai__message--assistant .komsco-ai__message-content');
     const style = content ? getComputedStyle(content) : null;
     const text = document.body?.innerText || '';
-    const rawTerms = ['[RAG 근거]', 'source:', 'score=', 'post_answer', 'RCA 문맥 연결', 'Tool Plan JSON']
+    const rawTerms = [
+      '[RAG 근거]',
+      '[ 참고 문서 ]',
+      'source:',
+      'score=',
+      'post_answer',
+      'RCA 문맥 연결',
+      'Tool Plan JSON',
+      'ActionProposal/SealedActionPlan',
+      '답변 근거 연결 완료',
+      '최종 답변에 사용한 근거',
+      '조회 근거',
+      '확인한 근거',
+      '근거 기반 조치 후보',
+      '근거 수집',
+      '근거 상세보기',
+      'github.com/openshift',
+      'docs.openshift.com',
+      'https://access.redhat.com'
+    ]
       .filter((term) => text.includes(term));
+    const rawTermSnippets = Object.fromEntries(rawTerms.map((term) => {
+      const index = text.indexOf(term);
+      return [
+        term,
+        index >= 0 ? text.slice(Math.max(0, index - 220), index + term.length + 220) : ''
+      ];
+    }));
     return {
       actionButtonLabels: Array.from(document.querySelectorAll('.komsco-ai__answer-action-controls .komsco-ai__action-button')).map((el) => el.textContent.trim()),
       actionCards: document.querySelectorAll('.komsco-ai__answer-action-card').length,
@@ -3046,6 +3110,7 @@ const verifyConsoleAssistant = async () => {
       fontSize: style ? parseFloat(style.fontSize) : 0,
       lineHeight: style ? parseFloat(style.lineHeight) : 0,
       rawTerms,
+      rawTermSnippets,
       runbookSections: Array.from(document.querySelectorAll('.komsco-ai__runbook-section-title')).map((el) => el.textContent.trim()),
       stageIcons: document.querySelectorAll('.komsco-ai__action-stage-icon').length,
       title: document.title

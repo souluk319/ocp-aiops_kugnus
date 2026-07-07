@@ -559,7 +559,7 @@ export const renderExecutionCapabilityBadges = (
         isKo ? '읽기 전용' : 'Read only',
         readOnlyActive ? 'ok' : 'neutral',
         isKo
-          ? '조회와 근거 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.'
+          ? '조회와 확인 결과 수집만 수행하고 조치 계획, 승인, 실행은 만들지 않습니다.'
           : 'Collects evidence only. It does not create plans, approvals, or executions.',
         <CoolShieldCheckIcon />,
       )}
@@ -647,7 +647,7 @@ export const renderActionLifecycle = (
         </div>
         <p className="komsco-ai__action-lifecycle-proof">
           {isKo
-            ? '실행 전 안전장치: 계획 다이제스트, 유효한 승인, 근거 최신성, 권한 검증, 변경 실행 설정을 확인합니다. 근거가 오래되었거나 만료되면 실행이 막히고 실패 사유로 표시됩니다. 이 경우 새 계획과 승인을 다시 만들어야 합니다.'
+            ? '실행 전 안전장치: 계획 다이제스트, 유효한 승인, 확인 결과 최신성, 권한 검증, 변경 실행 설정을 확인합니다. 확인 결과가 오래되었거나 만료되면 실행이 막히고 실패 사유로 표시됩니다. 이 경우 새 계획과 승인을 다시 만들어야 합니다.'
             : 'Before execution, the Copilot checks the plan digest, active approval, evidence freshness, permissions, and mutation settings. If evidence is stale or expired, execution is blocked with a reason and a new plan and approval are required.'}
         </p>
       </div>

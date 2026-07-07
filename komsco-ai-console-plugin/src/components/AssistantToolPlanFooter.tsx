@@ -119,7 +119,7 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
         {missingEvidence.length > 0 && (
           <div
             className="komsco-ai__evidence-missing"
-            aria-label={isKo ? '추가 확인 필요 근거' : 'Evidence still needed'}
+            aria-label={isKo ? '추가 확인 필요 항목' : 'Evidence still needed'}
           >
             {missingEvidence.map((item, index) => (
               <span key={`${item.type || 'missing'}-${index}`}>

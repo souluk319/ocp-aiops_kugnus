@@ -4,7 +4,11 @@ import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 
 import { CoolCopyIcon, CoolWrapTextIcon } from './coolicons';
-import { isCommandBlock, prepareMarkdownContent } from './assistant.markdownPrepare';
+import {
+  isCommandBlock,
+  isPublicWebReferenceHref,
+  prepareMarkdownContent,
+} from './assistant.markdownPrepare';
 import type { UiLanguage } from './assistant.types';
 import { redactSensitiveText } from '../utils/evidenceDisplay';
 
@@ -63,6 +67,9 @@ const CODE_BLOCK_LABELS: Record<
 
 const safeHref = (href: string | undefined): string | undefined => {
   if (!href) {
+    return undefined;
+  }
+  if (isPublicWebReferenceHref(href)) {
     return undefined;
   }
   if (/^(https?:|mailto:)/i.test(href)) {

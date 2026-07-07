@@ -1,5 +1,7 @@
+import { stripPublicWebReferenceLines } from './assistant.markdownPrepare';
+
 export const normalizeAssistantDisplayText = (content: string): string =>
-  content
+  stripPublicWebReferenceLines(content)
     .replace(/\bOpenShift\s+Lightspeed(?:\s*\(OLS\))?\b/gi, 'AIOps')
     .replace(/\bKOMSCO\s+AI\s+AGENT\b/gi, 'AIOps');
 

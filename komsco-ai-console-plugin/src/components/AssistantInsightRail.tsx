@@ -632,7 +632,7 @@ const AssistantInsightRail: React.FC<AssistantInsightRailProps> = ({
 
     <div className="komsco-ai__rail-section">
       <div className="komsco-ai__rail-section-head">
-        <strong>{text(language, '답변 근거', 'Answer evidence')}</strong>
+        <strong>{text(language, '확인 결과', 'Answer context')}</strong>
         <span>
           {rcaStatusLabel(aiopsStatus?.spec.safetyContract?.rcaContextStatus?.status, language)}
         </span>
@@ -641,7 +641,7 @@ const AssistantInsightRail: React.FC<AssistantInsightRailProps> = ({
         {renderStatusTag(
           text(
             language,
-            `수집 ${rcaRailEvidenceCounts(aiopsStatus).collected}건`,
+            `확인 ${rcaRailEvidenceCounts(aiopsStatus).collected}건`,
             `Collected ${rcaRailEvidenceCounts(aiopsStatus).collected}`,
           ),
           'ok',
@@ -660,13 +660,13 @@ const AssistantInsightRail: React.FC<AssistantInsightRailProps> = ({
           {aiopsStatus?.spec.safetyContract?.rcaContextStatus?.latestContext
             ? text(
                 language,
-                '최근 답변에 사용한 근거가 연결되어 있습니다.',
-                'Evidence used by the latest answer is connected.',
+                '최근 답변의 확인 결과가 정리되어 있습니다.',
+                'Answer context is ready.',
               )
             : text(
                 language,
-                '질문 실행 후 답변 근거가 연결됩니다.',
-                'Answer evidence is connected after a question runs.',
+                '질문 실행 후 확인 결과가 정리됩니다.',
+                'Answer context is prepared after a question runs.',
               )}
         </p>
       </div>

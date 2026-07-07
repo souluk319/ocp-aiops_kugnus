@@ -174,6 +174,7 @@ const normalizeStoredConversation = (value: unknown): ConversationHistoryItem | 
     ? value.actionTargetKeys.filter((key): key is string => typeof key === 'string')
     : undefined;
   const actionRefs = normalizeStoredActionRefs(value.actionRefs);
+  const pinned = value.pinned === true;
 
   return {
     actionRefs,
@@ -181,6 +182,7 @@ const normalizeStoredConversation = (value: unknown): ConversationHistoryItem | 
     conversationId,
     id,
     messages,
+    pinned,
     title,
     updatedAt,
   };

@@ -524,7 +524,7 @@ const HealthDial: React.FC<{ score?: number }> = ({ score }) => {
 const EvidenceRail: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status }) => {
   const evidenceStatus = status?.spec.safetyContract?.evidenceStatus ?? [];
   if (evidenceStatus.length === 0) {
-    return <EmptyState label="근거 수집 상태가 아직 없습니다." />;
+    return <EmptyState label="확인 결과 수집 상태가 아직 없습니다." />;
   }
 
   return (
@@ -761,7 +761,7 @@ const ToolPlanPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status
         </div>
       </div>
       {steps.length > 0 ? (
-        <ol className="komsco-ai-page__tool-plan-steps" aria-label="Tool Plan 증거 수집 단계">
+        <ol className="komsco-ai-page__tool-plan-steps" aria-label="Tool Plan 조회 단계">
           {steps.map((step, index) => {
             const adapter = adapterForStep(step, index);
             const resolved = adapter?.resolved === true;
@@ -807,7 +807,7 @@ const ToolPlanPanel: React.FC<{ status: AiopsRuntimeStatus | null }> = ({ status
       )}
       {missingEvidence.length > 0 && (
         <div className="komsco-ai-page__tool-plan-missing">
-          <strong>아직 부족한 근거</strong>
+          <strong>추가 확인 필요 항목</strong>
           <ul>
             {missingEvidence.map((item, index) => (
               <li key={`${textValue(item.type, 'missing')}-${index}`}>
@@ -1390,7 +1390,7 @@ export const AiopsAuditPage: React.FC = () => {
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <ChartLineIcon />
-          <h2>근거 수집 상태</h2>
+          <h2>확인 결과 수집 상태</h2>
         </div>
         <EvidenceRail status={data.status} />
       </section>
@@ -1610,7 +1610,7 @@ export const AiopsAlertsPage: React.FC = () => {
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <ChartLineIcon />
-          <h2>근거 수집 상태</h2>
+          <h2>확인 결과 수집 상태</h2>
         </div>
         <EvidenceRail status={data.status} />
       </section>

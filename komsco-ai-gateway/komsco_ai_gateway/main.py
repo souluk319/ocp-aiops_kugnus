@@ -633,10 +633,6 @@ SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
 APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
 EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
 NAMESPACE_CLEANUP_CHAT_CANDIDATES: dict[str, dict[str, Any]] = {}
-NAMESPACE_CLEANUP_PLAN_ID = "plan-local-namespace-cleanup"
-NAMESPACE_CLEANUP_PLAN_DIGEST = "sha256:local-namespace-cleanup-plan-v1"
-TEST_POD_CREATE_PLAN_ID = "plan-local-create-test-pods"
-TEST_POD_CREATE_PLAN_DIGEST = "sha256:local-create-test-pods-plan-v1"
 TEST_POD_CREATE_DEFAULT_NAMESPACE = "gpu-test-kugnus"
 TEST_POD_CREATE_DEFAULT_COUNT = 3
 TEST_POD_CREATE_DEFAULT_IMAGE = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
@@ -1779,6 +1775,13 @@ def build_action_proposal_record(
             },
             "evidenceRefs": redact_sensitive(request.evidenceRefs),
             "incidentId": request.incidentId,
+            "operatorPresentation": {
+                "expectedImpact": request.expectedImpact,
+                "prerequisiteChecks": request.prerequisiteChecks,
+                "problemSummary": request.problemSummary,
+                "recommendationSteps": request.recommendationSteps,
+                "verificationChecks": request.verificationChecks,
+            },
             "runId": request.runId,
             "runbookRefs": redact_sensitive(request.runbookRefs),
             "sourceType": request.policy.get("sourceType"),
@@ -1797,6 +1800,11 @@ def build_sealed_action_plan_record(
     target = candidate.get("target") if isinstance(candidate.get("target"), Mapping) else {}
     requester = candidate.get("requester") if isinstance(candidate.get("requester"), Mapping) else safe_subject(None)
     policy = candidate.get("policy") if isinstance(candidate.get("policy"), Mapping) else {}
+    operator_presentation = (
+        spec.get("operatorPresentation")
+        if isinstance(spec.get("operatorPresentation"), Mapping)
+        else {}
+    )
     registry_digest = action.get("actionRegistry", {}).get("digest") if isinstance(action.get("actionRegistry"), Mapping) else ""
     plan_id = f"plan-{uuid.uuid4()}"
     incident_id = spec.get("incidentId") or f"inc-{uuid.uuid4()}"
@@ -1903,7 +1911,12 @@ def build_sealed_action_plan_record(
                 "decision": "not_executed_foundation",
             },
             "evidenceRefs": spec.get("evidenceRefs") or [],
+            "expectedImpact": operator_presentation.get("expectedImpact"),
+            "prerequisiteChecks": operator_presentation.get("prerequisiteChecks") or [],
+            "problemSummary": operator_presentation.get("problemSummary"),
+            "recommendationSteps": operator_presentation.get("recommendationSteps") or [],
             "runbookRefs": spec.get("runbookRefs") or [],
+            "verificationChecks": operator_presentation.get("verificationChecks") or [],
         },
     }
     plan_digest = sealed_action_plan_digest(plan)
@@ -2579,7 +2592,12 @@ class ActionProposalCreate(StrictBaseModel):
     target: ActionTarget
     parameters: dict[str, Any] = Field(default_factory=dict)
     evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    expectedImpact: str | None = Field(default=None, max_length=1000)
+    prerequisiteChecks: list[str] = Field(default_factory=list, max_length=12)
+    problemSummary: str | None = Field(default=None, max_length=1000)
+    recommendationSteps: list[str] = Field(default_factory=list, max_length=12)
     runbookRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    verificationChecks: list[str] = Field(default_factory=list, max_length=12)
     policy: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -2599,8 +2617,13 @@ class ActionCandidatePlanCreate(StrictBaseModel):
     runId: str | None = Field(default=None, max_length=120)
     target: ActionCandidateTargetCreate
     evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    expectedImpact: str | None = Field(default=None, max_length=1000)
     parameters: dict[str, Any] = Field(default_factory=dict)
     policy: dict[str, Any] = Field(default_factory=dict)
+    prerequisiteChecks: list[str] = Field(default_factory=list, max_length=12)
+    problemSummary: str | None = Field(default=None, max_length=1000)
+    recommendationSteps: list[str] = Field(default_factory=list, max_length=12)
+    verificationChecks: list[str] = Field(default_factory=list, max_length=12)
 
 
 class SealedActionPlanCreate(StrictBaseModel):
@@ -2799,7 +2822,7 @@ def answer_section_contract(req: ChatRequest) -> str:
         )
     return (
         "RCA 또는 운영 상태 질문에는 가능한 경우 아래 순서를 사용하세요: "
-        "현재 판단, 원인 후보, 확인한 근거, 조치 방법, 추가 확인."
+        "현재 판단, 원인 후보, 확인 결과, 조치 방법, 추가 확인."
     )
 
 
@@ -2932,7 +2955,7 @@ def casual_identity_answer(req: ChatRequest) -> str:
         [
             "저는 AIOps for OCP입니다.",
             (
-                "OCP(OpenShift Container Platform)를 위한 전문 AIOps 모델로, 운영 상태를 근거 기반으로 확인하고 "
+                "OCP(OpenShift Container Platform)를 위한 전문 AIOps 모델로, 운영 상태를 조회 결과 기반으로 확인하고 "
                 "원인 후보 정리, Action Plan 작성, 승인 후 실행 검증까지 도와드립니다."
             ),
             "네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, 경고 메시지 중 확인할 대상을 알려주시면 바로 이어서 보겠습니다.",
@@ -2961,7 +2984,7 @@ def general_concept_answer(req: ChatRequest) -> str:
             "애플리케이션 배포, 네트워크/스토리지 연결, 보안 정책, 운영 자동화를 콘솔과 API에서 관리할 수 있게 해줍니다.",
             (
                 "AIOps for OCP에서는 OpenShift의 네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, "
-                "경고 상태를 근거 기반으로 확인하고 Action Plan과 승인 후 검증까지 연결합니다."
+                "경고 상태를 조회 결과 기반으로 확인하고 Action Plan과 승인 후 검증까지 연결합니다."
             ),
         ]
     )
@@ -3506,6 +3529,10 @@ async def create_plan_from_action_candidate(
             target=target,
             parameters=dict(intent["parameters"]),
             evidenceRefs=req.evidenceRefs,
+            expectedImpact=req.expectedImpact,
+            prerequisiteChecks=req.prerequisiteChecks,
+            problemSummary=req.problemSummary or req.title,
+            recommendationSteps=req.recommendationSteps,
             policy={
                 "candidateId": req.candidateId,
                 "source": "aiops-action-candidate-board",
@@ -3514,6 +3541,7 @@ async def create_plan_from_action_candidate(
                 "reviewOnly": True,
                 **dict(req.policy),
             },
+            verificationChecks=req.verificationChecks,
         )
         proposal_record = build_action_proposal_record(proposal_request, subject)
         proposal_id = str(proposal_record["metadata"]["name"])
@@ -3522,57 +3550,7 @@ async def create_plan_from_action_candidate(
 
         plan_record = build_sealed_action_plan_record(proposal_record)
         plan = plan_record["spec"]["sealedActionPlan"]
-        fixed_plan_id = (
-            TEST_POD_CREATE_PLAN_ID
-            if str(intent.get("toolName") or "") == "test_pod_create_review"
-            else NAMESPACE_CLEANUP_PLAN_ID
-        )
-        fixed_plan_digest = (
-            TEST_POD_CREATE_PLAN_DIGEST
-            if str(intent.get("toolName") or "") == "test_pod_create_review"
-            else NAMESPACE_CLEANUP_PLAN_DIGEST
-        )
-        existing_plan = SEALED_ACTION_PLANS.get(fixed_plan_id)
-        existing_executed_approval = find_approval_by_plan_status(
-            fixed_plan_digest,
-            {"executed"},
-        )
-        if existing_plan is not None and existing_executed_approval is not None:
-            proposal_record = build_action_proposal_record(proposal_request, subject)
-            proposal_id = str(proposal_record["metadata"]["name"])
-            await bounded_put_record("actionProposals", proposal_id, proposal_record)
-            increment_metric("aiops_action_proposals_total")
-            return {
-                "apiVersion": "aiops.komsco/v1",
-                "kind": "ActionCandidatePlan",
-                "metadata": {
-                    "name": fixed_plan_id,
-                    "createdAt": existing_plan.get("metadata", {}).get("createdAt"),
-                },
-                "spec": {
-                    "candidateId": req.candidateId,
-                    "intent": intent,
-                    "plan": existing_plan,
-                    "planDigest": fixed_plan_digest,
-                    "planId": fixed_plan_id,
-                    "proposal": proposal_record,
-                    "proposalId": proposal_id,
-                    "status": "already_executed",
-                    "target": target.model_dump(),
-                    "title": req.title,
-                },
-            }
-        plan["metadata"]["planId"] = fixed_plan_id
-        plan["metadata"]["idempotencyKey"] = f"idem-{fixed_plan_id}"
-        plan["digest"] = {
-            "planDigest": fixed_plan_digest,
-            "canonicalization": "stable-json-sort-keys",
-            "digestSchema": "sealed-action-plan-digest-v1",
-            "includedFields": list(SEALED_ACTION_PLAN_DIGEST_FIELDS),
-            "excludedFields": ["/digest"],
-        }
-        plan_record["metadata"]["name"] = fixed_plan_id
-        plan_id = fixed_plan_id
+        plan_id = str(plan_record["metadata"]["name"])
         await bounded_put_record("sealedActionPlans", plan_id, plan_record)
         increment_metric("aiops_action_plans_total")
         return {
@@ -3649,6 +3627,10 @@ async def create_plan_from_action_candidate(
         target=target,
         parameters=dict(intent["parameters"]),
         evidenceRefs=req.evidenceRefs,
+        expectedImpact=req.expectedImpact,
+        prerequisiteChecks=req.prerequisiteChecks,
+        problemSummary=req.problemSummary or req.title,
+        recommendationSteps=req.recommendationSteps,
         policy={
             "candidateId": req.candidateId,
             "source": "aiops-action-candidate-board",
@@ -3656,6 +3638,7 @@ async def create_plan_from_action_candidate(
             "sourceType": req.sourceType,
             **dict(req.policy),
         },
+        verificationChecks=req.verificationChecks,
     )
     proposal_record = build_action_proposal_record(proposal_request, subject)
     proposal_id = str(proposal_record["metadata"]["name"])
@@ -3756,17 +3739,14 @@ def natural_action_plan_response(result: Mapping[str, Any]) -> str:
 
     return "\n".join(
         [
-            "자연어 조치 요청을 typed AIOps action으로 변환해 실행 계획까지 생성했습니다.",
+            "자연어 조치 요청을 승인 가능한 Action Plan으로 정리했습니다.",
             "",
-            "### 생성된 실행 계획",
-            "- 흐름: `ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord`",
+            "### Action Plan",
             f"- 대상: `{target.get('namespace')}/{target.get('name')}` ({target.get('kind')})",
-            f"- Action: `{intent.get('toolName')}`",
-            f"- Parameters: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
-            f"- Proposal: `{result.get('proposalId')}`",
-            f"- Plan: `{result.get('planId')}`",
-            *([f"- Plan digest: `{result.get('planDigest')}`"] if result.get("planDigest") else []),
-            f"- Risk: `{risk}`",
+            f"- 조치: `{intent.get('toolName')}`",
+            f"- 입력값: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
+            f"- 위험도: `{risk}`",
+            "- 상태: 승인 전에는 변경 작업을 실행하지 않습니다.",
             "",
             "### 다음 단계",
             f"- {next_step}",
@@ -5932,7 +5912,7 @@ def action_candidate_template(
             "데이터 소스 실패가 있으면 후보 신뢰도를 낮춰 판단합니다.",
         ],
         [
-            "근거가 충분할 때만 수정 후보를 하나로 좁힙니다.",
+            "확인 결과가 충분할 때만 수정 후보를 하나로 좁힙니다.",
             "승인 전에는 변경성 작업을 실행하지 않습니다.",
             "승인 후에는 영향 범위와 되돌림 기준을 포함한 계획을 작성합니다.",
         ],
@@ -5980,7 +5960,7 @@ def build_aiops_action_candidates(
             diagnostic_steps = [
                 evidence_check_check_command(finding_resource),
                 "이전 컨테이너 로그(`--previous`)와 Warning Event를 확인합니다.",
-                "lastState.reason, exitCode, command/env/config 근거를 분리합니다.",
+                "lastState.reason, exitCode, command/env/config 확인 결과를 분리합니다.",
             ]
             candidates.append(
                 {
@@ -5988,7 +5968,7 @@ def build_aiops_action_candidates(
                     "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
                     "blockedReasons": ["diagnostic-review", "review-only-plan"],
                     "confidence": "medium",
-                    "evidence": str(finding.get("evidence") or "CrashLoopBackOff 진단 근거 확인 필요"),
+                    "evidence": str(finding.get("evidence") or "CrashLoopBackOff 진단 확인 필요"),
                     "evidenceRefs": [
                         {
                             "evidenceType": str(finding.get("source") or "pods"),
@@ -6004,7 +5984,7 @@ def build_aiops_action_candidates(
                         "mutationVerbsDisabled": True,
                         "proposalOnly": True,
                     },
-                    "expectedImpact": "로그와 Pod 상세, Event 근거를 확인하는 계획입니다. Pod 삭제나 재시작은 실행하지 않습니다.",
+                    "expectedImpact": "로그와 Pod 상세, Event 확인 결과를 검토하는 계획입니다. Pod 삭제나 재시작은 실행하지 않습니다.",
                     "id": f"action-candidate-{source_id}-diagnostic",
                     "mutationSubmitted": False,
                     "priority": max(1, int(finding.get("priority") or 10) - 1),
@@ -6022,7 +6002,7 @@ def build_aiops_action_candidates(
                     "statusLabel": "원인 확인 플랜",
                     "target": finding_resource,
                     "title": "원인 확인 플랜",
-                    "verificationChecks": ["로그/describe/Event 근거가 수집되었는지 확인", "승인 전 mutation 없음 확인"],
+                    "verificationChecks": ["로그/describe/Event 확인 결과가 정리되었는지 확인", "승인 전 mutation 없음 확인"],
                 }
             )
             candidates.append(
@@ -6094,7 +6074,7 @@ def build_aiops_action_candidates(
                 "blockedActions": blocked_actions,
                 "blockedReasons": blocked_reasons,
                 "confidence": "limited" if required_gaps else "medium",
-                "evidence": str(finding.get("evidence") or finding.get("message") or "근거 수집 중"),
+                "evidence": str(finding.get("evidence") or finding.get("message") or "확인 중"),
                 "evidenceRefs": [
                     {
                         "evidenceType": str(finding.get("source") or "anomaly"),
@@ -6301,7 +6281,7 @@ def build_attachment_context(
     else:
         lines.append(
             "현재 Gateway 비전 분석과 OLS image attachment 전달이 비활성화되어 있습니다. "
-            "답변에는 첨부 파일 메타데이터, 사용자 설명, 도구 조회 결과만 근거로 사용하세요."
+            "답변에는 첨부 파일 메타데이터, 사용자 설명, 도구 조회 결과만 기준으로 사용하세요."
         )
 
     lines.append("첨부 파일 메타데이터:")
@@ -7039,7 +7019,7 @@ def namespace_cleanup_decision(
 
     return {
         "label": "정리 검토 가능",
-        "reason": "workload, service, route, pvc가 없고 최근 활동 근거가 약함",
+        "reason": "workload, service, route, pvc가 없고 최근 활동 신호가 약함",
         "next": "소유자/백업/PVC 재확인 후 승인 검토",
     }
 
@@ -7074,7 +7054,7 @@ def namespace_cleanup_candidate_from_item(item: Mapping[str, Any], run_id: str, 
         "mutationSubmitted": False,
         "priority": 40,
         "prerequisiteChecks": ["소유자 확인", "PVC/Route 잔존 여부 재확인", "백업 필요 여부 확인"],
-        "recommendationSteps": ["namespace 사용 근거 재확인", "정리 검토 Action Plan 생성", "별도 삭제 승인 정책 확인"],
+        "recommendationSteps": ["namespace 사용 신호 재확인", "정리 검토 Action Plan 생성", "별도 삭제 승인 정책 확인"],
         "riskLevel": "medium",
         "riskLabel": "중간",
         "severity": "확인 필요",
@@ -7199,7 +7179,7 @@ def execution_mode_sentence(mode: str, language: str) -> str:
     return (
         "Read-only mode: only query evidence and safe `oc get/describe` commands are provided. No Action Plan or change is created."
         if is_en
-        else "읽기 전용 모드: 조회 근거와 안전한 `oc get/describe` 명령만 제공합니다. Action Plan이나 변경 작업은 만들지 않습니다."
+        else "읽기 전용 모드: 조회 결과와 안전한 `oc get/describe` 명령만 제공합니다. Action Plan이나 변경 작업은 만들지 않습니다."
     )
 
 
@@ -7402,7 +7382,7 @@ def test_pod_create_answer(
         "- 요청 오브젝트: `aiops-test-pods` 테스트 Pod",
         f"- 생성 수량: `{count}`",
         "",
-        "## 확인한 근거",
+        "## 확인 결과",
         f"- API 서버: {preflight.get('server') or '-'}",
         f"- namespace 사전 확인: {preflight_label}",
         "",
@@ -7474,7 +7454,7 @@ def namespace_cleanup_answer(inventory: Mapping[str, Any], execution_mode: str, 
             "삭제 계획 제외": "exclude from deletion plans",
             "이름을 다시 확인": "recheck the namespace name",
             "소유자/백업/PVC 재확인 후 승인 검토": "confirm owner, backup, and PVC state before approval review",
-            "workload, service, route, pvc가 없고 최근 활동 근거가 약함": "no workload, service, route, or PVC was found and recent activity evidence is weak",
+            "workload, service, route, pvc가 없고 최근 활동 신호가 약함": "no workload, service, route, or PVC was found and recent activity evidence is weak",
         }
         for source, target in replacements.items():
             text = text.replace(source, target)
@@ -7507,7 +7487,7 @@ def namespace_cleanup_answer(inventory: Mapping[str, Any], execution_mode: str, 
                 "",
                 "## 다음 조치",
                 "- 터미널에서 `oc whoami --show-server`와 `oc get namespaces`가 되는지 먼저 확인해야 합니다.",
-                "- 조회 근거가 수집되기 전에는 정리 후보를 판정하지 않습니다.",
+                "- 조회 결과가 정리되기 전에는 정리 후보를 판정하지 않습니다.",
             ]
         )
 
@@ -7579,13 +7559,13 @@ def namespace_cleanup_answer(inventory: Mapping[str, Any], execution_mode: str, 
         "## 현재 판단",
         mode_line,
         "",
-        "## 조회 근거",
+        "## 조회 결과",
         f"- API 서버: {inventory.get('server') or '-'}",
         f"- 접근 가능한 namespace: {inventory.get('totalNamespaces')}개",
         f"- 조회 범위: {', '.join(inventory.get('requestedNames') or [])}",
         "",
         "## 네임스페이스별 판단",
-        "| Namespace | 판단 | 근거 | 다음 조치 |",
+        "| Namespace | 판단 | 확인 결과 | 다음 조치 |",
         "|---|---|---|---|",
     ]
     for item in inventory.get("inspected", []):
@@ -8834,7 +8814,7 @@ Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw
 조회 계획은 필요한 경우 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
 If no screenshot/image is attached, do not claim you inspected a screenshot.
-사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
+사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
 Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_evidence_collection")) if isinstance(effective_policy, Mapping) else "allow_evidence_collection"}.
 Console context:
 {json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
@@ -8856,7 +8836,7 @@ Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw
 Mutation is not allowed from this answer. Propose risky actions only after evidence and approval.
 If no screenshot/image is attached, do not say you inspected the screen image.
 If the user asks about this AI gateway, do not attach unrelated Kubernetes Gateway API links.
-사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
+사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
 
 Policy:
 {json.dumps(redact_sensitive(effective_policy), ensure_ascii=False)}
@@ -8909,7 +8889,7 @@ Answer format:
 - {language_contract}
 - {section_contract}
 - 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
-- 사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 Gateway 선조회 증거에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
+- 사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 Gateway 선조회 자료에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
 
 [CrashLoopBackOff 시연 답변 계약]
 {crashloop_demo_prompt_answer_contract(req)}
@@ -8918,29 +8898,29 @@ Answer format:
 {past_pod_restart_demo_prompt_contract(req)}
 
 이미지/화면 컨텍스트 처리:
-- [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 근거로 답하세요.
-- [현재 콘솔 컨텍스트]는 URL, namespace, resource metadata입니다. 화면의 시각적 내용 자체라고 단정하지 말고, `/catalog/ns/<namespace>` 같은 경로가 있으면 "경로 기준으로는 Catalog 페이지로 보입니다"처럼 근거 범위를 분리하세요.
+- [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 기준으로 답하세요.
+- [현재 콘솔 컨텍스트]는 URL, namespace, resource metadata입니다. 화면의 시각적 내용 자체라고 단정하지 말고, `/catalog/ns/<namespace>` 같은 경로가 있으면 "경로 기준으로는 Catalog 페이지로 보입니다"처럼 확인 범위를 분리하세요.
 - [첨부 이미지]에 Gateway 비전 분석 결과가 없으면 이미지 내부 텍스트, 색상, 표 항목을 보았다고 말하지 마세요. 필요한 경우 이미지 첨부 또는 비전 분석 설정이 필요하다는 점을 별도 전제로만 짧게 표시하세요.
 
 AIOps 리소스 원인분석 라우팅:
 - 이 프롬프트에서 "Gateway"는 KOMSCO AI Gateway/BFF 보안 경계를 뜻합니다. 사용자가 Kubernetes Gateway API를 명시적으로 묻지 않았다면 `gateway.networking.k8s.io`, `Gateway`, `GatewayClass` 문서 링크를 추가하지 마세요.
-- [현재 콘솔 컨텍스트]에 `resourceKind`와 `resourceName`이 있고 사용자가 "현재 화면", "안전한 확인 절차", "단계별 확인", "문제 여부", "원인"을 묻는 경우에는 단순 절차 안내로 끝내지 마세요. Gateway가 이미 수집한 Pod/Event/Metric/RAG evidence를 먼저 요약하고, 확인된 증적, 원인 후보, 승인 가능한 조치 후보를 구분하세요.
+- [현재 콘솔 컨텍스트]에 `resourceKind`와 `resourceName`이 있고 사용자가 "현재 화면", "안전한 확인 절차", "단계별 확인", "문제 여부", "원인"을 묻는 경우에는 단순 절차 안내로 끝내지 마세요. Gateway가 이미 조회한 Pod/Event/Metric/RAG 자료를 먼저 요약하고, 확인 결과, 원인 후보, 승인 가능한 조치 후보를 구분하세요.
 - 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
 - alert 조회는 사용자가 "경고", "alert", "알람"을 명시했거나, 리소스 상태 조회 후 관련 경고를 보강할 때 사용하세요. "활성 alert에 없음"은 HPA, Pod, PVC, Job 장애가 없다는 뜻이 아닙니다.
-- HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 근거로 설명하세요.
+- HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 기준으로 설명하세요.
 - Pod/Deployment/워크로드 이름이 주어졌지만 정확한 Pod 이름이 아니면 namespace의 Pod 목록을 먼저 조회하고, `metadata.name`, `labels.app`, ownerReferences가 질문 대상과 맞는 Pod를 선택해 상세 조회하세요.
-- 사용자가 정확한 Pod 이름 또는 Pod 목록 evidence에 있는 Pod를 지목했다면, Gateway 선조회 Pod 요약만으로 원인/조치 계획을 끝내지 말고 `apiVersion: v1`, `kind: Pod`, `namespace`, `name` 상세를 조회하세요. command/args/env/image/ownerReferences/labels/events 근거가 필요한 질문에서는 상세 조회 결과가 없다는 점을 명시하고 일반론으로 단정하지 마세요.
+- 사용자가 정확한 Pod 이름 또는 Pod 목록 조회 결과에 있는 Pod를 지목했다면, Gateway 선조회 Pod 요약만으로 원인/조치 계획을 끝내지 말고 `apiVersion: v1`, `kind: Pod`, `namespace`, `name` 상세를 조회하세요. command/args/env/image/ownerReferences/labels/events 확인이 필요한 질문에서는 상세 조회 결과가 없다는 점을 명시하고 일반론으로 단정하지 마세요.
 - Pod 상세의 owner가 ReplicaSet이면 해당 ReplicaSet 상세를 조회해 상위 Deployment 이름을 확인하세요. Deployment 이름을 확인하지 못한 경우에는 추정한 Deployment 이름으로 조치 명령을 만들지 말고 owner chain 조회가 필요하다고 쓰세요.
 - 사용자가 Pod 재시작, rollout restart, delete pod, scale 같은 변경 요청을 했지만 대상 namespace 또는 리소스 이름이 없으면 임의로 Gateway API나 다른 동음이의어 리소스로 해석하지 마세요. "대상 미지정"으로 표시하고 `namespace`, `Pod 또는 관리 객체 이름`, 장애 증상만 요청하세요.
-- `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 근거로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
-- PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 근거로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
-- namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 참고 링크만 단독으로 출력하지 마세요.
+- `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 기준으로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
+- PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 기준으로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
+- namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 공용 웹 URL은 기본 답변에 출력하지 마세요.
 
 CronJob/Activity 분석 프로토콜:
-- 사용자가 콘솔 Activity, 반복 실행, CronJob, Job, schedule, 특정 분 단위 주기를 묻는 경우에는 CronJob `spec.schedule`, `spec.concurrencyPolicy`, `successfulJobsHistoryLimit`, `failedJobsHistoryLimit`, container image, lifecycle/retention 관련 env, 최근 Job 실행 이력을 근거로 답하세요.
+- 사용자가 콘솔 Activity, 반복 실행, CronJob, Job, schedule, 특정 분 단위 주기를 묻는 경우에는 CronJob `spec.schedule`, `spec.concurrencyPolicy`, `successfulJobsHistoryLimit`, `failedJobsHistoryLimit`, container image, lifecycle/retention 관련 env, 최근 Job 실행 이력을 기준으로 답하세요.
 - `spec.schedule`에서 분 단위 interval이 확인되면 첫 문장에 "네, 설정상 의도된 <N>분 주기입니다"처럼 정상 여부를 먼저 명확히 답하세요.
 - 이름만 보고 작업 목적을 단정하지 말고, env 이름에 hibernate/suspend/sleep/idle/delete/ttl/expire/cleanup/retention/prune/archive/max_age/timeout 같은 lifecycle/retention 신호가 확인된 경우에만 해당 정책으로 보인다고 쓰세요.
-- 초 단위 env는 사람이 읽는 값으로 같이 풀어 쓰되 "기준값"으로만 표현하세요. 예: `1800`은 30분, `1209600`은 14일입니다. 로그나 소스 근거 없이 생성 후/마지막 사용 후/유휴 시간 기준인지 단정하지 마세요.
+- 초 단위 env는 사람이 읽는 값으로 같이 풀어 쓰되 "기준값"으로만 표현하세요. 예: `1800`은 30분, `1209600`은 14일입니다. 로그나 소스 확인 없이 생성 후/마지막 사용 후/유휴 시간 기준인지 단정하지 마세요.
 - `concurrencyPolicy: Forbid`는 이전 실행이 끝나지 않았을 때 중복 실행을 막는 설정으로 설명하고, `successfulJobsHistoryLimit`는 콘솔에 남는 성공 Job 이력 수를 설명할 때만 사용하세요.
 - 실제로 어떤 리소스를 처리했는지는 CronJob 설정만으로 단정하지 말고 최근 Job 로그 확인이 필요하다고 분리하세요.
 - 로그 확인 명령은 가능하면 `oc -n <namespace> logs job/<job-name>` 형태로 제시하고, 최근 Job 이름 확인 명령은 `oc -n <namespace> get jobs --sort-by=.metadata.creationTimestamp | grep <cronjob-name>` 형태를 우선 제시하세요.
@@ -8954,29 +8934,29 @@ Pod 상태/재시작 분석 프로토콜:
 - `Running` 및 `Ready=True`이면서 restartCount가 높은 Pod는 "현재 CrashLoop"가 아니라 "과거 또는 최근 재시작 이력/최근 복구됨"으로 표현하고, 마지막 종료 시각과 현재 startedAt을 같이 제시하세요.
 - `status.phase=Failed`이고 현재 `state.terminated`인 Pod는 현재 재시작 중인 Pod가 아니라 종료된 Pod 객체일 수 있습니다. `startTime`, `finishedAt`, owner/controller/operator 상태를 함께 보고 "과거 실패 이력"과 "현재 장애"를 분리하세요.
 - OpenShift 관리 namespace의 installer/revisioner/pruner 같은 단발성 작업 Pod가 Failed로 남아 있더라도 관련 ClusterOperator가 `Available=True`, `Degraded=False`, `Progressing=False`이면 현재 제어면 장애라고 단정하지 마세요. "과거 실패 Pod 이력, 현재 Operator 상태는 정상"처럼 표현하세요.
-- `Last State`가 `Error`와 exit code만 제공되면 일반적인 원인을 나열하기 전에 `--previous` 로그 또는 이벤트 근거를 확인하세요. `exitCode=137`은 OOMKilled일 수 있지만 `reason`이 `OOMKilled`가 아니면 단정하지 말고 "강제 종료 가능성, 추가 확인 필요"로 표현하세요.
-- 이전 종료 원인을 볼 때는 `oc logs <pod> -n <namespace> -c <container> --previous --tail=120`처럼 컨테이너명을 포함하세요. 단일 컨테이너 Pod도 컨테이너명을 명시하면 근거가 더 명확합니다.
+- `Last State`가 `Error`와 exit code만 제공되면 일반적인 원인을 나열하기 전에 `--previous` 로그 또는 이벤트 조회 결과를 확인하세요. `exitCode=137`은 OOMKilled일 수 있지만 `reason`이 `OOMKilled`가 아니면 단정하지 말고 "강제 종료 가능성, 추가 확인 필요"로 표현하세요.
+- 이전 종료 원인을 볼 때는 `oc logs <pod> -n <namespace> -c <container> --previous --tail=120`처럼 컨테이너명을 포함하세요. 단일 컨테이너 Pod도 컨테이너명을 명시하면 확인 범위가 더 명확합니다.
 - 우선순위는 1) 현재 `Pending`, `NotReady`, `CrashLoopBackOff`, `ImagePullBackOff` 등 비정상 상태, 2) 현재 Running/Ready지만 최근에 재시작된 컨테이너, 3) 오래된 재시작 이력 순으로 정리하세요.
-- `ImagePullBackOff` 또는 `ErrImagePull`은 `status.containerStatuses[*].state.waiting.message`와 Events를 최우선 근거로 삼고, catalog/marketplace 성격의 Pod라면 관련 `CatalogSource` 상태와 image registry 접근성도 확인 항목에 포함하세요.
-- 최종 답변 표에는 가능한 경우 `Namespace`, `Pod`, `Container`, `현재 상태`, `Ready`, `Restart Count`, `Last State/Exit`, `마지막 종료 시각`, `근거`를 포함하세요.
+- `ImagePullBackOff` 또는 `ErrImagePull`은 `status.containerStatuses[*].state.waiting.message`와 Events를 최우선 확인 결과로 삼고, catalog/marketplace 성격의 Pod라면 관련 `CatalogSource` 상태와 image registry 접근성도 확인 항목에 포함하세요.
+- 최종 답변 표에는 가능한 경우 `Namespace`, `Pod`, `Container`, `현재 상태`, `Ready`, `Restart Count`, `Last State/Exit`, `마지막 종료 시각`, `확인 결과`를 포함하세요.
 
 Pod 조치/복구 계획 프로토콜:
 - Pod가 controller-owned이면 `metadata.ownerReferences`를 따라 관리 객체를 먼저 식별하세요. `Pod -> ReplicaSet -> Deployment` 관계가 확인되면 최종 관리 객체는 Deployment로 표현하고, 조치 명령에는 확인된 정확한 `deployment/<name>`을 사용하세요.
 - 정확한 관리 객체 이름이 증거에 있는데 `<deployment-name>`, `<pod-name>` 같은 placeholder를 남기지 마세요. 이름이 없을 때만 조회 명령을 먼저 제시하세요.
 - selector/label 기반 검증 명령도 placeholder로 남기지 마세요. Pod/Deployment 상세의 `metadata.labels` 또는 Deployment selector가 확인되면 `-l app=<value>`처럼 실제 값을 쓰고, label/selector가 확인되지 않았다면 `oc get pod -n <namespace> --show-labels`로 먼저 확인하라고 쓰세요.
 - Deployment가 관리하는 Pod의 복구 계획에서 ReplicaSet 직접 수정은 권장하지 마세요. ReplicaSet은 현재 template의 산출물로 보고, 수정/롤백/rollout restart 대상은 상위 Deployment로 잡으세요.
-- `spec.containers[*].command` 또는 `args`가 즉시 종료 명령, `exit`, 실패하는 헬스 체크용 명령, 명시적 예외 발생처럼 컨테이너 종료를 직접 유발하는 증거라면 원인을 "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨"으로 우선 설명하세요. OOMKilled, probe 실패, 노드 문제 같은 일반 원인은 해당 field나 event 근거가 있을 때만 후보로 제시하세요.
-- Pod spec의 command/args를 조회하지 못했다면 "실행 명령 오류가 확인됨"이라고 쓰지 말고 "확인 필요"로 표현하세요. 반대로 command/args가 확인되면 설정값/외부 서비스/DB 같은 일반 후보보다 그 값을 먼저 근거로 제시하세요.
+- `spec.containers[*].command` 또는 `args`가 즉시 종료 명령, `exit`, 실패하는 헬스 체크용 명령, 명시적 예외 발생처럼 컨테이너 종료를 직접 유발하는 확인 결과라면 원인을 "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨"으로 우선 설명하세요. OOMKilled, probe 실패, 노드 문제 같은 일반 원인은 해당 field나 event 확인 결과가 있을 때만 후보로 제시하세요.
+- Pod spec의 command/args를 조회하지 못했다면 "실행 명령 오류가 확인됨"이라고 쓰지 말고 "확인 필요"로 표현하세요. 반대로 command/args가 확인되면 설정값/외부 서비스/DB 같은 일반 후보보다 그 값을 먼저 기준으로 제시하세요.
 - `CrashLoopBackOff`에서 단순 `oc delete pod` 또는 `oc rollout restart`는 template/image/config 문제가 그대로면 해결책이 아니라고 분리하세요. 영구 조치는 Deployment template의 command/image/env/config 수정 또는 정상 revision으로 rollback입니다.
 - 사용자가 "조치 계획"을 요청하면 `원인 확인`, `수정 또는 rollback`, `rollout 검증`, `재발 방지 확인` 순서로 쓰고, 검증에는 `oc rollout status deployment/<name> -n <namespace>`와 selector 기반 `oc get pod` 확인을 포함하세요.
 - 리소스 label/annotation/name에 test, e2e, scenario, sandbox, demo, sample 같은 비운영 신호가 있고 사용자의 문맥도 테스트/검증이면 "서비스 복구"와 별도로 "테스트 리소스 정리" 선택지를 제시하세요. 이때도 확인된 namespace와 관리 객체 이름을 사용하고, 특정 테스트 이름을 임의로 만들지 마세요.
-- 로그가 이미 없거나 `--previous` 조회가 실패해도 Pod spec의 command/args, current state, lastState, events가 원인을 충분히 설명하면 그 근거를 우선 사용하세요. 로그 확인은 보조 검증으로만 표시하세요.
+- 로그가 이미 없거나 `--previous` 조회가 실패해도 Pod spec의 command/args, current state, lastState, events가 원인을 충분히 설명하면 그 확인 결과를 우선 사용하세요. 로그 확인은 보조 검증으로만 표시하세요.
 
 Deployment rollout/Pod 교체 판정 프로토콜:
 - `replicas=2`, `Ready 2/2`, Pod 2개 존재, Pod Age만으로 "교체 완료", "rollout 완료", "새 Pod가 자리 잡음"이라고 쓰지 마세요. 이는 현재 가용성 증거일 뿐 실행/교체 증거가 아닙니다.
 - rollout restart 실행 여부는 `spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]`, Deployment revision 증가, 새 ReplicaSet 생성 및 old/new ReplicaSet replica 전환, ExecutionRecord의 `mutation_succeeded`, 또는 질문 전에 수집한 Pod 이름과 현재 Pod 이름의 before/after 비교가 있을 때만 확인됐다고 쓰세요.
 - 위 증거가 없고 현재 Pod가 질문 전부터 존재하던 동일 이름/동일 `pod-template-hash`라면 "아직 실행 전 또는 교체 증거 없음"으로 답하세요.
-- 사용자가 "Pod가 교체됐는지" 물으면 현재 Pod 목록뿐 아니라 Deployment rollout evidence의 `RestartedAt`, `Revision`, `Recent ReplicaSets`, `Current Pods`를 근거로 판단하세요.
+- 사용자가 "Pod가 교체됐는지" 물으면 현재 Pod 목록뿐 아니라 Deployment rollout 자료의 `RestartedAt`, `Revision`, `Recent ReplicaSets`, `Current Pods`를 기준으로 판단하세요.
 - 교체를 보여주기 위한 테스트 시나리오에서는 실행 전 Pod 이름과 실행 후 Pod 이름/hash/revision을 나란히 비교하세요.
 
 OpenShift 경고 분석 프로토콜:
@@ -8984,23 +8964,23 @@ OpenShift 경고 분석 프로토콜:
 - 주요 alert별 상세 조사는 아래 순서를 따르세요. 해당 상세 조회가 실패하면 실패 사실과 이유를 답변에 포함하고, 확인하지 못한 원인은 추정으로만 표현하세요.
 - 상태 표현은 엄격히 구분하세요.
   - "상세 확인됨": 관련 리소스 상세 조회를 수행했고, 답변에 쓰는 field path가 그 결과에 존재하는 경우에만 사용하세요.
-  - "Alert 근거 확인": active alert의 labels/annotations만 근거로 삼은 경우에 사용하세요.
+  - "Alert 확인": active alert의 labels/annotations만 기준으로 삼은 경우에 사용하세요.
   - "추가 확인 필요": 상세 조회를 하지 않았거나 도구가 실패한 경우에 사용하세요.
 - 상세 조회를 실제로 호출하지 않은 리소스의 `status.conditions`, `containerStatuses`, `events`, Secret/ConfigMap 존재 여부를 확인했다고 쓰지 마세요.
 - KubePodNotReady:
   1. alert label의 namespace/pod 값으로 `resources_get`을 사용해 `apiVersion: v1`, `kind: Pod`, `namespace`, `name`을 조회하세요.
-  2. Pod의 `status.conditions`, `status.containerStatuses[*].state.waiting.reason/message`, `spec.containers[*].image`, ownerReferences를 근거로 원인을 작성하세요.
+  2. Pod의 `status.conditions`, `status.containerStatuses[*].state.waiting.reason/message`, `spec.containers[*].image`, ownerReferences를 기준으로 원인을 작성하세요.
   3. 이벤트 조회 도구가 있으면 해당 namespace/pod의 events도 조회하세요. 이벤트 도구가 없거나 실패하면 events는 추가 확인 명령으로만 제시하세요.
   4. container가 시작하지 못한 상태(ImagePullBackOff, ErrImagePull 등)이면 `oc logs`를 원인 확인의 첫 명령으로 제시하지 마세요.
 - ClusterNotUpgradeable:
   1. `resources_get`으로 `apiVersion: config.openshift.io/v1`, `kind: ClusterVersion`, `name: version`을 조회하세요.
-  2. `status.conditions[type=Upgradeable]`의 status/reason/message를 최우선 근거로 사용하세요.
+  2. `status.conditions[type=Upgradeable]`의 status/reason/message를 최우선 확인 결과로 사용하세요.
   3. `ClusterOperator` 문제라고 쓰려면 ClusterOperator 상세나 요약에서 실제 Degraded/Unavailable/Progressing이 확인된 경우에만 그렇게 표현하세요.
 - AlertmanagerReceiversNotConfigured:
   1. alert 결과만으로 ConfigMap 또는 Secret 이름을 만들어 조회하지 마세요.
   2. Secret 내용은 권한 또는 보안 정책상 직접 조회가 제한될 수 있으므로, 조회 시도 대신 "설정 리소스 확인은 권한상 제한될 수 있음"으로 표현하고 사용자가 확인할 안전한 명령을 제시하세요.
 - etcdDatabaseHighFragmentationRatio:
-  1. alert annotation의 비율/instance/pod를 근거로 설명하세요.
+  1. alert annotation의 비율/instance/pod를 기준으로 설명하세요.
   2. defrag는 즉시 실행 지시가 아니라 상태 확인, 영향도 판단, 공식 절차 검토, 승인 후 수행으로 표현하세요.
 - Watchdog:
   1. Alertmanager 경로 확인용 상시 경고로 분류하고 우선 조치 대상에서 제외하세요.
@@ -9009,16 +8989,16 @@ OpenShift 경고 분석 프로토콜:
 - {language_contract}
 - {section_contract}
 - 최종 답변은 단순 문장 나열이 아니라 운영자가 바로 읽을 수 있는 구조화된 답변으로 작성하세요.
-- 근거가 부족한 항목은 `추가 확인`에 넣고, 확인한 사실과 원인 후보를 섞지 마세요.
+- 확인 결과가 부족한 항목은 `추가 확인`에 넣고, 확인한 사실과 원인 후보를 섞지 마세요.
 - 실시간 클러스터 상태(경고, 이벤트, Pod, Node, 리소스, 메트릭, 로그)가 필요한 질문이면 OpenShift MCP 도구를 먼저 사용하세요.
 - 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
 - 도구를 사용할 수 없거나 결과가 부족하면 확인하지 못했다고 말하고 사용자가 확인할 명령을 제시하세요.
-- 참고 링크는 사용자가 문서를 요청했거나 답변의 대상 리소스와 직접 관련된 경우에만 제시하세요. KOMSCO AI Gateway 보안 경계를 설명하면서 Kubernetes Gateway API 또는 GatewayClass 문서를 붙이지 마세요.
-- 참고 링크가 필요한 경우에도 답변의 근거가 된 리소스/경고와 직접 관련된 문서만 1-2개로 제한하세요. Pod 상태 분석 답변 끝에 `Extension APIs`, `Admission plugins`, `TokenReview`, `ClusterRole`처럼 분석 대상과 무관한 API 색인 링크를 붙이지 마세요.
+- 폐쇄망 고객용 기본 답변에는 공용 웹 URL을 붙이지 마세요. 사용자가 외부 문서를 명시적으로 요청한 경우에만 문서명 중심으로 짧게 안내하고, `github.com`, `docs.openshift.com`, `access.redhat.com` URL은 기본 본문에 쓰지 마세요.
+- 참고 문서가 필요한 경우에도 답변의 대상 리소스/경고와 직접 관련된 문서명만 1-2개로 제한하세요. Pod 상태 분석 답변 끝에 `Extension APIs`, `Admission plugins`, `TokenReview`, `ClusterRole`처럼 분석 대상과 무관한 API 색인 참조를 붙이지 마세요.
 - alert 이름이나 summary만으로 원인을 단정하지 마세요. 원인, 영향, 조치 우선순위는 관련 리소스 상세 조회 결과가 있을 때만 "확인됨"으로 표현하세요.
-- 도구 결과로 확인한 사실과 추가 확인이 필요한 추정을 분리해서 작성하세요. 최종 답변에는 각 주요 항목마다 "근거"를 짧게 포함하세요.
+- 도구 결과로 확인한 사실과 추가 확인이 필요한 추정을 분리해서 작성하세요. 최종 답변에는 각 주요 항목마다 "확인 결과"를 짧게 포함하세요.
 - 도구 실패나 권한 제한이 있으면 숨기지 말고 "조회 실패/권한 제한" 항목으로 짧게 표시하세요.
-- 사용자가 실행 가능한 조치와 근거를 함께 제시하세요.
+- 사용자가 실행 가능한 조치와 확인 결과를 함께 제시하세요.
 - Secret, token, password, private key는 절대 출력하지 마세요.
 - etcd defrag, 리소스 삭제, 재시작, 설정 변경 같은 위험 작업은 "즉시 수행"으로 단정하지 말고 상태 확인, 영향 판단, 공식 절차 검토, 승인 후 수행 순서로 표현하세요.
 - 대상이 특정되지 않은 재시작 요청에는 `oc get pods -A`를 기본 제안하지 마세요. 현재 콘솔 컨텍스트 namespace가 있으면 `oc get pods -n <namespace>`를 제시하고, namespace도 없으면 namespace와 Pod/Deployment/StatefulSet/DaemonSet 이름을 먼저 요청하세요.
@@ -9030,7 +9010,7 @@ OpenShift 경고 분석 프로토콜:
 - Watchdog alert는 Alertmanager 경로 확인용 상시 경고임을 설명하고 우선 조치 대상에서 제외하세요.
 - Markdown은 GitHub Flavored Markdown으로 작성하고, 코드블록은 반드시 삼중 백틱으로 열고 삼중 백틱으로 닫으세요.
 - 코드블록 안에는 실행 가능한 명령만 넣고, "Pod 로그 확인" 같은 설명 문장은 코드블록 밖에 작성하세요.
-- 장애 분석 답변은 가능한 경우 `현재 판단`, `원인 후보`, `확인한 근거`, `조치 방법`, `추가 확인` 순서로 작성하세요.
+- 장애 분석 답변은 가능한 경우 `현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인` 순서로 작성하세요.
 - 단순 개념 질문은 RCA 보고서로 늘리지 말고, 짧은 정의와 확인 방법만 답하세요.
 - `Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖에 작성하세요.
 - 코드블록 안에 다시 ```bash 같은 fence를 중첩하지 마세요.
@@ -9246,7 +9226,7 @@ async def call_ollama_chat(
             {
                 "role": "system",
                 "content": (
-                    "너는 KOMSCO AIOps 운영 분석가다. 확인한 근거와 추정을 분리하고, "
+                    "너는 KOMSCO AIOps 운영 분석가다. 확인 결과와 추정을 분리하고, "
                     "위험한 조치는 승인 전 실행 지시로 쓰지 않는다."
                 ),
             },
@@ -9641,7 +9621,7 @@ def crashloop_demo_prompt_answer_contract(req: ChatRequest) -> str:
         [
             "이 요청은 Ver.0.1.3 공식 Evidence 기반 Pod 재시작 RCA 시연 사이클입니다.",
             "최종 답변에는 아래 5개 섹션명을 이 순서 그대로 포함하세요.",
-            "1. `### 확인된 근거`",
+            "1. `### 확인 결과`",
             "2. `### 가능한 원인 후보`",
             "3. `### 추가 확인 필요`",
             "4. `### Evidence-check 확인 순서`",
@@ -9670,7 +9650,7 @@ def past_pod_restart_demo_prompt_contract(req: "ChatRequest") -> str:
     return "\n".join([
         "이 요청은 과거 시점 Pod 재시작 RCA 공식 Evidence 시연 사이클입니다.",
         "최종 답변에는 아래 5개 섹션명을 이 순서 그대로 포함하세요.",
-        "1. `### 확인된 근거`",
+        "1. `### 확인 결과`",
         "2. `### 가능한 원인 후보`",
         "3. `### 추가 확인 필요`",
         "4. `### Evidence-check 확인 순서`",
@@ -9992,7 +9972,7 @@ def crashloop_demo_skipped_evidence_events(
             "name": "crashloop_event_evidence",
             "sourcePath": "",
             "status": "skipped",
-            "summary": "CrashLoop Event 증거 수집 생략",
+            "summary": "CrashLoop Event 조회 결과 수집 생략",
             "target": dict(target),
         },
         {
@@ -10016,7 +9996,7 @@ def crashloop_demo_skipped_evidence_events(
             "name": "crashloop_pod_snapshot",
             "sourcePath": "",
             "status": "skipped",
-            "summary": "CrashLoop Pod snapshot 증거 수집 생략",
+            "summary": "CrashLoop Pod snapshot 조회 결과 수집 생략",
             "target": dict(target),
         },
     ]
@@ -10038,7 +10018,7 @@ async def collect_crashloop_demo_evidence_events(
                 "name": "crashloop_event_evidence",
                 "sourcePath": "",
                 "status": "skipped",
-                "summary": "CrashLoop Event 증거 수집 생략",
+                "summary": "CrashLoop Event 조회 결과 수집 생략",
             },
             {
                 "type": "tool_result",
@@ -10060,7 +10040,7 @@ async def collect_crashloop_demo_evidence_events(
                 "name": "crashloop_pod_snapshot",
                 "sourcePath": "",
                 "status": "skipped",
-                "summary": "CrashLoop Pod snapshot 증거 수집 생략",
+                "summary": "CrashLoop Pod snapshot 조회 결과 수집 생략",
             },
         ]
 
@@ -10385,7 +10365,7 @@ def official_namespace_restart_skipped_evidence_events(
             "name": "official_namespace_restart_event_evidence",
             "sourcePath": "",
             "status": "skipped",
-            "summary": "공식 Pod 재시작 namespace Event 증거 수집 생략",
+            "summary": "공식 Pod 재시작 namespace Event 조회 결과 수집 생략",
             "target": target,
         },
         {
@@ -10397,7 +10377,7 @@ def official_namespace_restart_skipped_evidence_events(
             "name": "official_namespace_restart_snapshot",
             "sourcePath": "",
             "status": "skipped",
-            "summary": "공식 Pod 재시작 namespace snapshot 증거 수집 생략",
+            "summary": "공식 Pod 재시작 namespace snapshot 조회 결과 수집 생략",
             "target": target,
         },
         {
@@ -10409,7 +10389,7 @@ def official_namespace_restart_skipped_evidence_events(
             "name": "official_namespace_restart_log_pattern_probe",
             "sourcePath": "",
             "status": "skipped",
-            "summary": "공식 Pod 재시작 log pattern 증거 수집 생략",
+            "summary": "공식 Pod 재시작 log pattern 조회 결과 수집 생략",
             "target": target,
         },
     ]
@@ -11067,8 +11047,8 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
     pod_name = target["name"]
     forbidden = ", ".join(ACTION_CANDIDATE_FORBIDDEN_VERBS)
     evidence_lines = [
-        evidence_contract_line(refs, "pod_status", "Pod 상태와 재시작 근거"),
-        evidence_contract_line(refs, "event", "Pod Event 근거"),
+        evidence_contract_line(refs, "pod_status", "Pod 상태와 재시작 확인 결과"),
+        evidence_contract_line(refs, "event", "Pod Event 확인 결과"),
         evidence_contract_line(refs, "pod_log", "이전 로그 가용성"),
         evidence_contract_line(refs, "metric", "Restart/운영 메트릭"),
     ]
@@ -11077,13 +11057,13 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
             "",
             "## RCA 계약 요약",
             "",
-            "### 확인된 근거",
+            "### 확인 결과",
             *evidence_lines,
             "",
             "### 가능한 원인 후보",
             "- 현재 시연 컨텍스트는 공식 Evidence RCA 대상 Pod 재시작 질문에 묶여 있습니다.",
             "- 컨테이너 프로세스 반복 종료, 잘못된 command/args, 설정/env 참조, 이미지 또는 애플리케이션 초기화 실패가 후보입니다.",
-            "- 이 후보는 수집된 상태/event/메트릭과 이전 로그 가용성 기준의 후보이며, 로그 원문을 근거로 확정하지 않습니다.",
+            "- 이 후보는 수집된 상태/event/메트릭과 이전 로그 가용성 기준의 후보이며, 로그 원문 없이 확정하지 않습니다.",
             "",
             "### RCA",
             "- 공식 시연 기준 RCA는 Event, grep/log-pattern, Metric, Snapshot evidence를 함께 묶어 판단합니다.",
@@ -11101,8 +11081,8 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
             "",
             "### 추가 확인 필요",
             "- Pod log 원문은 민감정보 가능성이 있어 gateway evidence에는 저장하거나 출력하지 않았습니다.",
-            "- grep_tool은 로그 원문이 아니라 OOMKilled, Eviction, stack-trace, error 같은 패턴과 digest만 근거화해야 합니다.",
-            "- ClusterOperator 및 runbook/RAG 근거는 현재 사이클에서 미수집 상태로 남을 수 있습니다.",
+            "- grep_tool은 로그 원문이 아니라 OOMKilled, Eviction, stack-trace, error 같은 패턴과 digest만 확인 자료로 남겨야 합니다.",
+            "- ClusterOperator 및 runbook/RAG 확인 결과는 현재 사이클에서 미수집 상태로 남을 수 있습니다.",
             "- 원인을 확정하려면 승인된 운영 절차 안에서 이벤트 상세, Pod spec, 이전 로그를 추가 확인해야 합니다.",
             "",
             "### Evidence-check 확인 순서",
@@ -11142,11 +11122,11 @@ def build_aiops_answer_contract_text(
         [
             "",
             "## 승인 대기 조치",
-            f"- 조회 계획: `{task_type}` 유형으로 필요한 근거를 수집했습니다.",
-            f"- RCA 문맥: 수집 근거 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
-            "- 조치 경로: `ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord` 순서로 승인 후 실행합니다.",
+            f"- 조회 계획: `{task_type}` 유형으로 필요한 확인 결과를 정리했습니다.",
+            f"- 확인 결과: 수집 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
+            "- 조치 흐름: Action Plan을 만든 뒤 운영자 승인/거절을 거쳐 실행 결과와 감사 기록을 남깁니다.",
             "- 승인 전에는 변경 작업을 실행하지 않습니다.",
-            "- 거절 경로: 운영자가 거절하면 `/v1/actions/rejections`가 `rejected` 기록을 남기고 실행을 차단합니다.",
+            "- 거절하면 실행은 차단되고 거절 기록만 남습니다.",
         ]
     )
 
@@ -11547,8 +11527,8 @@ def summarize_policy_detail(policy: Mapping[str, Any]) -> str:
         decision_label = "조치 요청은 Action Plan 경로로 처리"
         decision_explanation = "변경 가능성이 있는 요청이므로 직접 변경하지 않고 조치 계획/승인/실행 경로로 넘깁니다."
     elif decision == "allow_evidence_collection":
-        decision_label = "조회/증거 수집 허용"
-        decision_explanation = "클러스터 상태 조회와 근거 수집은 허용하며 리소스 변경은 수행하지 않습니다."
+        decision_label = "조회 허용"
+        decision_explanation = "클러스터 상태 조회와 확인 결과 정리는 허용하며 리소스 변경은 수행하지 않습니다."
     else:
         decision_label = "정책 결정 확인 필요"
         decision_explanation = str(policy.get("reason") or "-")
@@ -11574,7 +11554,7 @@ def policy_check_summary(policy: Mapping[str, Any]) -> str:
     if policy.get("decision") == "action_proposal_only":
         return "조치 요청은 Action Plan 경로로 처리"
     if policy.get("decision") == "allow_evidence_collection":
-        return "조회/증거 수집 허용"
+        return "조회 허용"
     return "정책 결정 확인 필요"
 
 
@@ -11599,12 +11579,12 @@ def build_action_proposal_fallback(req: ChatRequest, policy: Mapping[str, Any]) 
             "",
             "### 조치 제안",
             f"- 요청: {redact_sensitive(req.message.strip()) or '미지정'}",
-            "- 현재 단계: Gateway Phase 5 Action Execution",
-            f"- 정책 결정: `{policy.get('decision')}`",
-            "- 실행 가능 범위: 자연어 요청을 typed ActionProposal/SealedActionPlan으로 변환 후 승인된 Action Executor에서 실행",
+            "- 현재 단계: 승인 필요한 조치 계획 검토",
+            "- 정책 결정: 승인 전 실행 차단",
+            "- 실행 가능 범위: 자연어 요청을 승인 가능한 조치 계획으로 정리한 뒤, 승인된 실행 경로에서만 처리",
             "",
             "### 승인 필요 여부",
-            "- 필요함. 실제 mutation 실행은 Approval API와 Action Executor 경로에서만 허용됩니다.",
+            "- 필요함. 실제 변경 작업은 운영자 승인 후 실행 기록을 남기는 경로에서만 허용됩니다.",
             "",
             "### 추가로 필요한 대상 정보",
             "- namespace",
@@ -11861,12 +11841,12 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
                 "## RCA 보고서",
                 "",
                 "### 현재 판단",
-                "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
+                "Gateway가 수집한 Kubernetes 확인 결과 기준으로 Pod 목록을 조회했습니다.",
                 "",
                 "### 원인 후보",
                 "- 조회 범위가 맞지 않거나, 현재 접근 권한/namespace 기준으로 대상 Pod가 없을 수 있습니다.",
                 "",
-                "### 확인한 근거",
+                "### 확인 결과",
                 f"- Namespace: `{namespace}`",
                 "- 조회된 Pod가 없습니다.",
                 "- Evidence 범위: `Current Pod list evidence`",
@@ -11902,16 +11882,16 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
         "## RCA 보고서",
         "",
         "### 현재 판단",
-        "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
+        "Gateway가 수집한 Kubernetes 확인 결과 기준으로 Pod 목록을 조회했습니다.",
         "",
         "### 원인 후보",
         (
             "- Warning/Error 계열 상태가 있는 Pod부터 현재 장애 가능성을 확인해야 합니다."
             if problem_rows
-            else "- 현재 목록 근거만으로는 즉시 장애 원인을 특정할 신호가 없습니다."
+            else "- 현재 목록 결과만으로는 즉시 장애 원인을 특정할 신호가 없습니다."
         ),
         "",
-        "### 확인한 근거",
+        "### 확인 결과",
         f"- Namespace: `{namespace}`",
         f"- Evidence 범위: `{evidence_scope}`",
         f"- 표시 Pod/Container row: `{total_rows}`" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
@@ -11953,7 +11933,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
             "```",
             "",
             "### 재발 방지",
-            "- Pod 목록 요약만으로 원인 확정을 하지 않고, 문제가 있는 row를 Pod 상세/Event/metric 근거와 연결해 기록합니다.",
+            "- Pod 목록 요약만으로 원인 확정을 하지 않고, 문제가 있는 row를 Pod 상세/Event/metric 확인 결과와 연결해 기록합니다.",
         ]
     )
     return "\n".join(lines)
@@ -11989,17 +11969,17 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
         "## RCA 보고서",
         "",
         "### 현재 판단",
-        "Gateway가 수집한 Kubernetes 증거 기준으로 대상 Pod를 우선 분석했습니다.",
+        "Gateway가 수집한 Kubernetes 확인 결과 기준으로 대상 Pod를 우선 분석했습니다.",
         "",
         "### 원인 후보",
         f"- 1순위 후보: {cause}",
-        "- 로그, Event, resource limit, image pull 세부 원인은 추가 근거가 있어야 확정할 수 있습니다.",
+        "- 로그, Event, resource limit, image pull 세부 원인은 추가 확인 결과가 있어야 확정할 수 있습니다.",
         "",
-        "### 확인한 근거",
+        "### 확인 결과",
         f"- 대상: `{namespace}` / Pod `{pod}` / Container `{container}`",
         f"- 현재 상태: {state}, Ready `{ready}`, restart count `{restarts}`",
         f"- 마지막 종료: `{last_state}`" + (f", `{last_finished}`" if last_finished != "-" else ""),
-        f"- 원인 근거: {cause}",
+        f"- 원인 기준: {cause}",
         f"- 이미지: `{image}`",
         f"- Command: `{command}`",
         f"- Args: `{args}`",
@@ -12018,8 +11998,8 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
             "- 상위 Deployment가 Gateway evidence에서 확정되지 않았습니다. Pod owner chain을 먼저 확인한 뒤 관리 객체를 대상으로 수정하세요."
         )
     lines.append(
-        "- 이번 응답에서 생성된 ActionProposal/SealedActionPlan/Approval/ExecutionRecord는 `0건`입니다. "
-        "현재 요청은 evidence-check RCA로 처리됐으며, 조치 레코드가 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시해야 합니다."
+        "- 이번 응답에서는 조치 후보, 조치 계획, 승인, 실행 기록을 만들지 않았습니다. "
+        "현재 요청은 조회 중심 RCA로 처리됐으며, 실행 기록이 필요하면 실행 가능 모드에서 `조치 계획 생성`을 명시해야 합니다."
     )
     if looks_non_production_context(row) and deployment:
         lines.append(
@@ -12134,20 +12114,20 @@ def build_empty_answer_fallback(
 
     # ── build answer ─────────────────────────────────────────
     lines: list[str] = [
-        "> ⚠️ **AI 최종 답변 미수신** — OpenShift Lightspeed가 최종 답변 텍스트를 반환하지 않아 Gateway 수집 증거만으로 요약합니다.",
-        "> OLS 연결 자체가 아니라 최종 텍스트 생성 단계의 문제일 수 있습니다. 아래 내용은 Gateway가 확인한 증거 기준입니다.",
+        "> ⚠️ **AI 최종 답변 미수신** — OpenShift Lightspeed가 최종 답변 텍스트를 반환하지 않아 Gateway 조회 결과만으로 요약합니다.",
+        "> OLS 연결 자체가 아니라 최종 텍스트 생성 단계의 문제일 수 있습니다. 아래 내용은 Gateway가 확인한 조회 결과 기준입니다.",
         "",
         "## RCA 보고서",
         "",
         "### 현재 판단",
-        "- Gateway 수집 증거 기준으로 임시 요약합니다. 원인은 후보로만 봅니다.",
+        "- Gateway 조회 결과 기준으로 임시 요약합니다. 원인은 후보로만 봅니다.",
         "",
         "### 원인 후보",
-        "- 현재 fallback은 수집된 증거를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 근거가 함께 맞을 때만 확정합니다.",
+        "- 현재 fallback은 수집된 조회 결과를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 확인 결과가 함께 맞을 때만 확정합니다.",
         "",
-        "### 확인한 근거",
+        "### 확인 결과",
         f"- 질문: {redact_sensitive(req.message)}",
-        "- Gateway가 수집한 증거 기준으로만 임시 요약합니다.",
+        "- Gateway가 수집한 조회 결과 기준으로만 임시 요약합니다.",
         "- Lightspeed 최종 분석이 아니므로 원인은 후보로만 봅니다.",
         "",
     ]
@@ -12205,7 +12185,7 @@ def build_empty_answer_fallback(
         "```",
         "",
         "### 재발 방지",
-        "- fallback 답변이 반복되면 Lightspeed 최종 텍스트 생성 단계와 Gateway 수집 증거 digest를 함께 기록해 같은 질문을 재검증합니다.",
+        "- fallback 답변이 반복되면 Lightspeed 최종 텍스트 생성 단계와 Gateway 조회 결과 digest를 함께 기록해 같은 질문을 재검증합니다.",
     ])
 
     return "\n".join(lines)
@@ -13208,7 +13188,7 @@ RAG_DEMO_RUNBOOKS: tuple[dict[str, Any], ...] = (
         "aclGroups": ["cluster-admins", "aiops-admins"],
         "labels": {"scenario": "pod_restart_rca", "severity": "warning", "domain": "openshift"},
         "content": (
-            "Pod 재시작 RCA는 Event, previous container log, restart metric, Pod snapshot 순서로 근거를 수집한다. "
+            "Pod 재시작 RCA는 Event, previous container log, restart metric, Pod snapshot 순서로 확인 자료를 수집한다. "
             "OOMKilled, Evicted, CrashLoopBackOff, readiness/liveness probe 실패를 구분하고, 메모리 limit 변경과 배포 변경 이력을 확인한다. "
             "답변은 RCA, 즉시 조치, 재발 방지책, 참고 증적 순서로 작성한다."
         ),
@@ -14330,19 +14310,17 @@ def build_rag_context_detail(results: Sequence[Mapping[str, Any]], reason: str) 
         return f"RAG evidence unavailable: {reason}"
 
     lines = [
-        "Gateway-collected RAG evidence from `/v1/rag/search`.",
-        "Use these retrieved sources as citation candidates; do not invent document contents that are not present in the previews.",
+        "Gateway-collected local document evidence from `/v1/rag/search`.",
+        "Use only the retrieved titles and previews below. Do not expose source URIs, public web URLs, or similarity scores in the user-facing answer.",
         "",
-        "| Source | Type | Score | Preview |",
-        "| - | - | - | - |",
+        "| Document | Type | Preview |",
+        "| - | - | - |",
     ]
     for result in results[:5]:
         title = str(result.get("title") or result.get("documentId") or "untitled")
         source_type = str(result.get("sourceType") or "runbook")
-        score = result.get("score")
         preview = str(result.get("contentPreview") or result.get("content") or "").replace("\n", " ")
-        source_uri = str(result.get("sourceUri") or result.get("documentId") or "")
-        lines.append(f"| {title} ({source_uri}) | {source_type} | {score} | {preview[:180]} |")
+        lines.append(f"| {title} | {source_type} | {preview[:180]} |")
     return "\n".join(lines)
 
 
@@ -14350,15 +14328,12 @@ def build_rag_answer_citation_text(results: Sequence[Mapping[str, Any]]) -> str:
     if not results:
         return ""
 
-    lines = ["\n\n[ RAG 근거 ]"]
+    lines = ["\n\n[ 참고 자료 ]"]
     for index, result in enumerate(results[:3], start=1):
         title = str(result.get("title") or result.get("documentId") or "untitled")
-        source_uri = str(result.get("sourceUri") or result.get("documentId") or "")
         source_type = str(result.get("sourceType") or "runbook")
-        score = result.get("score")
-        lines.append(f"{index}. {title} ({source_type}, score={score})")
-        if source_uri:
-            lines.append(f"   - source: {source_uri}")
+        lines.append(f"{index}. {title} ({source_type})")
+    lines.append("문서 위치와 원문은 상세 보기에서 확인하세요.")
     return "\n".join(lines)
 
 
@@ -15972,7 +15947,7 @@ async def chat_stream(
                     "type": "tool_call",
                     "id": f"{request_id}-security-boundary",
                     "name": "security_boundary",
-                    "summary": "Phase 5 Action Execution 보안 경계 적용",
+                    "summary": "실행 보안 경계 적용",
                 }
             )
             yield sse(
@@ -15981,7 +15956,7 @@ async def chat_stream(
                     "detail": (
                         "UserToken은 Gateway 내부와 OLS forwarding에만 사용합니다.\n"
                         "Agent/Model prompt, audit payload, evidence event에는 redacted metadata만 전달합니다.\n"
-                        "Mutation은 Approval API와 Action Executor 경로에서만 실행합니다.\n"
+                        "변경 작업은 운영자 승인과 실행 기록 경로에서만 실행합니다.\n"
                         "실험용 무제한 모드는 KOMSCO_AI_ENABLE_UNRESTRICTED_COMMANDS=true이고 UI가 unrestricted 모드일 때만 동작합니다.\n"
                         "이 모드에서는 `/exec` 셸 명령과 지원되는 자연어 AIOps 조치를 즉시 실행할 수 있습니다."
                     ),
@@ -17129,7 +17104,7 @@ async def chat_stream(
                         "type": "tool_call",
                         "id": f"{request_id}-cronjob-activity-evidence",
                         "name": "cronjob_activity_evidence",
-                        "summary": "CronJob/Activity 주기 증거 수집",
+                        "summary": "CronJob/Activity 주기 조회 결과 수집",
                     }
                 )
                 try:
@@ -17182,7 +17157,7 @@ async def chat_stream(
                         "evidenceType": "cronjob",
                         "missingReason": safe_exception_text(exc),
                         "status": "error",
-                        "summary": "CronJob/Activity 주기 증거 수집 실패",
+                        "summary": "CronJob/Activity 주기 조회 결과 수집 실패",
                     }
                     yield sse(cronjob_event)
                     for evidence_event in build_evidence_reference_events(
@@ -17200,7 +17175,7 @@ async def chat_stream(
                         "type": "tool_call",
                         "id": f"{request_id}-pod-status-evidence",
                         "name": "pod_status_evidence",
-                        "summary": "Pod 상태/재시작 증거 수집",
+                        "summary": "Pod 상태/재시작 조회 결과 수집",
                     }
                 )
                 try:
@@ -17267,7 +17242,7 @@ async def chat_stream(
                         "evidenceType": "pod_status",
                         "missingReason": safe_exception_text(exc),
                         "status": "error",
-                        "summary": "Pod 상태/재시작 증거 수집 실패",
+                        "summary": "Pod 상태/재시작 조회 결과 수집 실패",
                     }
                     pod_snapshot_event = {
                         "type": "tool_result",
@@ -17277,7 +17252,7 @@ async def chat_stream(
                         "evidenceType": "snapshot",
                         "missingReason": safe_exception_text(exc),
                         "status": "error",
-                        "summary": "Pod snapshot 증거 수집 실패",
+                        "summary": "Pod snapshot 조회 결과 수집 실패",
                     }
                     yield sse(pod_event)
                     for evidence_event in build_evidence_reference_events(
@@ -17306,7 +17281,7 @@ async def chat_stream(
                         "type": "tool_call",
                         "id": f"{request_id}-official-namespace-restart-evidence",
                         "name": "official_namespace_restart_evidence",
-                        "summary": f"공식 Evidence RCA namespace 재시작 증거 수집: `{official_restart_namespace}`",
+                        "summary": f"공식 Evidence RCA namespace 재시작 조회 결과 수집: `{official_restart_namespace}`",
                     }
                 )
                 try:
@@ -17349,7 +17324,7 @@ async def chat_stream(
                         "type": "tool_call",
                         "id": f"{request_id}-crashloop-demo-evidence",
                         "name": "crashloop_demo_evidence",
-                        "summary": "CrashLoopBackOff 시연 증거 수집",
+                        "summary": "CrashLoopBackOff 시연 조회 결과 수집",
                     }
                 )
                 try:
@@ -17369,7 +17344,7 @@ async def chat_stream(
                             "missingReason": safe_detail,
                             "name": "crashloop_event_evidence",
                             "status": "error",
-                            "summary": "CrashLoop Event 증거 수집 실패",
+                            "summary": "CrashLoop Event 조회 결과 수집 실패",
                         },
                         {
                             "type": "tool_result",
@@ -17389,7 +17364,7 @@ async def chat_stream(
                             "missingReason": safe_detail,
                             "name": "crashloop_pod_snapshot",
                             "status": "error",
-                            "summary": "CrashLoop Pod snapshot 증거 수집 실패",
+                            "summary": "CrashLoop Pod snapshot 조회 결과 수집 실패",
                         },
                     ]
 
@@ -17440,19 +17415,19 @@ async def chat_stream(
                     (
                         "node-status-rca-evidence",
                         "node_status_evidence",
-                        "Node 상태 RCA 증거 수집",
+                        "Node 상태 RCA 조회 결과 수집",
                         collect_node_status_rca_evidence,
                     ),
                     (
                         "active-alerts-rca-evidence",
                         "active_alerts_evidence",
-                        "Active Alert RCA 증거 수집",
+                        "Active Alert RCA 조회 결과 수집",
                         collect_active_alerts_rca_evidence,
                     ),
                     (
                         "restart-metric-rca-evidence",
                         "restart_metric_evidence",
-                        "Restart metric RCA 증거 수집",
+                        "Restart metric RCA 조회 결과 수집",
                         collect_restart_metric_rca_evidence,
                     ),
                 ]
@@ -17518,7 +17493,7 @@ async def chat_stream(
                     "type": "tool_call",
                     "id": f"{request_id}-rag-context-evidence",
                     "name": "rag_context_evidence",
-                    "summary": "RAG 문서 근거 검색",
+                    "summary": "RAG 참고 문서 검색",
                 }
             )
             try:
@@ -17560,9 +17535,9 @@ async def chat_stream(
                     "sourcePath": "/v1/rag/search",
                     "status": "success" if rag_results else "skipped",
                     "summary": (
-                        f"RAG 근거 {len(rag_results)}건 검색"
+                        f"RAG 참고 문서 {len(rag_results)}건 검색"
                         if rag_results
-                        else "RAG 근거 검색 결과 없음"
+                        else "RAG 참고 문서 검색 결과 없음"
                     ),
                 }
             except Exception as exc:
@@ -17577,7 +17552,7 @@ async def chat_stream(
                     "name": "rag_context_evidence",
                     "sourcePath": "/v1/rag/search",
                     "status": "error",
-                    "summary": "RAG 근거 검색 실패",
+                    "summary": "RAG 참고 문서 검색 실패",
                 }
             yield sse(rag_event)
             for evidence_ref_event in build_evidence_reference_events(

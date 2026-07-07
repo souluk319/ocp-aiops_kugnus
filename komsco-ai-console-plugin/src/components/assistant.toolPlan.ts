@@ -104,7 +104,7 @@ export const toolPlanPlannerSummary = (
   const isKo = language === 'ko';
   if (source === 'deterministic_gateway_planner' || !source) {
     return isKo
-      ? 'Gateway가 정책과 근거 수집 계약으로 만든 결정형 조회 계획입니다.'
+      ? 'Gateway가 정책과 조회 계약으로 만든 결정형 조회 계획입니다.'
       : 'Deterministic query plan created by the Gateway policy and evidence contract.';
   }
   if (source === 'model_generated') {
