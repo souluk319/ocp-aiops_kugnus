@@ -546,6 +546,7 @@ type ReportBuildOptions = {
 };
 
 type GeneratedReport = {
+  artifact: ReportArtifact;
   format: ReportOutputFormat;
   generatedAt: string;
   html: string;
@@ -559,6 +560,51 @@ type GeneratedReport = {
   templateId: string;
   time: string;
   title: string;
+};
+
+type ReportArtifact = {
+  apiVersion: 'aiops.komsco/v1';
+  kind: 'AIOpsReportArtifact';
+  metadata: {
+    cluster: string;
+    dataWindow: string;
+    format: ReportOutputFormat;
+    generatedAt: string;
+    reportId: string;
+    sourceSnapshotId: string;
+    templateId: string;
+  };
+  spec: {
+    actionsAndAudit: {
+      actionProposals: number;
+      approvalDecisions: number;
+      auditRecords: number;
+      executionRecords: number;
+      ledgerEntries: Array<Pick<LedgerEntry, 'action' | 'actor' | 'artifact' | 'category' | 'gate' | 'id' | 'phase' | 'result' | 'target' | 'time' | 'title' | 'variant'>>;
+      sealedActionPlans: number;
+    };
+    evidencePackage: {
+      issue?: {
+        category?: string;
+        id: string;
+        severity: Severity;
+        target?: string;
+        title: string;
+      };
+      rows: ReportIssueRow[];
+    };
+    executiveSummary: string;
+    recommendations: ReportRecommendation[];
+    reportJudgement: string;
+    requiredData: string[];
+    sections: string[];
+    sourceStatus: {
+      actionExecutorConfigured: boolean;
+      mutationsEnabled: boolean;
+      recordStoreEnabled: boolean;
+    };
+    title: string;
+  };
 };
 
 type ReportIssueRow = {
@@ -6027,10 +6073,11 @@ const WikiDocsView: React.FC = () => {
 
 const ReportViewerDrawer: React.FC<{
   onClose: () => void;
+  onDownloadArtifact: (report: GeneratedReport) => void;
   onDownloadHtml: (report: GeneratedReport) => void;
   onPrintPdf: (report: GeneratedReport) => void;
   report: GeneratedReport | null;
-}> = ({ onClose, onDownloadHtml, onPrintPdf, report }) => (
+}> = ({ onClose, onDownloadArtifact, onDownloadHtml, onPrintPdf, report }) => (
   <div className={`portal-drawer report-viewer-drawer ${report ? 'is-open' : ''}`} onClick={onClose}>
     <aside className="portal-drawer__panel" onClick={(event) => event.stopPropagation()}>
       <div className="portal-drawer__head">
@@ -6049,6 +6096,7 @@ const ReportViewerDrawer: React.FC<{
               <StatusBadge label={`${report.format} 생성 완료`} severity="ok" />
               <span className="report-viewer-meta">{report.reportId} · {report.scope} · {report.time}</span>
               <div className="report-viewer-actions">
+                <button className="portal-button" onClick={() => onDownloadArtifact(report)} type="button">산출물 JSON</button>
                 <button className="portal-button" onClick={() => onDownloadHtml(report)} type="button">HTML 다운로드</button>
                 <button className="portal-button" onClick={() => onPrintPdf(report)} type="button">PDF 다운로드</button>
               </div>
@@ -6163,7 +6211,7 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
     severity === 'risk' ? 'danger' : severity === 'warn' ? 'warn' : 'good';
 
   const compactReportText = (value: unknown, maxLength = 86): string => {
-    const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+    const text = stripPublicWebUrls(String(value ?? '')).replace(/\s+/g, ' ').trim();
     return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
   };
 
@@ -7064,6 +7112,16 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
     URL.revokeObjectURL(url);
   };
 
+  const downloadJsonContent = (payload: unknown, filename: string) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const printHtmlContent = (html: string, fallbackFilename: string) => {
     const popup = window.open('', '_blank', 'noopener,noreferrer,width=1024,height=768');
     if (!popup) {
@@ -7085,12 +7143,83 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
     printHtmlContent(reportHtml(report), `${report.id}-report.html`);
   };
 
+  const createReportArtifact = (report: ReportItem, options: ReportBuildOptions): ReportArtifact => {
+    const rows = reportIssueRows(report, options);
+    const recommendations = reportRecommendations(report, rows, options);
+    const records = status.spec.records;
+    const ledgerEntries = buildLedgerEntries(actionRecords(status), records.auditRecords ?? [], { sample: false })
+      .slice(-24)
+      .map((entry) => ({
+        action: ledgerActionLabel(entry.action),
+        actor: entry.actor,
+        artifact: entry.artifact,
+        category: entry.category,
+        gate: ledgerGateLabel(entry.gate),
+        id: entry.id,
+        phase: entry.phase,
+        result: ledgerResultLabel(entry.result),
+        target: ledgerTargetLabel(entry),
+        time: entry.time,
+        title: entry.title,
+        variant: entry.variant,
+      }));
+
+    return {
+      apiVersion: 'aiops.komsco/v1',
+      kind: 'AIOpsReportArtifact',
+      metadata: {
+        cluster: clusterLabel(summary),
+        dataWindow: options.dataWindowLabel,
+        format: options.outputFormat,
+        generatedAt: options.generatedAt,
+        reportId: options.reportId,
+        sourceSnapshotId: options.sourceSnapshotId,
+        templateId: report.id,
+      },
+      spec: {
+        actionsAndAudit: {
+          actionProposals: records.actionProposals.length,
+          approvalDecisions: records.approvalDecisions.length,
+          auditRecords: records.auditRecords?.length ?? 0,
+          executionRecords: records.executionRecords.length,
+          ledgerEntries,
+          sealedActionPlans: records.sealedActionPlans.length,
+        },
+        evidencePackage: {
+          issue: report.id === 'rca-pack' && options.issue
+            ? {
+                category: options.issue.category,
+                id: options.issue.id,
+                severity: options.issue.severity,
+                target: options.issue.target,
+                title: compactReportText(options.issue.title, 120),
+              }
+            : undefined,
+          rows,
+        },
+        executiveSummary: reportExecutiveSummary(report, rows, options),
+        recommendations,
+        reportJudgement: reportJudgement(report, rows, options),
+        requiredData: report.requiredData,
+        sections: options.sections,
+        sourceStatus: {
+          actionExecutorConfigured: status.spec.capabilities.actionExecutorConfigured,
+          mutationsEnabled: status.spec.capabilities.mutationsEnabled,
+          recordStoreEnabled: status.spec.capabilities.recordStoreEnabled,
+        },
+        title: report.title,
+      },
+    };
+  };
+
   const createGeneratedReport = (report: ReportItem, format: ReportOutputFormat): GeneratedReport => {
     const generatedAt = new Date().toISOString();
     const options = currentReportBuildOptions(report, format, generatedAt);
     const html = reportHtml(report, options);
+    const artifact = createReportArtifact(report, options);
 
     return {
+      artifact,
       format,
       generatedAt,
       html,
@@ -7116,6 +7245,10 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
 
   const downloadGeneratedReport = (report: GeneratedReport) => {
     downloadHtmlContent(report.html, `${report.reportId}.html`);
+  };
+
+  const downloadGeneratedArtifact = (report: GeneratedReport) => {
+    downloadJsonContent(report.artifact, `${report.reportId}-artifact.json`);
   };
 
   const printGeneratedReport = (report: GeneratedReport) => {
@@ -7328,7 +7461,10 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
                     <span>{item.scope}</span>
                     <b>{item.format}</b>
                     <StatusBadge label={item.status} severity="ok" />
-                    <button className="portal-button" onClick={() => setOpenReport(item)} type="button">열기</button>
+                    <div className="report-history-actions">
+                      <button className="portal-button" onClick={() => setOpenReport(item)} type="button">열기</button>
+                      <button className="portal-button" onClick={() => downloadGeneratedArtifact(item)} type="button">JSON</button>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -7349,6 +7485,7 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
         )}
         {historyTab === 'export' && (
           <div className="report-export-settings">
+            <article><span>산출물 JSON</span><strong>보고서 메타데이터, 증거 패키지, 조치/감사 요약 포함</strong></article>
             <article><span>HTML</span><strong>다운로드 가능</strong></article>
             <article><span>PDF</span><strong>브라우저 저장 PDF 지원</strong></article>
             <article><span>DOCX</span><strong>준비 중</strong></article>
@@ -7358,6 +7495,7 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
 
       <ReportViewerDrawer
         onClose={() => setOpenReport(null)}
+        onDownloadArtifact={downloadGeneratedArtifact}
         onDownloadHtml={downloadGeneratedReport}
         onPrintPdf={printGeneratedReport}
         report={openReport}
