@@ -6259,23 +6259,30 @@ def test_build_aiops_action_candidates_are_execute_candidates_and_not_action_rec
 
     candidate_spec = action_candidates["spec"]
     candidate = candidate_spec["candidates"][0]
+    titles = [item["title"] for item in candidate_spec["candidates"]]
 
     assert action_candidates["kind"] == "AIOpsActionCandidateSummary"
     assert candidate_spec["status"] == "candidates"
     assert candidate_spec["safety"]["mode"] == "execute"
     assert candidate_spec["safety"]["proposalOnly"] is True
     assert candidate_spec["safety"]["mutationsEnabled"] is True
+    assert titles[:3] == ["원인 확인 플랜", "Pod 재생성 유도", "수정/롤백 검토 플랜"]
     assert candidate["approvalRequired"] is True
     assert candidate["executable"] is False
     assert candidate["mutationSubmitted"] is False
     assert candidate["executionPolicy"]["executionEnabled"] is False
-    assert candidate["statusLabel"] == "제안만 함 / 실행 안 함"
-    assert candidate["riskLevel"] == "high"
+    assert candidate["statusLabel"] == "원인 확인 플랜"
+    assert candidate["sourceType"] == "pod_diagnostic_review"
+    assert candidate["riskLevel"] == "low"
     assert candidate["prerequisiteChecks"]
     assert candidate["expectedImpact"]
     assert candidate["verificationChecks"]
     assert candidate["evidenceRefs"][0]["status"] == "collected"
     assert {"apply", "delete", "patch", "scale", "exec"}.issubset(set(candidate["blockedActions"]))
+    restart_candidate = candidate_spec["candidates"][1]
+    assert restart_candidate["title"] == "Pod 재생성 유도"
+    assert restart_candidate["sourceType"] == "pod_crashloop"
+    assert restart_candidate["riskLevel"] == "high"
     assert "planId" not in candidate
     assert "approvalId" not in candidate
     assert "executionId" not in candidate

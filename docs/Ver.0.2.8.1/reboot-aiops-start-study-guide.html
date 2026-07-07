@@ -1,0 +1,1041 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>재부팅 후 Kugnus AIOps 로컬 실행 가이드</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f0f4f8;
+      --ink: #17202a;
+      --muted: #5c6773;
+      --line: #d8dee6;
+      --accent: #1864ab;
+      --accent-ink: #0b3d67;
+      --ok: #12733f;
+      --warn: #9a5b00;
+      --bad: #b42318;
+      --code-bg: #111827;
+      --code-ink: #e5e7eb;
+      --shadow: 0 10px 28px rgba(17, 24, 39, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Noto Sans KR", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.62;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 22px;
+      border-right: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    main {
+      min-width: 0;
+      padding: 34px 36px 72px;
+    }
+
+    .brand {
+      margin-bottom: 26px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--accent-ink);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 25px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .lead {
+      max-width: 940px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    nav {
+      display: grid;
+      gap: 6px;
+      margin-top: 24px;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 6px;
+      color: var(--ink);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    nav a:hover {
+      background: var(--panel-soft);
+    }
+
+    .hero,
+    section {
+      max-width: 1120px;
+      margin: 0 auto 22px;
+    }
+
+    .hero {
+      padding: 28px 0 8px;
+    }
+
+    section {
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .section-note {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .quick-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .plain-panel {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .status-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pill.ok {
+      border-color: rgba(18, 115, 63, 0.32);
+      color: var(--ok);
+      background: #eef8f1;
+    }
+
+    .pill.warn {
+      border-color: rgba(154, 91, 0, 0.32);
+      color: var(--warn);
+      background: #fff7e8;
+    }
+
+    .pill.bad {
+      border-color: rgba(180, 35, 24, 0.28);
+      color: var(--bad);
+      background: #fff1f0;
+    }
+
+    .command {
+      position: relative;
+      margin: 14px 0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--code-bg);
+    }
+
+    .command-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(229, 231, 235, 0.16);
+      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    button.copy {
+      appearance: none;
+      border: 1px solid rgba(229, 231, 235, 0.35);
+      border-radius: 6px;
+      background: transparent;
+      color: #e5e7eb;
+      cursor: pointer;
+      font: inherit;
+      padding: 4px 8px;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px 16px 16px;
+      overflow: auto;
+      color: var(--code-ink);
+      font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.58;
+      white-space: pre;
+    }
+
+    code {
+      font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+      font-size: 0.95em;
+    }
+
+    p code,
+    li code,
+    td code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: #eef2f7;
+      color: #14213d;
+    }
+
+    table {
+      width: 100%;
+      margin: 16px 0 4px;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 15px;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf2f7;
+      color: #243447;
+      font-weight: 800;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 14px;
+    }
+
+    .callout {
+      padding: 16px 18px;
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      background: #eef5fb;
+    }
+
+    .callout.warn {
+      border-left-color: var(--warn);
+      background: #fff8eb;
+    }
+
+    .callout.bad {
+      border-left-color: var(--bad);
+      background: #fff4f3;
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin: 14px 0;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .flow-key {
+      color: var(--accent-ink);
+      font-weight: 900;
+      overflow-wrap: anywhere;
+    }
+
+    .flow-row p {
+      margin-bottom: 4px;
+    }
+
+    ul,
+    ol {
+      margin: 10px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .footer-note {
+      max-width: 1120px;
+      margin: 22px auto 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      main {
+        padding: 24px 18px 52px;
+      }
+
+      .quick-grid,
+      .two-col,
+      .flow-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand">
+        <p class="eyebrow">Kugnus AIOps Study Runbook</p>
+        <strong>재부팅 후 로컬 실행</strong>
+        <div class="meta">
+          <span>기준일: 2026-07-07</span>
+          <span>기준 repo: <code>ocp-aiops_kugnus</code></span>
+          <span>목표: 명령 암기보다 계층 이해</span>
+        </div>
+      </div>
+      <nav aria-label="문서 목차">
+        <a href="#start">1. 재부팅 후 첫 실행</a>
+        <a href="#normal">2. 원래 정상 구조</a>
+        <a href="#up">3. task kugnus:aiops:up</a>
+        <a href="#doctor">4. task kugnus:dev:doctor</a>
+        <a href="#tokens">5. 로그인 토큰 만료</a>
+        <a href="#ssh">6. SSH로 대체 가능한가</a>
+        <a href="#scenario">7. 시나리오 테스트</a>
+        <a href="#company">8. 회사 서버 배포 명령</a>
+        <a href="#failure">9. 실패 위치 찾기</a>
+        <a href="#study">10. 스터디 체크리스트</a>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="hero">
+        <p class="eyebrow">재부팅이 무서운 상태를 끝내기 위한 문서</p>
+        <h1>재부팅 후 Kugnus AIOps를 다시 켜는 법</h1>
+        <p class="lead">
+          이 문서는 “무슨 명령을 치면 되는가”에서 멈추지 않는다. 짧은 명령이
+          <code>Taskfile.yml</code>의 어떤 블록을 타고, 어떤 스크립트를 실행하며,
+          내 PC와 회사 OpenShift 서버 중 어디를 건드리는지까지 같이 본다.
+        </p>
+        <div class="status-strip">
+          <span class="pill ok">로컬 실행 기준</span>
+          <span class="pill ok">회사 서버 설치 아님</span>
+          <span class="pill warn">oc 로그인 필요</span>
+          <span class="pill">Windows 브라우저 확인 포함</span>
+        </div>
+      </div>
+
+      <section id="start">
+        <h2>1. 재부팅 후 첫 실행</h2>
+        <p>
+          재부팅 후에는 아래 순서만 먼저 한다. 첫 번째 명령은 필요한 로컬 구성요소를
+          켜고, 두 번째 명령은 연결 상태를 판정한다.
+        </p>
+
+        <div class="quick-grid">
+          <div>
+            <div class="command">
+              <div class="command-title">
+                <span>Ubuntu/WSL 터미널에서 실행</span>
+                <button class="copy" type="button">복사</button>
+              </div>
+              <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:aiops:up
+task kugnus:dev:doctor</code></pre>
+            </div>
+            <p>
+              정상 기준은 <code>task kugnus:dev:doctor</code> 마지막에
+              <code>Doctor result: PASS</code>가 나오는 것이다. 현재 코드 기준으로는
+              <code>PASS=40 WARN=0 FAIL=0</code>이 기대값이다. 나중에 검사 항목 수가 바뀌면
+              핵심 기준은 <code>FAIL=0</code>이다.
+            </p>
+          </div>
+          <div class="plain-panel">
+            <h3>브라우저에서 확인</h3>
+            <p>Windows Chrome 또는 Edge에서 아래 주소를 연다.</p>
+            <p><a href="http://localhost:9000/dashboards/aiops">http://localhost:9000/dashboards/aiops</a></p>
+            <p class="section-note">
+              <code>9000</code>은 로컬 OKD 콘솔 브릿지다. 회사 서버에 AIOps를 설치한 주소가 아니다.
+            </p>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <strong>oc 로그인이 만료되어 있으면</strong>
+          <p>
+            <code>task kugnus:aiops:up</code>이 실패할 수 있다. 이때는 회사 OpenShift 로그인만
+            새로 하고 같은 명령을 다시 실행한다.
+          </p>
+          <div class="command">
+            <div class="command-title">
+              <span>토큰 만료 시</span>
+              <button class="copy" type="button">복사</button>
+            </div>
+            <pre><code>oc login https://api.ocp.cywell.server:6443
+task kugnus:aiops:up
+task kugnus:dev:doctor</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="normal">
+        <h2>2. 원래 정상 구조</h2>
+        <p>
+          정상은 “내 PC에서 뭐가 잔뜩 떠 있다”가 아니다. 정상은 목적에 따라
+          <strong>로컬 개발</strong>, <strong>시나리오 테스트</strong>, <strong>회사 서버 배포</strong>가
+          분리되어 있는 것이다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>구분</th>
+              <th>무엇을 하는가</th>
+              <th>회사 서버에 만드는 것</th>
+              <th>주로 쓰는 명령</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>로컬 개발</td>
+              <td>내 PC에서 Gateway, 콘솔 플러그인, 로컬 콘솔 브릿지를 띄우고 회사 OpenShift 일부를 읽는다.</td>
+              <td>설치 리소스는 만들지 않는다. 다만 <code>oc port-forward</code>로 기존 서비스를 연결한다.</td>
+              <td><code>task kugnus:aiops:up</code>, <code>task kugnus:dev:doctor</code></td>
+            </tr>
+            <tr>
+              <td>시나리오 테스트</td>
+              <td>격리된 테스트 namespace에 테스트 pod나 장애 조건을 만들고 AIOps가 감지/설명하는지 본다.</td>
+              <td>테스트 namespace 안에만 pod, event, config 같은 실험물을 만든다.</td>
+              <td>현재는 테스트 namespace 권한/정책을 먼저 확정해야 한다.</td>
+            </tr>
+            <tr>
+              <td>회사 서버 배포</td>
+              <td>OperatorHub 카탈로그, Subscription, Operator, AIOpsInstallation을 통해 실제 운영 형태로 올린다.</td>
+              <td>카탈로그, 설치 객체, gateway/plugin/executor/diagnostics operand를 만든다.</td>
+              <td><code>task aiops:company:check</code>, <code>publish</code>, <code>install</code>, <code>status</code></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>왜 로컬이 복잡해 보이나</strong>
+          <p>
+            배포 환경에서는 OpenShift가 Service, Route, Pod, ServiceAccount, ConsolePlugin 연결을
+            안쪽에서 관리한다. 로컬 개발에서는 그 안쪽 연결을 내 PC에서 임시로 흉내내야 하므로
+            포트가 여러 개 보인다. 복잡한 원리는 맞지만, 사람이 매번 외울 구조는 아니다.
+            그래서 <code>task kugnus:aiops:up</code>과 <code>doctor</code>가 필요하다.
+          </p>
+        </div>
+      </section>
+
+      <section id="up">
+        <h2>3. <code>task kugnus:aiops:up</code>이 실제로 하는 일</h2>
+        <p>
+          이 명령은 “로컬 AIOps 스택을 켠다”는 압축 명령이다. 정의 위치는
+          <code>Taskfile.yml</code>의 <code>kugnus:aiops:up</code> task다.
+        </p>
+
+        <div class="command">
+          <div class="command-title">
+            <span>압축 명령이 풀리는 순서</span>
+            <button class="copy" type="button">복사</button>
+          </div>
+          <pre><code>task kugnus:aiops:up
+  -&gt; Taskfile.yml: kugnus:aiops:up
+    -&gt; KUGNUS_RESUME_RUN_STRICT_GATE=false bash ./scripts/kugnus-demo-resume.sh
+      -&gt; require_oc_login
+      -&gt; ensure_rag_backend
+      -&gt; ensure_port_forward lightspeed-port-forward 18443:8443
+      -&gt; ensure_port_forward action-executor-port-forward 18083:8080
+      -&gt; ensure_gateway
+      -&gt; ensure_plugin_manifest_state
+      -&gt; ensure_console
+      -&gt; run_verification
+        -&gt; task kugnus:dev:doctor
+        -&gt; task kugnus:runtime:smoke
+        -&gt; strict Lightspeed gate는 false라서 건너뜀</code></pre>
+        </div>
+
+        <div class="flow">
+          <div class="flow-row">
+            <div class="flow-key">require_oc_login</div>
+            <div>
+              <p><code>oc whoami</code>로 현재 OpenShift 로그인이 살아 있는지 본다.</p>
+              <p class="section-note">실패하면 서버 설치를 시도하지 않고 멈춘다. 이때 필요한 행동은 <code>oc login</code>이다.</p>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">ensure_rag_backend</div>
+            <div>
+              <p><code>scripts/kugnus-rag-pgvector-dev.sh</code>를 통해 로컬 RAG/pgvector 백엔드를 준비한다.</p>
+              <p class="section-note">내 PC 개발용 데이터 저장소다. 회사 운영 DB를 새로 만드는 단계가 아니다.</p>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">ensure_port_forward</div>
+            <div>
+              <p><code>oc -n openshift-lightspeed port-forward svc/lightspeed-app-server 18443:8443</code> 형태로 Lightspeed를 내 PC 포트에 연결한다.</p>
+              <p><code>oc -n komsco-ai-dev port-forward svc/komsco-ai-action-executor 18083:8080</code> 형태로 Action Executor도 연결한다.</p>
+              <p class="section-note">이것은 회사 서버에 pod를 만드는 행동이 아니라, 이미 있는 서비스를 내 PC에서 접근 가능하게 여는 터널이다.</p>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">ensure_gateway</div>
+            <div>
+              <p>로컬 Gateway가 <code>http://127.0.0.1:18080/healthz</code>에 응답하는지 본다.</p>
+              <p>없으면 <code>task kugnus:dev:be:execute:rag</code>를 백그라운드로 시작한다.</p>
+            </div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">ensure_console</div>
+            <div>
+              <p>로컬 OKD 콘솔 브릿지 <code>9000</code>과 플러그인 dev server <code>9001</code>을 확인한다.</p>
+              <p>깨져 있으면 <code>scripts/kugnus-okd-console-morning.sh</code>를 repair 모드로 실행한다.</p>
+            </div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>결과물</th>
+              <th>위치</th>
+              <th>의미</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Gateway</td>
+              <td><code>localhost:18080</code></td>
+              <td>로컬 API 중계 서버. 콘솔 플러그인의 AI 요청이 여기로 온다.</td>
+            </tr>
+            <tr>
+              <td>Plugin dev server</td>
+              <td><code>localhost:9001</code></td>
+              <td>OpenShift 콘솔 플러그인 번들을 개발 모드로 제공한다.</td>
+            </tr>
+            <tr>
+              <td>Console bridge</td>
+              <td><code>localhost:9000</code></td>
+              <td>Windows 브라우저에서 볼 로컬 OKD 콘솔 화면이다.</td>
+            </tr>
+            <tr>
+              <td>Lightspeed 터널</td>
+              <td><code>localhost:18443</code></td>
+              <td>회사 OpenShift의 Lightspeed 서비스를 로컬 Gateway가 호출하도록 연결한다.</td>
+            </tr>
+            <tr>
+              <td>Action Executor 터널</td>
+              <td><code>localhost:18083</code></td>
+              <td>실행 모드에서 회사 개발 namespace의 executor 서비스를 로컬에서 호출하게 한다.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout bad">
+          <strong>이 명령이 하지 않는 일</strong>
+          <p>
+            <code>task kugnus:aiops:up</code>은 회사 서버에 OperatorHub 카탈로그를 등록하거나,
+            Subscription을 만들거나, AIOpsInstallation을 설치하는 명령이 아니다. 그런 작업은
+            <code>aiops:company:publish</code>와 <code>aiops:company:install</code> 계열이다.
+          </p>
+        </div>
+      </section>
+
+      <section id="doctor">
+        <h2>4. <code>task kugnus:dev:doctor</code>가 실제로 보는 것</h2>
+        <p>
+          이 명령은 고치는 명령이 아니라 판정하는 명령이다. 정의 위치는
+          <code>Taskfile.yml</code>의 <code>kugnus:dev:doctor</code> task이고,
+          실제 실행 파일은 <code>scripts/kugnus-dev-doctor.sh</code>다.
+        </p>
+
+        <div class="command">
+          <div class="command-title">
+            <span>doctor 명령이 풀리는 순서</span>
+            <button class="copy" type="button">복사</button>
+          </div>
+          <pre><code>task kugnus:dev:doctor
+  -&gt; Taskfile.yml: kugnus:dev:doctor
+    -&gt; bash ./scripts/kugnus-dev-doctor.sh
+      -&gt; Ref stamp: branch, git status, head commit
+      -&gt; WSL/toolchain: WSL, native Linux filesystem, sshfs/rclone/kugnus-home 여부
+      -&gt; OpenShift context: oc server, oc user, project, required service read
+      -&gt; Docker and ports: 9000, 9001, 18080, 18443, 18083, 5173, 5174
+      -&gt; Local endpoints: Gateway, console API proxy, plugin chunks
+      -&gt; Windows localhost endpoints: curl.exe로 Windows 쪽 접근 확인
+      -&gt; Summary: PASS/WARN/FAIL</code></pre>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>검사 영역</th>
+              <th>왜 중요한가</th>
+              <th>정상 기준</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>repo filesystem</td>
+              <td>소스가 SSHFS, rclone, <code>kugnus-home</code> 같은 원격 mount 위에 있으면 빌드와 watch가 느려질 수 있다.</td>
+              <td>WSL ext4/native Linux filesystem, remote mount 없음</td>
+            </tr>
+            <tr>
+              <td>port owner</td>
+              <td>다른 repo의 Vite나 stale process가 같은 포트를 잡으면 브라우저가 엉뚱한 화면을 본다.</td>
+              <td>9000/9001/18080/18443/18083은 현재 repo 또는 기대 서비스 소유, 5173은 비어 있음</td>
+            </tr>
+            <tr>
+              <td>Docker bridge env</td>
+              <td>콘솔 컨테이너 안에서 WSL IP를 직접 물고 있으면 재부팅 후 깨질 수 있다.</td>
+              <td><code>host.docker.internal:18080</code>, <code>host.docker.internal:9001</code></td>
+            </tr>
+            <tr>
+              <td>Windows curl</td>
+              <td>WSL 안에서는 되는데 Windows 브라우저에서 안 되는 상황을 잡는다.</td>
+              <td>18080, 9000, 5174 주요 endpoint가 HTTP 200</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="tokens">
+        <h2>5. 로그인 토큰 만료는 왜 생기나</h2>
+        <p>
+          로컬 개발에서는 내 PC의 <code>oc</code> 로그인 토큰으로 회사 OpenShift API를 읽는다.
+          그래서 SSO/토큰 만료 시간이 지나면 다시 <code>oc login</code>을 해야 한다.
+          이것은 운영 배포의 정상 형태가 아니라, 로컬 개발 방식의 제약이다.
+        </p>
+
+        <div class="two-col">
+          <div class="plain-panel">
+            <h3>로컬 개발</h3>
+            <p>내 사용자 토큰으로 회사 API를 읽는다.</p>
+            <p>토큰이 만료되면 <code>oc login</code>이 필요하다.</p>
+            <p>브라우저, Gateway, 콘솔 브릿지가 내 PC 포트를 통해 연결된다.</p>
+          </div>
+          <div class="plain-panel">
+            <h3>회사 배포</h3>
+            <p>Pod, ServiceAccount, Route, ConsolePlugin이 클러스터 안에서 연결된다.</p>
+            <p>개발자 개인 토큰으로 계속 붙어 있는 구조가 아니다.</p>
+            <p>운영자는 배포된 콘솔/서비스를 사용한다.</p>
+          </div>
+        </div>
+
+        <div class="callout">
+          <strong>공부 포인트</strong>
+          <p>
+            “왜 매번 로그인하지?”의 답은 “로컬 개발이 회사 서버 일부를 내 PC에 임시 연결하기 때문”이다.
+            우리가 바로잡아야 할 것은 사용자가 매번 포트를 외우는 상황이고, 그래서 doctor가
+            어떤 층이 끊겼는지 이름으로 말하게 만든다.
+          </p>
+        </div>
+      </section>
+
+      <section id="ssh">
+        <h2>6. SSH로 회사 계정 로그인을 대체할 수 있나</h2>
+        <p>
+          짧은 답은 <strong>직접 대체는 아니다</strong>. SSH는 리눅스 서버에 들어가는 통로이고,
+          OpenShift 작업은 결국 <code>api.ocp.cywell.server:6443</code> 같은 API 서버에
+          토큰, 인증서, 또는 ServiceAccount 권한으로 인증해서 수행된다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>방식</th>
+              <th>가능 여부</th>
+              <th>실제 의미</th>
+              <th>토큰/권한은?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>내 PC에서 <code>oc login</code></td>
+              <td>현재 방식</td>
+              <td>WSL에서 바로 회사 OpenShift API에 붙는다.</td>
+              <td>내 회사 계정의 OAuth token이 필요하다.</td>
+            </tr>
+            <tr>
+              <td>회사망 안 서버에 SSH 접속 후 <code>oc</code> 실행</td>
+              <td>가능</td>
+              <td>내 PC 대신 bastion/dev 서버에서 명령을 실행한다. VPN, Windows, WSL localhost 문제를 줄일 수 있다.</td>
+              <td>그 서버 안에서도 <code>oc login</code>, kubeconfig, 또는 승인된 token이 필요하다.</td>
+            </tr>
+            <tr>
+              <td>ServiceAccount 또는 CI/CD token</td>
+              <td>반복 작업에 적합</td>
+              <td>배포, 상태 조회, 시나리오 테스트처럼 반복되는 작업을 사람 계정 대신 제한된 자동화 계정으로 수행한다.</td>
+              <td>회사 승인, namespace별 RBAC, 만료/회수 정책이 필요하다.</td>
+            </tr>
+            <tr>
+              <td>OpenShift node에 직접 SSH</td>
+              <td>일반 개발/배포 방법 아님</td>
+              <td>노드 장애 분석 같은 특수 상황에 가깝다. 애플리케이션 배포는 <code>oc</code>, Operator, Pipeline 경로가 정상이다.</td>
+              <td>클러스터 관리 정책 영역이다. 개발자가 임의로 택할 우회로가 아니다.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <strong>네 질문의 정확한 답</strong>
+          <p>
+            “회사 계정 로그인 대신 SSH로 하면 되지 않나?”는 절반만 맞다. SSH로 회사망 안
+            개발 서버에 들어가서 그 서버에서 <code>task</code>와 <code>oc</code>를 실행하는 구조는 가능하다.
+            하지만 그 안의 <code>oc</code>도 OpenShift API 권한이 필요하다. 즉 SSH는
+            <strong>접속 위치를 바꾸는 방법</strong>이지, <strong>OpenShift 인증을 없애는 방법</strong>은 아니다.
+          </p>
+        </div>
+
+        <div class="command">
+          <div class="command-title">
+            <span>SSH형 개발 서버 구조가 있다면 이렇게 보인다</span>
+            <button class="copy" type="button">복사</button>
+          </div>
+          <pre><code>내 PC
+  -&gt; ssh company-dev-host
+    -&gt; cd /path/to/ocp-aiops_kugnus
+      -&gt; oc whoami
+      -&gt; task kugnus:aiops:up 또는 회사 배포 task
+        -&gt; OpenShift API는 여전히 token/RBAC로 인증</code></pre>
+        </div>
+
+        <p class="section-note">
+          우리가 나중에 안정화할 수 있는 정상 방향은 두 가지다. 로컬 개발은 SSH bastion/dev 서버 방식으로
+          옮겨 네트워크 흔들림을 줄이거나, 반복 배포/시나리오 테스트는 ServiceAccount/CI 권한으로 분리하는 것이다.
+          둘 다 회사 보안 정책 승인이 필요하다.
+        </p>
+      </section>
+
+      <section id="scenario">
+        <h2>7. 시나리오 테스트는 원래 어떻게 해야 하나</h2>
+        <p>
+          시나리오 테스트는 “아무것도 만들지 않는 테스트”가 아니다. 실전과 비슷하게 하려면
+          격리된 테스트 namespace 안에 테스트 pod, 이벤트, 장애 조건을 만들고 AIOps가 감지하는지 봐야 한다.
+        </p>
+
+        <div class="command">
+          <div class="command-title">
+            <span>정상적인 시나리오 테스트 흐름</span>
+            <button class="copy" type="button">복사</button>
+          </div>
+          <pre><code>테스트 namespace 준비
+  -&gt; 예: aiops-scenario-test
+    -&gt; 테스트 pod/config/event 생성
+      -&gt; AIOps 질문 또는 자동 진단 실행
+        -&gt; evidence, action plan, RCA 결과 확인
+          -&gt; 테스트 리소스 cleanup</code></pre>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>질문</th>
+              <th>답</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>테스트 pod를 만드는 게 문제인가?</td>
+              <td>문제가 아니다. 격리된 namespace와 cleanup 규칙이 있으면 가장 실전적인 길이다.</td>
+            </tr>
+            <tr>
+              <td>회사 운영 namespace에 만들어도 되나?</td>
+              <td>안 된다. 테스트 namespace를 분리해야 한다.</td>
+            </tr>
+            <tr>
+              <td>지금 당장 필요한 합의는?</td>
+              <td><code>aiops-scenario-test</code> 같은 고정 namespace를 회사가 만들어 주거나, 프로젝트 생성 권한을 부여해야 한다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="company">
+        <h2>8. 회사 서버 배포 명령은 따로 있다</h2>
+        <p>
+          README의 회사 서버 배포 흐름은 로컬 실행보다 훨씬 짧다. 하지만 짧아 보이는 이유는
+          OpenShift가 안쪽 복잡성을 감추고 관리하기 때문이다.
+        </p>
+
+        <div class="command">
+          <div class="command-title">
+            <span>README 기준 회사 배포 흐름</span>
+            <button class="copy" type="button">복사</button>
+          </div>
+          <pre><code>task aiops:company:check
+task aiops:company:publish
+task aiops:company:status
+
+# 설치 승인 후에만
+task aiops:company:install
+task aiops:company:status</code></pre>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>명령</th>
+              <th>실제 수행</th>
+              <th>서버에 만드는 것</th>
+              <th>주의</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>task aiops:company:check</code></td>
+              <td><code>oc whoami --show-server</code>가 승인된 회사 서버인지 확인하고 <code>scripts/kugnus-olm.sh package</code>를 실행한다.</td>
+              <td>서버 설치 리소스 없음</td>
+              <td>안전한 사전 점검</td>
+            </tr>
+            <tr>
+              <td><code>task aiops:company:publish</code></td>
+              <td>서버 확인 후 <code>KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops ./scripts/kugnus-olm.sh publish</code>를 실행한다.</td>
+              <td>이미지 빌드, OperatorHub 카탈로그 등록/갱신</td>
+              <td>승인 후 실행</td>
+            </tr>
+            <tr>
+              <td><code>task aiops:company:install</code></td>
+              <td>서버 확인 후 <code>KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops ./scripts/kugnus-olm.sh install</code>을 실행한다.</td>
+              <td>Subscription, Operator 설치 객체, AIOpsInstallation 및 operand</td>
+              <td>실제 설치 명령</td>
+            </tr>
+            <tr>
+              <td><code>task aiops:company:status</code></td>
+              <td>서버 확인 후 <code>KOMSCO_AIOPS_STATUS_MODE=cluster ./scripts/kugnus-olm.sh status</code>를 실행한다.</td>
+              <td>없음</td>
+              <td>읽기 전용 상태 확인</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="failure">
+        <h2>9. 실패하면 어느 층을 보면 되나</h2>
+        <p>
+          실패를 “연결 안 됨”이라고 부르면 매번 다시 헤맨다. 아래처럼 층 이름으로 나눠서 본다.
+        </p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>증상</th>
+              <th>먼저 볼 것</th>
+              <th>다음 행동</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>oc whoami</code> 실패</td>
+              <td>OpenShift 로그인, VPN, 회사 API 접근</td>
+              <td><code>oc login https://api.ocp.cywell.server:6443</code> 후 재실행</td>
+            </tr>
+            <tr>
+              <td>서버 주소가 다름</td>
+              <td><code>oc whoami --show-server</code></td>
+              <td>회사 서버가 아니면 배포/설치 명령은 중단한다.</td>
+            </tr>
+            <tr>
+              <td><code>9000</code>은 뜨는데 AI Gateway proxy 실패</td>
+              <td>console bridge env, <code>host.docker.internal:18080</code></td>
+              <td><code>task kugnus:aiops:repair</code> 또는 <code>task kugnus:aiops:up</code></td>
+            </tr>
+            <tr>
+              <td><code>9001</code> plugin chunk 실패</td>
+              <td>webpack dev server, plugin manifest</td>
+              <td><code>task kugnus:aiops:up</code>로 재기동하고 doctor 결과 확인</td>
+            </tr>
+            <tr>
+              <td><code>5173</code>이 잡혀 있음</td>
+              <td>다른 repo의 stale Vite process</td>
+              <td>doctor가 owner 경로를 보여준다. 현재 repo가 아니면 종료한다.</td>
+            </tr>
+            <tr>
+              <td>Windows 브라우저만 실패</td>
+              <td><code>curl.exe</code> 결과, WSL/Windows localhost 전달</td>
+              <td><code>task kugnus:dev:doctor</code>의 Windows localhost endpoints 섹션을 본다.</td>
+            </tr>
+            <tr>
+              <td>Docker가 안 됨</td>
+              <td>Docker Desktop/daemon</td>
+              <td>Docker Desktop을 켠 뒤 <code>task kugnus:aiops:up</code> 재실행</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="study">
+        <h2>10. 이번 스터디에서 진짜 익힐 것</h2>
+        <p>
+          지금 목표는 모든 포트를 외우는 것이 아니다. “내가 친 명령이 어느 계층을 건드렸고,
+          실패하면 어디를 봐야 하는지”를 익히는 것이다.
+        </p>
+
+        <ul class="checklist">
+          <li><strong>첫째:</strong> 재부팅 후 <code>task kugnus:aiops:up</code>과 <code>task kugnus:dev:doctor</code>만으로 정상 복구되는지 본다.</li>
+          <li><strong>둘째:</strong> <code>doctor</code>가 실패할 때 FAIL 줄의 계층 이름을 읽는다. 포트, Docker, oc, Windows curl 중 어디인지 구분한다.</li>
+          <li><strong>셋째:</strong> 로컬 개발과 회사 배포를 섞지 않는다. <code>kugnus:aiops:up</code>은 로컬 실행, <code>aiops:company:install</code>은 실제 설치다.</li>
+          <li><strong>넷째:</strong> 시나리오 테스트는 테스트 namespace를 써야 한다. 테스트 pod를 만드는 것 자체는 정상이다.</li>
+          <li><strong>다섯째:</strong> 토큰 만료는 “내가 못해서”가 아니라 로컬 개발 연결 방식의 한계다. 운영 배포는 개인 토큰으로 계속 붙는 구조가 아니다.</li>
+        </ul>
+
+        <div class="callout">
+          <strong>최종 기준</strong>
+          <p>
+            재부팅 후에도 <code>task kugnus:aiops:up</code>, <code>task kugnus:dev:doctor</code>,
+            브라우저 <code>localhost:9000/dashboards/aiops</code> 확인까지 1회 루틴으로 끝나면
+            로컬 실행 공포는 끝난 것이다. 그 다음 공부는 회사 배포와 시나리오 테스트를 분리해서 진행하면 된다.
+          </p>
+        </div>
+      </section>
+
+      <p class="footer-note">
+        이 문서는 보호 문서인 <code>docs/aiops-beginner-guide.html</code>를 수정하지 않고,
+        현재 <code>Taskfile.yml</code>, <code>scripts/kugnus-demo-resume.sh</code>,
+        <code>scripts/kugnus-dev-doctor.sh</code>, README의 실행 계약을 기준으로 새로 작성했다.
+      </p>
+    </main>
+  </div>
+
+  <script>
+    document.querySelectorAll(".command").forEach((block) => {
+      const button = block.querySelector("button.copy");
+      const code = block.querySelector("code");
+      if (!button || !code) return;
+      button.addEventListener("click", async () => {
+        const text = code.innerText;
+        try {
+          await navigator.clipboard.writeText(text);
+          const old = button.textContent;
+          button.textContent = "복사됨";
+          setTimeout(() => {
+            button.textContent = old || "복사";
+          }, 1200);
+        } catch (_) {
+          button.textContent = "선택해서 복사";
+        }
+      });
+    });
+  </script>
+</body>
+</html>

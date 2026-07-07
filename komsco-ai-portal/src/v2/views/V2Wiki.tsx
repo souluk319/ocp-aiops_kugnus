@@ -93,7 +93,7 @@ export const V2Wiki: React.FC = () => {
             문서 추가
           </Button>
           <Button onClick={() => setOpenDrawer('index')}>인덱싱 세부 상태</Button>
-          <Button icon={<RefreshCw size={13} />} onClick={() => setReindexNote('색인 재실행을 요청했습니다 (로컬 시뮬레이션)')}>
+          <Button icon={<RefreshCw size={13} />} onClick={() => setReindexNote('색인 재실행을 요청했습니다.')}>
             색인 재실행
           </Button>
         </div>

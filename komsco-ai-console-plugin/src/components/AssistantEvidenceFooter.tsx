@@ -14,6 +14,36 @@ type AssistantEvidenceFooterProps = {
   messageContent?: string;
 };
 
+const translateEvidenceDetailText = (
+  value: string | undefined,
+  language: UiLanguage,
+): string | undefined => {
+  if (!value || language === 'ko') {
+    return value;
+  }
+
+  const exact: Record<string, string> = {
+    '승인 또는 실행 전에 기존 proposal/sealed plan 존재 여부 확인':
+      'Check whether an existing proposal or sealed plan exists before approval or execution',
+    'evidence-check 기본 정책과 mutation gate 상태 확인':
+      'Check the default evidence policy and mutation gate state',
+    '근거 수집 단계': 'Evidence collection step',
+    '추가 확인 필요': 'Needs more evidence',
+  };
+  if (exact[value]) {
+    return exact[value];
+  }
+
+  return value
+    .replace(/승인/g, 'approval')
+    .replace(/실행/g, 'execution')
+    .replace(/기존/g, 'existing')
+    .replace(/존재 여부 확인/g, 'existence check')
+    .replace(/상태 확인/g, 'state check')
+    .replace(/근거 수집/g, 'evidence collection')
+    .replace(/추가 확인/g, 'follow-up check');
+};
+
 const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
   footer,
   language,
@@ -99,7 +129,8 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
               {missing.map((item, index) => (
                 <span key={`${item.type || 'missing'}-${index}`}>
                   {evidenceTypeLabel(item.type, language)}:{' '}
-                  {item.reason || (isKo ? '추가 확인 필요' : 'Needs more evidence')}
+                  {translateEvidenceDetailText(item.reason, language) ||
+                    (isKo ? '추가 확인 필요' : 'Needs more evidence')}
                 </span>
               ))}
             </div>
@@ -112,7 +143,10 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
             {queryPlan.map((step, index) => (
               <li key={`${step.step || index}-${step.tool || 'tool'}`}>
                 <strong>{evidenceTypeLabel(step.evidenceType || step.tool, language)}</strong>
-                <span>{step.reason || (isKo ? '근거 수집 단계' : 'Evidence collection step')}</span>
+                <span>
+                  {translateEvidenceDetailText(step.reason, language) ||
+                    (isKo ? '근거 수집 단계' : 'Evidence collection step')}
+                </span>
                 <code>{evidenceStepStatusLabel(step.status, language)}</code>
               </li>
             ))}

@@ -67,7 +67,7 @@ const AssistantHeader: React.FC<AssistantHeaderProps> = ({
       <CoolMenuIcon />
     </Button>
     <div className="komsco-ai__brand">
-      <span className="komsco-ai__title">AIOps Copilot</span>
+      <span className="komsco-ai__title">AIOps for OCP</span>
     </div>
     <div
       className="komsco-ai__header-status"

@@ -272,6 +272,12 @@ tasks:
     cmds:
       - task: aiops:company:redeploy
 
+  kugnus:gateway:restart:
+    desc: Restart local AIOps Gateway with Lightspeed
+    cmds:
+      - pkill -f "uvicorn komsco_ai_gateway.main:app" || true
+      - GATEWAY_HOST=127.0.0.1 AIOPS_GATEWAY_MODE=execute ./scripts/dev-gateway-lightspeed.sh
+
   kugnus:evaluate:
     desc: Run Ver.0.1.3 offline AIOps scenario evaluator and write a pass/fail report
     cmds:
@@ -308,9 +314,9 @@ tasks:
       - GATEWAY_HOST="${GATEWAY_HOST:-0.0.0.0}" OLS_BASE_URL="${OLS_BASE_URL:-https://127.0.0.1:18443}" AIOPS_GATEWAY_MODE=unrestricted ./scripts/dev-gateway-lightspeed.sh
 
   kugnus:dev:fe:
-    desc: Run local console bridge using the current WSL IP as Gateway endpoint
+    desc: Run local console bridge with Docker-safe Gateway endpoint normalization
     cmds:
-      - GATEWAY_ENDPOINT="http://$(hostname -I | awk '{print $1}'):18080" ./scripts/dev-console-plugin.sh
+      - ./scripts/dev-console-plugin.sh
 
   kugnus:dev:console:open:
     desc: Repair stale local OKD console bridge, verify API health, and open the dashboard
@@ -341,6 +347,21 @@ tasks:
     desc: Start the daily local AIOps stack after PC reboot without running long strict demo gates
     cmds:
       - KUGNUS_RESUME_RUN_STRICT_GATE=false bash ./scripts/kugnus-demo-resume.sh
+
+  kugnus:aiops:up:
+    desc: Start the local OKD AIOps stack with Gateway, plugin, console, and readiness gates
+    cmds:
+      - KUGNUS_RESUME_RUN_STRICT_GATE=false bash ./scripts/kugnus-demo-resume.sh
+
+  kugnus:aiops:doctor:
+    desc: Explain and diagnose the local OKD AIOps stack without repair
+    cmds:
+      - KUGNUS_OKD_CONSOLE_REPAIR=false bash ./scripts/kugnus-okd-console-morning.sh
+
+  kugnus:aiops:repair:
+    desc: Repair stale local OKD AIOps console, plugin, and bridge readiness
+    cmds:
+      - KUGNUS_OKD_CONSOLE_REPAIR=true bash ./scripts/kugnus-okd-console-morning.sh
 
   kugnus:demo:preflight:
     desc: Diagnose Ver.0.1.6 local demo readiness and write JSON/HTML reports without OCP mutation

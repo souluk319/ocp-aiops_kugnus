@@ -70,6 +70,8 @@ def target_path(target: Mapping[str, Any]) -> str:
         return f"/apis/apps/v1/namespaces/{path_segment(namespace)}/deployments/{path_segment(name)}"
     if api_version == "v1" and kind == "Pod":
         return f"/api/v1/namespaces/{path_segment(namespace)}/pods/{path_segment(name)}"
+    if api_version == "v1" and kind == "Namespace":
+        return f"/api/v1/namespaces/{path_segment(name)}"
     if api_version in {"autoscaling/v2", "autoscaling/v2beta2"} and kind == "HorizontalPodAutoscaler":
         return (
             f"/apis/{api_version}/namespaces/{path_segment(namespace)}"

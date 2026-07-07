@@ -524,13 +524,18 @@ export const renderRailSummaryBadges = (
   );
 };
 
-export const getClusterHost = (apiUrl?: string): string => {
+export const getClusterHost = (apiUrl?: string, language: UiLanguage = 'ko'): string => {
+  const isKo = language === 'ko';
   if (!apiUrl) {
-    return 'cluster pending';
+    return isKo ? '클러스터 확인 중' : 'Cluster pending';
   }
 
   try {
-    return new URL(apiUrl).host;
+    const host = new URL(apiUrl).host;
+    if (/local-aiops\.invalid|\.invalid(?::\d+)?$/i.test(host)) {
+      return isKo ? 'Gateway 검증 환경' : 'Gateway validation';
+    }
+    return host;
   } catch {
     return apiUrl;
   }

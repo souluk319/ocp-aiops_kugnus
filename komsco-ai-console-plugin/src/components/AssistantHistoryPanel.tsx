@@ -21,6 +21,7 @@ import type {
   UiLanguage,
 } from './assistant.types';
 import type { AssistantCopy } from './assistant.copy';
+import { getActionToolLabel } from './assistant.actionRecords';
 import AssistantUploadedDocuments from './AssistantUploadedDocuments';
 
 type HistoryMenuAnchor = {
@@ -37,7 +38,7 @@ type AssistantHistoryPanelProps = {
   copy: AssistantCopy;
   deleteConversation: (conversationHistoryId: string) => void;
   formatHistoryTime: (timestamp: number, language: UiLanguage) => string;
-  getClusterHost: (apiUrl?: string) => string;
+  getClusterHost: (apiUrl?: string, language?: UiLanguage) => string;
   historyMenuAnchor: HistoryMenuAnchor | null;
   historyMenuPanelRef: React.RefObject<HTMLDivElement>;
   historyMenuRef: React.RefObject<HTMLDivElement>;
@@ -66,6 +67,29 @@ type AssistantHistoryPanelProps = {
   uploadedDocumentsLoading: boolean;
 };
 
+const getHistoryUserLabel = (
+  authSubject: AuthSubject | null,
+  authSubjectError: string,
+  language: UiLanguage,
+) => {
+  const isKo = language === 'ko';
+  if (authSubjectError) {
+    return isKo ? '인증 확인 필요' : 'Auth check needed';
+  }
+
+  const username = authSubject?.username?.trim();
+  if (!username) {
+    return isKo ? '확인 중' : 'Checking';
+  }
+
+  const uid = authSubject?.uid || '';
+  if (/fixture/i.test(uid) || /^local-admin$/i.test(username)) {
+    return isKo ? '검증 사용자' : 'Validation user';
+  }
+
+  return username;
+};
+
 const HistoryActionStageIcon: React.FC<{ stage: ConversationActionRef['stage'] }> = ({ stage }) => {
   const Icon =
     stage === 'execution'
@@ -84,6 +108,27 @@ const HistoryActionStageIcon: React.FC<{ stage: ConversationActionRef['stage'] }
 };
 
 const compactActionLabel = (label: string): string => label.replace(/^\d+단계\s*·\s*/, '');
+
+const isInternalActionTargetLabel = (targetKey: string | undefined): boolean =>
+  /^(proposal|plan|approval|execution)-local\b/i.test(String(targetKey || '')) ||
+  /^(ActionProposalRecord|SealedActionPlanRecord|ApprovalDecisionRecord|ExecutionRecord)$/i.test(
+    String(targetKey || ''),
+  );
+
+const historyActionDetailLabel = (
+  actionRef: ConversationActionRef,
+  language: UiLanguage,
+): string => {
+  const toolLabel = actionRef.toolName
+    ? getActionToolLabel(actionRef.toolName, language)
+    : language === 'en'
+      ? 'Action'
+      : '조치';
+
+  return actionRef.targetKey && !isInternalActionTargetLabel(actionRef.targetKey)
+    ? `${toolLabel} · ${actionRef.targetKey}`
+    : toolLabel;
+};
 
 const actionStageLabel = (stage: ConversationActionRef['stage'], language: UiLanguage): string => {
   if (stage === 'plan') {
@@ -133,6 +178,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
   uploadedDocumentsLoading,
 }) => {
   const [openActionHistoryId, setOpenActionHistoryId] = React.useState<string | null>(null);
+  const historyUserLabel = getHistoryUserLabel(authSubject, authSubjectError, uiLanguage);
 
   return (
   <aside
@@ -145,7 +191,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
       aria-label={historyPanelView === 'uploads' ? copy.uploadedDocs : copy.sidebar}
     >
       <div className="komsco-ai__history-brand">
-        <img alt="AIOps Copilot" className="komsco-ai__history-logo" src={productIcon} />
+        <img alt="AIOps for OCP" className="komsco-ai__history-logo" src={productIcon} />
       </div>
       <div className="komsco-ai__history-actions-right">
         <button
@@ -309,9 +355,9 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                           disabled={loading}
                           key={actionRef.id}
                           onClick={() => onActionRefSelect(conversation, actionRef)}
-                          title={`${actionStageLabel(actionRef.stage, uiLanguage)} · ${actionRef.label} · ${
-                            actionRef.toolName || (uiLanguage === 'en' ? 'action' : '조치')
-                          } · ${actionRef.targetKey}`}
+                          title={`${actionStageLabel(actionRef.stage, uiLanguage)} · ${compactActionLabel(
+                            actionRef.label,
+                          )} · ${historyActionDetailLabel(actionRef, uiLanguage)}`}
                           type="button"
                         >
                           <HistoryActionStageIcon stage={actionRef.stage} />
@@ -320,11 +366,7 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
                               {actionStageLabel(actionRef.stage, uiLanguage)}
                             </span>
                             <strong>{compactActionLabel(actionRef.label)}</strong>
-                            <small>
-                              {actionRef.toolName
-                                ? `${actionRef.toolName} · ${actionRef.targetKey}`
-                                : actionRef.targetKey}
-                            </small>
+                            <small>{historyActionDetailLabel(actionRef, uiLanguage)}</small>
                           </span>
                         </button>
                       ))
@@ -403,10 +445,10 @@ const AssistantHistoryPanel: React.FC<AssistantHistoryPanelProps> = ({
         <CoolUserCircleIcon />
       </div>
       <div className="komsco-ai__history-user-main">
-        <strong title={authSubject?.username || authSubjectError || '사용자 확인 중'}>
-          {authSubject?.username || (authSubjectError ? '인증 확인 필요' : '확인 중')}
-        </strong>
-        <small title={clusterSummary?.apiUrl || ''}>{getClusterHost(clusterSummary?.apiUrl)}</small>
+        <strong title={historyUserLabel}>{historyUserLabel}</strong>
+        <small title={clusterSummary?.apiUrl || ''}>
+          {getClusterHost(clusterSummary?.apiUrl, uiLanguage)}
+        </small>
       </div>
     </div>
   </aside>

@@ -10,6 +10,7 @@ import {
   actionRecords,
   buildQueues,
   clusterLabel,
+  displayOpenShiftVersion,
   formatTime,
   reportHealthLabel,
   reportPrimarySignal,
@@ -360,13 +361,13 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
         { label: '리소스 이슈', value: String(summary.resources?.issues ?? 0) },
         { label: 'AIOps 워크로드', value: String(summary.aiopsWorkloads?.total ?? 0) },
         { label: '노드 Ready', value: `${summary.nodes.ready}/${summary.nodes.total}` },
-        { label: 'OpenShift', value: summary.version.version ?? '-' },
+        { label: 'OpenShift', value: displayOpenShiftVersion(summary.version.version) },
       ];
     }
     return [
       { label: '리소스 이슈', value: String(summary.resources?.issues ?? rows.length) },
       { label: '오퍼레이터 저하', value: String(summary.operators.degraded) },
-      { label: 'OpenShift', value: summary.version.version ?? '-' },
+      { label: 'OpenShift', value: displayOpenShiftVersion(summary.version.version) },
       { label: '최근 스냅샷', value: formatTime(summary.updatedAt) },
     ];
   };

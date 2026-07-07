@@ -5,6 +5,7 @@ type ChatRequest = {
   attachments?: ImageAttachment[];
   pageContext?: Record<string, unknown>;
   conversationId?: string;
+  language?: 'en' | 'ko';
   runId?: string;
   recentMessages?: ChatContextMessage[];
 };

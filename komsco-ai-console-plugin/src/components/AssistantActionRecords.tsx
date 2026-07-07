@@ -14,13 +14,14 @@ import {
   getActionRecordStage,
   getActionRecordStageLabel,
   getExecutionOutcomeSummary,
+  getActionRecordToolLabel,
+  getActionToolLabel,
   getPhaseTone,
   getPlanSummary,
   getRecordName,
   getRecordPhase,
   getRecordSpecMap,
   getRecordTargetLabel,
-  getActionRecordToolName,
   phaseLabel,
 } from './assistant.actionRecords';
 import type {
@@ -168,16 +169,12 @@ export const PlanSummaryBlock: React.FC<{
     return null;
   }
 
-  const summary = getPlanSummary(record);
+  const summary = getPlanSummary(record, language);
   if (!summary) {
     return null;
   }
   const isKo = language === 'ko';
-  const toolLabel = isKo
-    ? summary.toolLabel
-    : getActionRecordToolName(record)
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const toolLabel = summary.toolLabel;
 
   return (
     <div className="komsco-ai__plan-summary">
@@ -266,7 +263,9 @@ export const AssistantRailActionRecords: React.FC<AssistantRailActionRecordsProp
           <div className="komsco-ai__rail-command-title">
             <ActionStageDots stage={getActionRecordStage(record)} />
             <span>{getActionRecordStageLabel(record, executionMode, language)}</span>
-            <code>{getRecordName(record) || record.kind || 'record'}</code>
+            <span className="komsco-ai__rail-command-action-label">
+              {getActionRecordToolLabel(record, language)}
+            </span>
           </div>
           {phase !== 'sealed' && (
             <StatusTag label={phaseLabel(phase, language)} tone={getPhaseTone(phase)} />
@@ -283,15 +282,15 @@ export const AssistantRailActionRecords: React.FC<AssistantRailActionRecordsProp
               const actionId = `${item.step}:${getRecordName(record)}`;
               const busy = actionId === busyActionId;
               return (
-                <Button
-                  className="komsco-ai__action-button"
-                  data-answer-action-step={item.step}
-                  isDisabled={busy}
-                  isLoading={busy}
-                  key={item.step}
-                  onClick={() => onAction(record, item)}
-                  size="sm"
-                  title={item.disabledReason}
+                  <Button
+                    className="komsco-ai__action-button"
+                    data-answer-action-step={item.step}
+                    isDisabled={busy || Boolean(item.disabledReason)}
+                    isLoading={busy}
+                    key={item.step}
+                    onClick={() => onAction(record, item)}
+                    size="sm"
+                    title={item.disabledReason}
                   variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
                 >
                   <span className="komsco-ai__rail-action-icon">
@@ -307,7 +306,7 @@ export const AssistantRailActionRecords: React.FC<AssistantRailActionRecordsProp
           </div>
         )}
         <details className="komsco-ai__rail-command-detail">
-          <summary>{language === 'ko' ? '상세보기 (JSON)' : 'Details (JSON)'}</summary>
+          <summary>{language === 'ko' ? '감사 상세' : 'Audit detail'}</summary>
           <pre>{JSON.stringify(record, null, 2)}</pre>
         </details>
       </div>
@@ -386,15 +385,17 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
               : 'This answer is linked to the action flow. Approval buttons appear after records are connected.'
             : readOnlyBlocked
               ? language === 'ko'
-                ? '읽기 전용 모드입니다. 버튼은 유지하고 클릭 시 실행 제한 사유를 표시합니다.'
-                : 'Read-only mode is active. Buttons stay visible and show the execution limit reason.'
+                ? '읽기 전용 모드입니다. 승인·실행은 보내지 않고 제한 사유만 확인합니다.'
+                : 'Read-only mode is active. Approval and execution are not sent.'
               : language === 'ko'
                 ? '승인 전 검증과 승인 상태를 표시합니다.'
                 : 'Shows validation and approval state before execution.'}
         </span>
       </div>
       {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
-      {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
+      {aiopsActionNotice && !hasResolvedRecords && (
+        <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>
+      )}
       <div className="komsco-ai__answer-action-list">
         {records.map((record) => {
           const action = resolveAction(record, aiopsStatus, executionMode);
@@ -425,7 +426,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
             return (
               <div
                 className={`komsco-ai__answer-action-card komsco-ai__answer-action-card--${outcome.tone}`}
-                data-action-lifecycle-stage={getActionRecordStage(record)}
+                data-action-lifecycle-stage="execution"
                 key={getRecordName(record) || phase}
               >
                 <div className="komsco-ai__answer-action-headline">
@@ -469,34 +470,36 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                 {getActionRecordProof(record, executionMode, language)}
               </div>
               <PlanSummaryBlock record={record} executionMode={executionMode} language={language} />
-              <div className="komsco-ai__answer-action-controls">
-                {actions.map((item) => {
-                  const actionId = `${item.step}:${getRecordName(record)}`;
-                  const busy = actionId === busyActionId;
-                  return (
-                    <Button
-                      className="komsco-ai__action-button"
-                      data-answer-action-step={item.step}
-                      isDisabled={busy}
-                      isLoading={busy}
-                      key={item.step}
-                      onClick={() => onAction(record, item)}
-                      size="sm"
-                      title={item.disabledReason}
-                      variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
-                    >
-                      <span className="komsco-ai__rail-action-icon">
-                        <CoolTerminalIcon />
-                      </span>
-                      {busy
-                        ? language === 'ko'
-                          ? '처리 중'
-                          : 'Processing'
-                        : primaryActionLabel(item, language)}
-                    </Button>
-                  );
-                })}
-              </div>
+              {!readOnlyBlocked && actions.length > 0 && (
+                <div className="komsco-ai__answer-action-controls">
+                  {actions.map((item) => {
+                    const actionId = `${item.step}:${getRecordName(record)}`;
+                    const busy = actionId === busyActionId;
+                    return (
+                      <Button
+                        className="komsco-ai__action-button"
+                        data-answer-action-step={item.step}
+                        isDisabled={busy || Boolean(item.disabledReason)}
+                        isLoading={busy}
+                        key={item.step}
+                        onClick={() => onAction(record, item)}
+                        size="sm"
+                        title={item.disabledReason}
+                        variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
+                      >
+                        <span className="komsco-ai__rail-action-icon">
+                          <CoolTerminalIcon />
+                        </span>
+                        {busy
+                          ? language === 'ko'
+                            ? '처리 중'
+                            : 'Processing'
+                          : primaryActionLabel(item, language)}
+                      </Button>
+                    );
+                  })}
+                </div>
+              )}
               {(readOnlyBlocked || action?.disabledReason) && (
                 <div className="komsco-ai__answer-action-note">
                   {action?.disabledReason ??
@@ -535,10 +538,10 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
             <div className="komsco-ai__answer-action-proof">
               {ref.toolName
                 ? language === 'ko'
-                  ? `${ref.toolName} 조치 흐름이 이 답변에 연결되어 있습니다. Gateway record가 연결되면 승인/실행 버튼을 표시합니다.`
-                  : `${ref.toolName} action flow is linked to this answer. Approval and execution buttons appear after Gateway records are connected.`
+                  ? `${getActionToolLabel(ref.toolName, language)} 조치 흐름이 이 답변에 연결되어 있습니다. Gateway 기록이 연결되면 승인/실행 버튼을 표시합니다.`
+                  : `${getActionToolLabel(ref.toolName, language)} action flow is linked to this answer. Approval and execution buttons appear after Gateway records are connected.`
                 : language === 'ko'
-                  ? '조치 흐름이 이 답변에 연결되어 있습니다. Gateway record가 연결되면 승인/실행 버튼을 표시합니다.'
+                  ? '조치 흐름이 이 답변에 연결되어 있습니다. Gateway 기록이 연결되면 승인/실행 버튼을 표시합니다.'
                   : 'An action flow is linked to this answer. Approval and execution buttons appear after Gateway records are connected.'}
             </div>
           </div>

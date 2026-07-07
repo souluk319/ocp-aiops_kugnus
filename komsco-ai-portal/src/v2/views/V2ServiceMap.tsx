@@ -8,6 +8,7 @@ import {
   buildImpactSignalStack,
   buildTraceInspector,
   clusterLabel,
+  displayOpenShiftVersion,
   formatTime,
   topologyDerivedSignals,
   topologyPrimarySignals,
@@ -69,7 +70,7 @@ export const V2ServiceMap: React.FC<{
           <span className="v2-map-toolbar__eyebrow">서비스 맵 / 클러스터 토폴로지</span>
           <strong>{clusterLabel(summary)}</strong>
           <p>
-            전체 네임스페이스 · 스냅샷 {formatTime(summary.updatedAt)} · 게이트웨이 정상 · OCP {summary.version.version ?? '-'}
+            전체 네임스페이스 · 스냅샷 {formatTime(summary.updatedAt)} · 게이트웨이 정상 · OCP {displayOpenShiftVersion(summary.version.version)}
             {summary.nodes.total === 1 ? ' · 단일 노드 런타임' : ''}
           </p>
           <small>

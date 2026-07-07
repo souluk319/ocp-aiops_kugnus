@@ -89,6 +89,60 @@ wait_for_url() {
   return 1
 }
 
+plugin_base_url() {
+  printf 'http://127.0.0.1:%s/api/plugins/%s' "$PLUGIN_PORT" "$PLUGIN_NAME"
+}
+
+plugin_asset_ready() {
+  local base_url="$1"
+  local path
+  local required_assets=(
+    "plugin-manifest.json"
+    "plugin-entry.js"
+    "exposed-useAssistantOverlay-chunk.js"
+    "exposed-NullContextProvider-chunk.js"
+    "components_AssistantLauncher_tsx-chunk.js"
+  )
+
+  for path in "${required_assets[@]}"; do
+    if ! curl -fsS --max-time 3 "${base_url}/${path}" >/dev/null 2>&1; then
+      echo "Plugin asset not ready: ${base_url}/${path}" >&2
+      return 1
+    fi
+  done
+
+  return 0
+}
+
+stop_stale_plugin_dev_server() {
+  local pids=()
+  local pid
+  local args
+
+  mapfile -t pids < <(
+    ss -ltnp 2>/dev/null |
+      awk -v port=":${PLUGIN_PORT}" '$0 ~ port { print }' |
+      sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' |
+      awk 'NF && !seen[$0]++'
+  )
+
+  for pid in "${pids[@]}"; do
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    case "$args" in
+      *webpack* | *corepack* | *yarn*)
+        echo "Stopping stale plugin dev server pid=${pid}: ${args}" >&2
+        kill "$pid" >/dev/null 2>&1 || true
+        ;;
+      *)
+        echo "Port ${PLUGIN_PORT} is occupied by a non-webpack process: pid=${pid} ${args}" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  wait_for_port_closed "$PLUGIN_PORT" 80
+}
+
 console_code() {
   curl -ksS -o /dev/null -w "%{http_code}" --max-time 5 "$CONSOLE_HEALTH_URL" 2>/dev/null || true
 }
@@ -219,15 +273,19 @@ ensure_oc_login() {
 }
 
 ensure_plugin() {
-  local manifest_url="http://127.0.0.1:${PLUGIN_PORT}/api/plugins/${PLUGIN_NAME}/plugin-manifest.json"
+  local plugin_url
+  local manifest_url
 
-  if curl -fsS --max-time 3 "$manifest_url" >/dev/null 2>&1; then
+  plugin_url="$(plugin_base_url)"
+  manifest_url="${plugin_url}/plugin-manifest.json"
+
+  if plugin_asset_ready "$plugin_url"; then
     return 0
   fi
 
   if port_open 127.0.0.1 "$PLUGIN_PORT"; then
-    echo "Port ${PLUGIN_PORT} is open but plugin manifest is not healthy: ${manifest_url}" >&2
-    return 1
+    echo "Port ${PLUGIN_PORT} is open but plugin assets are stale or incomplete. Restarting plugin dev server." >&2
+    stop_stale_plugin_dev_server || return 1
   fi
 
   if [ ! -d "${PLUGIN_DIR}/node_modules" ]; then
@@ -245,6 +303,12 @@ ensure_plugin() {
   wait_for_url "$manifest_url" 120 || {
     echo "Plugin dev server did not become healthy. Log: ${PLUGIN_LOG}" >&2
     sed -n '1,120p' "$PLUGIN_LOG" >&2
+    return 1
+  }
+
+  plugin_asset_ready "$plugin_url" || {
+    echo "Plugin dev server started, but required assets are incomplete. Log: ${PLUGIN_LOG}" >&2
+    sed -n '1,160p' "$PLUGIN_LOG" >&2
     return 1
   }
 }
@@ -287,10 +351,8 @@ write_bridge_env() {
 
   if is_wsl; then
     plugin_host="host.docker.internal"
-    gateway_endpoint="${gateway_endpoint:-http://host.docker.internal:${GATEWAY_PORT}}"
-  else
-    gateway_endpoint="${gateway_endpoint:-http://localhost:${GATEWAY_PORT}}"
   fi
+  gateway_endpoint="$(normalize_gateway_endpoint_for_console_bridge "$gateway_endpoint" "$GATEWAY_PORT")"
 
   endpoint="$(oc_quick whoami --show-server)"
   token="$(oc_quick whoami -t 2>/dev/null || true)"

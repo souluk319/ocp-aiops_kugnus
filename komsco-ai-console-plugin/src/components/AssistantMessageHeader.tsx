@@ -13,16 +13,16 @@ type AssistantMessageHeaderProps = {
   message: Message;
 };
 
-const getMessageLabel = (role: Message['role'], language: UiLanguage): string => {
-  if (role === 'user') {
+const getMessageLabel = (message: Message, language: UiLanguage): string => {
+  if (message.role === 'user') {
     return UI_COPY[language].userLabel;
   }
 
-  if (role === 'system') {
+  if (message.role === 'system') {
     return UI_COPY[language].systemLabel;
   }
 
-  return 'AIOps';
+  return 'AIOps for OCP';
 };
 
 const MessageIcon: React.FC<{ role: Message['role'] }> = ({ role }) => {
@@ -49,6 +49,9 @@ const assistantSourceLabel = (message: Message, language: UiLanguage): string =>
   if (message.answerSource === 'gateway_direct') {
     return isKo ? 'Gateway 실조회' : 'Gateway live query';
   }
+  if (message.answerSource === 'copilot_reply') {
+    return isKo ? 'OCP 안내' : 'OCP guide';
+  }
   if (message.answerSource === 'copilot_clarification') {
     return isKo ? '요청 확인' : 'Request clarification';
   }
@@ -61,6 +64,9 @@ const assistantSourceClass = (message: Message): string => {
   }
   if (message.answerSource === 'ols') {
     return 'komsco-ai__message-source--ols';
+  }
+  if (message.answerSource === 'copilot_reply') {
+    return 'komsco-ai__message-source--aiops';
   }
   if (message.answerSource === 'copilot_clarification') {
     return 'komsco-ai__message-source--clarification';
@@ -90,6 +96,11 @@ const assistantSourceTitle = (message: Message, language: UiLanguage): string =>
       ? `${label} · ${message.gatewayContextDigest}`
       : label;
   }
+  if (message.answerSource === 'copilot_reply') {
+    return isKo
+      ? 'AIOps for OCP 역할 안내입니다. 클러스터 조회나 변경은 실행하지 않았습니다.'
+      : 'AIOps for OCP guidance. No cluster query or change was executed.';
+  }
   if (message.answerSource === 'copilot_clarification') {
     return isKo
       ? '요청 대상과 작업 목적을 더 확인해야 합니다.'
@@ -113,7 +124,7 @@ const AssistantMessageHeader: React.FC<AssistantMessageHeaderProps> = ({
           <MessageIcon role={message.role} />
         </div>
       )}
-      <div className="komsco-ai__message-label">{getMessageLabel(message.role, language)}</div>
+      <div className="komsco-ai__message-label">{getMessageLabel(message, language)}</div>
       {sourceLabel && (
         <span
           className={`komsco-ai__message-source ${assistantSourceClass(message)}`}

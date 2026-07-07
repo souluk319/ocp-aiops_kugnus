@@ -1,12 +1,15 @@
 import type { AiopsRuntimeStatus } from '../services/aiGateway';
 import {
+  findApprovalForPlan,
   findPlanByDigest,
+  actionRecordCreatedAt,
+  getActionRecordToolName,
   getApprovalDecision,
   getApprovalId,
   getApprovalPlanDigest,
+  getPlanSummary,
   getPlanDigest,
   getRecordSpecMap,
-  hasApprovalForPlan,
   hasExecutionForApproval,
 } from './assistant.actionRecords';
 import type {
@@ -88,6 +91,10 @@ export const getAiopsRecordAction = (
     modeDisabledReason
       ? { ...action, disabledReason: action.disabledReason ?? modeDisabledReason }
       : action;
+  const unrestrictedDisabledReason =
+    executionMode === 'unrestricted' && !canUseUnrestrictedCommands(aiopsStatus)
+      ? 'Gateway가 실행 무제한 capability를 허용하지 않았습니다'
+      : '';
 
   if (kind === 'ActionProposalRecord' || spec.candidateActionRequest) {
     return withModeGate({ label: '계획', step: 'create-plan' });
@@ -102,15 +109,58 @@ export const getAiopsRecordAction = (
         step: executionMode === 'unrestricted' ? 'approve-execute-plan' : 'approve-plan',
       });
     }
-    if (hasApprovalForPlan(records?.approvalDecisions ?? [], planDigest)) {
+    const planCreatedAt = actionRecordCreatedAt(record);
+    const approvalRecords =
+      planCreatedAt > 0
+        ? (records?.approvalDecisions ?? []).filter(
+            (approval) => actionRecordCreatedAt(approval) >= planCreatedAt,
+          )
+        : (records?.approvalDecisions ?? []);
+    const approval = findApprovalForPlan(approvalRecords, planDigest);
+    const approvalDecision = approval ? getApprovalDecision(approval) : undefined;
+    const approvalStatus = String(approvalDecision?.status ?? '');
+
+    if (approvalStatus === 'approved') {
+      const approvalId = approval ? getApprovalId(approval) : '';
+      if (hasExecutionForApproval(records?.executionRecords ?? [], approvalId)) {
+        return null;
+      }
+      return withModeGate({
+        label: '실행',
+        step: 'execute-approval',
+        disabledReason:
+          executionMode === 'read-only'
+            ? '읽기 전용 모드에서는 승인된 조치도 실행하지 않습니다'
+            : undefined,
+      });
+    }
+    if (approvalStatus === 'executed' || approvalStatus === 'rejected') {
       return null;
     }
 
     if (executionMode === 'unrestricted') {
-      return withModeGate({ label: '실행', step: 'approve-execute-plan' });
+      return withModeGate({
+        label: '실행',
+        step: 'approve-execute-plan',
+        disabledReason: unrestrictedDisabledReason || undefined,
+      });
     }
 
-    return withModeGate({ label: '승인', step: 'approve-plan' });
+    const planSummary = getPlanSummary(record);
+    const toolName = getActionRecordToolName(record);
+    const approvalOnlyReview = toolName === 'namespace_cleanup_review';
+    if ((planSummary?.risk === 'medium' || planSummary?.risk === 'high') && !approvalOnlyReview) {
+      return withModeGate({
+        label: '승인 요청',
+        step: 'approve-plan',
+        disabledReason: `위험도가 ${planSummary.riskLabel}이라 이 조치를 제안한 본인은 승인할 수 없습니다. 다른 담당자의 승인이 필요합니다.`,
+      });
+    }
+
+    return withModeGate({
+      label: approvalOnlyReview ? '승인 요청' : '승인',
+      step: 'approve-plan',
+    });
   }
 
   if (kind === 'ApprovalDecisionRecord' || spec.approvalDecision) {

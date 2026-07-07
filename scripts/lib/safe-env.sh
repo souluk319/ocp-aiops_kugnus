@@ -75,3 +75,91 @@ run_shell_with_timeout() {
 
   timeout "${seconds}s" bash -lc "$command"
 }
+
+is_wsl_runtime() {
+  grep -qiE 'microsoft|wsl' /proc/version 2>/dev/null
+}
+
+http_url_authority() {
+  local url="$1"
+  local rest="${url#*://}"
+
+  if [ "$rest" = "$url" ]; then
+    return 1
+  fi
+
+  printf '%s' "${rest%%/*}"
+}
+
+http_url_host() {
+  local authority
+
+  authority="$(http_url_authority "$1" 2>/dev/null || true)"
+  if [ -z "$authority" ]; then
+    return 1
+  fi
+  printf '%s' "${authority%%:*}"
+}
+
+http_url_port() {
+  local authority
+  local port
+
+  authority="$(http_url_authority "$1" 2>/dev/null || true)"
+  if [ -z "$authority" ] || [[ "$authority" != *:* ]]; then
+    return 1
+  fi
+  port="${authority##*:}"
+  if [[ "$port" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$port"
+  else
+    return 1
+  fi
+}
+
+host_is_current_wsl_ip() {
+  local host="$1"
+  local ip
+
+  for ip in $(hostname -I 2>/dev/null || true); do
+    if [ "$host" = "$ip" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+normalize_gateway_endpoint_for_console_bridge() {
+  local endpoint="${1:-}"
+  local default_port="${2:-18080}"
+  local host
+  local port
+
+  if [ -z "$endpoint" ]; then
+    endpoint="http://localhost:${default_port}"
+  fi
+
+  if ! is_wsl_runtime || ! command -v docker >/dev/null 2>&1; then
+    printf '%s\n' "$endpoint"
+    return
+  fi
+
+  host="$(http_url_host "$endpoint" 2>/dev/null || true)"
+  port="$(http_url_port "$endpoint" 2>/dev/null || true)"
+  port="${port:-$default_port}"
+
+  case "$host" in
+    "" | localhost | 127.0.0.1 | host.docker.internal)
+      printf 'http://host.docker.internal:%s\n' "$port"
+      return
+      ;;
+  esac
+
+  if host_is_current_wsl_ip "$host"; then
+    printf 'http://host.docker.internal:%s\n' "$port"
+    return
+  fi
+
+  printf '%s\n' "$endpoint"
+}

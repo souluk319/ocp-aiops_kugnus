@@ -76,10 +76,12 @@ import {
   getExecutionOutcomeSummary,
   getPlanDigest,
   getRecordName,
+  getRecordSpecMap,
   getRecordTargetLabel,
 } from './assistant.actionRecords';
 import {
   canUseActionExecution,
+  canUseUnrestrictedCommands,
   executionModeAllowsActions,
   getAiopsRecordAction,
   getActionExecutionDisabledReason,
@@ -126,6 +128,7 @@ import type {
 } from './assistant.types';
 import {
   type AiopsActionCandidate,
+  type AiopsRecord,
   type AiopsRuntimeStatus,
   type AuthSubject,
   type ChatContextMessage,
@@ -265,8 +268,8 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
       mode: 'controlled_execution',
       product: {
         mission: 'Evidence-first OpenShift operations assistant',
-        mode: 'evidence_first_execution',
-        name: 'AIOps Copilot',
+      mode: 'evidence_first_execution',
+        name: 'AIOps for OCP',
       },
       rcaContextStatus: {
         latestContext: null,
@@ -405,6 +408,61 @@ const shouldUploadRagDocumentAsFile = (file: File): boolean => {
   );
 };
 
+const IMAGE_EXTENSION_MIME_TYPES: Record<string, string> = {
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+};
+
+const inferImageMimeType = (file: File): string => {
+  if (ACCEPTED_IMAGE_MIME_TYPES.has(file.type)) {
+    return file.type;
+  }
+
+  const loweredName = file.name.toLowerCase();
+  const extension = Object.keys(IMAGE_EXTENSION_MIME_TYPES).find((item) =>
+    loweredName.endsWith(item),
+  );
+  return extension ? IMAGE_EXTENSION_MIME_TYPES[extension] : '';
+};
+
+const isAcceptedImageFile = (file: File): boolean => Boolean(inferImageMimeType(file));
+
+const fallbackImageName = (file: File, mimeType: string): string => {
+  const name = file.name.trim();
+  if (name) {
+    return name;
+  }
+
+  const extension =
+    Object.entries(IMAGE_EXTENSION_MIME_TYPES).find(([, value]) => value === mimeType)?.[0] ||
+    '.png';
+  return `clipboard-image-${Date.now().toString(36)}${extension}`;
+};
+
+const uniqueFiles = (files: File[]): File[] => {
+  const seen = new Set<string>();
+  return files.filter((file) => {
+    const key = [file.name, file.type, file.size, file.lastModified].join('|');
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const filesFromClipboardData = (data: DataTransfer): File[] => {
+  const files = Array.from(data.files ?? []);
+  const itemFiles = Array.from(data.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+  return uniqueFiles([...files, ...itemFiles]);
+};
+
 const readRagDocumentContent = async (file: File): Promise<string> => {
   try {
     return await file.text();
@@ -416,8 +474,10 @@ const readRagDocumentContent = async (file: File): Promise<string> => {
 const readImageAttachment = (file: File): Promise<ImageAttachment> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
+    const mimeType = inferImageMimeType(file);
+    const displayName = fallbackImageName(file, mimeType);
 
-    reader.onerror = () => reject(new Error(`${file.name} 파일을 읽을 수 없습니다.`));
+    reader.onerror = () => reject(new Error(`${displayName} 파일을 읽을 수 없습니다.`));
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
       const [, data = ''] = result.split(',');
@@ -430,8 +490,8 @@ const readImageAttachment = (file: File): Promise<ImageAttachment> =>
       resolve({
         data,
         id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        mimeType: file.type,
-        name: file.name,
+        mimeType,
+        name: displayName,
         size: file.size,
       });
     };
@@ -688,6 +748,16 @@ const matchActionCandidatesForMessage = (
     const name = candidate.target?.name;
     return Boolean(name) && content.includes(name!);
   });
+  const testPodCreateNames = testPodCreateCandidateNamesFromAnswer(content);
+  testPodCreateNames.forEach((name) => {
+    matched.push(testPodCreateCandidateFromAnswer(name));
+  });
+  if (!testPodCreateNames.length) {
+    const namespaceCleanupNames = namespaceCleanupCandidateNamesFromAnswer(content);
+    namespaceCleanupNames.forEach((name) => {
+      matched.push(namespaceCleanupCandidateFromAnswer(name));
+    });
+  }
 
   // Different findings (e.g. pod_crashloop and pod_restart_spike) can point at
   // the exact same target, each producing its own candidate id — dedupe by
@@ -704,11 +774,148 @@ const matchActionCandidatesForMessage = (
   });
 };
 
+const namespaceCleanupCandidateNamesFromAnswer = (content: string): string[] => {
+  const names = new Set<string>();
+  const collect = (value: string) => {
+    value
+      .split(',')
+      .map((item) => item.replace(/[`*_]/g, '').trim())
+      .filter((item) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(item))
+      .forEach((item) => names.add(item));
+  };
+  const ko = content.match(/승인 필요 후보:\s*([^\n]+)/);
+  if (ko?.[1]) {
+    collect(ko[1]);
+  }
+  const en = content.match(/Approval-required candidates:\s*([^\n]+)/i);
+  if (en?.[1]) {
+    collect(en[1]);
+  }
+  return Array.from(names);
+};
+
+const testPodCreateCandidateNamesFromAnswer = (content: string): string[] => {
+  if (!/테스트\s*Pod|test\s*Pod|aiops-test-pods/i.test(content)) {
+    return [];
+  }
+  const names = new Set<string>();
+  const collect = (value: string) => {
+    value
+      .split(',')
+      .map((item) => item.replace(/[`*_]/g, '').trim())
+      .map((item) => item.match(/[a-z0-9]([-a-z0-9]*[a-z0-9])?/)?.[0] || '')
+      .filter((item) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(item))
+      .forEach((item) => names.add(item));
+  };
+  const ko = content.match(/승인 필요 후보:\s*([^\n]+)/);
+  if (ko?.[1]) {
+    collect(ko[1]);
+  }
+  const en = content.match(/Approval-required candidates:\s*([^\n]+)/i);
+  if (en?.[1]) {
+    collect(en[1]);
+  }
+  return Array.from(names);
+};
+
+const testPodCreateCandidateFromAnswer = (namespace: string): AiopsActionCandidate => ({
+  approvalRequired: true,
+  blockedActions: ['create', 'delete', 'patch', 'apply', 'scale', 'exec'],
+  blockedReasons: ['approval-required', 'review-only-plan'],
+  confidence: 'high',
+  evidence: `${namespace} namespace preflight can support a test Pod creation review plan.`,
+  executable: false,
+  executionPolicy: {
+    executionEnabled: false,
+    mode: 'review-only',
+    mutationVerbsDisabled: true,
+    proposalOnly: true,
+  },
+  expectedImpact: `${namespace} namespace에 aiops-test-pods 테스트 Pod 3개 생성 계획을 검토합니다. 이 버튼 자체는 Pod를 생성하지 않습니다.`,
+  id: `chat-test-pod-create-${namespace}`,
+  priority: 35,
+  prerequisiteChecks: ['대상 namespace 존재 확인', '테스트 목적 확인', '정리 방법 확인'],
+  recommendationSteps: ['테스트 Pod 생성 계획 작성', '승인 게이트 통과', '생성 후 label 기준 조회로 검증'],
+  riskLabel: '낮음',
+  riskLevel: 'low',
+  sourceFindingId: `test-pod-create-${namespace}`,
+  sourceType: 'test_pod_create_review',
+  statusLabel: '승인 필요',
+  target: {
+    apiVersion: 'v1',
+    kind: 'Namespace',
+    name: namespace,
+    namespace,
+  },
+  title: '테스트 Pod 3개 생성',
+  verificationChecks: ['생성 전 namespace 재확인', 'label app=aiops-test-pods 기준 Pod 3개 조회'],
+});
+
+const namespaceCleanupCandidateFromAnswer = (namespace: string): AiopsActionCandidate => ({
+  approvalRequired: true,
+  blockedActions: ['delete', 'patch', 'apply', 'scale', 'exec'],
+  blockedReasons: ['approval-required', 'review-only-plan'],
+  confidence: 'medium',
+  evidence: `${namespace} namespace read-only inventory marked it as a cleanup review candidate.`,
+  executable: false,
+  executionPolicy: {
+    executionEnabled: false,
+    mode: 'review-only',
+    mutationVerbsDisabled: true,
+    proposalOnly: true,
+  },
+  expectedImpact: '정리 후보를 승인 검토 계획으로 고정합니다. 이 버튼 자체는 namespace 삭제를 실행하지 않습니다.',
+  id: `chat-namespace-cleanup-${namespace}`,
+  priority: 40,
+  prerequisiteChecks: ['소유자 확인', 'PVC/Route 잔존 여부 확인', '백업 필요 여부 확인'],
+  recommendationSteps: ['namespace 사용 근거 재확인', '정리 검토 Action Plan 생성', '별도 삭제 승인 정책 확인'],
+  riskLabel: '중간',
+  riskLevel: 'medium',
+  sourceFindingId: `namespace-cleanup-${namespace}`,
+  sourceType: 'namespace_cleanup_review',
+  statusLabel: '승인 필요',
+  target: {
+    apiVersion: 'v1',
+    kind: 'Namespace',
+    name: namespace,
+    namespace,
+  },
+  title: 'Namespace 정리 검토',
+  verificationChecks: ['Action Plan 생성 후에도 namespace가 존재하는지 확인', '삭제 실행 기록이 없는지 확인'],
+});
+
 // Matches the "namespace/name" shape getRecordTargetLabel derives from a
 // record's target, so a candidate's target and a record's target can be
 // compared as the same session-tracked key.
 const targetKeyFromParts = (namespace?: string, name?: string): string =>
   namespace ? `${namespace}/${name ?? ''}` : (name ?? '');
+
+const approvalRecordWithExecutedStatus = (
+  approval: AiopsRecordView,
+  execution: AiopsRecordView,
+): AiopsRecordView => {
+  const spec = getRecordSpecMap(approval);
+  const decision =
+    spec.approvalDecision && typeof spec.approvalDecision === 'object'
+      ? (spec.approvalDecision as Record<string, unknown>)
+      : undefined;
+
+  if (!decision) {
+    return approval;
+  }
+
+  return {
+    ...approval,
+    spec: {
+      ...spec,
+      approvalDecision: {
+        ...decision,
+        executedAt: execution.metadata?.createdAt ?? new Date().toISOString(),
+        status: 'executed',
+      },
+    },
+  };
+};
 
 const conversationActionRefFromCandidate = (
   candidate: AiopsActionCandidate,
@@ -794,20 +1001,25 @@ const latestAnswerActionRecords = (
     return [];
   }
 
-  return collapseActionRecordsForDisplay(
-    [...records.approvalDecisions, ...records.sealedActionPlans, ...records.actionProposals],
-    aiopsStatus,
-    executionMode,
-  )
-    .filter((record) => {
+  const matchedRecords = [
+    ...records.executionRecords,
+    ...records.approvalDecisions,
+    ...records.sealedActionPlans,
+    ...records.actionProposals,
+  ].filter((record) => {
       const recordName = getRecordName(record).toLowerCase();
       if (mentionedRecordNames.has(recordName)) {
         return true;
       }
 
-      return anchorRefs.some((ref) => {
+      const matchesAnchorRef = anchorRefs.some((ref) => {
+        const refCreatedAt = ref.createdAt ? new Date(ref.createdAt).getTime() || 0 : 0;
+        const recordCreatedAt = actionRecordCreatedAt(record);
         if (ref.recordName && getRecordName(record) === ref.recordName) {
           return true;
+        }
+        if (refCreatedAt > 0 && recordCreatedAt > 0 && recordCreatedAt < refCreatedAt) {
+          return false;
         }
         if (
           ref.planDigest &&
@@ -820,8 +1032,28 @@ const latestAnswerActionRecords = (
           (!ref.toolName || ref.toolName === getActionRecordToolName(record))
         );
       });
-    })
-    .slice(0, 3);
+      if (matchesAnchorRef) {
+        return true;
+      }
+
+      return false;
+    });
+
+  return collapseActionRecordsForDisplay(matchedRecords, aiopsStatus, executionMode).slice(0, 3);
+};
+
+const actionRecordsForMatchedCandidates = (
+  aiopsStatus: AiopsRuntimeStatus | null,
+  executionMode: AiopsExecutionMode,
+  candidates: AiopsActionCandidate[],
+): AiopsRecordView[] => {
+  // Do not attach old global action records to a new answer just because the
+  // target name matches. The lifecycle should appear only after this answer's
+  // CTA creates a session action ref.
+  void aiopsStatus;
+  void executionMode;
+  void candidates;
+  return [];
 };
 
 type MessageFeedbackChoice = 'up' | 'down';
@@ -831,6 +1063,7 @@ type MessageActionFooterProps = {
   copiedLabel: string;
   copyLabel: string;
   feedback?: MessageFeedbackChoice;
+  feedbackComment?: string;
   language: UiLanguage;
   onCopy: () => void;
   onEditForResend?: () => void;
@@ -847,7 +1080,11 @@ const messageActionLabels = (language: UiLanguage) =>
         edit: 'Edit and resend',
         feedbackCommentSaved: 'Saved',
         feedbackCommentSubmit: 'Save',
+        dislikeSaved: 'Needs work saved',
+        dislikeSelected: 'Needs work selected',
         like: 'Good response',
+        likeSaved: 'Good response saved',
+        likeSelected: 'Good response selected',
       }
     : {
         copy: '복사',
@@ -856,7 +1093,11 @@ const messageActionLabels = (language: UiLanguage) =>
         edit: '수정해서 다시 보내기',
         feedbackCommentSaved: '저장됨',
         feedbackCommentSubmit: '저장',
+        dislikeSaved: '싫어요 저장됨',
+        dislikeSelected: '싫어요 선택됨',
         like: '좋은 답변',
+        likeSaved: '좋아요 저장됨',
+        likeSelected: '좋아요 선택됨',
       };
 
 const feedbackCommentPlaceholder = (language: UiLanguage, feedback: MessageFeedbackChoice): string =>
@@ -881,25 +1122,53 @@ const readStoredMessageFeedback = (): ChatFeedbackPayload[] => {
   }
 };
 
+const storedFeedbackKey = (payload: Pick<ChatFeedbackPayload, 'feedbackId' | 'messageId' | 'rating'>): string =>
+  payload.feedbackId || `${payload.messageId}:${payload.rating}`;
+
+const publicFeedbackAnswerContract = (message: Message): string | undefined => {
+  const contract = message.answerContract?.trim();
+  if (!contract) {
+    return undefined;
+  }
+
+  return /fixture|local/i.test(contract) ? 'v0281-gateway-answer-contract' : contract;
+};
+
+const publicFeedbackSource = (message: Message): NonNullable<Message['answerSource']> => {
+  if (message.answerSource) {
+    return message.answerSource;
+  }
+  if (message.fallbackAnswer) {
+    return 'gateway_fallback';
+  }
+  if (message.toolPlan || message.evidenceFooter) {
+    return 'gateway_direct';
+  }
+  return 'copilot_reply';
+};
+
 const writeStoredMessageFeedback = (payload: ChatFeedbackPayload): void => {
   if (typeof window === 'undefined') {
     return;
   }
 
   const existing = readStoredMessageFeedback();
+  const payloadKey = storedFeedbackKey(payload);
   const next = [
     payload,
-    ...existing.filter((item) => item.messageId !== payload.messageId),
+    ...existing.filter((item) => storedFeedbackKey(item) !== payloadKey),
   ].slice(0, 200);
   window.localStorage.setItem(STORED_MESSAGE_FEEDBACK_KEY, JSON.stringify(next));
 };
 
-const removeStoredMessageFeedback = (messageId: string): void => {
+const removeStoredMessageFeedback = (messageId: string, rating?: MessageFeedbackChoice): void => {
   if (typeof window === 'undefined') {
     return;
   }
 
-  const next = readStoredMessageFeedback().filter((item) => item.messageId !== messageId);
+  const next = readStoredMessageFeedback().filter(
+    (item) => item.messageId !== messageId || (rating ? item.rating !== rating : false),
+  );
   window.localStorage.setItem(STORED_MESSAGE_FEEDBACK_KEY, JSON.stringify(next));
 };
 
@@ -928,6 +1197,7 @@ const MessageActionFooter: React.FC<MessageActionFooterProps> = ({
   copiedLabel,
   copyLabel,
   feedback,
+  feedbackComment,
   language,
   onCopy,
   onEditForResend,
@@ -936,10 +1206,27 @@ const MessageActionFooter: React.FC<MessageActionFooterProps> = ({
 }) => {
   const labels = messageActionLabels(language);
   const copyButtonLabel = copied ? copiedLabel || labels.copied : copyLabel || labels.copy;
+  const feedbackHasSavedComment = Boolean(feedbackComment?.trim());
+  const feedbackStatus =
+    feedback === 'up'
+      ? feedbackHasSavedComment
+        ? labels.likeSaved
+        : labels.likeSelected
+      : feedback === 'down'
+        ? feedbackHasSavedComment
+          ? labels.dislikeSaved
+          : labels.dislikeSelected
+        : '';
+  const statusLabel = copied ? copiedLabel || labels.copied : feedbackStatus;
 
   if (role === 'user') {
     return (
       <div className="komsco-ai__message-actions" data-message-actions="user">
+        {statusLabel && (
+          <span className="komsco-ai__message-action-status" role="status">
+            {statusLabel}
+          </span>
+        )}
         {onEditForResend && (
           <MessageActionButton label={labels.edit} onClick={onEditForResend}>
             <CoolPencilIcon />
@@ -981,6 +1268,11 @@ const MessageActionFooter: React.FC<MessageActionFooterProps> = ({
           </MessageActionButton>
         </>
       )}
+      {statusLabel && (
+        <span className="komsco-ai__message-action-status" role="status">
+          {statusLabel}
+        </span>
+      )}
     </div>
   );
 };
@@ -1001,14 +1293,23 @@ const MessageFeedbackComment: React.FC<{
   const trimmedDraft = draft.trim();
   const savedComment = comment.trim();
   const dirty = trimmedDraft !== savedComment;
+  const hasSavedComment = savedComment.length > 0;
   const prompt =
     language === 'en'
       ? feedback === 'down'
-        ? 'What should be improved?'
-        : 'What worked well?'
+        ? 'Improve'
+        : 'Worked well'
       : feedback === 'down'
-        ? '무엇을 개선할까요?'
-        : '무엇이 좋았나요?';
+        ? '개선점'
+        : '좋았던 점';
+  const storageHint =
+    language === 'en'
+      ? 'saved: browser+Gateway'
+      : '기록: 브라우저+Gateway';
+  const storageHintTitle =
+    language === 'en'
+      ? `Browser localStorage: ${STORED_MESSAGE_FEEDBACK_KEY} · Gateway API: /v1/chat/feedback`
+      : `브라우저 localStorage: ${STORED_MESSAGE_FEEDBACK_KEY} · Gateway API: /v1/chat/feedback`;
 
   return (
     <form
@@ -1021,18 +1322,26 @@ const MessageFeedbackComment: React.FC<{
         onSubmit(trimmedDraft);
       }}
     >
-      <label>
-        <span>{prompt}</span>
-        <input
-          maxLength={1000}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder={feedbackCommentPlaceholder(language, feedback)}
-          value={draft}
-        />
-      </label>
-      <button disabled={!dirty} type="submit">
-        {dirty ? labels.feedbackCommentSubmit : labels.feedbackCommentSaved}
-      </button>
+      <div className="komsco-ai__feedback-comment-row">
+        <label>
+          <span className="komsco-ai__feedback-prompt" title={storageHintTitle}>
+            {prompt} · {storageHint}
+          </span>
+          <input
+            maxLength={1000}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={feedbackCommentPlaceholder(language, feedback)}
+            value={draft}
+          />
+        </label>
+        <button disabled={!dirty} type="submit">
+          {dirty
+            ? labels.feedbackCommentSubmit
+            : hasSavedComment
+              ? labels.feedbackCommentSaved
+            : labels.feedbackCommentSubmit}
+        </button>
+      </div>
     </form>
   );
 };
@@ -1685,14 +1994,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           item.id === ref.id ||
           (item.targetKey === ref.targetKey &&
             item.toolName === ref.toolName &&
+            item.messageAnchor === ref.messageAnchor &&
             (item.planDigest === ref.planDigest || !item.planDigest || !ref.planDigest)),
       );
 
       if (existingIndex >= 0) {
+        const existing = next[existingIndex];
+        const existingRank = ACTION_STAGE_RANK[existing.stage] ?? 0;
+        const incomingRank = ACTION_STAGE_RANK[ref.stage] ?? 0;
+        if (existingRank > incomingRank) {
+          next[existingIndex] = {
+            ...existing,
+            messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
+            updatedAt: Date.now(),
+          };
+          return next;
+        }
         next[existingIndex] = {
-          ...next[existingIndex],
+          ...existing,
           ...ref,
-          messageAnchor: ref.messageAnchor ?? next[existingIndex].messageAnchor,
+          messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
           updatedAt: Date.now(),
         };
         return next;
@@ -2006,6 +2327,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     };
   }, [open]);
 
+  const refreshAiopsActionCandidates = React.useCallback(async () => {
+    try {
+      const summary = await fetchActionCandidates();
+      setActionCandidates(summary.spec?.candidates ?? []);
+    } catch {
+      // Best-effort: the "조치 계획 생성" button simply won't appear if this fails.
+    }
+  }, []);
+
   React.useEffect(() => {
     if (!open) {
       return undefined;
@@ -2014,13 +2344,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     let disposed = false;
 
     const loadActionCandidates = async () => {
-      try {
-        const summary = await fetchActionCandidates();
-        if (!disposed) {
-          setActionCandidates(summary.spec?.candidates ?? []);
-        }
-      } catch {
-        // Best-effort: the "조치 계획 생성" button simply won't appear if this fails.
+      if (!disposed) {
+        await refreshAiopsActionCandidates();
       }
     };
 
@@ -2033,7 +2358,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [open]);
+  }, [open, refreshAiopsActionCandidates]);
 
   React.useEffect(() => {
     if (!open || !historySidebarOpen || historyPanelView !== 'uploads') {
@@ -2117,6 +2442,61 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     });
   }, []);
 
+  const upsertAiopsRuntimeRecords = React.useCallback(
+    (updates: Partial<AiopsRuntimeStatus['spec']['records']>) => {
+      const mergeRecords = (
+        current: AiopsRecord[] | undefined,
+        incoming: AiopsRecord[] | undefined,
+      ): AiopsRecord[] => {
+        if (!incoming?.length) {
+          return current ?? [];
+        }
+        const next = [...(current ?? [])];
+        incoming.forEach((record) => {
+          const recordName = getRecordName(record);
+          const existingIndex = recordName
+            ? next.findIndex((item) => getRecordName(item) === recordName)
+            : -1;
+          if (existingIndex >= 0) {
+            next[existingIndex] = record;
+          } else {
+            next.unshift(record);
+          }
+        });
+        return next;
+      };
+
+      setAiopsStatus((prev) => {
+        const base = prev ?? createPendingAiopsStatus();
+        const current = base.spec.records;
+        return {
+          ...base,
+          spec: {
+            ...base.spec,
+            records: {
+              ...current,
+              actionProposals: mergeRecords(current.actionProposals, updates.actionProposals),
+              approvalDecisions: mergeRecords(current.approvalDecisions, updates.approvalDecisions),
+              diagnosticRequests: mergeRecords(current.diagnosticRequests, updates.diagnosticRequests),
+              executionRecords: mergeRecords(current.executionRecords, updates.executionRecords),
+              sealedActionPlans: mergeRecords(current.sealedActionPlans, updates.sealedActionPlans),
+              ...(updates.auditRecords
+                ? { auditRecords: mergeRecords(current.auditRecords, updates.auditRecords) }
+                : {}),
+              ...(updates.chatFeedback
+                ? { chatFeedback: mergeRecords(current.chatFeedback, updates.chatFeedback) }
+                : {}),
+              ...(updates.chatTranscripts
+                ? { chatTranscripts: mergeRecords(current.chatTranscripts, updates.chatTranscripts) }
+                : {}),
+            },
+          },
+        };
+      });
+    },
+    [],
+  );
+
   const handleAiopsAction = React.useCallback(
     async (record: AiopsRecordView, action: AiopsRecordAction) => {
       if (action.disabledReason) {
@@ -2140,6 +2520,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setAiopsActionBusyId(actionId);
       setAiopsActionError('');
       setAiopsActionNotice('');
+      const actionMessageAnchor = getLatestAssistantMessageAnchor();
 
       try {
         if (action.step === 'create-plan') {
@@ -2148,6 +2529,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             throw new Error('Action proposal id is missing.');
           }
           const plan = await createActionPlan(proposalId);
+          upsertAiopsRuntimeRecords({ sealedActionPlans: [plan] });
           setAiopsActionNotice('Action plan을 생성했습니다.');
           const targetKey = getRecordTargetLabel(record);
           setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
@@ -2155,7 +2537,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             conversationActionRefFromRecord(
               plan,
               executionMode,
-              getLatestAssistantMessageAnchor(),
+              actionMessageAnchor,
             ),
           );
         }
@@ -2167,17 +2549,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             throw new Error('Action plan id 또는 digest가 없습니다.');
           }
           const approval = await approveActionPlan(planId, planDigest);
+          upsertAiopsRuntimeRecords({ approvalDecisions: [approval] });
           setAiopsActionNotice('Action plan을 승인했습니다.');
           upsertSessionActionRef(
             conversationActionRefFromRecord(
               approval,
               executionMode,
-              getLatestAssistantMessageAnchor(),
+              actionMessageAnchor,
             ),
           );
         }
 
         if (action.step === 'approve-execute-plan') {
+          if (executionMode !== 'unrestricted') {
+            setAiopsActionError('승인과 실행을 한 번에 처리하는 동작은 실행 무제한 모드에서만 가능합니다.');
+            return;
+          }
+          if (!canUseUnrestrictedCommands(aiopsStatus)) {
+            setAiopsActionError('Gateway가 실행 무제한 capability를 허용하지 않아 자동 승인 후 실행을 보낼 수 없습니다.');
+            return;
+          }
           const planId = getRecordName(record);
           const planDigest = getPlanDigest(record);
           if (!planId || !planDigest) {
@@ -2189,12 +2580,24 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             throw new Error('자동 승인 id가 없습니다.');
           }
           const execution = await executeApprovedAction(approvalId, planId, planDigest);
+          const executedApproval = approvalRecordWithExecutedStatus(approval, execution);
+          upsertAiopsRuntimeRecords({
+            approvalDecisions: [executedApproval],
+            executionRecords: [execution],
+          });
           setAiopsActionNotice('실행 무제한 모드로 자동 승인 후 실행했습니다.');
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              executedApproval,
+              executionMode,
+              actionMessageAnchor,
+            ),
+          );
           upsertSessionActionRef(
             conversationActionRefFromRecord(
               execution,
               executionMode,
-              getLatestAssistantMessageAnchor(),
+              actionMessageAnchor,
             ),
           );
         }
@@ -2206,19 +2609,27 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             throw new Error('Action plan id 또는 digest가 없습니다.');
           }
           const rejection = await rejectActionPlan(planId, planDigest);
+          upsertAiopsRuntimeRecords({ approvalDecisions: [rejection] });
           setAiopsActionNotice('Action plan을 거절 기록했습니다.');
           upsertSessionActionRef(
             conversationActionRefFromRecord(
               rejection,
               executionMode,
-              getLatestAssistantMessageAnchor(),
+              actionMessageAnchor,
             ),
           );
         }
 
         if (action.step === 'execute-approval') {
-          const approvalId = getApprovalId(record);
-          const planDigest = getApprovalPlanDigest(record);
+          const recordPlanDigest = getPlanDigest(record);
+          const planDigest = getApprovalPlanDigest(record) || recordPlanDigest;
+          const linkedApproval =
+            recordPlanDigest && aiopsStatus
+              ? aiopsStatus.spec.records.approvalDecisions.find(
+                  (item) => getApprovalPlanDigest(item) === recordPlanDigest,
+                )
+              : undefined;
+          const approvalId = getApprovalId(linkedApproval ?? record);
           const plan = findPlanByDigest(
             aiopsStatus?.spec.records.sealedActionPlans ?? [],
             planDigest,
@@ -2228,12 +2639,24 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             throw new Error('Approval 또는 연결된 action plan 정보가 없습니다.');
           }
           const execution = await executeApprovedAction(approvalId, planId, planDigest);
+          const executedApproval = approvalRecordWithExecutedStatus(linkedApproval ?? record, execution);
+          upsertAiopsRuntimeRecords({
+            approvalDecisions: [executedApproval],
+            executionRecords: [execution],
+          });
           setAiopsActionNotice('승인된 조치를 실행했습니다.');
+          upsertSessionActionRef(
+            conversationActionRefFromRecord(
+              executedApproval,
+              executionMode,
+              actionMessageAnchor,
+            ),
+          );
           upsertSessionActionRef(
             conversationActionRefFromRecord(
               execution,
               executionMode,
-              getLatestAssistantMessageAnchor(),
+              actionMessageAnchor,
             ),
           );
         }
@@ -2246,7 +2669,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         setAiopsActionBusyId('');
       }
     },
-    [aiopsStatus, executionMode, getLatestAssistantMessageAnchor, refreshAiopsRuntimeStatus, upsertSessionActionRef],
+    [
+      aiopsStatus,
+      executionMode,
+      getLatestAssistantMessageAnchor,
+      refreshAiopsRuntimeStatus,
+      upsertAiopsRuntimeRecords,
+      upsertSessionActionRef,
+    ],
   );
 
   const handleCreateActionPlanFromChat = React.useCallback(
@@ -2258,9 +2688,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setBusyActionCandidateId(candidate.id);
       setAiopsActionError('');
       setAiopsActionNotice('');
+      const actionMessageAnchor = getLatestAssistantMessageAnchor();
 
       try {
         const result = await createActionCandidatePlan(candidate);
+        upsertAiopsRuntimeRecords({
+          actionProposals: result.spec?.proposal ? [result.spec.proposal] : undefined,
+          sealedActionPlans: result.spec?.plan ? [result.spec.plan] : undefined,
+        });
         setAiopsActionNotice('조치 계획을 생성했습니다.');
         const targetKey = targetKeyFromParts(candidate.target?.namespace, candidate.target?.name);
         setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
@@ -2269,9 +2704,9 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             ? conversationActionRefFromRecord(
                 result.spec.plan,
                 executionMode,
-                getLatestAssistantMessageAnchor(),
+                actionMessageAnchor,
               )
-            : conversationActionRefFromCandidate(candidate, getLatestAssistantMessageAnchor()),
+            : conversationActionRefFromCandidate(candidate, actionMessageAnchor),
         );
         await refreshAiopsRuntimeStatus();
       } catch (error) {
@@ -2281,7 +2716,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         setBusyActionCandidateId('');
       }
     },
-    [executionMode, getLatestAssistantMessageAnchor, refreshAiopsRuntimeStatus, upsertSessionActionRef],
+    [
+      executionMode,
+      getLatestAssistantMessageAnchor,
+      refreshAiopsRuntimeStatus,
+      upsertAiopsRuntimeRecords,
+      upsertSessionActionRef,
+    ],
   );
 
   const appendAssistantText = React.useCallback((content: string) => {
@@ -2429,18 +2870,12 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     ) => {
       const messageId = `${activeSessionId}:${index}:${message.timestamp ?? 'pending'}`;
       const submittedAt = new Date().toISOString();
-      const feedbackSource =
-        message.answerSource ??
-        (message.answerContract?.includes('fixture')
-          ? 'local_fixture'
-          : message.fallbackAnswer
-            ? 'gateway_fallback'
-            : 'copilot');
+      const feedbackSource = publicFeedbackSource(message);
       const payload: ChatFeedbackPayload = {
-        answerContract: message.answerContract,
-        answerSource: message.answerSource ?? feedbackSource,
+        answerContract: publicFeedbackAnswerContract(message),
+        answerSource: feedbackSource,
         conversationId: conversationId ?? activeSessionId,
-        feedbackId: `feedback-${messageId.replace(/[^a-zA-Z0-9-]+/g, '-')}`,
+        feedbackId: `feedback-${messageId.replace(/[^a-zA-Z0-9-]+/g, '-')}-${feedback}`,
         intent: message.toolPlan?.taskType,
         messageId,
         mode: executionMode,
@@ -2498,20 +2933,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       }
 
       if (clearingFeedback) {
-        removeStoredMessageFeedback(messageId);
+        removeStoredMessageFeedback(messageId, feedback);
         return;
       }
 
-      persistMessageFeedback(
-        index,
-        currentMessage,
-        feedback,
-        currentMessage.feedback && currentMessage.feedback !== feedback
-          ? undefined
-          : currentMessage.feedbackComment,
-      );
+      // Selecting thumbs up/down only opens the tester comment form. Persisting
+      // happens after the user writes the note and presses save, so the UI does
+      // not claim "saved" for an empty review.
     },
-    [activeSessionId, persistMessageFeedback],
+    [activeSessionId],
   );
 
   const submitMessageFeedbackComment = React.useCallback(
@@ -2641,9 +3071,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
   const addImageFiles = React.useCallback(
     async (files: File[]) => {
-      const imageFiles = files.filter((file) => ACCEPTED_IMAGE_MIME_TYPES.has(file.type));
-      const documentFiles = files.filter(
-        (file) => !ACCEPTED_IMAGE_MIME_TYPES.has(file.type) && isRagDocumentFile(file),
+      const normalizedFiles = uniqueFiles(files);
+      const imageFiles = normalizedFiles.filter(isAcceptedImageFile);
+      const documentFiles = normalizedFiles.filter(
+        (file) => !isAcceptedImageFile(file) && isRagDocumentFile(file),
       );
 
       if (imageFiles.length === 0 && documentFiles.length === 0) {
@@ -2653,7 +3084,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         return;
       }
 
-      const unsupportedCount = files.length - imageFiles.length - documentFiles.length;
+      const unsupportedCount = normalizedFiles.length - imageFiles.length - documentFiles.length;
       if (unsupportedCount > 0) {
         setAttachmentError('일부 파일은 지원 형식이 아니라 제외했습니다.');
       }
@@ -2761,8 +3192,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
   const handlePaste = React.useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData.files ?? []);
-      const hasImage = files.some((file) => ACCEPTED_IMAGE_MIME_TYPES.has(file.type));
+      const files = filesFromClipboardData(event.clipboardData);
+      const hasImage = files.some(isAcceptedImageFile);
 
       if (!hasImage) {
         return;
@@ -2778,7 +3209,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
       setDragActive(false);
-      void addImageFiles(Array.from(event.dataTransfer.files ?? []));
+      void addImageFiles(filesFromClipboardData(event.dataTransfer));
     },
     [addImageFiles],
   );
@@ -2841,6 +3272,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         let runCompleted = false;
         let fallbackAnswerSeen = false;
         let clarificationAnswerSeen = false;
+        let copilotReplySeen = false;
         let lightspeedStageSeen = false;
         let stepSequence = 0;
 
@@ -3040,6 +3472,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           {
             attachments,
             conversationId,
+            language: uiLanguage,
             message: question,
             pageContext,
             recentMessages,
@@ -3063,7 +3496,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               event.stage === 'completed' &&
               !lightspeedStageSeen &&
               !fallbackAnswerSeen &&
-              !clarificationAnswerSeen
+              !clarificationAnswerSeen &&
+              !copilotReplySeen
             ) {
               updateLightspeedStatus({
                 fallbackActive: false,
@@ -3191,6 +3625,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               setMessages((prev) =>
                 markLastAssistantSource(prev, 'copilot_clarification', event.gatewayContextDigest),
               );
+            } else if (event.source === 'copilot_reply') {
+              copilotReplySeen = true;
+              setMessages((prev) =>
+                markLastAssistantSource(prev, 'copilot_reply', event.gatewayContextDigest),
+              );
             } else {
               setMessages((prev) =>
                 markLastAssistantSource(
@@ -3262,6 +3701,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         finishAnswerStreamStep();
         finalizeRunningProgressSteps('답변 완료');
         await refreshAiopsRuntimeStatus();
+        await refreshAiopsActionCandidates();
         if (autoProposeActionsAllowedRef.current) {
           let latestAssistantContent = '';
           setMessages((prev) => {
@@ -3328,6 +3768,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       conversationId,
       messages,
       pendingAttachments,
+      refreshAiopsActionCandidates,
       refreshAiopsRuntimeStatus,
       selectedTaskMode.label,
       updateLightspeedStatus,
@@ -3410,7 +3851,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     <div className={assistantRootClassName} data-ui-language={uiLanguage}>
       {!open && !embedded && (
         <button
-          aria-label="Open AIOps Copilot"
+          aria-label="Open AIOps for OCP"
           className="komsco-ai__fab"
           onMouseDown={openAssistant}
           onClick={openAssistant}
@@ -3431,7 +3872,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           wrapperClassName={`${assistantRootClassName} komsco-ai--portal`}
         >
           <div
-            aria-label="AIOps Copilot"
+            aria-label="AIOps for OCP"
             ref={surfaceRef}
             className={`komsco-ai__surface${fullScreen ? ' komsco-ai__surface--fullscreen' : ''}${
               historySidebarOpen ? ' komsco-ai__surface--history-open' : ''
@@ -3509,12 +3950,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 sessionActionRefs,
                               )
                             : [];
+                        const candidateActionRecords =
+                          isLatestAssistantMessage && hasContent && answerActionRecords.length === 0
+                            ? actionRecordsForMatchedCandidates(
+                                aiopsStatus,
+                                executionMode,
+                                matchedActionCandidates,
+                              )
+                            : [];
+                        const resolvedAnswerActionRecords =
+                          answerActionRecords.length > 0 ? answerActionRecords : candidateActionRecords;
                         const answerActionRefs =
                           isLatestAssistantMessage && hasContent && messageActionAnchor
                             ? sessionActionRefs
                                 .filter((ref) => ref.messageAnchor === messageActionAnchor)
                                 .slice(0, 3)
                             : [];
+                        const showCreateActionPlanButtons =
+                          matchedActionCandidates.length > 0 &&
+                          resolvedAnswerActionRecords.length === 0 &&
+                          answerActionRefs.length === 0;
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
@@ -3559,6 +4014,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 />}
                               {message.role === 'assistant' &&
                                 hasContent &&
+                                showCreateActionPlanButtons &&
                                 (
                                   <AssistantCreateActionPlanButtons
 	                                    busyCandidateId={busyActionCandidateId}
@@ -3579,7 +4035,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     fallbackRefs={answerActionRefs}
                                     language={uiLanguage}
                                     onAction={handleAiopsAction}
-                                    records={answerActionRecords}
+                                    records={resolvedAnswerActionRecords}
                                     resolveAction={getAiopsRecordAction}
                                   />
                                 )}
@@ -3600,6 +4056,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     copiedLabel={copy.answerCopied}
                                     copyLabel={copy.answerCopy}
                                     feedback={message.feedback}
+                                    feedbackComment={message.feedbackComment}
                                     language={uiLanguage}
                                     onCopy={() => copyMessage(message, index)}
                                     onEditForResend={

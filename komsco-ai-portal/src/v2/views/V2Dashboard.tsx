@@ -27,6 +27,7 @@ import {
   buildEndpoints,
   buildQueues,
   buildScopes,
+  displayOpenShiftVersion,
   formatTime,
   queueMetaItems,
   scopeDetailRows,
@@ -258,7 +259,7 @@ export const V2Dashboard: React.FC<{
             </p>
             <div className="v2-hero2__chips">
               <span>
-                OpenShift <strong>{summary.version.version ?? '-'}</strong>
+                OpenShift <strong>{displayOpenShiftVersion(summary.version.version)}</strong>
               </span>
               {summary.version.channel && (
                 <span>
@@ -375,7 +376,7 @@ export const V2Dashboard: React.FC<{
                 오퍼레이터 <strong>{summary.operators.available}/{summary.operators.total}</strong>
               </span>
               <span>
-                OCP <strong>{summary.version.version ?? '-'}</strong>
+                OCP <strong>{displayOpenShiftVersion(summary.version.version)}</strong>
               </span>
             </div>
             <small className="v2-issue-summary__note">게이트웨이 요약 스냅샷 기준 평가입니다.</small>

@@ -32,13 +32,7 @@ PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 PLUGIN_PORT="${PLUGIN_PORT:-9001}"
 CONSOLE_PORT="${CONSOLE_PORT:-9000}"
 GATEWAY_PORT="${GATEWAY_PORT:-18080}"
-if [ -z "${GATEWAY_ENDPOINT:-}" ]; then
-  if is_wsl && command -v docker >/dev/null 2>&1; then
-    GATEWAY_ENDPOINT="http://host.docker.internal:${GATEWAY_PORT}"
-  else
-    GATEWAY_ENDPOINT="http://localhost:${GATEWAY_PORT}"
-  fi
-fi
+GATEWAY_ENDPOINT="$(normalize_gateway_endpoint_for_console_bridge "${GATEWAY_ENDPOINT:-}" "$GATEWAY_PORT")"
 INSTALL_DEPS="${INSTALL_DEPS:-false}"
 PLUGIN_LOG="${PLUGIN_LOG:-${ROOT_DIR}/.dev-console-plugin-webpack.log}"
 CONSOLE_LOG="${CONSOLE_LOG:-${ROOT_DIR}/.dev-console-plugin-console.log}"

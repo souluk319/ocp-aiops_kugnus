@@ -6,7 +6,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONSOLE_URL="${CONSOLE_URL:-http://localhost:9000/dashboards}"
 CONSOLE_HEALTH_URL="${CONSOLE_HEALTH_URL:-http://localhost:9000/api/kubernetes/version}"
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
-PLUGIN_MANIFEST_URL="${PLUGIN_MANIFEST_URL:-http://localhost:9001/api/plugins/${PLUGIN_NAME}/plugin-manifest.json}"
+PLUGIN_BASE_URL="${PLUGIN_BASE_URL:-http://localhost:9001/api/plugins/${PLUGIN_NAME}}"
+PLUGIN_MANIFEST_URL="${PLUGIN_MANIFEST_URL:-${PLUGIN_BASE_URL}/plugin-manifest.json}"
 DEFAULT_API_SERVER="https://api.ocp.cywell.server:6443"
 EXPECTED_API_SERVER="${DEFAULT_API_SERVER}"
 REPAIR="${KUGNUS_OKD_CONSOLE_REPAIR:-true}"
@@ -29,6 +30,29 @@ detail() {
 
 http_code() {
   curl -ksS -o /dev/null -w "%{http_code}" --max-time 8 "$1" 2>/dev/null || true
+}
+
+plugin_asset_report() {
+  local path
+  local code
+  local status=0
+  local required_assets=(
+    "plugin-manifest.json"
+    "plugin-entry.js"
+    "exposed-useAssistantOverlay-chunk.js"
+    "exposed-NullContextProvider-chunk.js"
+    "components_AssistantLauncher_tsx-chunk.js"
+  )
+
+  for path in "${required_assets[@]}"; do
+    code="$(http_code "${PLUGIN_BASE_URL}/${path}")"
+    detail "${PLUGIN_BASE_URL}/${path} -> HTTP ${code:-000}"
+    if [ "$code" != "200" ]; then
+      status=1
+    fi
+  done
+
+  return "$status"
 }
 
 tcp_open() {
@@ -111,17 +135,16 @@ check_local_endpoints() {
   section "localhost:9000 실제 상태"
   local dashboard_code
   local api_code
-  local plugin_code
+  local plugin_status=0
 
   dashboard_code="$(http_code "$CONSOLE_URL")"
   api_code="$(http_code "$CONSOLE_HEALTH_URL")"
-  plugin_code="$(http_code "$PLUGIN_MANIFEST_URL")"
 
   detail "${CONSOLE_URL} -> HTTP ${dashboard_code:-000}"
   detail "${CONSOLE_HEALTH_URL} -> HTTP ${api_code:-000}"
-  detail "${PLUGIN_MANIFEST_URL} -> HTTP ${plugin_code:-000}"
+  plugin_asset_report || plugin_status=$?
 
-  if [ "$api_code" = "200" ] && [ "$plugin_code" = "200" ]; then
+  if [ "$api_code" = "200" ] && [ "$plugin_status" = "0" ]; then
     say "[PASS] 9000은 OKD API와 플러그인까지 실제 연결됨"
     return 0
   fi
@@ -138,8 +161,8 @@ check_local_endpoints() {
     return 2
   fi
 
-  if [ "$plugin_code" != "200" ]; then
-    say "[FAIL] 9001 플러그인 dev server가 준비되지 않았습니다."
+  if [ "$plugin_status" != "0" ]; then
+    say "[FAIL] 9001 플러그인 dev server 또는 필수 chunk가 준비되지 않았습니다."
     detail "open-okd-console.sh가 필요하면 플러그인 dev server를 시작합니다."
     return 2
   fi
@@ -162,14 +185,13 @@ repair_console() {
 final_check() {
   section "최종 확인"
   local api_code
-  local plugin_code
+  local plugin_status=0
 
   api_code="$(http_code "$CONSOLE_HEALTH_URL")"
-  plugin_code="$(http_code "$PLUGIN_MANIFEST_URL")"
   detail "${CONSOLE_HEALTH_URL} -> HTTP ${api_code:-000}"
-  detail "${PLUGIN_MANIFEST_URL} -> HTTP ${plugin_code:-000}"
+  plugin_asset_report || plugin_status=$?
 
-  if [ "$api_code" = "200" ] && [ "$plugin_code" = "200" ]; then
+  if [ "$api_code" = "200" ] && [ "$plugin_status" = "0" ]; then
     say "[PASS] OKD 콘솔 사용 가능: ${CONSOLE_URL}"
     if [ "$OPEN_AFTER_REPAIR" = "true" ]; then
       OPEN_BROWSER=true "${ROOT_DIR}/scripts/open-okd-console.sh"
@@ -178,7 +200,7 @@ final_check() {
   fi
 
   say "[FAIL] 수리 후에도 정상 아님"
-  detail "api=${api_code:-000}, plugin=${plugin_code:-000}"
+  detail "api=${api_code:-000}, plugin-assets=${plugin_status}"
   detail "docker logs --tail 120 kugnus-local-console"
   return 1
 }

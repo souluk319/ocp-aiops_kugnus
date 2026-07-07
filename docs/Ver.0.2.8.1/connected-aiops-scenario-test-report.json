@@ -1,0 +1,38 @@
+{
+  "apiVersion": "aiops.komsco/v1",
+  "kind": "ConnectedAIOpsScenarioTestReport",
+  "metadata": {
+    "createdAt": "2026-07-06T15:58:38.073Z",
+    "name": "v0281-connected-aiops-scenario-test"
+  },
+  "spec": {
+    "consoleUrl": "http://localhost:9000/dashboards/aiops?codex_v=0281-connected",
+    "expectedServer": "https://api.ocp.cywell.server:6443",
+    "namespace": "",
+    "screenshotDir": "docs/Ver.0.2.8.1/connected-aiops-screenshots",
+    "session": ""
+  },
+  "status": {
+    "completedAt": "2026-07-06T15:59:03.312Z",
+    "failures": [
+      {
+        "message": "bash scripts/setup-v0281-connected-aiops-sandbox.sh --json exited 1\nFAIL: current user cannot create a test namespace/project",
+        "runtimeErrors": []
+      }
+    ],
+    "screenshots": [],
+    "scenarios": [
+      {
+        "evidence": {
+          "command": "bash scripts/setup-v0281-connected-aiops-sandbox.sh --json",
+          "error": "bash scripts/setup-v0281-connected-aiops-sandbox.sh --json exited 1\nFAIL: current user cannot create a test namespace/project"
+        },
+        "id": "00-sandbox-setup",
+        "state": "failed",
+        "title": "Sandbox setup",
+        "updatedAt": "2026-07-06T15:59:03.312Z"
+      }
+    ],
+    "state": "failed"
+  }
+}

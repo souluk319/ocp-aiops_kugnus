@@ -3,7 +3,7 @@ import { Moon, Sun } from 'lucide-react';
 import type { V2Runtime } from '../V2App';
 import type { V2Theme } from '../theme';
 import { Card, DefList, Select, Toggle } from '../components/primitives';
-import { clusterLabel } from '../lib/model';
+import { clusterLabel, displayApiEndpoint } from '../lib/model';
 
 export const V2Settings: React.FC<{
   onToggleTheme: () => void;
@@ -21,15 +21,15 @@ export const V2Settings: React.FC<{
   return (
     <div className="v2-view v2-settings">
       <section className="v2-config-banner">
-        <strong>로컬 화면 설정</strong>
-        <span>현재 설정 화면은 BE 저장 없이 포털에서 확인/시뮬레이션하는 UI입니다.</span>
+        <strong>화면 설정</strong>
+        <span>현재 설정 화면은 포털에서 정책과 표시 옵션을 확인하는 UI입니다.</span>
       </section>
 
       <section className="v2-grid v2-grid--settings">
         <Card title="게이트웨이 연결">
           <DefList
             rows={[
-              { label: 'API URL', value: summary.apiUrl ?? 'OpenShift 상태 확인 필요' },
+              { label: 'API', value: displayApiEndpoint(summary.apiUrl) },
               { label: '클러스터', value: clusterLabel(summary) },
               { label: '상태', value: summary.healthScore >= 90 ? '정상' : '확인 필요' },
             ]}

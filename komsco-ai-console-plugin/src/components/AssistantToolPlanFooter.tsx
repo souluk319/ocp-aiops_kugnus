@@ -15,6 +15,36 @@ type AssistantToolPlanFooterProps = {
   toolPlan?: ToolPlanFooter;
 };
 
+const translateToolPlanText = (value: string | undefined, language: UiLanguage): string | undefined => {
+  if (!value || language === 'ko') {
+    return value;
+  }
+
+  const exact: Record<string, string> = {
+    '승인 또는 실행 전에 기존 proposal/sealed plan 존재 여부 확인':
+      'Check whether an existing proposal or sealed plan exists before approval or execution',
+    'evidence-check 기본 정책과 mutation gate 상태 확인':
+      'Check the default evidence policy and mutation gate state',
+    '추가 확인 필요':
+      'Needs more evidence',
+    '조회 단계':
+      'Query step',
+    '계획 검증 실패':
+      'Plan validation failed',
+  };
+  if (exact[value]) {
+    return exact[value];
+  }
+
+  return value
+    .replace(/승인/g, 'approval')
+    .replace(/실행/g, 'execution')
+    .replace(/기존/g, 'existing')
+    .replace(/존재 여부 확인/g, 'existence check')
+    .replace(/상태 확인/g, 'state check')
+    .replace(/추가 확인/g, 'follow-up check');
+};
+
 const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
   language,
   toolPlan,
@@ -79,7 +109,9 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
           {steps.map((step, index) => (
             <li key={`${step.step || index}-${step.tool || 'tool'}`}>
               <strong>{evidenceTypeLabel(step.evidenceType || step.tool, language)}</strong>
-              <span>{step.reason || (isKo ? '조회 단계' : 'Query step')}</span>
+              <span>
+                {translateToolPlanText(step.reason, language) || (isKo ? '조회 단계' : 'Query step')}
+              </span>
               <code>{step.verb || step.tool}</code>
             </li>
           ))}
@@ -92,7 +124,8 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
             {missingEvidence.map((item, index) => (
               <span key={`${item.type || 'missing'}-${index}`}>
                 {evidenceTypeLabel(item.type, language)}:{' '}
-                {item.reason || (isKo ? '추가 확인 필요' : 'Needs more evidence')}
+                {translateToolPlanText(item.reason, language) ||
+                  (isKo ? '추가 확인 필요' : 'Needs more evidence')}
               </span>
             ))}
           </div>

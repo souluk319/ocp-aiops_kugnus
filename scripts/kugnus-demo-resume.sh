@@ -10,7 +10,8 @@ GATEWAY_URL="${KUGNUS_GATEWAY_URL:-http://127.0.0.1:18080}"
 CONSOLE_URL="${KUGNUS_CONSOLE_URL:-http://127.0.0.1:9000/dashboards}"
 CONSOLE_HEALTH_URL="${KUGNUS_CONSOLE_HEALTH_URL:-http://127.0.0.1:9000/api/kubernetes/version}"
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
-PLUGIN_MANIFEST_URL="${KUGNUS_PLUGIN_MANIFEST_URL:-http://127.0.0.1:9001/api/plugins/${PLUGIN_NAME}/plugin-manifest.json}"
+PLUGIN_BASE_URL="${KUGNUS_PLUGIN_BASE_URL:-http://127.0.0.1:9001/api/plugins/${PLUGIN_NAME}}"
+PLUGIN_MANIFEST_URL="${KUGNUS_PLUGIN_MANIFEST_URL:-${PLUGIN_BASE_URL}/plugin-manifest.json}"
 STARTUP_ATTEMPTS="${KUGNUS_RESUME_STARTUP_ATTEMPTS:-160}"
 RUN_STRICT_GATE="${KUGNUS_RESUME_RUN_STRICT_GATE:-true}"
 ENSURE_RAG_BACKEND="${KUGNUS_RESUME_ENSURE_RAG_BACKEND:-true}"
@@ -89,6 +90,25 @@ https_responds() {
       return 1
       ;;
   esac
+}
+
+plugin_assets_healthy() {
+  local path
+  local required_assets=(
+    "plugin-manifest.json"
+    "plugin-entry.js"
+    "exposed-useAssistantOverlay-chunk.js"
+    "exposed-NullContextProvider-chunk.js"
+    "components_AssistantLauncher_tsx-chunk.js"
+  )
+
+  for path in "${required_assets[@]}"; do
+    if ! http_ok "${PLUGIN_BASE_URL}/${path}"; then
+      return 1
+    fi
+  done
+
+  return 0
 }
 
 port_forward_healthy() {
@@ -295,9 +315,9 @@ ensure_rag_backend() {
 }
 
 ensure_console() {
-  if http_ok "$CONSOLE_HEALTH_URL" && http_ok "$PLUGIN_MANIFEST_URL"; then
+  if http_ok "$CONSOLE_HEALTH_URL" && plugin_assets_healthy; then
     log "Console bridge already healthy: ${CONSOLE_HEALTH_URL}"
-    log "Plugin manifest healthy: ${PLUGIN_MANIFEST_URL}"
+    log "Plugin assets healthy: ${PLUGIN_BASE_URL}"
     return
   fi
 
@@ -306,26 +326,26 @@ ensure_console() {
     KUGNUS_OKD_CONSOLE_OPEN=false \
     bash "${ROOT_DIR}/scripts/kugnus-okd-console-morning.sh"
 
-  if http_ok "$CONSOLE_HEALTH_URL" && http_ok "$PLUGIN_MANIFEST_URL"; then
+  if http_ok "$CONSOLE_HEALTH_URL" && plugin_assets_healthy; then
     log "Console ready: ${CONSOLE_URL}"
     return
   fi
 
-  fail "Console bridge did not become healthy after repair. Check ${CONSOLE_HEALTH_URL} and ${PLUGIN_MANIFEST_URL}."
+  fail "Console bridge did not become healthy after repair. Check ${CONSOLE_HEALTH_URL} and plugin assets under ${PLUGIN_BASE_URL}."
 }
 
 ensure_plugin_manifest_state() {
-  if http_ok "$PLUGIN_MANIFEST_URL"; then
-    log "Plugin manifest healthy: ${PLUGIN_MANIFEST_URL}"
+  if plugin_assets_healthy; then
+    log "Plugin assets healthy: ${PLUGIN_BASE_URL}"
     return
   fi
 
   if port_open "127.0.0.1" 9001; then
     ss -ltnp | grep ':9001' >&2 || true
-    fail "port 9001 is listening, but ${PLUGIN_MANIFEST_URL} is not healthy. Stop the stale webpack dev server first."
+    fail "port 9001 is listening, but required plugin assets are incomplete under ${PLUGIN_BASE_URL}. Stop the stale webpack dev server first."
   fi
 
-  log "Plugin manifest is not healthy yet; frontend task will start webpack."
+  log "Plugin assets are not healthy yet; frontend task will start webpack."
 }
 
 run_verification() {

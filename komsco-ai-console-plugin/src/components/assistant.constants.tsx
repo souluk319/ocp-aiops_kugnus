@@ -209,11 +209,23 @@ export const TOOL_LABELS: Record<string, string> = {
 };
 
 export const ACTION_POLICY_LABELS: Record<string, string> = {
+  delete_namespace_after_approval: '네임스페이스 정리',
   evict_one_unhealthy_controller_owned_pod: '비정상 Pod 축출(재생성 유도)',
+  pod_diagnostic_review: 'Pod 원인 확인 플랜',
   rollout_restart_deployment: '배포 롤아웃 재시작',
   rollback_deployment_to_revision: '이전 리비전으로 롤백',
   set_replicas_within_bounds: '레플리카 수 조정',
   set_hpa_bounds: '오토스케일러(HPA) 범위 조정',
+};
+
+export const ACTION_POLICY_LABELS_EN: Record<string, string> = {
+  delete_namespace_after_approval: 'Namespace cleanup',
+  evict_one_unhealthy_controller_owned_pod: 'Evict unhealthy Pod',
+  pod_diagnostic_review: 'Pod diagnostic plan',
+  rollout_restart_deployment: 'Rollout restart Deployment',
+  rollback_deployment_to_revision: 'Roll back Deployment',
+  set_hpa_bounds: 'Adjust HPA bounds',
+  set_replicas_within_bounds: 'Adjust replicas',
 };
 
 export const RISK_LABEL_KO: Record<string, { label: string; tone: 'ok' | 'warn' | 'danger' }> = {

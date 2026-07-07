@@ -62,7 +62,7 @@ export const TASK_MODE_EMPTY_COPY: Record<
 export const UI_COPY: Record<UiLanguage, AssistantCopy> = {
   ko: {
     autoProposeActionsToggle: '답변 후 조치 계획 기본 제공',
-    closeCopilot: 'AIOps Copilot 닫기',
+    closeCopilot: 'AIOps for OCP 닫기',
     emptyHistory: '아직 저장된 대화가 없습니다.',
     emptyUploadedDocs: '업로드된 문서가 없습니다. 파일 첨부 RAG 연결 후 이곳에 표시됩니다.',
     exitFullScreen: '전체 화면 종료',
@@ -94,7 +94,7 @@ export const UI_COPY: Record<UiLanguage, AssistantCopy> = {
   },
   en: {
     autoProposeActionsToggle: 'Show action plans after answers',
-    closeCopilot: 'Close AIOps Copilot',
+    closeCopilot: 'Close AIOps for OCP',
     emptyHistory: 'No saved conversations yet.',
     emptyUploadedDocs:
       'No uploaded documents yet. They will appear here after file-attachment RAG ingestion is connected.',

@@ -117,6 +117,22 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
   }
 
   return text
+    .replace(/보안 경계 확인/g, 'Security boundary check')
+    .replace(/Gateway credential boundary 확인/g, 'Gateway credential boundary checked')
+    .replace(/사용자 주체 확인/g, 'Subject review')
+    .replace(/주체 확인 완료/g, 'Subject review complete')
+    .replace(/제품 접근 권한 확인/g, 'Product access review')
+    .replace(/제품 접근 SelfSubjectAccessReview 확인/g, 'Product access review')
+    .replace(/제품 접근 확인 완료/g, 'Product access confirmed')
+    .replace(/제품 접근 확인/g, 'Product access confirmed')
+    .replace(/정책 확인/g, 'Policy check')
+    .replace(/근거 collection allowed/g, 'Evidence collection allowed')
+    .replace(/근거 수집 허용/g, 'Evidence collection allowed')
+    .replace(/조회\/증거 수집 허용/g, 'Evidence collection allowed')
+    .replace(/감사 레코드 기록/g, 'Audit record written')
+    .replace(/감사 기록/g, 'Audit record')
+    .replace(/증거 수집 계획 검증 완료/g, 'Evidence plan validation complete')
+    .replace(/실행형 Tool Plan 검증 완료/g, 'Evidence plan validation complete')
     .replace(/요청 준비 완료/g, 'Request ready')
     .replace(/요청 준비/g, 'Request setup')
     .replace(/사용자 권한 및 요청 확인/g, 'Access and request check')
@@ -144,6 +160,7 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/답변 표시 완료/g, 'Answer displayed')
     .replace(/답변 표시/g, 'Answer display')
     .replace(/답변을 화면에 표시하는 중입니다\./g, 'Displaying the answer.')
+    .replace(/Evidence plan 검증 Complete/g, 'Evidence plan validation complete')
     .replace(/증거 수집 계획 생성/g, 'Evidence plan created')
     .replace(/증거 수집 계획 실패/g, 'Evidence plan failed')
     .replace(/증거 수집 계획/g, 'Evidence plan')
@@ -173,7 +190,12 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/스트림 종료/g, 'Stream ended')
     .replace(/도구 응답을 기다리는 중입니다\./g, 'Waiting for tool response.')
     .replace(/시작/g, 'Started')
-    .replace(/완료/g, 'Complete');
+    .replace(/완료/g, 'Complete')
+    .replace(/확인/g, 'check')
+    .replace(/검증/g, 'validation')
+    .replace(/조회/g, 'query')
+    .replace(/허용/g, 'allowed')
+    .replace(/기록/g, 'record');
 };
 
 const productProgressText = (value?: string, language: UiLanguage = 'ko'): string => {
@@ -249,6 +271,16 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
   }
 
   const normalized = text
+    .replace(/보안 경계 확인/g, 'Security boundary check')
+    .replace(/Gateway credential boundary 확인/g, 'Gateway credential boundary checked')
+    .replace(/사용자 주체 확인/g, 'Subject review')
+    .replace(/제품 접근 권한 확인/g, 'Product access review')
+    .replace(/제품 접근 SelfSubjectAccessReview 확인/g, 'Product access review')
+    .replace(/정책 확인/g, 'Policy check')
+    .replace(/조회\/증거 수집 허용/g, 'Evidence collection allowed')
+    .replace(/감사 레코드 기록/g, 'Audit record written')
+    .replace(/감사 기록/g, 'Audit record')
+    .replace(/증거 수집 계획 검증 완료/g, 'Evidence plan validation complete')
     .replace(/Node 상태 RCA 증거 수집 완료/g, '노드 상태 근거 수집 완료')
     .replace(/Active Alert RCA 증거 수집 완료/g, '경고 근거 수집 완료')
     .replace(/Restart metric RCA 증거 수집 완료/g, '재시작 지표 수집 완료')

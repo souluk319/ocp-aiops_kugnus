@@ -12,6 +12,7 @@ import {
   ledgerKindLabel,
   ledgerResultLabel,
   ledgerTargetLabel,
+  localizeTelemetryText,
   mockAuditRecords,
   mockExecutionRecords,
   mutationStatusLabel,
@@ -118,7 +119,7 @@ export const V2Executions: React.FC<{
     },
     {
       detail: capabilities.recordStoreEnabled
-        ? capabilities.recordStoreConfigMap || '영구 감사 원장이 활성화되어 있습니다.'
+        ? localizeTelemetryText(capabilities.recordStoreConfigMap || '영구 감사 원장이 활성화되어 있습니다.')
         : '기록이 게이트웨이 영구 원장에 저장되지 않습니다.',
       label: '기록 원장',
       tone: capabilities.recordStoreEnabled ? 'ok' : 'warn',
@@ -219,7 +220,7 @@ export const V2Executions: React.FC<{
                   <span className="v2-trace__body">
                     <strong>{entry.phase}</strong>
                     <b>{ledgerActionLabel(entry.action)}</b>
-                    <small>{ledgerTargetLabel(entry)}</small>
+                    {ledgerTargetLabel(entry) !== '-' && <small>{ledgerTargetLabel(entry)}</small>}
                   </span>
                   <span className="v2-trace__result">{ledgerResultLabel(entry.result)}</span>
                   {entry.sample && <span className="v2-trace__sample">샘플</span>}

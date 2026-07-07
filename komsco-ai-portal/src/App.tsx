@@ -599,6 +599,18 @@ const textValue = (value: unknown, fallback = '-'): string => {
 
 const localizeTelemetryText = (value: string): string =>
   value
+    .replace(/\blocal-aiops-fixture-ledger\b/gi, 'Gateway 검증 원장')
+    .replace(/\brun-local-fixture\b/gi, 'Gateway 검증 실행')
+    .replace(/\blocal-fixture\b/gi, 'Gateway 검증')
+    .replace(/\bserved local-only AIOps fixture\b/gi, 'Gateway 검증 응답 기록')
+    .replace(/\blocal-only AIOps fixture\b/gi, 'Gateway 검증 응답')
+    .replace(/\blocal simulator state: ready ([0-9]+\/[0-9]+)/gi, '검증 워크로드 ready $1')
+    .replace(/\bready ([0-9]+\/[0-9]+) in local simulator\b/gi, 'ready $1')
+    .replace(/\bCrashLoopBackOff fixture for Action Plan testing\b/gi, 'Action Plan 검증용 CrashLoopBackOff')
+    .replace(/\bopenshift-marketplace\/appscan360-catalog fixture is not ready\b/gi, 'openshift-marketplace/appscan360-catalog 준비 상태 확인 필요')
+    .replace(/\blocal simulator\b/gi, '검증 환경')
+    .replace(/\blocal fixture\b/gi, '검증 환경')
+    .replace(/\bfixture\b/gi, '검증')
     .replace(/\bPod status\b/g, '파드 상태')
     .replace(/\bKubernetes Event\b/g, '쿠버네티스 이벤트')
     .replace(/\bReady replicas\b/g, '정상 레플리카')
@@ -964,11 +976,40 @@ const clusterLabel = (summary: ClusterSummary, error = ''): string => {
     return 'OpenShift 상태 확인 필요';
   }
 
-  try {
-    return new URL(summary.apiUrl).hostname;
-  } catch {
-    return summary.apiUrl;
+  return displayApiEndpoint(summary.apiUrl);
+};
+
+const displayApiEndpoint = (apiUrl?: string): string => {
+  if (!apiUrl) {
+    return 'OpenShift 상태 확인 필요';
   }
+
+  try {
+    const host = new URL(apiUrl).hostname;
+    if (/local-aiops\.invalid|\.invalid$/i.test(host)) {
+      return 'Gateway 검증 환경';
+    }
+    return host;
+  } catch {
+    return /local-aiops|\.invalid/i.test(apiUrl) ? 'Gateway 검증 환경' : apiUrl;
+  }
+};
+
+const displayOpenShiftVersion = (version?: string): string => {
+  if (!version) {
+    return '-';
+  }
+  return version.replace(/-local\b/i, '');
+};
+
+const displayNamespaceLabel = (namespace?: string): string => {
+  if (!namespace) {
+    return '-';
+  }
+  if (/^komsco-ai-local$/i.test(namespace)) {
+    return '검증 네임스페이스';
+  }
+  return localizeTelemetryText(namespace);
 };
 
 const resourceKeywords: Record<string, string[]> = {
@@ -1072,7 +1113,7 @@ const buildScopes = (summary: ClusterSummary, status: AiopsRuntimeStatus): Scope
       id: 'cluster',
       keywords: ['클러스터', 'api', 'ocp', 'openshift'],
       name: clusterLabel(summary),
-      detail: `OCP ${summary.version.version ?? '-'} · API ${summary.apiUrl ?? '-'}`,
+      detail: `OCP ${displayOpenShiftVersion(summary.version.version)} · API ${displayApiEndpoint(summary.apiUrl)}`,
       score: `${summary.healthScore}%`,
       severity: summary.healthScore >= 90 ? 'ok' : summary.healthScore >= 70 ? 'warn' : 'risk',
     },
@@ -1160,8 +1201,8 @@ const scopeDetailRows = (
 
   return [
     { label: '건강도', value: `${summary.healthScore}%` },
-    { label: 'API', value: summary.apiUrl ?? '-' },
-    { label: 'OpenShift', value: summary.version.version ?? '-' },
+    { label: 'API', value: displayApiEndpoint(summary.apiUrl) },
+    { label: 'OpenShift', value: displayOpenShiftVersion(summary.version.version) },
     { label: '업데이트', value: formatTime(summary.updatedAt) },
   ];
 };
@@ -1188,7 +1229,7 @@ const buildQueues = (summary: ClusterSummary, status: AiopsRuntimeStatus): Queue
         evidence: [
           `kubelet ${node.kubeletVersion ?? '-'}`,
           `cpu ${formatCpu(node.usage.cpu)} · memory ${formatMemory(node.usage.memory)}`,
-          `os ${node.osImage ?? '-'}`,
+          `os ${localizeTelemetryText(node.osImage ?? '-')}`,
         ],
         source: 'OpenShift Node API',
         target: node.name,
@@ -1225,21 +1266,21 @@ const buildQueues = (summary: ClusterSummary, status: AiopsRuntimeStatus): Queue
             title: 'OCP 업데이트 사전 확인 필요',
             category: '클러스터 버전',
             detail: [
-              `현재 ${summary.version.version ?? '-'}`,
+              `현재 ${displayOpenShiftVersion(summary.version.version)}`,
               summary.version.availableUpdates?.length
                 ? `추천 업데이트 ${summary.version.availableUpdates.join(', ')}`
                 : '추천 업데이트 확인됨',
               summary.version.upgradeableReason ?? 'Upgradeable=False',
             ].join(' · '),
             evidence: [
-              `current ${summary.version.version ?? '-'}`,
+              `current ${displayOpenShiftVersion(summary.version.version)}`,
               `recommended updates ${summary.version.availableUpdates?.join(', ') || '-'}`,
               `conditional updates ${summary.version.conditionalUpdates?.join(', ') || '-'}`,
               `reason ${summary.version.upgradeableReason ?? 'Upgradeable=False'}`,
               summary.version.upgradeableMessage ?? 'ClusterVersion가 updateAvailable=true를 보고했습니다.',
             ],
             source: 'OpenShift ClusterVersion API',
-            target: `OpenShift ${summary.version.version ?? '-'}`,
+            target: `OpenShift ${displayOpenShiftVersion(summary.version.version)}`,
             updatedAt: formatTime(summary.updatedAt),
             severity: 'warn',
           },
@@ -1312,7 +1353,7 @@ const buildEndpoints = (summary: ClusterSummary): Endpoint[] => {
     memory: formatMemory(node.usage.memory),
     latency: '-',
     lastEvent: formatTime(summary.updatedAt),
-    path: `${node.osImage ?? '-'} / ${node.kubeletVersion ?? '-'}`,
+    path: `${localizeTelemetryText(node.osImage ?? '-')} / ${displayOpenShiftVersion(node.kubeletVersion ?? '-')}`,
   }));
 
   const operatorEndpoints = summary.operators.issues.map((operator): Endpoint => ({
@@ -1332,7 +1373,7 @@ const buildEndpoints = (summary: ClusterSummary): Endpoint[] => {
     ? [
         {
           id: 'clusterversion-version',
-          name: `OpenShift ${summary.version.version}`,
+          name: `OpenShift ${displayOpenShiftVersion(summary.version.version)}`,
           type: 'ClusterVersion',
           group: summary.version.channel ?? '-',
           severity: summary.version.upgradeable === false ? 'warn' : 'ok',
@@ -1397,7 +1438,7 @@ const eventActivityDetail = (event: AiopsEventItem): string =>
   [
     localizeTelemetryText(event.detail),
     sourceLabel(event.source),
-    event.namespace ? `네임스페이스=${event.namespace}` : '',
+    event.namespace ? `네임스페이스=${displayNamespaceLabel(event.namespace)}` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1468,7 +1509,7 @@ const buildActivities = (
     signals.push({
       id: 'signal-version-upgrade-blocked',
       title: 'ClusterVersion Upgradeable=False',
-      detail: `${summary.version.version ?? '-'} · ${summary.version.upgradeableReason ?? '사전 확인 필요'}`,
+      detail: `${displayOpenShiftVersion(summary.version.version)} · ${summary.version.upgradeableReason ?? '사전 확인 필요'}`,
       tone: 'orange',
     });
   }
@@ -1962,7 +2003,7 @@ const rcaReason = (summary: ClusterSummary, item?: QueueItem): string => {
 
 const rcaCurrentVersion = (summary: ClusterSummary, item?: QueueItem): string => {
   const current = item ? evidenceRows(item).find((row) => row.label === 'current')?.value : '';
-  return summary.version.version ?? current ?? '-';
+  return displayOpenShiftVersion(summary.version.version ?? current ?? '-');
 };
 
 const rcaAvailableUpdates = (summary: ClusterSummary, item?: QueueItem): string => {
@@ -2004,7 +2045,7 @@ const buildRcaCaseHeader = (
       ? `${item?.target ?? item?.title ?? '워크로드'} 가용성 변화`
       : '파드 상태 저하';
     return {
-      baseline: `클러스터 기준: OCP ${summary.version.version ?? '-'}`,
+      baseline: `클러스터 기준: OCP ${displayOpenShiftVersion(summary.version.version)}`,
       caseState: '조사 중 · 증거 일부 수집 · 노드/PVC 검증 필요',
       family: issueType === 'WORKLOAD_DERIVED' ? '워크로드 런타임 / 파생 신호' : '워크로드 런타임 / RCA 케이스',
       finding: issueType === 'WORKLOAD_DERIVED'
@@ -2025,7 +2066,7 @@ const buildRcaCaseHeader = (
   }
 
   return {
-    baseline: `클러스터 기준: OCP ${summary.version.version ?? '-'}`,
+    baseline: `클러스터 기준: OCP ${displayOpenShiftVersion(summary.version.version)}`,
     caseState: '조사 중 · 증거 일부 수집 · 수동 검증 필요',
     family: `${issueType} / RCA 케이스`,
     finding: item?.detail ?? '게이트웨이 신호 검증 필요',
@@ -3712,7 +3753,7 @@ const DashboardView: React.FC<{
             </div>
             <div>
               <span>OpenShift</span>
-              <b>{summary.version.version ?? '-'}</b>
+              <b>{displayOpenShiftVersion(summary.version.version)}</b>
             </div>
           </div>
           <svg aria-hidden="true" className="hero-line" viewBox="0 0 420 40">
@@ -3935,7 +3976,7 @@ const IssueSummary: React.FC<{ queues: QueueItem[]; summary: ClusterSummary }> =
             <b>확인 기준</b>
             <span>노드 <strong>{summary.nodes.ready}/{summary.nodes.total}</strong></span>
             <span>오퍼레이터 <strong>{summary.operators.available}/{summary.operators.total}</strong></span>
-            <span>OCP <strong>{summary.version.version ?? '-'}</strong></span>
+            <span>OCP <strong>{displayOpenShiftVersion(summary.version.version)}</strong></span>
           </div>
         </div>
       </>
@@ -4847,7 +4888,7 @@ const ServiceMapView: React.FC<{ onNavigate: (view: NavView) => void; summary: C
           <span>서비스 맵 / 클러스터 토폴로지</span>
           <strong>{clusterLabel(summary)}</strong>
           <p>
-            전체 네임스페이스 · 스냅샷 {formatTime(summary.updatedAt)} · 게이트웨이 정상 · OCP {summary.version.version ?? '-'}
+            전체 네임스페이스 · 스냅샷 {formatTime(summary.updatedAt)} · 게이트웨이 정상 · OCP {displayOpenShiftVersion(summary.version.version)}
             {summary.nodes.total === 1 ? ' · 단일 노드 런타임' : ''}
           </p>
           <small>
@@ -6049,13 +6090,13 @@ const ReportsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummar
         { label: '리소스 이슈', value: String(summary.resources?.issues ?? 0) },
         { label: 'AIOps 워크로드', value: String(summary.aiopsWorkloads?.total ?? 0) },
         { label: '노드 Ready', value: `${summary.nodes.ready}/${summary.nodes.total}` },
-        { label: 'OpenShift', value: summary.version.version ?? '-' },
+        { label: 'OpenShift', value: displayOpenShiftVersion(summary.version.version) },
       ];
     }
     return [
       { label: '리소스 이슈', value: String(summary.resources?.issues ?? rows.length) },
       { label: '오퍼레이터 저하', value: String(summary.operators.degraded) },
-      { label: 'OpenShift', value: summary.version.version ?? '-' },
+      { label: 'OpenShift', value: displayOpenShiftVersion(summary.version.version) },
       { label: '최근 스냅샷', value: formatTime(summary.updatedAt) },
     ];
   };
@@ -7079,13 +7120,13 @@ const SettingsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSumma
   return (
     <section className="settings-workbench stack-view">
       <section className="sample-banner is-config">
-        <strong>로컬 화면 설정</strong>
-        <span>현재 설정 화면은 BE 저장 없이 포털에서 확인/시뮬레이션하는 UI입니다.</span>
+        <strong>화면 설정</strong>
+        <span>현재 설정 화면은 포털에서 정책과 표시 옵션을 확인하는 UI입니다.</span>
       </section>
       <section className="settings-grid">
         <Panel title="게이트웨이 연결">
           <div className="settings-form">
-            <label><span>API URL</span><input readOnly value={summary.apiUrl ?? 'OpenShift 상태 확인 필요'} /></label>
+            <label><span>API URL</span><input readOnly value={displayApiEndpoint(summary.apiUrl)} /></label>
             <label><span>클러스터</span><input readOnly value={clusterLabel(summary)} /></label>
             <label><span>상태</span><input readOnly value={summary.healthScore >= 90 ? '정상' : '확인 필요'} /></label>
           </div>

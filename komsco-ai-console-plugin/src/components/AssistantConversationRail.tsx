@@ -112,7 +112,9 @@ const AssistantConversationRail: React.FC<AssistantConversationRailProps> = ({
             >
               <div className="komsco-ai__rail-command-head">
                 <div className="komsco-ai__rail-command-title">
-                  <span>{message.role === 'user' ? text(language, '사용자', 'User') : 'AIOps'}</span>
+                  <span>
+                    {message.role === 'user' ? text(language, '사용자', 'User') : 'AIOps for OCP'}
+                  </span>
                   <code>{messageTime(message.timestamp, language)}</code>
                 </div>
                 <StatusTag

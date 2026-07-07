@@ -493,6 +493,18 @@ export const textValue = (value: unknown, fallback = '-'): string => {
 
 export const localizeTelemetryText = (value: string): string =>
   value
+    .replace(/\blocal-aiops-fixture-ledger\b/gi, 'Gateway 검증 원장')
+    .replace(/\brun-local-fixture\b/gi, 'Gateway 검증 실행')
+    .replace(/\blocal-fixture\b/gi, 'Gateway 검증')
+    .replace(/\bserved local-only AIOps fixture\b/gi, 'Gateway 검증 응답 기록')
+    .replace(/\blocal-only AIOps fixture\b/gi, 'Gateway 검증 응답')
+    .replace(/\blocal simulator state: ready ([0-9]+\/[0-9]+)/gi, '검증 워크로드 ready $1')
+    .replace(/\bready ([0-9]+\/[0-9]+) in local simulator\b/gi, 'ready $1')
+    .replace(/\bCrashLoopBackOff fixture for Action Plan testing\b/gi, 'Action Plan 검증용 CrashLoopBackOff')
+    .replace(/\bopenshift-marketplace\/appscan360-catalog fixture is not ready\b/gi, 'openshift-marketplace/appscan360-catalog 준비 상태 확인 필요')
+    .replace(/\blocal simulator\b/gi, '검증 환경')
+    .replace(/\blocal fixture\b/gi, '검증 환경')
+    .replace(/\bfixture\b/gi, '검증')
     .replace(/\bPod status\b/g, '파드 상태')
     .replace(/\bKubernetes Event\b/g, '쿠버네티스 이벤트')
     .replace(/\bReady replicas\b/g, '정상 레플리카')
@@ -572,22 +584,25 @@ export const recordTarget = (record: AiopsRecord): string => {
   const name = textValue(finalTarget.name ?? finalTarget.nodeName ?? spec.requestId, '');
 
   if (namespace && name) {
-    return `${namespace}/${name}`;
+    return `${displayNamespaceLabel(namespace)}/${displayResourceName(name)}`;
   }
 
-  return name || textValue(spec.runId ?? spec.incidentId, '-');
+  return displayResourceName(name || textValue(spec.runId ?? spec.incidentId, '-'));
 };
 
 export const recordKindLabel = (kind?: string): string => {
   const labels: Record<string, string> = {
     ActionProposal: '조치 제안',
+    ActionProposalRecord: '조치 제안',
     ApprovalDecision: '승인 결정',
+    ApprovalDecisionRecord: '승인 결정',
     AuditRecord: '감사',
     DiagnosticRequestRecord: '진단',
     ExecutionRecord: '실행',
     SealedActionPlan: '승인 필요 계획',
+    SealedActionPlanRecord: '승인 필요 계획',
   };
-  return kind ? labels[kind] ?? kind : '기록';
+  return kind ? labels[kind] ?? localizeTelemetryText(kind) : '기록';
 };
 
 export const recordTone = (record: AiopsRecord, variant: 'audit' | 'action' = 'action'): ActivityItem['tone'] => {
@@ -647,12 +662,15 @@ export const targetProjection = (record: AiopsRecord): { kind: string; name: str
   const namespace = textValue(finalTarget.namespace, '');
   const kind = textValue(finalTarget.kind ?? finalTarget.resource ?? finalTarget.resourceKind, '');
   const name = textValue(finalTarget.name ?? finalTarget.nodeName ?? spec.runId ?? spec.requestId, '');
-  const parts = [namespace, kind, name].filter(Boolean);
+  const namespaceLabel = displayNamespaceLabel(namespace || '-');
+  const kindLabel = kind ? ledgerKindLabel(kind) : '-';
+  const nameLabel = displayResourceName(name || '-');
+  const parts = [namespaceLabel, kindLabel, nameLabel].filter((part) => part && part !== '-');
 
   return {
     kind: kind || '-',
-    name: name || '-',
-    namespace: namespace || '-',
+    name: nameLabel,
+    namespace: namespaceLabel,
     target: parts.length > 0 ? parts.join(' / ') : recordTarget(record),
   };
 };
@@ -716,17 +734,17 @@ export const buildLedgerEntries = (
       const phase = ledgerPhase({ category }, record, variant);
       const action = textValue(spec.action, variant === 'audit' ? textValue(spec.action, record.metadata?.name ?? 'audit_record') : recordPhase(record));
       const result = textValue(spec.result ?? recordPhase(record), variant === 'audit' ? 'recorded' : 'recorded');
-      const runId = textValue(spec.runId ?? spec.requestId, 'crashloop-remediation');
+      const runId = displayRunId(textValue(spec.runId ?? spec.requestId, 'crashloop-remediation'));
       const time = record.metadata?.createdAt ?? '';
-      const title = record.metadata?.name ?? action;
+      const title = localizeTelemetryText(record.metadata?.name ?? action);
 
       return {
         action,
-        actor: textValue(spec.actor, variant === 'audit' ? 'gateway' : 'aiops-gateway'),
-        artifact: textValue(spec.artifact ?? spec.requestId ?? spec.runId, '-'),
-        auditId: textValue(spec.auditId ?? record.metadata?.name, '-'),
+        actor: displayActorLabel(textValue(spec.actor, variant === 'audit' ? 'gateway' : 'aiops-gateway')),
+        artifact: displayLedgerId(textValue(spec.artifact ?? spec.requestId ?? spec.runId, '-')),
+        auditId: displayLedgerId(textValue(spec.auditId ?? record.metadata?.name, '-')),
         category,
-        evidenceId: textValue(spec.evidenceId, '-'),
+        evidenceId: displayLedgerId(textValue(spec.evidenceId, '-')),
         gate: textValue(spec.gate, category === 'mutation' ? 'Executor' : category === 'approval' ? 'Approval' : 'Gateway'),
         id: `${variant}-${record.kind ?? 'record'}-${record.metadata?.name ?? index}`,
         kind: target.kind,
@@ -762,11 +780,17 @@ export const ledgerActionLabel = (value: string): string => {
     audit_record: '감사 기록',
     chat_request_accepted: '요청 접수',
     evidence_collected: '증거 수집',
+    executed: '실행 기록',
+    mutation_succeeded: '변경 성공',
+    proposed: '조치 제안',
     restart_rollout: '롤아웃 재시작 제안',
     rollout_restart: '롤아웃 재시작 실행',
+    sealed: '계획 봉인',
     seal_mutation_plan: '변경 계획 봉인',
+    sealed_pending_approval: '승인 대기 계획',
+    'served local-only AIOps fixture': 'Gateway 검증 응답 기록',
   };
-  return labels[value] ?? value;
+  return labels[value] ?? localizeTelemetryText(value);
 };
 
 export const ledgerGateLabel = (value: string): string => {
@@ -783,19 +807,23 @@ export const ledgerGateLabel = (value: string): string => {
 
 export const ledgerKindLabel = (value: string): string => {
   const labels: Record<string, string> = {
+    ActionProposalRecord: '조치 제안',
     Approval: '승인',
+    ApprovalDecisionRecord: '승인 결정',
     DaemonSet: '데몬셋',
     Deployment: '디플로이먼트',
     Evidence: '증거',
+    ExecutionRecord: '실행 기록',
     Node: '노드',
     Pod: '파드',
     ReplicaSet: '레플리카셋',
     Route: '라우트',
     Run: '실행',
     Service: '서비스',
+    SealedActionPlanRecord: '승인 필요 계획',
     StatefulSet: '스테이트풀셋',
   };
-  return labels[value] ?? value;
+  return labels[value] ?? localizeTelemetryText(value);
 };
 
 export const resourceNameLabel = (id: string, name: string, kind: string): string => {
@@ -831,13 +859,17 @@ export const ledgerResultLabel = (value: string): string => {
     approved: '승인됨',
     blocked: '차단됨',
     collected: '수집됨',
+    executed: '실행됨',
     failed: '실패',
+    mutation_succeeded: '변경 성공',
     proposed: '제안됨',
     recorded: '기록됨',
+    sealed: '봉인됨',
+    sealed_pending_approval: '승인 대기',
     succeeded: '성공',
     waiting_approval: '승인 대기',
   };
-  return labels[value] ?? value;
+  return labels[value] ?? localizeTelemetryText(value);
 };
 
 export const mutationStatusLabel = (value: string): string => {
@@ -858,11 +890,68 @@ export const clusterLabel = (summary: ClusterSummary, error = ''): string => {
     return 'OpenShift 상태 확인 필요';
   }
 
-  try {
-    return new URL(summary.apiUrl).hostname;
-  } catch {
-    return summary.apiUrl;
+  return displayApiEndpoint(summary.apiUrl);
+};
+
+export const displayApiEndpoint = (apiUrl?: string): string => {
+  if (!apiUrl) {
+    return 'OpenShift 상태 확인 필요';
   }
+
+  try {
+    const host = new URL(apiUrl).hostname;
+    if (/local-aiops\.invalid|\.invalid$/i.test(host)) {
+      return 'Gateway 검증 환경';
+    }
+    return host;
+  } catch {
+    return /local-aiops|\.invalid/i.test(apiUrl) ? 'Gateway 검증 환경' : apiUrl;
+  }
+};
+
+export const displayOpenShiftVersion = (version?: string): string => {
+  if (!version) {
+    return '-';
+  }
+  return version.replace(/-local\b/i, '');
+};
+
+export const displayNamespaceLabel = (namespace?: string): string => {
+  const value = textValue(namespace, '-');
+  if (value === '-') {
+    return value;
+  }
+  if (/^komsco-ai-local$/i.test(value)) {
+    return '검증 네임스페이스';
+  }
+  return localizeTelemetryText(value);
+};
+
+export const displayLedgerId = (value?: string): string => {
+  const id = textValue(value, '-');
+  return id === '-' ? id : localizeTelemetryText(id);
+};
+
+export const displayRunId = (value?: string): string => {
+  const id = textValue(value, '-');
+  return id === '-' ? id : localizeTelemetryText(id);
+};
+
+export const displayActorLabel = (value?: string): string => {
+  const actor = textValue(value, '-');
+  const labels: Record<string, string> = {
+    'action-executor': '조치 실행기',
+    'aiops-gateway': 'AIOps 게이트웨이',
+    gateway: '게이트웨이',
+    'ocp-admin': '운영 관리자',
+    'platform-operator': '플랫폼 운영자',
+  };
+  return labels[actor] ?? localizeTelemetryText(actor);
+};
+
+export const displayResourceName = (value?: string): string => {
+  const name = textValue(value, '-');
+  return name === '-' ? name : localizeTelemetryText(name);
 };
 
 export const resourceKeywords: Record<string, string[]> = {
@@ -945,7 +1034,9 @@ export const aiopsWorkloadItems = (summary: ClusterSummary) => [
 
 export const aiopsWorkloadNames = (summary: ClusterSummary, limit = 3): string => {
   const workloads = aiopsWorkloadItems(summary);
-  const names = workloads.slice(0, limit).map((workload) => `${workload.namespace}/${workload.name}`);
+  const names = workloads
+    .slice(0, limit)
+    .map((workload) => `${displayNamespaceLabel(workload.namespace)}/${displayResourceName(workload.name)}`);
   const extra = workloads.length - names.length;
   return extra > 0 ? `${names.join(', ')} 외 ${extra}` : names.join(', ');
 };
@@ -966,7 +1057,7 @@ export const buildScopes = (summary: ClusterSummary, status: AiopsRuntimeStatus)
       id: 'cluster',
       keywords: ['클러스터', 'api', 'ocp', 'openshift'],
       name: clusterLabel(summary),
-      detail: `OCP ${summary.version.version ?? '-'} · API ${summary.apiUrl ?? '-'}`,
+      detail: `OCP ${displayOpenShiftVersion(summary.version.version)} · API ${displayApiEndpoint(summary.apiUrl)}`,
       score: `${summary.healthScore}%`,
       severity: summary.healthScore >= 90 ? 'ok' : summary.healthScore >= 70 ? 'warn' : 'risk',
     },
@@ -1054,8 +1145,8 @@ export const scopeDetailRows = (
 
   return [
     { label: '건강도', value: `${summary.healthScore}%` },
-    { label: 'API', value: summary.apiUrl ?? '-' },
-    { label: 'OpenShift', value: summary.version.version ?? '-' },
+    { label: 'API', value: displayApiEndpoint(summary.apiUrl) },
+    { label: 'OpenShift', value: displayOpenShiftVersion(summary.version.version) },
     { label: '업데이트', value: formatTime(summary.updatedAt) },
   ];
 };
@@ -1082,7 +1173,7 @@ export const buildQueues = (summary: ClusterSummary, status: AiopsRuntimeStatus)
         evidence: [
           `kubelet ${node.kubeletVersion ?? '-'}`,
           `cpu ${formatCpu(node.usage.cpu)} · memory ${formatMemory(node.usage.memory)}`,
-          `os ${node.osImage ?? '-'}`,
+          `os ${localizeTelemetryText(node.osImage ?? '-')}`,
         ],
         source: 'OpenShift Node API',
         target: node.name,
@@ -1119,21 +1210,21 @@ export const buildQueues = (summary: ClusterSummary, status: AiopsRuntimeStatus)
             title: 'OCP 업데이트 사전 확인 필요',
             category: '클러스터 버전',
             detail: [
-              `현재 ${summary.version.version ?? '-'}`,
+              `현재 ${displayOpenShiftVersion(summary.version.version)}`,
               summary.version.availableUpdates?.length
                 ? `추천 업데이트 ${summary.version.availableUpdates.join(', ')}`
                 : '추천 업데이트 확인됨',
               summary.version.upgradeableReason ?? 'Upgradeable=False',
             ].join(' · '),
             evidence: [
-              `current ${summary.version.version ?? '-'}`,
+              `current ${displayOpenShiftVersion(summary.version.version)}`,
               `recommended updates ${summary.version.availableUpdates?.join(', ') || '-'}`,
               `conditional updates ${summary.version.conditionalUpdates?.join(', ') || '-'}`,
               `reason ${summary.version.upgradeableReason ?? 'Upgradeable=False'}`,
               summary.version.upgradeableMessage ?? 'ClusterVersion가 updateAvailable=true를 보고했습니다.',
             ],
             source: 'OpenShift ClusterVersion API',
-            target: `OpenShift ${summary.version.version ?? '-'}`,
+            target: `OpenShift ${displayOpenShiftVersion(summary.version.version)}`,
             updatedAt: formatTime(summary.updatedAt),
             severity: 'warn',
           },
@@ -1206,7 +1297,7 @@ export const buildEndpoints = (summary: ClusterSummary): Endpoint[] => {
     memory: formatMemory(node.usage.memory),
     latency: '-',
     lastEvent: formatTime(summary.updatedAt),
-    path: `${node.osImage ?? '-'} / ${node.kubeletVersion ?? '-'}`,
+    path: `${localizeTelemetryText(node.osImage ?? '-')} / ${displayOpenShiftVersion(node.kubeletVersion ?? '-')}`,
   }));
 
   const operatorEndpoints = summary.operators.issues.map((operator): Endpoint => ({
@@ -1226,7 +1317,7 @@ export const buildEndpoints = (summary: ClusterSummary): Endpoint[] => {
     ? [
         {
           id: 'clusterversion-version',
-          name: `OpenShift ${summary.version.version}`,
+          name: `OpenShift ${displayOpenShiftVersion(summary.version.version)}`,
           type: 'ClusterVersion',
           group: summary.version.channel ?? '-',
           severity: summary.version.upgradeable === false ? 'warn' : 'ok',
@@ -1241,9 +1332,9 @@ export const buildEndpoints = (summary: ClusterSummary): Endpoint[] => {
 
   const aiopsWorkloadEndpoints = aiopsWorkloadItems(summary).map((workload): Endpoint => ({
     id: `aiops-${workload.kind}-${workload.namespace}-${workload.name}`,
-    name: workload.name,
+    name: displayResourceName(workload.name),
     type: `AI/Ops ${ledgerKindLabel(workload.kind)}`,
-    group: workload.namespace,
+    group: displayNamespaceLabel(workload.namespace),
     severity: workload.severity,
     cpu: '-',
     memory: '-',
@@ -1291,7 +1382,7 @@ export const eventActivityDetail = (event: AiopsEventItem): string =>
   [
     localizeTelemetryText(event.detail),
     sourceLabel(event.source),
-    event.namespace ? `네임스페이스=${event.namespace}` : '',
+    event.namespace ? `네임스페이스=${displayNamespaceLabel(event.namespace)}` : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -1362,7 +1453,7 @@ export const buildActivities = (
     signals.push({
       id: 'signal-version-upgrade-blocked',
       title: 'ClusterVersion Upgradeable=False',
-      detail: `${summary.version.version ?? '-'} · ${summary.version.upgradeableReason ?? '사전 확인 필요'}`,
+      detail: `${displayOpenShiftVersion(summary.version.version)} · ${summary.version.upgradeableReason ?? '사전 확인 필요'}`,
       tone: 'orange',
     });
   }
@@ -1856,7 +1947,7 @@ export const rcaReason = (summary: ClusterSummary, item?: QueueItem): string => 
 
 export const rcaCurrentVersion = (summary: ClusterSummary, item?: QueueItem): string => {
   const current = item ? evidenceRows(item).find((row) => row.label === 'current')?.value : '';
-  return summary.version.version ?? current ?? '-';
+  return displayOpenShiftVersion(summary.version.version ?? current ?? '-');
 };
 
 export const rcaAvailableUpdates = (summary: ClusterSummary, item?: QueueItem): string => {
@@ -1898,7 +1989,7 @@ export const buildRcaCaseHeader = (
       ? `${item?.target ?? item?.title ?? '워크로드'} 가용성 변화`
       : '파드 상태 저하';
     return {
-      baseline: `클러스터 기준: OCP ${summary.version.version ?? '-'}`,
+      baseline: `클러스터 기준: OCP ${displayOpenShiftVersion(summary.version.version)}`,
       caseState: '조사 중 · 증거 일부 수집 · 노드/PVC 검증 필요',
       family: issueType === 'WORKLOAD_DERIVED' ? '워크로드 런타임 / 파생 신호' : '워크로드 런타임 / RCA 케이스',
       finding: issueType === 'WORKLOAD_DERIVED'
@@ -1919,7 +2010,7 @@ export const buildRcaCaseHeader = (
   }
 
   return {
-    baseline: `클러스터 기준: OCP ${summary.version.version ?? '-'}`,
+    baseline: `클러스터 기준: OCP ${displayOpenShiftVersion(summary.version.version)}`,
     caseState: '조사 중 · 증거 일부 수집 · 수동 검증 필요',
     family: `${issueType} / RCA 케이스`,
     finding: item?.detail ?? '게이트웨이 신호 검증 필요',
@@ -2965,4 +3056,3 @@ export const auditLedgerFilters: Array<{ id: 'all' | LedgerEntry['category']; la
   { id: 'gateway', label: '게이트웨이' },
   { id: 'evidence', label: '증거' },
 ];
-

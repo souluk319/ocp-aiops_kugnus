@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIOps for OCP Local OKD Run Tutorial</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --surface: #ffffff;
+      --surface-2: #f9fbfe;
+      --line: #d7e0ec;
+      --line-strong: #b8c6d8;
+      --ink: #132033;
+      --muted: #617086;
+      --navy: #0b1930;
+      --blue: #1f6feb;
+      --green: #11845b;
+      --amber: #a16207;
+      --red: #b42318;
+      --code: #0f172a;
+      --shadow: 0 18px 44px rgba(20, 35, 56, 0.1);
+      font-family: Inter, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 284px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 22px 18px;
+      overflow: auto;
+      background: #eef3f9;
+      border-right: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--navy);
+      color: #67e8f9;
+      font-weight: 800;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    .brand-sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav a {
+      display: block;
+      padding: 9px 10px;
+      border-radius: 8px;
+      color: #26364d;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .nav a:hover {
+      background: #e1eaf5;
+      text-decoration: none;
+    }
+
+    main {
+      padding: 32px clamp(22px, 5vw, 64px) 64px;
+    }
+
+    .hero {
+      margin-bottom: 24px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 8px 0 10px;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 12px;
+      font-size: 22px;
+      line-height: 1.25;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 16px;
+      line-height: 1.35;
+    }
+
+    p {
+      margin: 0 0 12px;
+      color: #314158;
+    }
+
+    .lead {
+      max-width: 860px;
+      color: #314158;
+      font-size: 17px;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 22px 0 6px;
+    }
+
+    .status {
+      min-height: 110px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .status strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--navy);
+      font-size: 14px;
+    }
+
+    .status span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .section {
+      max-width: 1060px;
+      padding: 22px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .callout {
+      margin: 16px 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--blue);
+      background: #eef5ff;
+      color: #213653;
+    }
+
+    .callout.warn {
+      border-left-color: var(--amber);
+      background: #fff7e6;
+    }
+
+    .callout.danger {
+      border-left-color: var(--red);
+      background: #fff1f0;
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin: 16px 0;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 150px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 12px 0;
+      border-bottom: 1px solid #e6edf6;
+    }
+
+    .flow-row:last-child { border-bottom: 0; }
+
+    .flow-key {
+      color: var(--navy);
+      font-weight: 800;
+    }
+
+    .flow-value {
+      color: #314158;
+    }
+
+    .cmd {
+      position: relative;
+      margin: 12px 0 18px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--code);
+      color: #e5edf8;
+    }
+
+    .cmd-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 9px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #9fb1c7;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      overflow-x: auto;
+      white-space: pre;
+      font: 13px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    .copy {
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 6px;
+      background: rgba(255,255,255,0.08);
+      color: #e5edf8;
+      cursor: pointer;
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      display: table;
+    }
+
+    .table th,
+    .table td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .table th {
+      background: #eef3f9;
+      color: var(--navy);
+      font-size: 13px;
+    }
+
+    .table tr:last-child td { border-bottom: 0; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: #fff;
+      color: #314158;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .good { color: var(--green); }
+    .bad { color: var(--red); }
+
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: relative;
+        height: auto;
+      }
+      .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .flow-row { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 620px) {
+      main { padding: 24px 16px 48px; }
+      .status-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="mark">AI</div>
+        <div>
+          <div class="brand-title">AIOps for OCP<br>Local OKD Run Tutorial</div>
+          <div class="brand-sub">v0.2.8.1 · WSL + OKD Console</div>
+        </div>
+      </div>
+      <nav class="nav" aria-label="문서 목차">
+        <a href="#quick-start">정답 명령</a>
+        <a href="#mental-model">원리</a>
+        <a href="#manual-start">수동 기동</a>
+        <a href="#health-gates">정상 판정</a>
+        <a href="#failure-map">장애별 조치</a>
+        <a href="#shutdown">끄는 법</a>
+        <a href="#changed">이번에 고친 점</a>
+      </nav>
+    </aside>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow">Local Operations Runbook</div>
+        <h1>localhost:9000을 매번 삽질 없이 켜는 법</h1>
+        <p class="lead">
+          이 문서는 OKD 로컬 콘솔에서 <b>AIOps for OCP</b>를 테스트할 때 필요한
+          Gateway, 플러그인 dev-server, OKD console bridge의 역할과 기동 순서를 고정한다.
+          목표는 “화면이 떴다”가 아니라 “Copilot이 실제로 질문을 받고 Gateway까지 연결된다”를 확인하는 것이다.
+        </p>
+        <div class="status-grid">
+          <div class="status">
+            <strong>9000 · OKD Console</strong>
+            <span>브라우저가 여는 로컬 OKD 콘솔. Docker 컨테이너가 회사 OKD API를 대신 조회한다.</span>
+          </div>
+          <div class="status">
+            <strong>9001 · Plugin</strong>
+            <span>AIOps 화면과 Copilot UI 번들을 제공한다. chunk 하나라도 404면 화면이 blank가 된다.</span>
+          </div>
+          <div class="status">
+            <strong>18080 · Gateway</strong>
+            <span>Copilot 질문을 받아 OCP 조회, Lightspeed, Action Plan 흐름으로 연결한다.</span>
+          </div>
+          <div class="status">
+            <strong>18443 · Lightspeed PF</strong>
+            <span>OpenShift Lightspeed 서비스 port-forward. 연결 실패 시 Gateway fallback/실조회로 구분된다.</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="quick-start" class="section">
+        <h2>정답 명령</h2>
+        <p>대부분의 경우 아래 한 줄만 실행한다. 긴 strict demo gate는 생략하고, 로컬 작업에 필요한 stack만 올린다.</p>
+        <div class="cmd">
+          <div class="cmd-title"><span>WSL · repo root</span><button class="copy" data-copy="cd /home/kugnus/cywell/ocp-aiops_kugnus && task kugnus:aiops:up">복사</button></div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:aiops:up</code></pre>
+        </div>
+
+        <p>상태만 보고 싶으면 수리 없이 doctor를 실행한다.</p>
+        <div class="cmd">
+          <div class="cmd-title"><span>진단만</span><button class="copy" data-copy="cd /home/kugnus/cywell/ocp-aiops_kugnus && task kugnus:aiops:doctor">복사</button></div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:aiops:doctor</code></pre>
+        </div>
+
+        <p>VPN이나 oc 토큰을 다시 잡은 뒤 콘솔 bridge만 새로 만들고 싶으면 repair를 실행한다.</p>
+        <div class="cmd">
+          <div class="cmd-title"><span>수리</span><button class="copy" data-copy="cd /home/kugnus/cywell/ocp-aiops_kugnus && task kugnus:aiops:repair">복사</button></div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+task kugnus:aiops:repair</code></pre>
+        </div>
+
+        <div class="callout">
+          <b>성공 기준:</b> 마지막에 9001 plugin assets, 9000 Kubernetes API, 9000 Gateway proxy가 모두 통과해야 한다.
+          브라우저 주소는 <a href="http://localhost:9000/dashboards/aiops">http://localhost:9000/dashboards/aiops</a> 이다.
+        </div>
+        <div class="callout warn">
+          <b>주의:</b> <code>cd komsco-ai-console-plugin &amp;&amp; corepack yarn build</code>를 실행하면
+          production dist가 써지면서 dev용 <code>plugin-entry.js</code>와 일부 고정 chunk가 사라질 수 있다.
+          build 후 브라우저 테스트를 계속하려면 <code>task kugnus:aiops:repair</code>로 9001 dev-server를 다시 맞춘다.
+        </div>
+      </section>
+
+      <section id="mental-model" class="section">
+        <h2>원리</h2>
+        <p>문제는 localhost 하나가 아니라 네 개의 로컬 경로가 함께 맞아야 한다는 점이다.</p>
+        <div class="flow">
+          <div class="flow-row">
+            <div class="flow-key">브라우저</div>
+            <div class="flow-value">사용자는 <code>localhost:9000</code>만 본다.</div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">OKD bridge</div>
+            <div class="flow-value">Docker 컨테이너 <code>kugnus-local-console</code>이 현재 <code>oc</code> 토큰으로 회사 OKD API를 조회한다.</div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">Plugin dev-server</div>
+            <div class="flow-value"><code>9001</code>이 AIOps 화면 chunk를 제공한다. manifest만 200이어도 필수 chunk가 404면 화면이 runtime overlay로 죽는다.</div>
+          </div>
+          <div class="flow-row">
+            <div class="flow-key">Gateway</div>
+            <div class="flow-value"><code>18080</code>이 Copilot API다. WSL Docker 컨테이너에서는 <code>localhost:18080</code>이 아니라 <code>host.docker.internal:18080</code>로 봐야 한다.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="manual-start" class="section">
+        <h2>수동 기동</h2>
+        <p>원리를 확인하고 싶을 때만 아래 순서로 나눠 켠다. 평소에는 <code>task kugnus:aiops:up</code>을 쓴다.</p>
+
+        <h3>1. oc 로그인 확인</h3>
+        <div class="cmd">
+          <div class="cmd-title"><span>회사 OKD API 확인</span><button class="copy" data-copy="oc whoami && oc whoami --show-server">복사</button></div>
+          <pre><code>oc whoami
+oc whoami --show-server</code></pre>
+        </div>
+        <p>서버는 <code>https://api.ocp.cywell.server:6443</code>이어야 한다. VPN이 끊긴 상태면 여기서 먼저 실패한다.</p>
+
+        <h3>2. Gateway 켜기</h3>
+        <div class="cmd">
+          <div class="cmd-title"><span>Gateway + Lightspeed path</span><button class="copy" data-copy="cd /home/kugnus/cywell/ocp-aiops_kugnus && GATEWAY_HOST=0.0.0.0 AIOPS_GATEWAY_MODE=execute OLS_BASE_URL=https://127.0.0.1:18443 ./scripts/dev-gateway-lightspeed.sh">복사</button></div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+GATEWAY_HOST=0.0.0.0 \
+AIOPS_GATEWAY_MODE=execute \
+OLS_BASE_URL=https://127.0.0.1:18443 \
+./scripts/dev-gateway-lightspeed.sh</code></pre>
+        </div>
+
+        <h3>3. Plugin dev-server 켜기</h3>
+        <div class="cmd">
+          <div class="cmd-title"><span>9001 plugin</span><button class="copy" data-copy="cd /home/kugnus/cywell/ocp-aiops_kugnus/komsco-ai-console-plugin && PATH=\"$HOME/.nvm/versions/node/v24.14.0/bin:$PATH\" corepack yarn webpack serve --progress">복사</button></div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus/komsco-ai-console-plugin
+PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH" \
+corepack yarn webpack serve --progress</code></pre>
+        </div>
+
+        <h3>4. OKD console bridge 켜기</h3>
+        <div class="cmd">
+          <div class="cmd-title"><span>9000 console bridge</span><button class="copy" data-copy="cd /home/kugnus/cywell/ocp-aiops_kugnus && OPEN_BROWSER=false ./scripts/open-okd-console.sh">복사</button></div>
+          <pre><code>cd /home/kugnus/cywell/ocp-aiops_kugnus
+OPEN_BROWSER=false ./scripts/open-okd-console.sh</code></pre>
+        </div>
+
+        <div class="callout warn">
+          WSL + Docker에서는 console bridge가 Gateway를 <code>host.docker.internal:18080</code>로 봐야 한다.
+          이번 수정으로 <code>.env</code>에 <code>GATEWAY_ENDPOINT=http://localhost:18080</code>이 있어도 WSL에서는 자동 보정된다.
+        </div>
+      </section>
+
+      <section id="health-gates" class="section">
+        <h2>정상 판정</h2>
+        <p>아래가 모두 <span class="badge good">HTTP 200</span>이면 브라우저 테스트를 시작해도 된다.</p>
+        <div class="cmd">
+          <div class="cmd-title"><span>필수 health gate</span><button class="copy" data-copy="curl -ksS http://127.0.0.1:18080/healthz; curl -sS -I http://127.0.0.1:9001/api/plugins/cywell-aiops-console-plugin/plugin-manifest.json; curl -sS -I http://127.0.0.1:9001/api/plugins/cywell-aiops-console-plugin/exposed-NullContextProvider-chunk.js; curl -ksS http://127.0.0.1:9000/api/kubernetes/version; curl -ksS http://127.0.0.1:9000/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/healthz">복사</button></div>
+          <pre><code>curl -ksS http://127.0.0.1:18080/healthz
+curl -sS -I http://127.0.0.1:9001/api/plugins/cywell-aiops-console-plugin/plugin-manifest.json
+curl -sS -I http://127.0.0.1:9001/api/plugins/cywell-aiops-console-plugin/exposed-NullContextProvider-chunk.js
+curl -ksS http://127.0.0.1:9000/api/kubernetes/version
+curl -ksS http://127.0.0.1:9000/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/healthz</code></pre>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>게이트</th>
+              <th>의미</th>
+              <th>실패하면</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>18080/healthz</code></td>
+              <td>Gateway가 살아 있다.</td>
+              <td>Gateway 프로세스나 Lightspeed port-forward 로그를 본다.</td>
+            </tr>
+            <tr>
+              <td><code>9001/plugin-manifest.json</code></td>
+              <td>플러그인 dev-server가 응답한다.</td>
+              <td>Node 24 경로와 webpack 로그를 본다.</td>
+            </tr>
+            <tr>
+              <td><code>9001/exposed-NullContextProvider-chunk.js</code></td>
+              <td>콘솔 overlay hook에 필요한 chunk가 실제로 있다.</td>
+              <td>manifest만 정상인 stale 9001 상태다. <code>task kugnus:aiops:repair</code>를 실행한다.</td>
+            </tr>
+            <tr>
+              <td><code>9000/api/kubernetes/version</code></td>
+              <td>local console bridge가 OKD API를 조회한다.</td>
+              <td>VPN, oc token, bridge 컨테이너 토큰을 확인한다.</td>
+            </tr>
+            <tr>
+              <td><code>9000/.../ai-gateway/healthz</code></td>
+              <td>브라우저에서 Copilot이 Gateway까지 닿는다.</td>
+              <td>bridge proxy endpoint가 <code>host.docker.internal:18080</code>인지 본다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="failure-map" class="section">
+        <h2>장애별 조치</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>증상</th>
+              <th>대부분의 원인</th>
+              <th>바로 할 일</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>브라우저가 blank이고 빨간 runtime overlay</td>
+              <td>9001 plugin chunk 404 또는 stale HMR 산출물</td>
+              <td><code>task kugnus:aiops:repair</code>, 그래도 안 되면 9001 webpack 로그 확인</td>
+            </tr>
+            <tr>
+              <td>Copilot에 BadGateway</td>
+              <td>Gateway가 꺼졌거나 bridge가 <code>localhost:18080</code>로 잘못 연결</td>
+              <td><code>curl 18080/healthz</code>와 <code>9000 ... ai-gateway/healthz</code> 둘 다 확인</td>
+            </tr>
+            <tr>
+              <td>Node/Operator 빨간불</td>
+              <td>실제 클러스터 문제이거나 Gateway summary 조회 실패</td>
+              <td><code>oc get nodes</code>, <code>oc get co</code>, Gateway health를 분리 확인</td>
+            </tr>
+            <tr>
+              <td>9000은 뜨는데 데이터가 낡음</td>
+              <td>Docker bridge가 오래된 oc 토큰을 들고 있음</td>
+              <td>VPN/oc 재로그인 후 <code>task kugnus:aiops:repair</code></td>
+            </tr>
+            <tr>
+              <td>영어 UI인데 한글 답변</td>
+              <td>요청 payload에 UI language가 전달되지 않거나 Gateway 답변 계약이 한국어로 고정</td>
+              <td>Copilot stream payload의 <code>language</code>와 Gateway answer language contract 확인</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="shutdown" class="section">
+        <h2>끄는 법</h2>
+        <p>문제가 생겨 상태를 완전히 비우고 싶을 때만 사용한다.</p>
+        <div class="cmd">
+          <div class="cmd-title"><span>로컬 프로세스 정리</span><button class="copy" data-copy="tmux kill-session -t aiops_gateway_18080 2>/dev/null || true; tmux kill-session -t aiops_plugin_9001 2>/dev/null || true; docker rm -f kugnus-local-console 2>/dev/null || true">복사</button></div>
+          <pre><code>tmux kill-session -t aiops_gateway_18080 2&gt;/dev/null || true
+tmux kill-session -t aiops_plugin_9001 2&gt;/dev/null || true
+docker rm -f kugnus-local-console 2&gt;/dev/null || true</code></pre>
+        </div>
+        <p>그 뒤 다시 켤 때는 <code>task kugnus:aiops:up</code>으로 시작한다.</p>
+      </section>
+
+      <section id="changed" class="section">
+        <h2>이번에 고친 점</h2>
+        <ul>
+          <li><code>open-okd-console.sh</code>가 manifest뿐 아니라 필수 plugin chunk까지 확인한다.</li>
+          <li>WSL에서 <code>GATEWAY_ENDPOINT=http://localhost:18080</code>가 들어와도 console bridge에는 <code>host.docker.internal:18080</code>로 보정한다.</li>
+          <li><code>kugnus-okd-console-morning.sh</code>와 <code>kugnus-demo-resume.sh</code>의 plugin 정상 기준을 chunk 단위로 올렸다.</li>
+          <li><code>Taskfile.yml</code>에 <code>kugnus:aiops:up</code>, <code>kugnus:aiops:doctor</code>, <code>kugnus:aiops:repair</code> 별칭을 추가했다.</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const text = button.getAttribute("data-copy") || "";
+        try {
+          await navigator.clipboard.writeText(text);
+          const original = button.textContent;
+          button.textContent = "복사됨";
+          setTimeout(() => { button.textContent = original; }, 1200);
+        } catch {
+          button.textContent = "복사 실패";
+        }
+      });
+    });
+  </script>
+</body>
+</html>

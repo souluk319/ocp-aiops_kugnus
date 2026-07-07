@@ -5,7 +5,12 @@ export type HistoryPanelView = 'chats' | 'uploads';
 export type Message = {
   role: 'user' | 'assistant' | 'system';
   answerContract?: string;
-  answerSource?: 'ols' | 'gateway_direct' | 'gateway_fallback' | 'copilot_clarification';
+  answerSource?:
+    | 'ols'
+    | 'gateway_direct'
+    | 'gateway_fallback'
+    | 'copilot_clarification'
+    | 'copilot_reply';
   attachments?: ImageAttachment[];
   content: string;
   evidenceFooter?: EvidenceFooter;

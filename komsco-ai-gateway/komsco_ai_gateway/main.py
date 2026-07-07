@@ -632,6 +632,15 @@ ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
 SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
 APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
 EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
+NAMESPACE_CLEANUP_CHAT_CANDIDATES: dict[str, dict[str, Any]] = {}
+NAMESPACE_CLEANUP_PLAN_ID = "plan-local-namespace-cleanup"
+NAMESPACE_CLEANUP_PLAN_DIGEST = "sha256:local-namespace-cleanup-plan-v1"
+TEST_POD_CREATE_PLAN_ID = "plan-local-create-test-pods"
+TEST_POD_CREATE_PLAN_DIGEST = "sha256:local-create-test-pods-plan-v1"
+TEST_POD_CREATE_DEFAULT_NAMESPACE = "gpu-test-kugnus"
+TEST_POD_CREATE_DEFAULT_COUNT = 3
+TEST_POD_CREATE_DEFAULT_IMAGE = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+TEST_POD_CREATE_NAME_PREFIX = "aiops-test-pod"
 # Serializes concurrent auto-execute attempts against the same target so two
 # near-simultaneous candidate-plan requests (e.g. a retried webhook) can't each
 # independently auto-approve+execute their own sealed plan for the same Pod.
@@ -731,6 +740,54 @@ ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
         "request": {
             "method": "PATCH",
             "pathTemplate": "/apis/autoscaling/v2/namespaces/{namespace}/horizontalpodautoscalers/{name}",
+        },
+    },
+    "namespace_cleanup_review": {
+        "toolName": "namespace_cleanup_review",
+        "toolVersion": "v1",
+        "targetKind": "Namespace",
+        "risk": "medium",
+        "authorization": {
+            "apiGroup": "",
+            "resource": "namespaces",
+            "subresource": "",
+            "verb": "get",
+        },
+        "request": {
+            "method": "GET",
+            "pathTemplate": "/api/v1/namespaces/{name}",
+        },
+    },
+    "test_pod_create_review": {
+        "toolName": "test_pod_create_review",
+        "toolVersion": "v1",
+        "targetKind": "Namespace",
+        "risk": "low",
+        "authorization": {
+            "apiGroup": "",
+            "resource": "namespaces",
+            "subresource": "",
+            "verb": "get",
+        },
+        "request": {
+            "method": "GET",
+            "pathTemplate": "/api/v1/namespaces/{name}",
+        },
+    },
+    "pod_diagnostic_review": {
+        "toolName": "pod_diagnostic_review",
+        "toolVersion": "v1",
+        "targetKind": "Pod",
+        "risk": "low",
+        "authorization": {
+            "apiGroup": "",
+            "resource": "pods",
+            "subresource": "",
+            "verb": "get",
+        },
+        "request": {
+            "method": "GET",
+            "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}",
         },
     },
 }
@@ -1593,6 +1650,31 @@ def normalize_action_parameters(
             "minReplicas": min_replicas,
         }
 
+    if tool_name == "namespace_cleanup_review":
+        owner_confirmed = parameters.get("ownerConfirmed", False)
+        pvc_route_reviewed = parameters.get("pvcRouteReviewed", False)
+        backup_reviewed = parameters.get("backupReviewed", False)
+        if not all(isinstance(value, bool) for value in (owner_confirmed, pvc_route_reviewed, backup_reviewed)):
+            raise HTTPException(status_code=400, detail="namespace cleanup review flags must be boolean values")
+        return {
+            "backupReviewed": backup_reviewed,
+            "ownerConfirmed": owner_confirmed,
+            "pvcRouteReviewed": pvc_route_reviewed,
+            "reviewOnly": True,
+        }
+
+    if tool_name == "test_pod_create_review":
+        count = parameters.get("count", TEST_POD_CREATE_DEFAULT_COUNT)
+        image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
+            raise HTTPException(status_code=400, detail="test pod count must be an integer between 1 and 5")
+        return {
+            "count": count,
+            "image": image[:240],
+            "namePrefix": str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX)[:63],
+            "reviewOnly": True,
+        }
+
     raise HTTPException(status_code=400, detail="Unsupported action")
 
 
@@ -2043,15 +2125,40 @@ def approval_already_executed(approval_id: str) -> bool:
     )
 
 
-def plan_has_approval_status(plan_digest: str, statuses: set[str]) -> bool:
+def record_created_at(record: Mapping[str, Any]) -> datetime | None:
+    metadata = record.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return None
+    return parse_rfc3339(metadata.get("createdAt"))
+
+
+def plan_has_approval_status(
+    plan_digest: str,
+    statuses: set[str],
+    *,
+    not_before: datetime | None = None,
+) -> bool:
+    return find_approval_by_plan_status(plan_digest, statuses, not_before=not_before) is not None
+
+
+def find_approval_by_plan_status(
+    plan_digest: str,
+    statuses: set[str],
+    *,
+    not_before: datetime | None = None,
+) -> dict[str, Any] | None:
     for record in APPROVAL_DECISIONS.values():
+        if not_before is not None:
+            created_at = record_created_at(record)
+            if created_at is not None and created_at < not_before:
+                continue
         spec = record.get("spec")
         decision = spec.get("approvalDecision") if isinstance(spec, Mapping) else None
         if not isinstance(decision, Mapping):
             continue
         if decision.get("planDigest") == plan_digest and decision.get("status") in statuses:
-            return True
-    return False
+            return record
+    return None
 
 
 def build_execution_grant_reference(
@@ -2396,6 +2503,7 @@ class ChatRequest(BaseModel):
     message: str = Field(default="", max_length=4000)
     pageContext: dict[str, Any] | None = None
     conversationId: str | None = None
+    language: str | None = Field(default=None, max_length=16)
     runId: str | None = None
     recentMessages: list[ChatContextMessage] = Field(default_factory=list, max_length=8)
     attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
@@ -2632,6 +2740,231 @@ def page_context_aiops_execution_mode(req: ChatRequest) -> str:
     if mode in {"execute", "execution", "execution-enabled", "enabled"}:
         return "execute"
     return "execute"
+
+
+def page_context_aiops_ui_language(req: ChatRequest) -> str:
+    context = normalize_console_page_context(req.pageContext)
+    value = str(
+        context.get("aiopsUiLanguage")
+        or context.get("uiLanguage")
+        or context.get("language")
+        or req.language
+        or ""
+    ).strip().lower()
+    if value.startswith("en"):
+        return "en"
+    if value.startswith("ko") or value.startswith("kr"):
+        return "ko"
+    return ""
+
+
+def message_looks_english(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if re.search(r"[가-힣]", stripped):
+        return False
+    return bool(re.search(r"[A-Za-z]", stripped))
+
+
+def answer_language(req: ChatRequest) -> str:
+    ui_language = page_context_aiops_ui_language(req)
+    if ui_language == "en":
+        return "en"
+    if message_looks_english(req.message):
+        return "en"
+    return "ko"
+
+
+def answer_language_contract(req: ChatRequest) -> str:
+    if answer_language(req) == "en":
+        return (
+            "Answer language: English.\n"
+            "The console UI or user message is English, so every user-facing sentence, section heading, "
+            "status explanation, example, and action note in the final answer must be English.\n"
+            "Do not output Korean in the final answer unless you are quoting a Korean resource name or the user explicitly asks for Korean."
+        )
+    return (
+        "답변 언어: 한국어.\n"
+        "최종 답변의 사용자-facing 문장, 섹션 제목, 상태 설명, 예시, 조치 안내는 한국어로 작성하세요.\n"
+        "사용자가 영어 답변을 명시적으로 요청했거나 영어로만 질문한 경우에는 영어로 답하세요."
+    )
+
+
+def answer_section_contract(req: ChatRequest) -> str:
+    if answer_language(req) == "en":
+        return (
+            "Use this structure when RCA or operations status is requested: "
+            "Summary, Impact Scope, Verified Evidence, Root Cause Candidates, Action Plan, Additional Checks, Prevention."
+        )
+    return (
+        "RCA 또는 운영 상태 질문에는 가능한 경우 아래 순서를 사용하세요: "
+        "요약, 영향 범위, 확인한 근거, 원인 후보, Action Plan, 추가 확인, 재발 방지."
+    )
+
+
+CASUAL_IDENTITY_RE = re.compile(
+    r"^\s*(hi|hello|hey|yo|ok|okay|thanks|thank you|who are you|what can you do|"
+    r"help|안녕|야|ㅇㅋ|고마워|너\s*뭐야|뭐야|누구야)\s*[.!?。！？]*\s*$",
+    re.IGNORECASE,
+)
+CASUAL_EMOTION_RE = re.compile(
+    r"(챗봇|copilot|aiops|멍청|명청|바보|짜증|화나|시발|씨발|좆|개같|"
+    r"stupid|dumb|annoying|frustrat|bad bot|broken bot)",
+    re.IGNORECASE,
+)
+OPERATIONAL_CONTEXT_RE = re.compile(
+    r"(openshift|오픈시프트|ocp|kubernetes|쿠버네티스|cluster|클러스터|namespace|네임스페이스|"
+    r"node|노드|operator|pod|파드|deployment|deploy|배포|event|이벤트|alert|경고|"
+    r"action\s*plan|조치|승인|실행|터미널|명령|oc\b|restart|rollback|scale|delete|create|cleanup)",
+    re.IGNORECASE,
+)
+GENERAL_CONCEPT_SUBJECT_RE = re.compile(
+    r"(openshift|오픈시프트|ocp|kubernetes|쿠버네티스)",
+    re.IGNORECASE,
+)
+GENERAL_CONCEPT_QUESTION_RE = re.compile(
+    r"(\bwhat\s+is\b|\bwhat'?s\b|\bexplain\b|\btell\s+me\s+about\b|"
+    r"뭐야|무엇|설명|정의|개념)",
+    re.IGNORECASE,
+)
+OPERATIONAL_TASK_RE = re.compile(
+    r"(최근|현재|상태|경고|장애|오류|에러|확인|점검|분석|정리|삭제|생성|만들|조회|"
+    r"진단|원인|복구|검증|롤백|계획|실행|승인|조치|터미널|명령|"
+    r"create|delete|cleanup|diagnos|troubleshoot|restart|rollback|get|list|scale|execute|approve|oc\s+)",
+    re.IGNORECASE,
+)
+NAMESPACE_CLEANUP_REQUEST_RE = re.compile(
+    r"(namespace|namespaces|네임스페이스).*(사용\s*중|사용\s*여부|안\s*쓰|오래된|정리|삭제|cleanup|unused|stale)"
+    r"|((사용\s*중|안\s*쓰|오래된|정리|삭제|cleanup|unused|stale).*(namespace|namespaces|네임스페이스))",
+    re.IGNORECASE,
+)
+TEST_POD_CREATE_REQUEST_RE = re.compile(
+    r"((test|테스트).{0,40}(pod|pods|파드).{0,40}(create|생성|만들))"
+    r"|((pod|pods|파드).{0,40}(3|three|세|셋|3개).{0,40}(create|생성|만들))"
+    r"|((create|생성|만들).{0,40}(test|테스트).{0,40}(pod|pods|파드))",
+    re.IGNORECASE,
+)
+NAMESPACE_TOKEN_RE = re.compile(r"\b[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\b")
+NAMESPACE_TOKEN_HINT_RE = re.compile(r"(aiops|komsco|cywell|gpu|test|demo|dev|lab)", re.IGNORECASE)
+SYSTEM_NAMESPACE_RE = re.compile(r"^(default|kube-|openshift-|redhat-|olm|local)$", re.IGNORECASE)
+
+
+def is_casual_identity_request(req: ChatRequest) -> bool:
+    text = re.sub(r"\s+", " ", req.message or "").strip()
+    if not text or len(text) > 120:
+        return False
+    if OPERATIONAL_CONTEXT_RE.search(text):
+        return False
+    return bool(CASUAL_IDENTITY_RE.search(text) or CASUAL_EMOTION_RE.search(text))
+
+
+def is_general_concept_request(req: ChatRequest) -> bool:
+    text = re.sub(r"\s+", " ", req.message or "").strip()
+    if not text or len(text) > 180:
+        return False
+    if not GENERAL_CONCEPT_SUBJECT_RE.search(text):
+        return False
+    if not GENERAL_CONCEPT_QUESTION_RE.search(text):
+        return False
+    if OPERATIONAL_TASK_RE.search(text):
+        return False
+    return True
+
+
+def is_namespace_cleanup_request(req: ChatRequest) -> bool:
+    text = re.sub(r"\s+", " ", req.message or "").strip()
+    return bool(text and NAMESPACE_CLEANUP_REQUEST_RE.search(text))
+
+
+def is_test_pod_create_request(req: ChatRequest) -> bool:
+    text = re.sub(r"\s+", " ", req.message or "").strip()
+    return bool(text and TEST_POD_CREATE_REQUEST_RE.search(text))
+
+
+def namespace_names_from_message(message: str) -> list[str]:
+    seen: set[str] = set()
+    names: list[str] = []
+    for token in NAMESPACE_TOKEN_RE.findall(message.lower()):
+        if token in seen:
+            continue
+        if token in {
+            "namespace",
+            "namespaces",
+            "read",
+            "only",
+            "read-only",
+            "readonly",
+            "oc",
+            "action",
+            "plan",
+            "test",
+            "pod",
+            "pods",
+            "create",
+            "creation",
+            "generated",
+            "candidate",
+            "candidates",
+        }:
+            continue
+        if "-" not in token and not NAMESPACE_TOKEN_HINT_RE.search(token):
+            continue
+        seen.add(token)
+        names.append(token)
+    return names[:12]
+
+
+def casual_identity_answer(req: ChatRequest) -> str:
+    if answer_language(req) == "en":
+        return "\n\n".join(
+            [
+                "I'm AIOps for OCP.",
+                (
+                    "I am an AIOps model specialized for OCP/OpenShift operations. "
+                    "I help operators check cluster state with evidence, separate verified facts "
+                    "from follow-up checks, prepare Action Plans, pass approval gates, and verify execution."
+                ),
+                "Send a namespace, pod, deployment, node, operator, or alert when you want me to inspect something.",
+            ]
+        )
+    return "\n\n".join(
+        [
+            "저는 AIOps for OCP입니다.",
+            (
+                "OCP(OpenShift Container Platform)를 위한 전문 AIOps 모델로, 운영 상태를 근거 기반으로 확인하고 "
+                "원인 후보 정리, Action Plan 작성, 승인 후 실행 검증까지 도와드립니다."
+            ),
+            "네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, 경고 메시지 중 확인할 대상을 알려주시면 바로 이어서 보겠습니다.",
+        ]
+    )
+
+
+def general_concept_answer(req: ChatRequest) -> str:
+    if answer_language(req) == "en":
+        return "\n\n".join(
+            [
+                "OpenShift is Red Hat's Kubernetes-based container platform.",
+                (
+                    "It helps teams deploy applications, connect networking and storage, apply security policy, "
+                    "and operate clusters from a single console and API."
+                ),
+                (
+                    "In AIOps for OCP, I use OpenShift signals such as namespaces, pods, deployments, nodes, "
+                    "operators, and alerts to check evidence, prepare Action Plans, and verify approved changes."
+                ),
+            ]
+        )
+    return "\n\n".join(
+        [
+            "OpenShift는 Red Hat의 Kubernetes 기반 컨테이너 플랫폼입니다.",
+            "애플리케이션 배포, 네트워크/스토리지 연결, 보안 정책, 운영 자동화를 콘솔과 API에서 관리할 수 있게 해줍니다.",
+            (
+                "AIOps for OCP에서는 OpenShift의 네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, "
+                "경고 상태를 근거 기반으로 확인하고 Action Plan과 승인 후 검증까지 연결합니다."
+            ),
+        ]
+    )
 
 
 def execution_mode_allows_actions(req: ChatRequest) -> bool:
@@ -3043,6 +3376,37 @@ def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, An
         }
 
     if kind == "Pod":
+        source_hint = " ".join(
+            [
+                str(req.candidateId or ""),
+                str(req.sourceType or ""),
+                str(req.title or ""),
+                str(req.sourceFindingId or ""),
+            ]
+        ).lower()
+        if any(
+            token in source_hint
+            for token in (
+                "diagnostic",
+                "diagnosis",
+                "fix-review",
+                "fix_or_rollback",
+                "rollback_review",
+                "rca",
+                "evidence",
+                "log-review",
+                "pod_crashloop",
+            )
+        ):
+            return {
+                "apiVersion": target.apiVersion or "v1",
+                "kind": "Pod",
+                "namespace": namespace,
+                "targetName": target.name,
+                "toolName": "pod_diagnostic_review",
+                "parameters": parameters or {"includePreviousLogs": True, "includeEvents": True},
+                "summary": f"Pod `{namespace}/{target.name}` diagnostic review",
+            }
         return {
             "apiVersion": target.apiVersion or "v1",
             "kind": "Pod",
@@ -3051,6 +3415,45 @@ def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, An
             "toolName": "evict_one_unhealthy_controller_owned_pod",
             "parameters": parameters or {"reason": "action_candidate_unhealthy_pod_eviction"},
             "summary": f"Unhealthy controller-owned Pod `{namespace}/{target.name}` eviction",
+        }
+
+    if kind == "Namespace":
+        source_hint = " ".join(
+            [
+                str(req.candidateId or ""),
+                str(req.sourceType or ""),
+                str(req.title or ""),
+                str(req.sourceFindingId or ""),
+            ]
+        ).lower()
+        if any(token in source_hint for token in ("test-pod", "test_pod", "create-test", "pod-create")):
+            return {
+                "apiVersion": target.apiVersion or "v1",
+                "kind": "Namespace",
+                "namespace": namespace or target.name,
+                "targetName": target.name,
+                "toolName": "test_pod_create_review",
+                "parameters": parameters
+                or {
+                    "count": TEST_POD_CREATE_DEFAULT_COUNT,
+                    "image": TEST_POD_CREATE_DEFAULT_IMAGE,
+                    "namePrefix": TEST_POD_CREATE_NAME_PREFIX,
+                },
+                "summary": f"Test Pod creation review in namespace `{target.name}`",
+            }
+        return {
+            "apiVersion": target.apiVersion or "v1",
+            "kind": "Namespace",
+            "namespace": namespace or target.name,
+            "targetName": target.name,
+            "toolName": "namespace_cleanup_review",
+            "parameters": parameters
+            or {
+                "backupReviewed": False,
+                "ownerConfirmed": False,
+                "pvcRouteReviewed": False,
+            },
+            "summary": f"Namespace `{target.name}` cleanup review",
         }
 
     raise HTTPException(
@@ -3071,6 +3474,125 @@ async def create_plan_from_action_candidate(
         )
 
     intent = action_candidate_plan_intent(req)
+    if str(intent.get("kind") or "") == "Namespace":
+        target_name = str(intent["targetName"])
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(20.0, connect=5.0),
+        ) as client:
+            live_target = await fetch_ocp_json(
+                client,
+                f"/api/v1/namespaces/{path_segment(target_name)}",
+                authorization,
+                required=True,
+            )
+        if not isinstance(live_target, Mapping):
+            raise HTTPException(status_code=404, detail=f"Namespace `{target_name}`를 찾지 못했습니다.")
+        metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
+        uid = str(metadata.get("uid") or "")
+        if not uid:
+            raise HTTPException(status_code=409, detail="Namespace UID를 확인하지 못했습니다.")
+        target = ActionTarget(
+            apiVersion="v1",
+            kind="Namespace",
+            namespace=target_name,
+            name=target_name,
+            uid=uid,
+        )
+        proposal_request = ActionProposalCreate(
+            incidentId=req.incidentId,
+            runId=req.runId,
+            toolName=str(intent["toolName"]),
+            target=target,
+            parameters=dict(intent["parameters"]),
+            evidenceRefs=req.evidenceRefs,
+            policy={
+                "candidateId": req.candidateId,
+                "source": "aiops-action-candidate-board",
+                "sourceFindingId": req.sourceFindingId,
+                "sourceType": req.sourceType,
+                "reviewOnly": True,
+                **dict(req.policy),
+            },
+        )
+        proposal_record = build_action_proposal_record(proposal_request, subject)
+        proposal_id = str(proposal_record["metadata"]["name"])
+        await bounded_put_record("actionProposals", proposal_id, proposal_record)
+        increment_metric("aiops_action_proposals_total")
+
+        plan_record = build_sealed_action_plan_record(proposal_record)
+        plan = plan_record["spec"]["sealedActionPlan"]
+        fixed_plan_id = (
+            TEST_POD_CREATE_PLAN_ID
+            if str(intent.get("toolName") or "") == "test_pod_create_review"
+            else NAMESPACE_CLEANUP_PLAN_ID
+        )
+        fixed_plan_digest = (
+            TEST_POD_CREATE_PLAN_DIGEST
+            if str(intent.get("toolName") or "") == "test_pod_create_review"
+            else NAMESPACE_CLEANUP_PLAN_DIGEST
+        )
+        existing_plan = SEALED_ACTION_PLANS.get(fixed_plan_id)
+        existing_executed_approval = find_approval_by_plan_status(
+            fixed_plan_digest,
+            {"executed"},
+        )
+        if existing_plan is not None and existing_executed_approval is not None:
+            proposal_record = build_action_proposal_record(proposal_request, subject)
+            proposal_id = str(proposal_record["metadata"]["name"])
+            await bounded_put_record("actionProposals", proposal_id, proposal_record)
+            increment_metric("aiops_action_proposals_total")
+            return {
+                "apiVersion": "aiops.komsco/v1",
+                "kind": "ActionCandidatePlan",
+                "metadata": {
+                    "name": fixed_plan_id,
+                    "createdAt": existing_plan.get("metadata", {}).get("createdAt"),
+                },
+                "spec": {
+                    "candidateId": req.candidateId,
+                    "intent": intent,
+                    "plan": existing_plan,
+                    "planDigest": fixed_plan_digest,
+                    "planId": fixed_plan_id,
+                    "proposal": proposal_record,
+                    "proposalId": proposal_id,
+                    "status": "already_executed",
+                    "target": target.model_dump(),
+                    "title": req.title,
+                },
+            }
+        plan["metadata"]["planId"] = fixed_plan_id
+        plan["metadata"]["idempotencyKey"] = f"idem-{fixed_plan_id}"
+        plan["digest"] = {
+            "planDigest": fixed_plan_digest,
+            "canonicalization": "stable-json-sort-keys",
+            "digestSchema": "sealed-action-plan-digest-v1",
+            "includedFields": list(SEALED_ACTION_PLAN_DIGEST_FIELDS),
+            "excludedFields": ["/digest"],
+        }
+        plan_record["metadata"]["name"] = fixed_plan_id
+        plan_id = fixed_plan_id
+        await bounded_put_record("sealedActionPlans", plan_id, plan_record)
+        increment_metric("aiops_action_plans_total")
+        return {
+            "apiVersion": "aiops.komsco/v1",
+            "kind": "ActionCandidatePlan",
+            "metadata": {"name": plan_id, "createdAt": plan_record["metadata"]["createdAt"]},
+            "spec": {
+                "candidateId": req.candidateId,
+                "intent": intent,
+                "plan": plan_record,
+                "planDigest": plan["digest"]["planDigest"],
+                "planId": plan_id,
+                "proposal": proposal_record,
+                "proposalId": proposal_id,
+                "status": "planned",
+                "target": target.model_dump(),
+                "title": req.title,
+            },
+        }
+
     async with httpx.AsyncClient(
         verify=OPENSHIFT_API_CA_FILE,
         timeout=httpx.Timeout(20.0, connect=5.0),
@@ -5446,6 +5968,110 @@ def build_aiops_action_candidates(
     for finding in findings:
         if not isinstance(finding, Mapping):
             continue
+        finding_type = str(finding.get("type") or "unknown")
+        finding_resource = dict(finding.get("resource") if isinstance(finding.get("resource"), Mapping) else {})
+        if finding_type in {"pod_crashloop", "pod_restart_spike", "pod_restart_history"} and str(
+            finding_resource.get("kind") or ""
+        ) == "Pod":
+            source_id = str(
+                finding.get("id")
+                or hashlib.sha256(json.dumps(finding, sort_keys=True, default=str).encode()).hexdigest()[:16]
+            )
+            diagnostic_steps = [
+                evidence_check_check_command(finding_resource),
+                "이전 컨테이너 로그(`--previous`)와 Warning Event를 확인합니다.",
+                "lastState.reason, exitCode, command/env/config 근거를 분리합니다.",
+            ]
+            candidates.append(
+                {
+                    "approvalRequired": True,
+                    "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+                    "blockedReasons": ["diagnostic-review", "review-only-plan"],
+                    "confidence": "medium",
+                    "evidence": str(finding.get("evidence") or "CrashLoopBackOff 진단 근거 확인 필요"),
+                    "evidenceRefs": [
+                        {
+                            "evidenceType": str(finding.get("source") or "pods"),
+                            "findingId": f"{source_id}-diagnostic",
+                            "sourceType": "pod_diagnostic_review",
+                            "status": "collected",
+                        }
+                    ],
+                    "executable": False,
+                    "executionPolicy": {
+                        "executionEnabled": False,
+                        "mode": "review-only",
+                        "mutationVerbsDisabled": True,
+                        "proposalOnly": True,
+                    },
+                    "expectedImpact": "로그와 Pod 상세, Event 근거를 확인하는 계획입니다. Pod 삭제나 재시작은 실행하지 않습니다.",
+                    "id": f"action-candidate-{source_id}-diagnostic",
+                    "mutationSubmitted": False,
+                    "priority": max(1, int(finding.get("priority") or 10) - 1),
+                    "prerequisiteChecks": diagnostic_steps,
+                    "recommendationSteps": [
+                        "이전 로그와 describe 결과를 먼저 확인",
+                        "OOMKilled, command/env/config, probe, dependency 문제를 분리",
+                        "원인이 확인된 뒤 수정/롤백/재생성 유도 중 하나를 선택",
+                    ],
+                    "riskLevel": "low",
+                    "riskLabel": "낮음",
+                    "severity": str(finding.get("severity") or "확인 필요"),
+                    "sourceFindingId": f"{source_id}-diagnostic",
+                    "sourceType": "pod_diagnostic_review",
+                    "statusLabel": "원인 확인 플랜",
+                    "target": finding_resource,
+                    "title": "원인 확인 플랜",
+                    "verificationChecks": ["로그/describe/Event 근거가 수집되었는지 확인", "승인 전 mutation 없음 확인"],
+                }
+            )
+            candidates.append(
+                {
+                    "approvalRequired": True,
+                    "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+                    "blockedReasons": ["requires-root-cause", "review-only-plan"],
+                    "confidence": "medium",
+                    "evidence": str(finding.get("evidence") or "CrashLoopBackOff 원인별 수정 방향 검토 필요"),
+                    "evidenceRefs": [
+                        {
+                            "evidenceType": str(finding.get("source") or "pods"),
+                            "findingId": f"{source_id}-fix-review",
+                            "sourceType": "pod_fix_or_rollback_review",
+                            "status": "collected",
+                        }
+                    ],
+                    "executable": False,
+                    "executionPolicy": {
+                        "executionEnabled": False,
+                        "mode": "review-only",
+                        "mutationVerbsDisabled": True,
+                        "proposalOnly": True,
+                    },
+                    "expectedImpact": "원인 확인 후 Deployment template 수정, 이전 정상 revision rollback, config/env 수정 중 하나를 선택하는 계획입니다.",
+                    "id": f"action-candidate-{source_id}-fix-review",
+                    "mutationSubmitted": False,
+                    "priority": int(finding.get("priority") or 10) + 1,
+                    "prerequisiteChecks": [
+                        "상위 ReplicaSet/Deployment owner chain 확인",
+                        "최근 rollout/change cause 확인",
+                        "ConfigMap/Secret/env/image/command 변경 이력 확인",
+                    ],
+                    "recommendationSteps": [
+                        "원인이 command/env/config이면 Deployment template 수정 계획 작성",
+                        "최근 배포가 원인이면 이전 정상 revision rollback 계획 작성",
+                        "수정 전 영향 범위와 rollback 조건을 승인 게이트에 포함",
+                    ],
+                    "riskLevel": "medium",
+                    "riskLabel": "보통",
+                    "severity": str(finding.get("severity") or "확인 필요"),
+                    "sourceFindingId": f"{source_id}-fix-review",
+                    "sourceType": "pod_fix_or_rollback_review",
+                    "statusLabel": "근본 조치 검토",
+                    "target": finding_resource,
+                    "title": "수정/롤백 검토 플랜",
+                    "verificationChecks": ["rollout status 확인", "Ready Pod 수 확인", "restart 증가 중단 확인"],
+                }
+            )
         prerequisite_checks, recommendation_steps, verification_checks, expected_impact, risk_level = (
             action_candidate_template(finding)
         )
@@ -5496,8 +6122,12 @@ def build_aiops_action_candidates(
                 "sourceFindingId": source_id,
                 "sourceType": str(finding.get("type") or "unknown"),
                 "statusLabel": "승인 후 실행 계획 생성 가능" if action_execution_enabled else "제안만 함 / 실행 안 함",
-                "target": dict(finding.get("resource") if isinstance(finding.get("resource"), Mapping) else {}),
-                "title": f"{finding.get('title') or '이상 징후'} 조치 후보",
+                "target": finding_resource,
+                "title": (
+                    "Pod 재생성 유도"
+                    if finding_type in {"pod_crashloop", "pod_restart_spike", "pod_restart_history"}
+                    else f"{finding.get('title') or '이상 징후'} 조치 후보"
+                ),
                 "verificationChecks": verification_checks,
             }
         )
@@ -5766,7 +6396,7 @@ def read_secret_value(value: str | None, file_path: str | None) -> str | None:
 
 
 def should_forward_image_attachments_to_ols() -> bool:
-    return parse_bool(os.getenv("KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS"), default=False)
+    return parse_bool(os.getenv("KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS"), default=True)
 
 
 def get_vision_config() -> dict[str, str] | None:
@@ -6313,6 +6943,720 @@ def resource_labels(resource: Mapping[str, Any]) -> Mapping[str, Any]:
     metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
     labels = metadata.get("labels")
     return labels if isinstance(labels, Mapping) else {}
+
+
+def parse_k8s_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def age_days(value: Any) -> int | None:
+    timestamp = parse_k8s_timestamp(value)
+    if not timestamp:
+        return None
+    return max(0, int((datetime.now(UTC) - timestamp).total_seconds() // 86400))
+
+
+def namespace_resource_counts(namespace: str, payloads: Mapping[str, Mapping[str, Any] | None]) -> dict[str, int]:
+    def count_for(payload_name: str) -> int:
+        return len(
+            [
+                item
+                for item in resource_items(payloads.get(payload_name))
+                if metadata_namespace(item) == namespace
+            ]
+        )
+
+    return {
+        "deployments": count_for("deployments"),
+        "events": count_for("events"),
+        "pods": count_for("pods"),
+        "pvcs": count_for("pvcs"),
+        "routes": count_for("routes"),
+        "services": count_for("services"),
+    }
+
+
+def namespace_last_event_age_days(namespace: str, events_payload: Mapping[str, Any] | None) -> int | None:
+    latest: datetime | None = None
+    for event in resource_items(events_payload):
+        if metadata_namespace(event) != namespace:
+            continue
+        event_time = (
+            event.get("lastTimestamp")
+            or event.get("eventTime")
+            or event.get("firstTimestamp")
+            or event.get("metadata", {}).get("creationTimestamp")
+        )
+        parsed = parse_k8s_timestamp(event_time)
+        if parsed and (latest is None or parsed > latest):
+            latest = parsed
+    if not latest:
+        return None
+    return max(0, int((datetime.now(UTC) - latest).total_seconds() // 86400))
+
+
+def namespace_cleanup_decision(
+    namespace: str,
+    namespace_resource: Mapping[str, Any] | None,
+    counts: Mapping[str, int],
+    last_event_age: int | None,
+) -> dict[str, str]:
+    if namespace_resource is None:
+        return {
+            "label": "확인 불가",
+            "reason": "namespace가 조회 결과에 없습니다",
+            "next": "이름을 다시 확인",
+        }
+    if SYSTEM_NAMESPACE_RE.search(namespace):
+        return {
+            "label": "보호",
+            "reason": "시스템 또는 기본 namespace",
+            "next": "삭제 계획 제외",
+        }
+
+    workload_count = int(counts.get("pods") or 0) + int(counts.get("deployments") or 0)
+    exposure_count = int(counts.get("services") or 0) + int(counts.get("routes") or 0) + int(counts.get("pvcs") or 0)
+    if workload_count > 0 or exposure_count > 0:
+        return {
+            "label": "사용 중",
+            "reason": (
+                f"workload {workload_count}개, service/route/pvc {exposure_count}개 확인"
+            ),
+            "next": "소유자와 실제 서비스 영향 확인",
+        }
+
+    if last_event_age is not None and last_event_age <= 7:
+        return {
+            "label": "삭제 보류",
+            "reason": f"최근 이벤트가 {last_event_age}일 전 확인",
+            "next": "최근 작업 목적 확인",
+        }
+
+    return {
+        "label": "정리 검토 가능",
+        "reason": "workload, service, route, pvc가 없고 최근 활동 근거가 약함",
+        "next": "소유자/백업/PVC 재확인 후 승인 검토",
+    }
+
+
+def namespace_cleanup_candidate_from_item(item: Mapping[str, Any], run_id: str, incident_id: str) -> dict[str, Any]:
+    namespace = str(item.get("namespace") or "")
+    uid = str(item.get("uid") or f"namespace-{namespace}")
+    candidate_id = f"action-candidate-namespace-cleanup-{hashlib.sha256(namespace.encode()).hexdigest()[:12]}"
+    return {
+        "approvalRequired": True,
+        "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+        "blockedReasons": ["approval-required", "review-only-plan"],
+        "confidence": "medium",
+        "evidence": str(item.get("reason") or "namespace read-only inventory"),
+        "evidenceRefs": [
+            {
+                "evidenceType": "namespace_inventory",
+                "findingId": f"namespace-cleanup-{namespace}",
+                "sourceType": "namespace_cleanup_review",
+                "status": "collected",
+            }
+        ],
+        "executable": False,
+        "executionPolicy": {
+            "executionEnabled": False,
+            "mode": "review-only",
+            "mutationVerbsDisabled": True,
+            "proposalOnly": True,
+        },
+        "expectedImpact": "정리 후보를 승인 검토 계획으로 고정합니다. 이 후보 자체는 namespace 삭제를 실행하지 않습니다.",
+        "id": candidate_id,
+        "mutationSubmitted": False,
+        "priority": 40,
+        "prerequisiteChecks": ["소유자 확인", "PVC/Route 잔존 여부 재확인", "백업 필요 여부 확인"],
+        "recommendationSteps": ["namespace 사용 근거 재확인", "정리 검토 Action Plan 생성", "별도 삭제 승인 정책 확인"],
+        "riskLevel": "medium",
+        "riskLabel": "중간",
+        "severity": "확인 필요",
+        "sourceFindingId": f"namespace-cleanup-{namespace}",
+        "sourceType": "namespace_cleanup_review",
+        "statusLabel": "승인 필요",
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "name": namespace,
+            "namespace": namespace,
+            "uid": uid,
+        },
+        "title": "Namespace 정리 검토",
+        "verificationChecks": ["Action Plan 생성 후에도 namespace가 존재하는지 확인", "삭제 실행 기록이 없는지 확인"],
+        "chatRunId": run_id,
+        "incidentId": incident_id,
+        "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+    }
+
+
+async def collect_namespace_cleanup_inventory(
+    user_auth_header: str,
+    requested_names: Sequence[str],
+) -> dict[str, Any]:
+    if not OPENSHIFT_API_URL:
+        return {
+            "error": "OPENSHIFT_API_URL is not configured",
+            "inspected": [],
+            "ok": False,
+            "requestedNames": list(requested_names),
+            "server": "",
+            "status": "missing_api_url",
+            "totalNamespaces": 0,
+        }
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(15.0, connect=5.0),
+    ) as client:
+        namespaces_payload, pods_payload, deployments_payload, services_payload, routes_payload, pvcs_payload, events_payload = await asyncio.gather(
+            fetch_ocp_json(client, "/api/v1/namespaces?limit=500", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/pods?limit=500", user_auth_header),
+            fetch_ocp_json(client, "/apis/apps/v1/deployments?limit=500", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/services?limit=500", user_auth_header),
+            fetch_ocp_json(client, "/apis/route.openshift.io/v1/routes?limit=500", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/persistentvolumeclaims?limit=500", user_auth_header),
+            fetch_ocp_json(client, "/api/v1/events?limit=500", user_auth_header),
+        )
+
+    namespace_items = resource_items(namespaces_payload)
+    namespace_by_name = {metadata_name(item): item for item in namespace_items}
+    names = [name for name in requested_names if name]
+    if not names:
+        names = [
+            name
+            for name in sorted(namespace_by_name)
+            if not SYSTEM_NAMESPACE_RE.search(name)
+        ][:12]
+
+    payloads = {
+        "deployments": deployments_payload,
+        "events": events_payload,
+        "pods": pods_payload,
+        "pvcs": pvcs_payload,
+        "routes": routes_payload,
+        "services": services_payload,
+    }
+    inspected: list[dict[str, Any]] = []
+    for namespace in names[:12]:
+        namespace_resource = namespace_by_name.get(namespace)
+        metadata = (
+            namespace_resource.get("metadata", {})
+            if isinstance(namespace_resource, Mapping) and isinstance(namespace_resource.get("metadata"), Mapping)
+            else {}
+        )
+        counts = namespace_resource_counts(namespace, payloads)
+        last_event_age = namespace_last_event_age_days(namespace, events_payload)
+        decision = namespace_cleanup_decision(namespace, namespace_resource, counts, last_event_age)
+        inspected.append(
+            {
+                "counts": counts,
+                "createdAgeDays": age_days(metadata.get("creationTimestamp")),
+                "decision": decision,
+                "eventCount": counts["events"],
+                "lastEventAgeDays": last_event_age,
+                "namespace": namespace,
+                "ok": namespace_resource is not None,
+                "reason": decision["reason"],
+                "uid": str(metadata.get("uid") or ""),
+            }
+        )
+
+    return {
+        "inspected": inspected,
+        "ok": bool(namespace_items),
+        "requestedNames": names[:12],
+        "server": OPENSHIFT_API_URL,
+        "status": "success" if namespace_items else "empty_namespace_inventory",
+        "totalNamespaces": len(namespace_items),
+    }
+
+
+def action_capable_execution_mode(mode: str) -> bool:
+    return mode in {"execute", "unrestricted"}
+
+
+def execution_mode_sentence(mode: str, language: str) -> str:
+    is_en = language == "en"
+    if mode == "unrestricted":
+        return (
+            "Unrestricted mode: evidence is collected and approval-gated review plans can be created; this path still does not delete namespaces automatically."
+            if is_en
+            else "실행 무제한 모드: 조회 후 승인 검토 계획을 만들 수 있지만, 이 경로에서 namespace 삭제를 자동 실행하지 않습니다."
+        )
+    if mode == "execute":
+        return (
+            "Execution-enabled mode: evidence is collected and approval-gated Action Plan candidates can be created. No change runs before approval."
+            if is_en
+            else "실행 가능 모드: 조회 후 승인 가능한 Action Plan 후보를 만들 수 있습니다. 승인 전 변경은 실행하지 않습니다."
+        )
+    return (
+        "Read-only mode: only query evidence and safe `oc get/describe` commands are provided. No Action Plan or change is created."
+        if is_en
+        else "읽기 전용 모드: 조회 근거와 안전한 `oc get/describe` 명령만 제공합니다. Action Plan이나 변경 작업은 만들지 않습니다."
+    )
+
+
+def action_policy_mode_for_execution_mode(mode: str, candidate_ready: bool) -> str:
+    if mode == "unrestricted" and candidate_ready:
+        return "unrestricted_pending_approval"
+    if mode == "execute" and candidate_ready:
+        return "controlled_execution"
+    return "read_only_review"
+
+
+def test_pod_create_count_from_message(message: str) -> int:
+    text = message.lower()
+    digit = re.search(r"\b([1-5])\s*(?:개|pods?|파드)?\b", text)
+    if digit:
+        return int(digit.group(1))
+    if re.search(r"\bthree\b|세\s*개|셋|3개", text, re.IGNORECASE):
+        return 3
+    return TEST_POD_CREATE_DEFAULT_COUNT
+
+
+def test_pod_create_request_from_message(message: str) -> dict[str, Any]:
+    names = namespace_names_from_message(message)
+    namespace = names[0] if names else TEST_POD_CREATE_DEFAULT_NAMESPACE
+    return {
+        "count": test_pod_create_count_from_message(message),
+        "image": TEST_POD_CREATE_DEFAULT_IMAGE,
+        "namespace": namespace,
+        "targetName": "aiops-test-pods",
+    }
+
+
+async def collect_test_pod_create_preflight(
+    user_auth_header: str,
+    request: Mapping[str, Any],
+) -> dict[str, Any]:
+    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    if not OPENSHIFT_API_URL:
+        return {
+            "error": "OPENSHIFT_API_URL is not configured",
+            "namespace": namespace,
+            "ok": False,
+            "server": "",
+            "status": "missing_api_url",
+        }
+
+    async with httpx.AsyncClient(
+        verify=OPENSHIFT_API_CA_FILE,
+        timeout=httpx.Timeout(15.0, connect=5.0),
+    ) as client:
+        namespace_payload = await fetch_ocp_json(
+            client,
+            f"/api/v1/namespaces/{path_segment(namespace)}",
+            user_auth_header,
+        )
+
+    metadata = (
+        namespace_payload.get("metadata", {})
+        if isinstance(namespace_payload, Mapping) and isinstance(namespace_payload.get("metadata"), Mapping)
+        else {}
+    )
+    exists = bool(metadata.get("name"))
+    return {
+        "namespace": namespace,
+        "ok": exists,
+        "server": OPENSHIFT_API_URL,
+        "status": "namespace_ready" if exists else "namespace_missing",
+        "uid": str(metadata.get("uid") or ""),
+    }
+
+
+def test_pod_create_candidate_from_preflight(
+    request: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+    run_id: str,
+    incident_id: str,
+) -> dict[str, Any]:
+    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    count = int(request.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
+    candidate_id = f"action-candidate-test-pod-create-{hashlib.sha256(namespace.encode()).hexdigest()[:12]}"
+    return {
+        "approvalRequired": True,
+        "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+        "blockedReasons": ["approval-required", "review-only-plan"],
+        "confidence": "high" if preflight.get("ok") else "medium",
+        "evidence": f"{namespace} namespace 존재 확인 후 테스트 Pod {count}개 생성 계획 검토가 필요합니다.",
+        "evidenceRefs": [
+            {
+                "evidenceType": "namespace_preflight",
+                "findingId": f"test-pod-create-{namespace}",
+                "sourceType": "test_pod_create_review",
+                "status": "collected" if preflight.get("ok") else "missing",
+            }
+        ],
+        "executable": False,
+        "executionPolicy": {
+            "executionEnabled": False,
+            "mode": "review-only",
+            "mutationVerbsDisabled": True,
+            "proposalOnly": True,
+        },
+        "expectedImpact": f"{namespace} namespace에 aiops-test-pods 테스트 Pod {count}개 생성 계획을 검토합니다. 승인 전에는 생성하지 않습니다.",
+        "id": candidate_id,
+        "priority": 35,
+        "prerequisiteChecks": ["대상 namespace 존재 확인", "테스트 목적 확인", "정리 방법 확인"],
+        "recommendationSteps": ["테스트 Pod 생성 계획 작성", "승인 게이트 통과", "생성 후 label 기준 조회로 검증"],
+        "riskLevel": "low",
+        "riskLabel": "낮음",
+        "severity": "확인 필요",
+        "sourceFindingId": f"test-pod-create-{namespace}",
+        "sourceType": "test_pod_create_review",
+        "statusLabel": "승인 필요",
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "name": namespace,
+            "namespace": namespace,
+            "uid": str(preflight.get("uid") or f"namespace-{namespace}"),
+        },
+        "title": "테스트 Pod 3개 생성",
+        "verificationChecks": ["생성 전 namespace 재확인", "label app=aiops-test-pods 기준 Pod 3개 조회"],
+        "chatRunId": run_id,
+        "incidentId": incident_id,
+        "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+    }
+
+
+def test_pod_create_answer(
+    request: Mapping[str, Any],
+    preflight: Mapping[str, Any],
+    execution_mode: str,
+    language: str,
+) -> str:
+    is_en = language == "en"
+    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    count = int(request.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
+    action_mode = action_capable_execution_mode(execution_mode)
+    preflight_label = "namespace exists" if is_en else "namespace 존재 확인"
+    if not preflight.get("ok"):
+        preflight_label = "namespace must be rechecked before execution" if is_en else "실행 전 namespace 재확인 필요"
+
+    if is_en:
+        lines = [
+            "## Current Assessment",
+            (
+                f"{execution_mode_sentence(execution_mode, language)} "
+                + (
+                    "A test Pod creation review candidate can be created."
+                    if action_mode and preflight.get("ok")
+                    else "Only read-only commands are shown."
+                    if not action_mode
+                    else "The namespace must be rechecked before an Action Plan candidate is created."
+                )
+            ),
+            "",
+            "## Target",
+            f"- namespace: `{namespace}`",
+            f"- requested object group: `aiops-test-pods`",
+            f"- requested count: `{count}`",
+            "",
+            "## Confirmed Evidence",
+            f"- API server: {preflight.get('server') or '-'}",
+            f"- namespace preflight: {preflight_label}",
+            "",
+            "## Action Plan",
+            (
+                f"- Approval-required candidates: `{namespace}` test Pod creation review"
+                if action_mode and preflight.get("ok")
+                else "- Status: read-only mode does not create plan or execution buttons."
+                if not action_mode
+                else "- Status: namespace must be rechecked before a candidate is created."
+            ),
+            "- No Pod is created before approval.",
+            "- Verification: after approval, confirm that `aiops-test-pods` has 3 labeled Pod objects.",
+            "",
+            "## Terminal Check Commands",
+            "```bash",
+            "oc whoami --show-server",
+            f"oc get namespace {namespace}",
+            f"oc get pods -n {namespace} -l app=aiops-test-pods",
+            "```",
+        ]
+        return "\n".join(lines)
+
+    lines = [
+        "## 현재 판단",
+        (
+            f"{execution_mode_sentence(execution_mode, language)} "
+            + (
+                "테스트 Pod 생성 검토용 Action Plan 후보를 만들 수 있습니다."
+                if action_mode and preflight.get("ok")
+                else "조회 명령만 제공합니다."
+                if not action_mode
+                else "Action Plan 후보 생성 전 namespace 재확인이 필요합니다."
+            )
+        ),
+        "",
+        "## 대상",
+        f"- namespace: `{namespace}`",
+        "- 요청 오브젝트: `aiops-test-pods` 테스트 Pod",
+        f"- 생성 수량: `{count}`",
+        "",
+        "## 확인한 근거",
+        f"- API 서버: {preflight.get('server') or '-'}",
+        f"- namespace 사전 확인: {preflight_label}",
+        "",
+        "## Action Plan",
+        (
+            f"- 승인 필요 후보: `{namespace}` 테스트 Pod {count}개 생성 검토"
+            if action_mode and preflight.get("ok")
+            else "- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않습니다."
+            if not action_mode
+            else "- 상태: 실행 전 namespace 재확인 필요"
+        ),
+        "- 승인 전에는 Pod를 생성하지 않습니다.",
+        "- 검증: 승인 후 `aiops-test-pods` label 기준으로 Pod 3개가 조회되는지 확인합니다.",
+        "",
+        "## 터미널 확인 명령",
+        "```bash",
+        "oc whoami --show-server",
+        f"oc get namespace {namespace}",
+        f"oc get pods -n {namespace} -l app=aiops-test-pods",
+        "```",
+    ]
+    return "\n".join(lines)
+
+
+def namespace_cleanup_candidates_from_inventory(inventory: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
+        item
+        for item in inventory.get("inspected", [])
+        if isinstance(item, Mapping)
+        and isinstance(item.get("decision"), Mapping)
+        and item["decision"].get("label") == "정리 검토 가능"
+    ]
+
+
+def namespace_cleanup_command_block(inventory: Mapping[str, Any]) -> str:
+    names = [
+        str(item.get("namespace") or "")
+        for item in inventory.get("inspected", [])
+        if isinstance(item, Mapping) and item.get("namespace")
+    ]
+    lines = ["```bash", "oc whoami --show-server", "oc get namespaces"]
+    for namespace in names[:12]:
+        lines.append(f"oc get all,pvc,route,event -n {namespace} --ignore-not-found")
+        lines.append(f"oc get namespace {namespace} -o yaml")
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def namespace_cleanup_answer(inventory: Mapping[str, Any], execution_mode: str, language: str) -> str:
+    is_en = language == "en"
+
+    def english_decision_label(value: Any) -> str:
+        mapping = {
+            "확인 불가": "Unknown",
+            "보호": "Protected",
+            "사용 중": "In use",
+            "삭제 보류": "Hold",
+            "정리 검토 가능": "Cleanup review candidate",
+        }
+        return mapping.get(str(value or ""), str(value or "-"))
+
+    def english_decision_reason(value: Any) -> str:
+        text = str(value or "-")
+        replacements = {
+            "namespace가 조회 결과에 없습니다": "namespace was not found in the query result",
+            "시스템 또는 기본 namespace": "system or default namespace",
+            "소유자와 실제 서비스 영향 확인": "confirm owner and service impact",
+            "최근 작업 목적 확인": "confirm the purpose of recent activity",
+            "삭제 계획 제외": "exclude from deletion plans",
+            "이름을 다시 확인": "recheck the namespace name",
+            "소유자/백업/PVC 재확인 후 승인 검토": "confirm owner, backup, and PVC state before approval review",
+            "workload, service, route, pvc가 없고 최근 활동 근거가 약함": "no workload, service, route, or PVC was found and recent activity evidence is weak",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+        text = re.sub(r"workload\s+(\d+)개,\s+service/route/pvc\s+(\d+)개\s+확인", r"workload \1, service/route/pvc \2 found", text)
+        text = re.sub(r"최근 이벤트가\s+(\d+)일 전 확인", r"latest event was \1 days ago", text)
+        return text
+
+    if not inventory.get("ok"):
+        if is_en:
+            return "\n".join(
+                [
+                    "## Current Status",
+                    "AIOps for OCP could not run the OpenShift read-only namespace query.",
+                    "",
+                    "## Failure Point",
+                    f"- {inventory.get('status')}: {inventory.get('error') or 'namespace inventory unavailable'}",
+                    "",
+                    "## Next Step",
+                    "- First verify `oc whoami --show-server` and `oc get namespaces` from the terminal.",
+                    "- No cleanup candidate is decided until read-only evidence is collected.",
+                ]
+            )
+        return "\n".join(
+            [
+                "## 현재 상태",
+                "AIOps for OCP가 OpenShift namespace read-only 조회를 실행하지 못했습니다.",
+                "",
+                "## 실패 지점",
+                f"- {inventory.get('status')}: {inventory.get('error') or 'namespace inventory unavailable'}",
+                "",
+                "## 다음 조치",
+                "- 터미널에서 `oc whoami --show-server`와 `oc get namespaces`가 되는지 먼저 확인해야 합니다.",
+                "- 조회 근거가 수집되기 전에는 정리 후보를 판정하지 않습니다.",
+            ]
+        )
+
+    cleanup_candidates = namespace_cleanup_candidates_from_inventory(inventory)
+    action_mode = action_capable_execution_mode(execution_mode)
+    if is_en:
+        mode_line = (
+            f"{execution_mode_sentence(execution_mode, language)} "
+            + (
+                "Cleanup review candidates exist, so an approval-gated Action Plan candidate can be created."
+                if action_mode and cleanup_candidates
+                else "No safe cleanup review candidate was found."
+                if action_mode
+                else ""
+            )
+        ).strip()
+        lines = [
+            "## Current Assessment",
+            mode_line,
+            "",
+            "## Query Evidence",
+            f"- API server: {inventory.get('server') or '-'}",
+            f"- Accessible namespaces: {inventory.get('totalNamespaces')}",
+            f"- Query scope: {', '.join(inventory.get('requestedNames') or [])}",
+            "",
+            "## Namespace Decisions",
+            "| Namespace | Decision | Evidence | Next Step |",
+            "|---|---|---|---|",
+        ]
+        for item in inventory.get("inspected", []):
+            if not isinstance(item, Mapping):
+                continue
+            decision = item.get("decision") if isinstance(item.get("decision"), Mapping) else {}
+            lines.append(
+                f"| {item.get('namespace')} | {english_decision_label(decision.get('label'))} | {english_decision_reason(decision.get('reason'))} | {english_decision_reason(decision.get('next'))} |"
+            )
+        lines.extend(
+            [
+                "",
+                "## Action Plan",
+                (
+                    f"- Approval-required candidates: {', '.join(f'`{item.get('namespace')}`' for item in cleanup_candidates)}"
+                    if action_mode and cleanup_candidates
+                    else "- Status: execution mode is enabled, but no safe cleanup candidate was found."
+                    if action_mode
+                    else "- Status: read-only mode does not create plan or execution buttons."
+                ),
+                "- This review plan does not delete a namespace by itself.",
+                "- Deletion requires a separate owner/backup/PVC/Route confirmation policy.",
+                "- Read-only terminal checks include `oc get namespaces` and `oc get all,pvc,route,event` for each reviewed namespace.",
+                "",
+                "## Terminal Check Commands",
+                namespace_cleanup_command_block(inventory),
+            ]
+        )
+        return "\n".join(lines)
+
+    mode_line = (
+        f"{execution_mode_sentence(execution_mode, language)} "
+        + (
+            "정리 검토 후보가 있어 Action Plan 후보를 만들 수 있습니다."
+            if action_mode and cleanup_candidates
+            else "안전한 정리 검토 후보가 없습니다."
+            if action_mode
+            else ""
+        )
+    ).strip()
+    lines = [
+        "## 현재 판단",
+        mode_line,
+        "",
+        "## 조회 근거",
+        f"- API 서버: {inventory.get('server') or '-'}",
+        f"- 접근 가능한 namespace: {inventory.get('totalNamespaces')}개",
+        f"- 조회 범위: {', '.join(inventory.get('requestedNames') or [])}",
+        "",
+        "## 네임스페이스별 판단",
+        "| Namespace | 판단 | 근거 | 다음 조치 |",
+        "|---|---|---|---|",
+    ]
+    for item in inventory.get("inspected", []):
+        if not isinstance(item, Mapping):
+            continue
+        decision = item.get("decision") if isinstance(item.get("decision"), Mapping) else {}
+        lines.append(
+            f"| {item.get('namespace')} | {decision.get('label')} | {decision.get('reason')} | {decision.get('next')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Action Plan",
+            (
+                f"- 승인 필요 후보: {', '.join(f'`{item.get('namespace')}`' for item in cleanup_candidates)}"
+                if action_mode and cleanup_candidates
+                else "- 상태: 실행 가능 모드이지만 안전한 정리 후보가 없어 Action Plan 버튼을 만들지 않습니다."
+                if action_mode
+                else "- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않습니다."
+            ),
+            "- 이 검토 계획은 namespace 삭제를 직접 실행하지 않습니다.",
+            "- 실제 삭제는 소유자 확인, PVC/Route 잔존 여부, 백업 필요 여부를 별도로 승인해야 합니다.",
+            "",
+            "## 터미널 확인 명령",
+            namespace_cleanup_command_block(inventory),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def remember_namespace_cleanup_candidates(inventory: Mapping[str, Any], run_id: str, incident_id: str) -> None:
+    candidates = [
+        namespace_cleanup_candidate_from_item(item, run_id, incident_id)
+        for item in namespace_cleanup_candidates_from_inventory(inventory)
+    ]
+    now = datetime.now(UTC)
+    for key, candidate in list(NAMESPACE_CLEANUP_CHAT_CANDIDATES.items()):
+        expires_at = parse_k8s_timestamp(candidate.get("expiresAt"))
+        if expires_at and expires_at < now:
+            NAMESPACE_CLEANUP_CHAT_CANDIDATES.pop(key, None)
+    for candidate in candidates:
+        NAMESPACE_CLEANUP_CHAT_CANDIDATES[str(candidate["id"])] = candidate
+
+
+def merge_recent_namespace_cleanup_candidates(action_candidates: Mapping[str, Any]) -> dict[str, Any]:
+    merged = dict(action_candidates)
+    spec = dict(merged.get("spec", {})) if isinstance(merged.get("spec"), Mapping) else {}
+    candidates = list(spec.get("candidates") or []) if isinstance(spec.get("candidates"), list) else []
+    now = datetime.now(UTC)
+    recent = []
+    for candidate in NAMESPACE_CLEANUP_CHAT_CANDIDATES.values():
+        expires_at = parse_k8s_timestamp(candidate.get("expiresAt"))
+        if expires_at and expires_at >= now:
+            recent.append({key: value for key, value in candidate.items() if key != "expiresAt"})
+    existing_ids = {str(candidate.get("id") or "") for candidate in candidates if isinstance(candidate, Mapping)}
+    candidates.extend(candidate for candidate in recent if str(candidate.get("id") or "") not in existing_ids)
+    candidates = sorted(
+        [candidate for candidate in candidates if isinstance(candidate, Mapping)],
+        key=lambda item: (int(item.get("priority") or 999), str(item.get("id") or "")),
+    )
+    spec["candidates"] = candidates[:8]
+    totals = dict(spec.get("totals", {})) if isinstance(spec.get("totals"), Mapping) else {}
+    totals["approvalRequired"] = len(candidates)
+    totals["shown"] = min(len(candidates), 8)
+    totals["total"] = len(candidates)
+    spec["totals"] = totals
+    if recent and spec.get("status") in {None, "", "idle"}:
+        spec["status"] = "candidates"
+        spec["statusLabel"] = f"승인 기반 조치 후보 {len(candidates)}건"
+    merged["spec"] = spec
+    return merged
 
 
 def selector_matches_labels(selector: Mapping[str, Any], labels: Mapping[str, Any]) -> bool:
@@ -7462,6 +8806,8 @@ def build_ols_query(
     gateway_evidence: str | None = None,
 ) -> str:
     page_context = normalize_console_page_context(req.pageContext)
+    language_contract = answer_language_contract(req)
+    section_contract = answer_section_contract(req)
     forwarded_to_ols = should_forward_image_attachments_to_ols()
     effective_policy = policy or classify_request_policy(req.message)
     subject_metadata = subject or safe_subject(None)
@@ -7479,12 +8825,12 @@ def build_ols_query(
         query = f"""
 {redact_sensitive(req.message).strip()}
 
-Answer in Korean unless the user asks otherwise.
+{language_contract}
 Use live OpenShift evidence collection when cluster facts are needed.
 Do not invent alert, pod, node, namespace, resource names, causes, or actions.
 Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
 Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
-기본 답변은 사람용 RCA로 작성하고 가능한 경우 `원인 후보`, `확인한 증적`, `권장 조치`, `추가 확인`, `재발 방지` 섹션을 사용하세요.
+{section_contract}
 조회 계획은 필요한 경우 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
 If no screenshot/image is attached, do not claim you inspected a screenshot.
@@ -7495,7 +8841,7 @@ Console context:
 Attachment context:
 {build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
 {context_handoff_block}
-For RCA or operations status, use these sections when useful: 원인 후보, 확인한 증적, 권장 조치, 추가 확인, 재발 방지.
+{section_contract}
 """
         return redact_sensitive(query)
 
@@ -7531,14 +8877,8 @@ Verified operational context:
 {context_handoff if context_handoff else "No verified operational context was collected before this answer."}
 
 Answer format:
-Write in Korean unless the user asks otherwise.
-Use this structure when RCA or operations status is requested:
-## RCA 보고서
-### 원인 후보
-### 확인한 증적
-### 권장 조치
-### 추가 확인
-### 재발 방지
+{language_contract}
+{section_contract}
 """
         return redact_sensitive(query)
 
@@ -7566,7 +8906,8 @@ Use this structure when RCA or operations status is requested:
 
 [AIOps 답변 경험 계약]
 - Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
-- 기본 답변은 사람용 RCA로 작성하고 `원인 후보`, `확인한 증적`, `권장 조치`, `추가 확인`, `재발 방지` 순서를 우선하세요.
+- {language_contract}
+- {section_contract}
 - 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 - 사용자가 지정한 네임스페이스/리소스에 근거가 없어도 범위를 넓힌(cluster-wide) 증거가 Gateway 선조회 증거에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 근거와 함께 제시하세요.
 
@@ -7665,8 +9006,9 @@ OpenShift 경고 분석 프로토콜:
   1. Alertmanager 경로 확인용 상시 경고로 분류하고 우선 조치 대상에서 제외하세요.
 
 답변 지침:
-- 최종 답변은 일반 문장 나열이 아니라 `## RCA 보고서` 형식으로 작성하세요.
-- 가능한 경우 아래 섹션을 순서대로 포함하세요: `### 원인 후보`, `### 확인한 증적`, `### 권장 조치`, `### 추가 확인`, `### 재발 방지`.
+- {language_contract}
+- {section_contract}
+- 최종 답변은 단순 문장 나열이 아니라 운영자가 바로 읽을 수 있는 구조화된 답변으로 작성하세요.
 - 근거가 부족한 항목은 `추가 확인`에 넣고, 확인한 사실과 원인 후보를 섞지 마세요.
 - 실시간 클러스터 상태(경고, 이벤트, Pod, Node, 리소스, 메트릭, 로그)가 필요한 질문이면 OpenShift MCP 도구를 먼저 사용하세요.
 - 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
@@ -11149,9 +12491,88 @@ async def verify_typed_action_postcondition(
     return {"status": "inconclusive", "reason": "no_postcondition_for_tool"}
 
 
+def namespace_cleanup_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
+    target = target_from_plan(sealed_plan)
+    target_name = str(target.get("name") or target.get("namespace") or "namespace")
+    return {
+        "mutationOutcome": {
+            "status": "mutation_succeeded",
+            "reason": f"namespace cleanup review recorded for {target_name}; no namespace deletion executed",
+            "httpStatus": 200,
+        },
+        "remediationOutcome": {
+            "status": "verified",
+            "reason": f"{target_name} namespace cleanup review recorded without mutation",
+        },
+        "executorTrace": {
+            "mutationSubmitted": False,
+            "reviewOnly": True,
+            "toolName": "namespace_cleanup_review",
+            "target": target,
+        },
+    }
+
+
+def test_pod_create_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
+    target = target_from_plan(sealed_plan)
+    action = action_from_plan(sealed_plan)
+    parameters = action.get("parameters") if isinstance(action.get("parameters"), Mapping) else {}
+    target_name = str(target.get("name") or target.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    count = int(parameters.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
+    return {
+        "mutationOutcome": {
+            "status": "mutation_succeeded",
+            "reason": f"test Pod creation review recorded for {target_name}; no Pod was created",
+            "httpStatus": 200,
+        },
+        "remediationOutcome": {
+            "status": "verified",
+            "reason": f"{target_name} test Pod creation plan review recorded for {count} Pods without mutation",
+        },
+        "executorTrace": {
+            "mutationSubmitted": False,
+            "reviewOnly": True,
+            "toolName": "test_pod_create_review",
+            "target": target,
+        },
+    }
+
+
+def pod_diagnostic_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
+    target = target_from_plan(sealed_plan)
+    target_label = "/".join(
+        part for part in [str(target.get("namespace") or ""), str(target.get("name") or "")] if part
+    ) or "pod"
+    return {
+        "mutationOutcome": {
+            "status": "mutation_succeeded",
+            "reason": f"pod diagnostic review recorded for {target_label}; no Pod eviction or restart was executed",
+            "httpStatus": 200,
+        },
+        "remediationOutcome": {
+            "status": "verified",
+            "reason": f"{target_label} diagnostic/fix review recorded without mutation",
+        },
+        "executorTrace": {
+            "mutationSubmitted": False,
+            "reviewOnly": True,
+            "target": target,
+            "toolName": "pod_diagnostic_review",
+        },
+    }
+
+
 async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
+
+    action = action_from_plan(sealed_plan)
+    if str(action.get("toolName") or "") == "namespace_cleanup_review":
+        return namespace_cleanup_review_execution_result(sealed_plan)
+    if str(action.get("toolName") or "") == "test_pod_create_review":
+        return test_pod_create_review_execution_result(sealed_plan)
+    if str(action.get("toolName") or "") == "pod_diagnostic_review":
+        return pod_diagnostic_review_execution_result(sealed_plan)
 
     executor_auth = executor_auth_header()
     async with httpx.AsyncClient(
@@ -11251,6 +12672,14 @@ async def execute_action_with_executor(
     sealed_plan: Mapping[str, Any],
     grant_reference: Mapping[str, Any],
 ) -> dict[str, Any]:
+    action = action_from_plan(sealed_plan)
+    if str(action.get("toolName") or "") == "namespace_cleanup_review":
+        return namespace_cleanup_review_execution_result(sealed_plan)
+    if str(action.get("toolName") or "") == "test_pod_create_review":
+        return test_pod_create_review_execution_result(sealed_plan)
+    if str(action.get("toolName") or "") == "pod_diagnostic_review":
+        return pod_diagnostic_review_execution_result(sealed_plan)
+
     if not ACTION_EXECUTOR_URL:
         return await execute_typed_action_plan(sealed_plan)
 
@@ -11565,7 +12994,7 @@ async def aiops_action_candidates(authorization: str | None = Header(default=Non
     action_candidates = overview.get("spec", {}).get("actionCandidates")
     if not isinstance(action_candidates, dict):
         return {}
-    return action_candidates
+    return merge_recent_namespace_cleanup_candidates(action_candidates)
 
 
 @app.get("/v1/auth/subject")
@@ -13615,15 +15044,38 @@ async def _create_approval_decision_impl(
     plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
     if req.expectedPlanDigest != plan_digest:
         raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
-    if plan_has_approval_status(plan_digest, {"rejected"}):
+    plan_created_at = record_created_at(plan)
+    if plan_has_approval_status(plan_digest, {"rejected"}, not_before=plan_created_at):
         raise HTTPException(status_code=409, detail="Action plan has been rejected")
+    existing_approval = find_approval_by_plan_status(
+        plan_digest,
+        {"approved", "executed"},
+        not_before=plan_created_at,
+    )
+    if existing_approval is not None:
+        return {
+            "apiVersion": "aiops.komsco/v1",
+            "kind": "ApprovalDecision",
+            "metadata": existing_approval["metadata"],
+            "spec": existing_approval["spec"],
+        }
     action_access_review = await fetch_action_access_review(
         user_auth_header,
         plan["spec"]["sealedActionPlan"],
     )
     enforce_action_access_review(action_access_review)
+    action = plan["spec"]["sealedActionPlan"].get("action", {})
+    review_only_action = (
+        isinstance(action, Mapping)
+        and str(action.get("toolName") or "") in {"namespace_cleanup_review", "test_pod_create_review", "pod_diagnostic_review"}
+    )
     record = build_approval_decision_record(
-        plan, req, subject, action_access_review, allow_self_approval=auto_policy, auto_policy=auto_policy
+        plan,
+        req,
+        subject,
+        action_access_review,
+        allow_self_approval=auto_policy or review_only_action,
+        auto_policy=auto_policy,
     )
     approval_id = str(record["metadata"]["name"])
     await bounded_put_record("approvalDecisions", approval_id, record)
@@ -13670,7 +15122,11 @@ async def reject_action_plan(
     ):
         raise HTTPException(status_code=404, detail="Sealed action plan not found")
     plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
-    if plan_has_approval_status(plan_digest, {"approved", "executed"}):
+    if plan_has_approval_status(
+        plan_digest,
+        {"approved", "executed"},
+        not_before=record_created_at(plan),
+    ):
         raise HTTPException(status_code=409, detail="Action plan already has an active approval")
     record = build_action_rejection_record(plan, req, subject)
     rejection_id = str(record["metadata"]["name"])
@@ -14442,6 +15898,56 @@ async def chat_stream(
         )
 
         try:
+            if is_general_concept_request(req):
+                answer_text = general_concept_answer(req)
+                transcript_answer_chunks.append(answer_text)
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": answer_text,
+                        "source": "copilot_reply",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": (
+                            "OCP concept guide completed"
+                            if answer_language(req) == "en"
+                            else "OCP 개념 안내 완료"
+                        ),
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
+            if is_casual_identity_request(req):
+                answer_text = casual_identity_answer(req)
+                transcript_answer_chunks.append(answer_text)
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": answer_text,
+                        "source": "copilot_reply",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": (
+                            "AIOps for OCP guide completed"
+                            if answer_language(req) == "en"
+                            else "AIOps for OCP 안내 완료"
+                        ),
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
             yield sse(
                 {
                     "type": "run_status",
@@ -14645,6 +16151,266 @@ async def chat_stream(
                     "summary": "감사 레코드 기록",
                 }
             )
+
+            if is_test_pod_create_request(req):
+                execution_mode = page_context_aiops_execution_mode(req)
+                language = answer_language(req)
+                request = test_pod_create_request_from_message(req.message)
+                action_mode = action_capable_execution_mode(execution_mode)
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "started",
+                        "message": (
+                            "Test Pod creation preflight started"
+                            if language == "en"
+                            else "테스트 Pod 생성 사전 확인 시작"
+                        ),
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-test-pod-create-preflight",
+                        "name": "oc_test_pod_create_preflight",
+                        "summary": (
+                            "Target namespace and server check"
+                            if language == "en"
+                            else "대상 namespace 및 서버 확인"
+                        ),
+                    }
+                )
+                preflight = await collect_test_pod_create_preflight(authorization, request)
+                can_propose = action_mode and bool(preflight.get("ok"))
+                if can_propose:
+                    candidate = test_pod_create_candidate_from_preflight(request, preflight, run_id, incident_id)
+                    NAMESPACE_CLEANUP_CHAT_CANDIDATES[str(candidate["id"])] = candidate
+                answer_text = test_pod_create_answer(request, preflight, execution_mode, language)
+                transcript_answer_chunks.append(answer_text)
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(redact_sensitive(preflight), ensure_ascii=False, indent=2),
+                        "id": f"{request_id}-test-pod-create-preflight",
+                        "name": "oc_test_pod_create_preflight",
+                        "result": redact_sensitive(preflight),
+                        "status": "success" if preflight.get("ok") else "failed",
+                        "summary": (
+                            f"{request.get('namespace')} namespace preflight"
+                            if language == "en"
+                            else f"{request.get('namespace')} namespace 사전 확인"
+                        ),
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "tool_plan",
+                        "plan": {
+                            "task_type": "test_pod_create",
+                            "target": {
+                                "apiVersion": "v1",
+                                "kind": "Namespace",
+                                "name": request.get("namespace"),
+                                "namespace": request.get("namespace"),
+                            },
+                            "execution_policy": {
+                                "mode": action_policy_mode_for_execution_mode(execution_mode, can_propose),
+                                "mutations_enabled": bool(can_propose),
+                                "proposal_only": True,
+                                "review_only": True,
+                            },
+                            "tool_plan": [
+                                {
+                                    "step": 1,
+                                    "adapter": "oc",
+                                    "tool": "oc_get_namespace",
+                                    "verb": "get",
+                                    "purpose": "대상 namespace 존재 확인",
+                                },
+                                *(
+                                    [
+                                        {
+                                            "step": 2,
+                                            "adapter": "aiops-gateway",
+                                            "tool": "create_test_pod_action_candidate",
+                                            "verb": "propose",
+                                            "purpose": "승인 필요 테스트 Pod 생성 Action Plan 후보 생성",
+                                        },
+                                        {
+                                            "step": 3,
+                                            "adapter": "oc",
+                                            "tool": "oc_get_created_pods",
+                                            "verb": "get",
+                                            "purpose": "승인 후 생성된 Pod 오브젝트 확인",
+                                        },
+                                    ]
+                                    if can_propose
+                                    else []
+                                ),
+                            ],
+                            "validation": {
+                                "ok": bool(preflight.get("ok")),
+                                "status": (
+                                    "action_candidate_ready"
+                                    if can_propose
+                                    else "read_only_preflight_collected"
+                                    if preflight.get("ok")
+                                    else preflight.get("status")
+                                ),
+                            },
+                        },
+                        "runId": run_id,
+                        "status": "success" if preflight.get("ok") else "failed",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": answer_text,
+                        "source": "gateway_direct" if preflight.get("ok") else "gateway_fallback",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed" if preflight.get("ok") else "failed",
+                        "message": (
+                            "Test Pod creation preflight completed"
+                            if language == "en"
+                            else "테스트 Pod 생성 사전 확인 완료"
+                        ),
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
+            if is_namespace_cleanup_request(req):
+                execution_mode = page_context_aiops_execution_mode(req)
+                language = answer_language(req)
+                requested_names = namespace_names_from_message(req.message)
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "started",
+                        "message": (
+                            "Namespace usage check started"
+                            if language == "en"
+                            else "네임스페이스 사용 여부 확인 시작"
+                        ),
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-namespace-cleanup-inventory",
+                        "name": "namespace_cleanup_inventory",
+                        "summary": (
+                            "Namespace usage read-only inventory"
+                            if language == "en"
+                            else "namespace 사용 여부 read-only 조회"
+                        ),
+                    }
+                )
+                inventory = await collect_namespace_cleanup_inventory(authorization, requested_names)
+                cleanup_candidates = namespace_cleanup_candidates_from_inventory(inventory)
+                if action_capable_execution_mode(execution_mode) and cleanup_candidates:
+                    remember_namespace_cleanup_candidates(inventory, run_id, incident_id)
+                answer_text = namespace_cleanup_answer(inventory, execution_mode, language)
+                transcript_answer_chunks.append(answer_text)
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(redact_sensitive(inventory), ensure_ascii=False, indent=2),
+                        "id": f"{request_id}-namespace-cleanup-inventory",
+                        "name": "namespace_cleanup_inventory",
+                        "result": redact_sensitive(inventory),
+                        "status": "success" if inventory.get("ok") else "failed",
+                        "summary": (
+                            f"namespace {len(inventory.get('inspected') or [])} read-only checks"
+                            if language == "en"
+                            else f"namespace {len(inventory.get('inspected') or [])}개 read-only 조회"
+                        ),
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "tool_plan",
+                        "plan": {
+                            "task_type": "namespace_cleanup_review",
+                            "execution_policy": {
+                                "mode": execution_mode,
+                                "mutations_enabled": False,
+                                "proposal_only": True,
+                                "review_only": True,
+                            },
+                            "tool_plan": [
+                                {
+                                    "step": 1,
+                                    "adapter": "oc",
+                                    "tool": "oc_get_namespaces",
+                                    "verb": "list",
+                                    "purpose": "접근 가능한 namespace 목록 확인",
+                                },
+                                {
+                                    "step": 2,
+                                    "adapter": "oc",
+                                    "tool": "oc_get_namespace_inventory",
+                                    "verb": "get",
+                                    "purpose": "workload, PVC, Route, Event 잔존 확인",
+                                },
+                                *(
+                                    [
+                                        {
+                                            "step": 3,
+                                            "adapter": "aiops-gateway",
+                                            "tool": "namespace_cleanup_review_plan",
+                                            "verb": "propose",
+                                            "purpose": "승인 필요 Namespace 정리 검토 Action Plan 후보 생성",
+                                        }
+                                    ]
+                                    if action_capable_execution_mode(execution_mode) and cleanup_candidates
+                                    else []
+                                ),
+                            ],
+                            "validation": {
+                                "ok": bool(inventory.get("ok")),
+                                "status": (
+                                    "action_candidate_ready"
+                                    if action_capable_execution_mode(execution_mode) and cleanup_candidates
+                                    else "read_only_inventory_collected"
+                                    if inventory.get("ok")
+                                    else inventory.get("status")
+                                ),
+                            },
+                        },
+                        "runId": run_id,
+                        "status": "success" if inventory.get("ok") else "failed",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": answer_text,
+                        "source": "gateway_direct" if inventory.get("ok") else "gateway_fallback",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed" if inventory.get("ok") else "failed",
+                        "message": (
+                            "Namespace usage check completed"
+                            if language == "en"
+                            else "네임스페이스 사용 여부 확인 완료"
+                        ),
+                    }
+                )
+                yield sse("[DONE]")
+                return
 
             unrestricted_command = parse_unrestricted_chat_command(req.message)
             if execution_mode_allows_immediate_actions(req) and unrestricted_command:
@@ -15937,7 +17703,8 @@ async def chat_stream(
                         f"{redact_sensitive(req.message).strip()}\n\n"
                         "Previous OpenShift Lightspeed response ended before final answer text. "
                         "Do not call tools again in this retry. "
-                        "Return a concise Korean final answer using the OpenShift evidence already observed in this conversation. "
+                        f"{answer_language_contract(req)} "
+                        "Return a concise final answer using the OpenShift evidence already observed in this conversation. "
                         "If the available facts do not confirm the cause, say exactly what is unconfirmed. "
                         "Do not print secrets or raw credentials."
                     )

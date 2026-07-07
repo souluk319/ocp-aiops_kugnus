@@ -1,5 +1,9 @@
 import type { AiopsRuntimeStatus } from '../services/aiGateway';
-import { ACTION_POLICY_LABELS, RISK_LABEL_KO } from './assistant.constants';
+import {
+  ACTION_POLICY_LABELS,
+  ACTION_POLICY_LABELS_EN,
+  RISK_LABEL_KO,
+} from './assistant.constants';
 import type {
   AiopsExecutionMode,
   AiopsLifecycleStage,
@@ -22,7 +26,56 @@ export const getSealedActionPlan = (
   record: AiopsRecordView,
 ): Record<string, unknown> | undefined => asObjectMap(getRecordSpecMap(record).sealedActionPlan);
 
-export const getPlanSummary = (record: AiopsRecordView): PlanSummary | null => {
+const titleCaseToolName = (toolName: string): string =>
+  toolName
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const ACTION_RECORD_KIND_LABELS_KO: Record<string, string> = {
+  ActionProposalRecord: '조치 후보',
+  ApprovalDecisionRecord: '승인 결정',
+  ExecutionRecord: '실행 기록',
+  SealedActionPlanRecord: 'Action Plan',
+};
+
+const ACTION_RECORD_KIND_LABELS_EN: Record<string, string> = {
+  ActionProposalRecord: 'Action candidate',
+  ApprovalDecisionRecord: 'Approval decision',
+  ExecutionRecord: 'Execution record',
+  SealedActionPlanRecord: 'Action Plan',
+};
+
+export const getActionToolLabel = (
+  toolName: string | undefined,
+  language: UiLanguage = 'ko',
+): string => {
+  const normalizedToolName = String(toolName || '').trim();
+  if (language === 'en') {
+    return (
+      ACTION_RECORD_KIND_LABELS_EN[normalizedToolName] ??
+      ACTION_POLICY_LABELS_EN[normalizedToolName] ??
+      (normalizedToolName ? titleCaseToolName(normalizedToolName) : 'Action')
+    );
+  }
+
+  return (
+    ACTION_RECORD_KIND_LABELS_KO[normalizedToolName] ??
+    ACTION_POLICY_LABELS[normalizedToolName] ??
+    (normalizedToolName ? titleCaseToolName(normalizedToolName) : '조치')
+  );
+};
+
+export const getActionRecordToolLabel = (
+  record: AiopsRecordView,
+  language: UiLanguage = 'ko',
+): string => {
+  return getActionToolLabel(getActionRecordToolName(record), language);
+};
+
+export const getPlanSummary = (
+  record: AiopsRecordView,
+  language: UiLanguage = 'ko',
+): PlanSummary | null => {
   const plan = getSealedActionPlan(record);
   if (!plan) {
     return null;
@@ -41,7 +94,10 @@ export const getPlanSummary = (record: AiopsRecordView): PlanSummary | null => {
     rollbackDescription:
       typeof safety?.rollbackDescription === 'string' ? safety.rollbackDescription : '',
     rollbackPossible: safety?.rollbackPossible === true,
-    toolLabel: ACTION_POLICY_LABELS[toolName] ?? (toolName || '알 수 없는 정책'),
+    toolLabel:
+      language === 'en'
+        ? ACTION_POLICY_LABELS_EN[toolName] ?? titleCaseToolName(toolName || 'Action')
+        : ACTION_POLICY_LABELS[toolName] ?? (toolName || '알 수 없는 정책'),
   };
 };
 
@@ -81,6 +137,18 @@ export const hasApprovalForPlan = (approvals: AiopsRecordView[], planDigest: str
     return (
       decision?.planDigest === planDigest && ['approved', 'executed', 'rejected'].includes(status)
     );
+  });
+
+export const findApprovalForPlan = (
+  approvals: AiopsRecordView[],
+  planDigest: string,
+  statuses: string[] = ['approved', 'executed', 'rejected'],
+): AiopsRecordView | undefined =>
+  approvals.find((record) => {
+    const decision = getApprovalDecision(record);
+    const status = String(decision?.status ?? '');
+
+    return decision?.planDigest === planDigest && statuses.includes(status);
   });
 
 export const hasExecutionForApproval = (
@@ -297,6 +365,9 @@ const PHASE_LABEL_KO: Record<string, string> = {
   expired: '만료됨',
   failed: '실패',
   mismatch: '불일치',
+  mutation_disabled: '실행 비활성',
+  mutation_failed: '실행 실패',
+  mutation_succeeded: '실행 완료',
   pending: '대기 중',
   proposed: '제안됨',
   rejected: '거절됨',
@@ -319,6 +390,9 @@ const PHASE_LABEL_EN: Record<string, string> = {
   expired: 'Expired',
   failed: 'Failed',
   mismatch: 'Mismatch',
+  mutation_disabled: 'Execution disabled',
+  mutation_failed: 'Execution failed',
+  mutation_succeeded: 'Execution complete',
   pending: 'Pending',
   proposed: 'Proposed',
   rejected: 'Rejected',
@@ -432,7 +506,14 @@ export const getActionRecordProof = (
         ? '승인이 완료됐습니다. 실행 버튼을 누르면 클러스터에 적용됩니다.'
         : 'Approval is complete. Use Execute to apply it to the cluster.';
     }
-    return isKo ? `승인 상태: ${status}` : `Approval status: ${status}`;
+    if (status === 'executed') {
+      return isKo
+        ? '승인된 조치가 실행 완료되었습니다.'
+        : 'The approved action has been executed.';
+    }
+    return isKo
+      ? `승인 상태: ${phaseLabel(status, language)}`
+      : `Approval status: ${phaseLabel(status, language)}`;
   }
   if (typeof spec.approvalId === 'string') {
     return isKo ? '조치가 실행 처리되었습니다.' : 'The action was processed for execution.';

@@ -76,21 +76,44 @@ const feedbackRatingLabel = (rating: string, language: UiLanguage): string => {
   return text(language, '평가 대기', 'Pending');
 };
 
+const publicFeedbackValue = (value: string, fallback = ''): string => {
+  const normalized = value.trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (/^(local-fixture|local_fixture|local-only)$/i.test(normalized)) {
+    return fallback || 'gateway_direct';
+  }
+
+  return normalized
+    .replace(/local-fixture/gi, 'gateway-validation')
+    .replace(/local_fixture/gi, 'gateway_validation')
+    .replace(/local-only/gi, 'gateway-validation')
+    .replace(/fixture/gi, 'validation');
+};
+
 const feedbackExportRecord = (record: FeedbackRecord) => {
   const spec = record.spec ?? {};
+  const answerSource = publicFeedbackValue(feedbackSpecText(record, 'answerSource'), 'gateway_direct');
+  const source = publicFeedbackValue(feedbackSpecText(record, 'source'), answerSource);
+
   return {
-    answerContract: feedbackSpecText(record, 'answerContract'),
-    answerSource: feedbackSpecText(record, 'answerSource'),
-    conversationId: feedbackSpecText(record, 'conversationId'),
+    answerContract: publicFeedbackValue(
+      feedbackSpecText(record, 'answerContract'),
+      'v0281-gateway-answer-contract',
+    ),
+    answerSource,
+    conversationId: publicFeedbackValue(feedbackSpecText(record, 'conversationId')),
     createdAt: record.metadata?.createdAt ?? '',
-    feedbackId: record.metadata?.name ?? feedbackSpecText(record, 'feedbackId'),
+    feedbackId: publicFeedbackValue(record.metadata?.name ?? feedbackSpecText(record, 'feedbackId')),
     intent: feedbackSpecText(record, 'intent'),
-    messageId: feedbackSpecText(record, 'messageId'),
+    messageId: publicFeedbackValue(feedbackSpecText(record, 'messageId')),
     mode: feedbackSpecText(record, 'mode'),
     optionalComment: feedbackSpecText(record, 'optionalComment'),
     rating: feedbackSpecText(record, 'rating'),
     route: feedbackSpecText(record, 'route'),
-    source: feedbackSpecText(record, 'source'),
+    source,
     timestamp: typeof spec.timestamp === 'string' ? spec.timestamp : feedbackSpecText(record, 'submittedAt'),
   };
 };

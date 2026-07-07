@@ -49,6 +49,8 @@ const sourceReview = () => {
   const insightRail = readFile('komsco-ai-console-plugin/src/components/AssistantInsightRail.tsx');
   const insightRailHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.insightRailHelpers.tsx');
   const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
+  const composer = readFile('komsco-ai-console-plugin/src/components/AssistantComposer.tsx');
+  const conversationRail = readFile('komsco-ai-console-plugin/src/components/AssistantConversationRail.tsx');
   const evidenceFooter = readFile('komsco-ai-console-plugin/src/components/AssistantEvidenceFooter.tsx');
   const imageLightbox = readFile('komsco-ai-console-plugin/src/components/AssistantImageLightbox.tsx');
   const messageHeader = readFile('komsco-ai-console-plugin/src/components/AssistantMessageHeader.tsx');
@@ -63,17 +65,31 @@ const sourceReview = () => {
   assert(actionRecords.includes('ActionStageIcon'), 'Action Plan cards must expose lifecycle icons');
   assert(
     actionRecords.includes("const readOnlyBlocked = executionMode === 'read-only'") &&
-      actionRecords.includes('읽기 전용 모드입니다. 버튼은 유지하고 클릭 시 실행 제한 사유를 표시합니다.') &&
-      actionRecords.includes('읽기 전용 모드에서는 승인·실행 요청을 보내지 않습니다.'),
-    'read-only mode must keep Action Plan CTAs visible but show execution-limit reasons',
+      actionRecords.includes('읽기 전용 모드입니다. 승인·실행은 보내지 않고 제한 사유만 확인합니다.') &&
+      actionRecords.includes('읽기 전용 모드에서는 승인·실행 요청을 보내지 않습니다.') &&
+      actionRecords.includes('isDisabled={busy || Boolean(item.disabledReason)}'),
+    'read-only and policy-blocked action buttons must stay visible but actually disabled with reasons',
   );
   assert(
     actionRecords.includes("strong>Action Plan</strong"),
     'answer action section must be named Action Plan',
   );
   assert(
+    actionRecords.includes('getActionRecordToolLabel(record, language)') &&
+      actionRecords.includes('getActionToolLabel(ref.toolName, language)') &&
+      actionRecords.includes("'감사 상세'") &&
+      !actionRecords.includes("'상세보기 (JSON)'"),
+    'default action lifecycle rail must show human action labels and hide JSON wording behind audit detail',
+  );
+  assert(
     historyPanel.includes('HistoryActionStageIcon'),
     'history sidebar action refs must include stage icons',
+  );
+  assert(
+    historyPanel.includes('historyActionDetailLabel') &&
+      historyPanel.includes('getActionToolLabel(actionRef.toolName, language)') &&
+      !historyPanel.includes('`${actionRef.toolName} · ${actionRef.targetKey}`'),
+    'history action refs must render human action labels instead of raw tool names',
   );
   assert(
     historyPanel.includes("uiLanguage === 'en' ? 'Rename' : '이름 변경'") &&
@@ -87,10 +103,23 @@ const sourceReview = () => {
   );
   assert(
     messageHeader.includes('Gateway live query') &&
+      messageHeader.includes('OCP guide') &&
       messageHeader.includes('Request clarification') &&
       messageHeader.includes('Lightspeed connected') &&
+      messageHeader.includes('AIOps for OCP') &&
       messageHeader.includes('Deterministic lookup did not call Lightspeed'),
-    'assistant message source badges and titles must be language-aware in English mode',
+    'assistant message source badges and titles must distinguish OCP guidance, live Gateway queries, clarification, and Lightspeed in English mode',
+  );
+  assert(
+    conversationRail.includes('AIOps for OCP') &&
+      messageHeader.includes("return 'AIOps for OCP';"),
+    'assistant sender labels must use the official AIOps for OCP name',
+  );
+  assert(
+    launcher.includes('publicFeedbackAnswerContract') &&
+      launcher.includes('publicFeedbackSource') &&
+      insightRail.includes('publicFeedbackValue'),
+    'feedback payload/export must normalize local fixture/debug source values before tester review',
   );
   assert(
     launcher.includes('productIcon={aiopsIcon}') && !launcher.includes('aiops_mark.svg'),
@@ -149,6 +178,19 @@ const sourceReview = () => {
     'assistant image preview dialog must localize close and preview labels in English mode',
   );
   assert(
+    composer.includes('CoolPaperclipIcon') &&
+      composer.includes('className="komsco-ai__tool-button komsco-ai__attach"') &&
+      composer.includes('onClick={() => fileInputRef.current?.click()}') &&
+      composer.includes('onDragEnter={onDragEnter}') &&
+      composer.includes('onDrop={onDrop}') &&
+      composer.includes('onPaste={onPaste}') &&
+      launcher.includes('filesFromClipboardData(event.clipboardData)') &&
+      launcher.includes('Array.from(data.items ?? [])') &&
+      launcher.includes('fallbackImageName(file, mimeType)') &&
+      launcher.includes('filesFromClipboardData(event.dataTransfer)'),
+    'assistant image input must support paperclip file selection, drag/drop, and pasted clipboard images through one attachment pipeline',
+  );
+  assert(
     progressTimeline.includes('Test Pod creation preflight') &&
       progressTimeline.includes('Target namespace and server check') &&
       assistantConstants.includes("oc_test_pod_create_preflight: '테스트 Pod 생성 사전 확인'"),
@@ -172,6 +214,13 @@ const sourceReview = () => {
     'execution capability badges must translate read-only, execute, and unrestricted labels',
   );
   assert(
+    insightRailHelpers.includes('Gateway 검증 환경') &&
+      historyPanel.includes('getHistoryUserLabel(authSubject, authSubjectError, uiLanguage)') &&
+      historyPanel.includes('검증 사용자') &&
+      historyPanel.includes('getClusterHost(clusterSummary?.apiUrl, uiLanguage)'),
+    'history user footer must hide local fixture user and invalid hosts behind human validation labels',
+  );
+  assert(
     css.includes('.komsco-ai__message--assistant .komsco-ai__message-avatar') &&
       css.includes('background: transparent') &&
       css.includes('border: 0'),
@@ -182,17 +231,26 @@ const sourceReview = () => {
       launcher.includes('data-message-actions="assistant"') &&
       launcher.includes('수정해서 다시 보내기') &&
       launcher.includes('좋은 답변') &&
-      launcher.includes('좋지 않은 답변'),
-    'message-level actions must preserve user edit/copy and assistant copy/rating controls',
+      launcher.includes('좋지 않은 답변') &&
+      launcher.includes('komsco-ai__message-action-status') &&
+      launcher.includes('좋아요 선택됨') &&
+      launcher.includes('싫어요 선택됨') &&
+      launcher.includes('좋아요 저장됨') &&
+      launcher.includes('싫어요 저장됨') &&
+      css.includes('.komsco-ai__message-action-status'),
+    'message-level actions must preserve controls and distinguish selected feedback from saved feedback',
   );
   assert(
     launcher.includes('komsco-ai__feedback-comment') &&
       launcher.includes('feedbackCommentPlaceholder') &&
       launcher.includes('Note what was wrong or confusing') &&
       launcher.includes('Note what should stay this good') &&
+      launcher.includes('기록: 브라우저+Gateway') &&
+      launcher.includes('STORED_MESSAGE_FEEDBACK_KEY') &&
+      css.includes('.komsco-ai__feedback-prompt') &&
       launcher.includes('submitMessageFeedbackComment') &&
       launcher.includes('optionalComment'),
-    'assistant feedback must support direction-specific tester comments, not only a local icon state',
+    'assistant feedback must support tester comments and disclose where feedback is stored',
   );
   assert(
     insightRail.includes("'답변 피드백'") &&
@@ -231,6 +289,27 @@ const sourceReview = () => {
       localGateway.includes('namespace_check_deferred') &&
       localGateway.includes('실행 전 namespace 재확인 필요'),
     'local gateway must support test Pod creation as an approval-gated execution request',
+  );
+  assert(
+    localGateway.includes("source: 'copilot_reply'") &&
+      localGateway.includes('casualLocalChatAnswer') &&
+      launcher.includes("event.source === 'copilot_reply'") &&
+      messageHeader.includes("message.answerSource === 'copilot_reply'"),
+    'short casual chat must render as an AIOps reply, not as Gateway live query or request clarification',
+  );
+  assert(
+    localGateway.includes('approvalId is required; execution never creates approval automatically') &&
+      !localGateway.includes("body.approvalId || makeApprovalRecord('lab-auto-unrestricted'") &&
+      launcher.includes("action.step === 'approve-execute-plan'") &&
+      launcher.includes("executionMode !== 'unrestricted'") &&
+      launcher.includes('canUseUnrestrictedCommands(aiopsStatus)'),
+    'approval and execution must be separated: execute cannot auto-create approvals, and approve+execute is unrestricted-only',
+  );
+  assert(
+    localGateway.includes('isGeneralConceptQuestion') &&
+      localGateway.includes('generalConceptLocalAnswer') &&
+      localGateway.includes("intent: 'general_concept'"),
+    'OpenShift concept questions must use the fast OCP guide path instead of live operational lookup',
   );
   assert(
     /\.komsco-ai__surface \.komsco-ai__empty-mark\s*\{[\s\S]*background: transparent;[\s\S]*border: 0;[\s\S]*box-shadow: none;[\s\S]*\}/.test(css) &&
@@ -289,43 +368,101 @@ const fetchTextStatus = async (url) => {
   };
 };
 
+const resetLocalGatewayState = async () => {
+  const resetUrl = `${localGatewayUrl}/v1/local/reset`;
+  const response = await fetch(resetUrl, { method: 'POST' });
+  if (response.status === 404) {
+    return { skipped: true, status: 404 };
+  }
+  const payload = await response.json().catch(() => ({}));
+  assert(response.ok && payload.ok === true, 'local gateway reset endpoint must succeed', {
+    payload,
+    status: response.status,
+    url: resetUrl,
+  });
+  return payload;
+};
+
 const isJavaScriptResponse = (result) =>
   result.ok &&
   /(?:application|text)\/javascript|application\/x-javascript/i.test(result.contentType);
 
 const verifyConsolePluginChunkProxy = async () => {
   const base = new URL('/api/plugins/cywell-aiops-console-plugin/', consoleUrl).toString();
-  const entry = await fetchTextStatus(new URL('plugin-entry.js', base).toString());
+  const manifest = await fetchJson(new URL('plugin-manifest.json', base).toString());
+  const entryScript =
+    Array.isArray(manifest.loadScripts) && typeof manifest.loadScripts[0] === 'string'
+      ? manifest.loadScripts[0]
+      : 'plugin-entry.js';
+  const entry = await fetchTextStatus(new URL(entryScript, base).toString());
   assert(
     isJavaScriptResponse(entry) && entry.text.includes('useAssistantOverlay'),
     'local OKD console must serve the AIOps plugin entry through the 9000 proxy',
     {
       contentType: entry.contentType,
+      entryScript,
       hint: 'Check that the console plugin webpack dev server is listening on 9001.',
       status: entry.status,
       url: entry.url,
     },
   );
 
-  const referencedChunks = new Set(
-    [...entry.text.matchAll(/__webpack_require__\.e\("([^"]+)"\)/g)]
-      .map((match) => match[1])
-      .filter(Boolean),
-  );
-  const criticalChunks = [
-    'exposed-NullContextProvider',
-    'exposed-useAssistantOverlay',
-    'components_AssistantLauncher_tsx',
-    [...referencedChunks].find((name) =>
-      name.startsWith('vendors-node_modules_patternfly_react-core'),
+  const directChunkScripts = [
+    ...new Set(
+      [...entry.text.matchAll(/([A-Za-z0-9_-]+-chunk-[a-f0-9]+\.min\.js)/g)]
+        .map((match) => match[1])
+        .filter(Boolean),
     ),
-  ].filter((name) => name && referencedChunks.has(name));
+  ];
+  let criticalChunkScripts = directChunkScripts.filter((script) =>
+    [
+      'exposed-NullContextProvider',
+      'exposed-useAssistantOverlay',
+      'exposed-AiopsDashboardPage',
+    ].some((prefix) => script.startsWith(prefix)),
+  );
+
+  if (criticalChunkScripts.length < 3) {
+    const referencedChunkIds = new Set(
+      [...entry.text.matchAll(/\.e\((\d+)\)/g)].map((match) => match[1]).filter(Boolean),
+    );
+    const chunkNames = new Map();
+    const chunkHashes = new Map();
+    for (const [, id, value] of entry.text.matchAll(/(\d+):"([^"]+)"/g)) {
+      if (/^[a-f0-9]{16,}$/i.test(value)) {
+        chunkHashes.set(id, value);
+      } else if (value.includes('exposed-') || value.includes('vendors-')) {
+        chunkNames.set(id, value);
+      }
+    }
+    const chunkByName = (name) =>
+      [...chunkNames.entries()].find(([, value]) => value === name)?.[0];
+    criticalChunkScripts = [
+      chunkByName('exposed-NullContextProvider'),
+      chunkByName('exposed-useAssistantOverlay'),
+      chunkByName('exposed-AiopsDashboardPage'),
+    ]
+      .filter((id) => id && referencedChunkIds.has(id) && chunkHashes.has(id))
+      .map((id) => `${chunkNames.get(id)}-chunk-${chunkHashes.get(id)}.min.js`);
+  }
+
+  if (criticalChunkScripts.length < 3) {
+    const distDir = path.join(root, 'komsco-ai-console-plugin', 'dist');
+    const distFiles = fs.existsSync(distDir) ? fs.readdirSync(distDir) : [];
+    criticalChunkScripts = distFiles.filter((script) =>
+      [
+        'exposed-NullContextProvider-chunk-',
+        'exposed-useAssistantOverlay-chunk-',
+        'exposed-AiopsDashboardPage-chunk-',
+      ].some((prefix) => script.startsWith(prefix) && script.endsWith('.min.js')),
+    );
+  }
 
   const checks = [];
-  for (const chunk of criticalChunks) {
-    const result = await fetchTextStatus(new URL(`${chunk}-chunk.js`, base).toString());
+  for (const script of criticalChunkScripts) {
+    const result = await fetchTextStatus(new URL(script, base).toString());
     checks.push({
-      chunk,
+      script,
       contentType: result.contentType,
       ok: isJavaScriptResponse(result),
       status: result.status,
@@ -381,6 +518,51 @@ const evaluate = async (expression, timeout = 20000) => {
   return result.result?.value;
 };
 
+const setViewport = async (width, height) => {
+  await send('Emulation.setDeviceMetricsOverride', {
+    deviceScaleFactor: 1,
+    height,
+    mobile: false,
+    screenHeight: height,
+    screenWidth: width,
+    width,
+  });
+  await send('Emulation.setVisibleSize', { height, width }).catch(() => {});
+  await sleep(300);
+};
+
+const captureScreenshot = async (filePath, elementExpression = '') => {
+  const params = { format: 'png', fromSurface: true };
+  if (elementExpression) {
+    const clip = await evaluate(`(() => {
+      const element = ${elementExpression};
+      if (!element) {
+        return null;
+      }
+      element.scrollIntoView({ block: 'center', inline: 'nearest' });
+      const rect = element.getBoundingClientRect();
+      const pad = 12;
+      const x = Math.max(0, rect.left - pad);
+      const y = Math.max(0, rect.top - pad);
+      const right = Math.min(window.innerWidth, rect.right + pad);
+      const bottom = Math.min(window.innerHeight, rect.bottom + pad);
+      return {
+        height: Math.max(1, bottom - y),
+        scale: 1,
+        width: Math.max(1, right - x),
+        x,
+        y
+      };
+    })()`);
+    if (clip && clip.width > 1 && clip.height > 1) {
+      params.clip = clip;
+    }
+  }
+  await send('Page.captureScreenshot', params).then((result) => {
+    fs.writeFileSync(filePath, Buffer.from(result.data, 'base64'));
+  });
+};
+
 const poll = async (expression, predicate, label, timeoutMs = 60000) => {
   const started = Date.now();
   let last;
@@ -421,6 +603,12 @@ const NAMESPACE_CLEANUP_QUESTION = [
   '정리 후보가 있으면 실행 전 승인 가능한 Action Plan 후보까지 만들어줘.',
 ].join('\n');
 
+const IN_USE_NAMESPACE_CLEANUP_QUESTION = [
+  'gpu-test-kugnus 네임스페이스가 실제 사용 중인지 확인해줘.',
+  '사용 중이면 삭제 Action Plan은 만들지 말고,',
+  '실행 가능 모드에서 왜 계획을 만들지 않는지 명확히 설명해줘.',
+].join('\n');
+
 const EN_NAMESPACE_CLEANUP_QUESTION_WITH_TEST_WORD = [
   'Review whether these namespaces are actually in use or stale test namespaces.',
   'aiops-demo',
@@ -439,16 +627,223 @@ const TEST_POD_CREATE_QUESTION = [
   '실행 가능이면 승인 가능한 Action Plan 후보까지 보여줘.',
 ].join('\n');
 
-const UNCLEAR_CHAT_QUESTIONS = ['야', '명청한챗봇'];
+const UNCLEAR_CHAT_QUESTIONS = ['야', '명청한 챗봇', '오늘 날씨 알려줘'];
+const AMBIGUOUS_OPERATIONAL_QUESTIONS = ['OpenShift 좀 봐줘', '네임스페이스', '조치해줘'];
+
+const verifyCasualChatContracts = async () => {
+  const runQuestion = async (question, mode = 'read-only', language = 'ko') => {
+    const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
+      body: JSON.stringify({
+        conversationId: `v0281-casual-${question.replace(/\s+/g, '-')}`,
+        language,
+        message: question,
+        pageContext: {
+          aiopsExecutionMode: mode,
+          aiopsUiLanguage: language,
+          route: '/dashboards/aiops',
+        },
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    const raw = await response.text();
+    const events = parseSseEvents(raw);
+    const answerText = events
+      .filter((event) => event.type === 'text')
+      .map((event) => event.content || '')
+      .join('\n');
+    const eventJson = JSON.stringify(events);
+    return {
+      answerPreview: answerText.slice(0, 600),
+      eventTypes: events.map((event) => event.type),
+      hasActionPlan: /Action Plan 후보|승인 필요 후보|Action Plan candidate/.test(answerText),
+      hasDone: raw.includes('[DONE]'),
+      hasInternalLeak: /5174|local fixture|local-fixture|local_fixture|local-only|시나리오 처리 범위|unclear_or_out_of_scope|insufficient_operational_context|request_intent_classifier|confidence/.test(
+        answerText + eventJson,
+      ),
+      hasOperationalClarification:
+        answerText.includes('요청 확인') ||
+        answerText.includes('필요한 정보') ||
+        answerText.includes('지금 가능한 요청 예시') ||
+        answerText.includes('Request Clarification') ||
+        answerText.includes('Needed Information') ||
+        answerText.includes('Good Request Examples'),
+      hasIdentityGuide:
+        answerText.includes('AIOps for OCP') &&
+        answerText.includes('전문 AIOps 모델') &&
+        answerText.includes('OpenShift') &&
+        answerText.includes('Action Plan') &&
+        (answerText.includes('승인') || answerText.includes('approval')),
+      hasWeakCasualReply:
+        answerText.includes('네, 보고 있습니다') ||
+        answerText.includes("I'm here") ||
+        answerText.includes('확인할 대상과 원하는 작업을 적어주면'),
+      mode,
+      ok: response.ok,
+      question,
+      source: events.find((event) => event.type === 'text')?.source || '',
+      status: response.status,
+      textLength: answerText.length,
+      toolEventCount: events.filter((event) => event.type === 'tool_call' || event.type === 'tool_plan').length,
+    };
+  };
+
+  const terse = await runQuestion(UNCLEAR_CHAT_QUESTIONS[0], 'read-only');
+  const insult = await runQuestion(UNCLEAR_CHAT_QUESTIONS[1], 'execute');
+  const general = await runQuestion(UNCLEAR_CHAT_QUESTIONS[2], 'execute');
+  const questionMark = await runQuestion('뭐야', 'unrestricted');
+  const englishHey = await runQuestion('hey', 'read-only', 'en');
+  const openshiftConcept = await runQuestion('오픈시프트가 뭐야', 'execute');
+  const englishOpenshiftConcept = await runQuestion('what is OpenShift', 'execute', 'en');
+  const metrics = {
+    englishHey,
+    englishOpenshiftConcept,
+    general,
+    insult,
+    openshiftConcept,
+    questionMark,
+    terse,
+  };
+
+  for (const item of [terse, insult, questionMark]) {
+    assert(
+      item.ok &&
+        item.hasDone &&
+        item.source === 'copilot_reply' &&
+        item.hasIdentityGuide &&
+        !item.hasWeakCasualReply &&
+        item.textLength > 80 &&
+        item.textLength < 320 &&
+        item.toolEventCount === 0 &&
+        !item.hasActionPlan &&
+        !item.hasInternalLeak &&
+        !item.hasOperationalClarification,
+      'short casual input must return an AIOps for OCP identity guide without operational clarification, tool plan, or internal routing leak',
+      metrics,
+    );
+  }
+
+  assert(
+    englishHey.ok &&
+      englishHey.hasDone &&
+      englishHey.source === 'copilot_reply' &&
+      englishHey.answerPreview.includes('AIOps for OCP') &&
+      englishHey.answerPreview.includes('AIOps model specialized for OCP') &&
+      englishHey.answerPreview.includes('Action Plan') &&
+      englishHey.answerPreview.includes('approval') &&
+      !/[가-힣]/.test(englishHey.answerPreview) &&
+      !englishHey.hasOperationalClarification &&
+      !englishHey.hasInternalLeak,
+    'English casual input must return the AIOps for OCP identity guide in English without Korean text',
+    metrics,
+  );
+
+  assert(
+    openshiftConcept.ok &&
+      openshiftConcept.hasDone &&
+      openshiftConcept.source === 'copilot_reply' &&
+      openshiftConcept.answerPreview.includes('OpenShift') &&
+      openshiftConcept.answerPreview.includes('Kubernetes') &&
+      openshiftConcept.answerPreview.includes('AIOps for OCP') &&
+      openshiftConcept.toolEventCount === 0 &&
+      !openshiftConcept.hasOperationalClarification &&
+      !openshiftConcept.hasInternalLeak,
+    'Korean OpenShift concept question must return a fast OCP guide answer without live lookup or tool events',
+    metrics,
+  );
+
+  assert(
+    englishOpenshiftConcept.ok &&
+      englishOpenshiftConcept.hasDone &&
+      englishOpenshiftConcept.source === 'copilot_reply' &&
+      englishOpenshiftConcept.answerPreview.includes('OpenShift') &&
+      englishOpenshiftConcept.answerPreview.includes('Kubernetes') &&
+      englishOpenshiftConcept.answerPreview.includes('AIOps for OCP') &&
+      !/[가-힣]/.test(englishOpenshiftConcept.answerPreview) &&
+      englishOpenshiftConcept.toolEventCount === 0 &&
+      !englishOpenshiftConcept.hasOperationalClarification &&
+      !englishOpenshiftConcept.hasInternalLeak,
+    'English OpenShift concept question must stay English and avoid operational lookup',
+    metrics,
+  );
+
+  return metrics;
+};
+
+const verifyAmbiguousOperationalContracts = async () => {
+  const runQuestion = async (question, mode = 'execute') => {
+    const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
+      body: JSON.stringify({
+        conversationId: `v0281-ambiguous-${question.replace(/\s+/g, '-')}`,
+        message: question,
+        pageContext: {
+          aiopsExecutionMode: mode,
+          route: '/dashboards/aiops',
+        },
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+    const raw = await response.text();
+    const events = parseSseEvents(raw);
+    const answerText = events
+      .filter((event) => event.type === 'text')
+      .map((event) => event.content || '')
+      .join('\n');
+    const eventJson = JSON.stringify(events);
+    return {
+      answerPreview: answerText.slice(0, 600),
+      eventTypes: events.map((event) => event.type),
+      hasActionPlan: /Action Plan 후보|승인 필요 후보|Action Plan candidate/.test(answerText),
+      hasDone: raw.includes('[DONE]'),
+      hasInternalLeak: /5174|local fixture|local-fixture|local_fixture|local-only|시나리오 처리 범위|unclear_or_out_of_scope|insufficient_operational_context|request_intent_classifier|confidence/.test(
+        answerText + eventJson,
+      ),
+      hasRequiredPrompt:
+        answerText.includes('대상과 작업이 아직 부족합니다.') ||
+        answerText.includes('target and task are not clear enough'),
+      mode,
+      ok: response.ok,
+      question,
+      source: events.find((event) => event.type === 'text')?.source || '',
+      status: response.status,
+      textLength: answerText.length,
+      toolEventCount: events.filter((event) => event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'tool_plan').length,
+    };
+  };
+
+  const metrics = {};
+  for (const [index, question] of AMBIGUOUS_OPERATIONAL_QUESTIONS.entries()) {
+    metrics[`case${index + 1}`] = await runQuestion(question, index === 0 ? 'execute' : 'read-only');
+  }
+
+  for (const item of Object.values(metrics)) {
+    assert(
+      item.ok &&
+        item.hasDone &&
+        item.source === 'copilot_clarification' &&
+        item.textLength > 40 &&
+        item.textLength < 320 &&
+        item.toolEventCount === 0 &&
+        item.hasRequiredPrompt &&
+        !item.hasActionPlan &&
+        !item.hasInternalLeak,
+      'ambiguous operational input must ask for target/task without tool events or internal routing leaks in SSE',
+      metrics,
+    );
+  }
+
+  return metrics;
+};
 
 const verifyModeAnswerContracts = async () => {
   const question = NAMESPACE_CLEANUP_QUESTION;
 
-  const runMode = async (mode) => {
+  const runMode = async (mode, inputQuestion = question) => {
     const response = await fetch(`${localGatewayUrl}/v1/chat/stream`, {
       body: JSON.stringify({
-        conversationId: `v0281-mode-contract-${mode}`,
-        message: question,
+        conversationId: `v0281-mode-contract-${mode}-${inputQuestion.length}`,
+        message: inputQuestion,
         pageContext: {
           aiopsExecutionMode: mode,
           route: '/dashboards/aiops',
@@ -472,7 +867,7 @@ const verifyModeAnswerContracts = async () => {
       hasActionCandidateReady: toolPlanJson.includes('action_candidate_ready'),
       hasCandidateTool: toolPlanJson.includes('create_namespace_cleanup_action_candidate'),
       hasDone: raw.includes('[DONE]'),
-      hasInternalLeak: /5174|local fixture|시나리오 처리 범위/.test(answerText),
+      hasInternalLeak: /5174|local fixture|local-fixture|local_fixture|local-only|시나리오 처리 범위/.test(answerText),
       hasNaturalActionExecute: eventJson.includes('natural_action_execute'),
       mode,
       mutationsEnabled: toolPlan?.execution_policy?.mutations_enabled,
@@ -480,9 +875,17 @@ const verifyModeAnswerContracts = async () => {
       status: response.status,
       textHash: `${answerText.length}:${answerText.slice(0, 80)}`,
       textIncludesActionPlanCandidate: /Action Plan 후보|승인 필요 후보/.test(answerText),
+      textIncludesNoSafeDeleteCandidate:
+        answerText.includes('안전한 정리 후보') ||
+        answerText.includes('no approval-ready delete candidate') ||
+        answerText.includes('no safe cleanup candidate'),
       textIncludesReadOnlyCommand:
         answerText.includes('oc get namespaces') &&
         answerText.includes('oc get all,pvc,route,event'),
+      textIncludesReadOnlyPlanBlock:
+        answerText.includes('읽기 전용 모드에서는 Action Plan') ||
+        answerText.includes('읽기 전용 모드라 계획 생성') ||
+        answerText.includes('Read-only mode does not create'),
       textIncludesReadOnlyMode: answerText.includes('읽기 전용 모드'),
       textIncludesExecuteMode: answerText.includes('실행 가능 모드'),
       textIncludesUnrestrictedMode: answerText.includes('실행 무제한 모드'),
@@ -493,6 +896,7 @@ const verifyModeAnswerContracts = async () => {
 
   const readOnly = await runMode('read-only');
   const execute = await runMode('execute');
+  const executeInUse = await runMode('execute', IN_USE_NAMESPACE_CLEANUP_QUESTION);
   const unrestricted = await runMode('unrestricted');
   const metrics = {
     distinct:
@@ -501,6 +905,7 @@ const verifyModeAnswerContracts = async () => {
       readOnly.toolPlanMode !== execute.toolPlanMode &&
       execute.toolPlanMode !== unrestricted.toolPlanMode,
     execute,
+    executeInUse,
     readOnly,
     unrestricted,
   };
@@ -519,6 +924,7 @@ const verifyModeAnswerContracts = async () => {
       !metrics.readOnly.hasCandidateTool &&
       !metrics.readOnly.textIncludesActionPlanCandidate &&
       metrics.execute.textIncludesExecuteMode &&
+      !metrics.execute.textIncludesReadOnlyPlanBlock &&
       metrics.execute.toolPlanMode === 'controlled_execution' &&
       metrics.execute.mutationsEnabled === true &&
       metrics.execute.hasCandidateTool &&
@@ -535,6 +941,20 @@ const verifyModeAnswerContracts = async () => {
       !metrics.unrestricted.hasInternalLeak,
     'same namespace cleanup question must produce distinct safe answers and Action Plan capability by execution mode',
     metrics,
+  );
+
+  assert(
+    metrics.executeInUse.ok &&
+      metrics.executeInUse.hasDone &&
+      metrics.executeInUse.textIncludesExecuteMode &&
+      metrics.executeInUse.textIncludesNoSafeDeleteCandidate &&
+      !metrics.executeInUse.textIncludesReadOnlyPlanBlock &&
+      !metrics.executeInUse.textIncludesActionPlanCandidate &&
+      !metrics.executeInUse.hasCandidateTool &&
+      metrics.executeInUse.mutationsEnabled === true &&
+      !metrics.executeInUse.hasInternalLeak,
+    'execute mode with an in-use namespace must explain no safe delete candidate instead of falling back to read-only wording or Action Plan CTA',
+    metrics.executeInUse,
   );
 
   return metrics;
@@ -624,7 +1044,7 @@ const verifyTestPodCreateContracts = async () => {
       hasActionCandidateReady: toolPlanJson.includes('action_candidate_ready'),
       hasCandidateTool: toolPlanJson.includes('create_test_pod_action_candidate'),
       hasDone: raw.includes('[DONE]'),
-      hasInternalLeak: /5174|local fixture|시나리오 처리 범위/.test(answerText),
+      hasInternalLeak: /5174|local fixture|local-fixture|local_fixture|local-only|시나리오 처리 범위/.test(answerText),
       hasMutationExecute: eventJson.includes('mutation_succeeded'),
       mode,
       mutationsEnabled: toolPlan?.execution_policy?.mutations_enabled,
@@ -904,7 +1324,7 @@ const installAssistantFixture = async () =>
     const history = [
       {
         id: 'v0281-fixture-session',
-        title: 'v0.2.8.1 Action Plan UX fixture',
+        title: 'v0.2.8.1 Action Plan UX 검증 대화',
         updatedAt: Date.now(),
         conversationId: 'v0281-fixture-conversation',
         messages,
@@ -949,7 +1369,7 @@ const closeAndReopenEmptyAssistant = async () => {
   if (surfaceOpen) {
     await evaluate(`(() => {
       const close = Array.from(document.querySelectorAll('.komsco-ai__header-actions button'))
-        .find((el) => ['AIOps Copilot 닫기', 'Close AIOps Copilot'].includes(el.getAttribute('aria-label') || ''));
+        .find((el) => ['AIOps for OCP 닫기', 'Close AIOps for OCP'].includes(el.getAttribute('aria-label') || ''));
       close?.click();
       return true;
     })()`);
@@ -1187,17 +1607,31 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         'Plan',
         'Approval',
         'Execution',
-        'Details (JSON)'
+        'Audit detail'
       ];
       const missingEnglishRailLabels = expectedEnglishRailLabels.filter(
         (expected) => !railChromeText.includes(expected)
       );
+      const rawRailTerms = [
+        'proposal-local',
+        'plan-local',
+        'approval-local',
+        'execution-local',
+        'mutation_succeeded',
+        'mutation_failed',
+        'delete_namespace_after_approval',
+        'Details (JSON)',
+        '상세보기 (JSON)'
+      ].filter((term) => railChromeText.includes(term));
       const actionPlanButtons = Array.from(
-        document.querySelectorAll('.komsco-ai__create-action-plan-button')
+        latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || []
       ).map((el) => el.textContent.trim());
       const answerActionButtons = Array.from(
-        document.querySelectorAll('.komsco-ai__answer-action-controls .komsco-ai__action-button')
+        latest?.querySelectorAll('.komsco-ai__answer-action-controls .komsco-ai__action-button') || []
       ).map((el) => el.textContent.trim());
+      const answerLifecycleStages = Array.from(
+        latest?.querySelectorAll('[data-action-lifecycle-stage]') || []
+      ).map((el) => el.getAttribute('data-action-lifecycle-stage') || '');
       const loading =
         Boolean(document.querySelector('.komsco-ai__surface--responding')) ||
         ['응답 중지', 'Stop response'].includes(
@@ -1206,6 +1640,9 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       const rawTerms = [
         '5174',
         'local fixture',
+        'local-fixture',
+        'local_fixture',
+        'local-only',
         '시나리오 처리 범위',
         'unclear_or_out_of_scope',
         'insufficient_operational_context',
@@ -1235,6 +1672,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       return {
         actionPlanButtons,
         answerActionButtons,
+        answerLifecycleStages,
         assistantMessages: assistantMessages.length,
         hasGatewayFallback: source.includes('fallback'),
         hasGatewayDirect: source.includes('Gateway 실조회') || source.includes('Gateway live query'),
@@ -1247,6 +1685,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         progressText,
         progressTexts,
         rawProgressTerms,
+        rawRailTerms,
         rawTerms,
         scenarioTerms,
         decisionTableCount,
@@ -1270,15 +1709,20 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
           /[가-힣]/.test(source + ' ' + sourceTitle),
         sourceTitle,
         sourceUsesEnglishLabel:
-          ['Gateway live query', 'Request clarification', 'Lightspeed connected', 'Gateway fallback'].includes(source) &&
+          ['OCP guide', 'Gateway live query', 'Request clarification', 'Lightspeed connected', 'Gateway fallback'].includes(source) &&
           !/[가-힣]/.test(source + ' ' + sourceTitle),
+        textIncludesCasualReply:
+          text.includes('AIOps for OCP') &&
+          (text.includes('전문 AIOps 모델') || text.includes('AIOps model specialized for OCP')) &&
+          text.includes('OpenShift') &&
+          text.includes('Action Plan') &&
+          (text.includes('승인') || text.includes('approval')) &&
+          !text.includes('네, 보고 있습니다') &&
+          !text.includes("I'm here"),
         textHash: text.length + ':' + text.slice(0, 80),
         textIncludesClarification:
-          text.includes('요청 확인') &&
-          text.includes('필요한 정보') &&
-          text.includes('지금 가능한 요청 예시') &&
-          text.includes('처리 상태: 추가 정보 필요') &&
-          text.includes('실행 상태: 변경 작업 없음'),
+          text.includes('대상과 작업이 아직 부족합니다.') &&
+          text.includes('Action Plan이나 클러스터 변경은 만들지 않았습니다.'),
         progressUsesOperatorLabels:
           progressText.length > 0 &&
           !rawProgressTerms.length &&
@@ -1335,7 +1779,7 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       value?.assistantMessages === 1 &&
       value?.userMessages === 1 &&
       !value?.loading &&
-      value?.preview?.length > 160,
+      value?.preview?.length > 20,
     `live UI answer completed for ${label || mode}`,
     90000,
   );
@@ -1473,9 +1917,9 @@ const verifyLiveTestPodCreateAnswers = async () => {
   return metrics;
 };
 
-const verifyLiveClarificationAnswers = async () => {
+const verifyLiveCasualAnswers = async () => {
   const terse = await sendLiveQuestion({
-    label: 'terse unclear Korean input',
+    label: 'terse casual Korean input',
     mode: 'read-only',
     question: UNCLEAR_CHAT_QUESTIONS[0],
   });
@@ -1488,22 +1932,341 @@ const verifyLiveClarificationAnswers = async () => {
 
   for (const item of [terse, insult]) {
     assert(
-      item.textIncludesClarification &&
-        item.source === '요청 확인' &&
+      item.textIncludesCasualReply &&
+        item.source === 'OCP 안내' &&
         !item.hasGatewayDirect &&
         !item.hasGatewayFallback &&
         !item.hasInternalLeak &&
         !item.hasScenarioLeak &&
-        item.progressUsesOperatorLabels &&
+        item.rawProgressTerms.length === 0 &&
+        item.rawRailTerms.length === 0 &&
+        !/요청 해석|네임스페이스 사용 여부|테스트 Pod 생성|증거 수집|Action Plan|Request interpretation|Namespace usage|Test Pod creation|Evidence plan/.test(
+          item.progressText,
+        ) &&
         item.actionPlanButtons.length === 0 &&
         item.answerActionButtons.length === 0 &&
-        !item.textIncludesActionPlanCandidate,
-      'unclear live UI input must ask for clarification without hardcoded scenario, internal routing, or Action Plan CTA',
+        !item.textIncludesActionPlanCandidate &&
+        !item.textIncludesClarification,
+      'short casual live UI input must return an AIOps for OCP identity guide without operational clarification, internal routing, or Action Plan CTA',
       metrics,
     );
   }
 
+  const casualLayoutMetrics = await evaluate(`(() => {
+    const userMessages = Array.from(document.querySelectorAll('.komsco-ai__message--user'));
+    const latestUser = userMessages[userMessages.length - 1];
+    const userContent = latestUser?.querySelector('.komsco-ai__message-content');
+    const userText = userContent?.textContent?.trim() || '';
+    const userRect = userContent?.getBoundingClientRect();
+    const userStyle = userContent ? getComputedStyle(userContent) : null;
+    const lineHeight = userStyle ? parseFloat(userStyle.lineHeight) : 0;
+    const contentHeight = userRect ? Math.round(userRect.height) : 0;
+    const textarea = document.querySelector('.komsco-ai__composer textarea');
+    const input = document.querySelector('.komsco-ai__input');
+    const send = document.querySelector('.komsco-ai__send');
+    const composerWrap = document.querySelector('.komsco-ai__composer-wrap');
+    const textareaStyle = textarea ? getComputedStyle(textarea) : null;
+    const inputStyle = input ? getComputedStyle(input) : null;
+    const sendStyle = send ? getComputedStyle(send) : null;
+    const wrapStyle = composerWrap ? getComputedStyle(composerWrap) : null;
+    const darkBackground = (value) =>
+      /rgb\\((\\d+),\\s*(\\d+),\\s*(\\d+)\\)/.test(value)
+        ? value.match(/\\d+/g).slice(0, 3).map(Number).every((part) => part < 48)
+        : false;
+    return {
+      contentHeight,
+      inputBackground: inputStyle?.backgroundColor || '',
+      lineHeight,
+      ok:
+        userText === ${JSON.stringify(UNCLEAR_CHAT_QUESTIONS[1])} &&
+        Boolean(userRect) &&
+        userRect.width >= 42 &&
+        userRect.width <= 170 &&
+        contentHeight <= Math.ceil(lineHeight * 2.25) &&
+        Boolean(textareaStyle) &&
+        parseFloat(textareaStyle.minHeight) <= 34 &&
+        parseFloat(textareaStyle.maxHeight) <= 80 &&
+        !darkBackground(inputStyle?.backgroundColor || '') &&
+        !darkBackground(wrapStyle?.backgroundColor || '') &&
+        !darkBackground(sendStyle?.backgroundColor || ''),
+      sendBackground: sendStyle?.backgroundColor || '',
+      textareaMaxHeight: textareaStyle?.maxHeight || '',
+      textareaMinHeight: textareaStyle?.minHeight || '',
+      userText,
+      userWidth: userRect ? Math.round(userRect.width) : 0,
+      wrapBackground: wrapStyle?.backgroundColor || ''
+    };
+  })()`);
+  assert(
+    casualLayoutMetrics.ok,
+    'short casual user bubble and composer must stay compact without dark oversized input chrome',
+    casualLayoutMetrics,
+  );
+
   return metrics;
+};
+
+const verifyLiveActionPlanClickThrough = async () => {
+  const namespacePlanDigest = 'sha256:local-namespace-cleanup-plan-v1';
+  const statusSnapshot = async () =>
+    evaluate(`(async () => {
+      const response = await fetch('/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status');
+      if (!response.ok) return { ok: false, status: response.status };
+      const payload = await response.json();
+      const records = payload?.spec?.records || {};
+      return {
+        approvalCount: (records.approvalDecisions || []).length,
+        executionCount: (records.executionRecords || []).length,
+        executions: (records.executionRecords || []).map((record) => ({
+          name: record?.metadata?.name || '',
+          planDigest: record?.spec?.planDigest || record?.spec?.executionRecord?.planDigest || '',
+          mutationReason: record?.spec?.mutationOutcome?.reason || '',
+          mutationStatus: record?.spec?.mutationOutcome?.status || '',
+          remediationReason: record?.spec?.remediationOutcome?.reason || '',
+          targetName: record?.spec?.executorTrace?.target?.name || ''
+        })),
+        ok: true,
+        planCount: (records.sealedActionPlans || []).length,
+        plans: (records.sealedActionPlans || []).map((record) => ({
+          digest: record?.spec?.sealedActionPlan?.planDigest || record?.spec?.planDigest || '',
+          name: record?.metadata?.name || '',
+          targetName: record?.spec?.sealedActionPlan?.target?.name || record?.spec?.target?.name || ''
+        }))
+      };
+    })()`);
+
+  const before = await statusSnapshot();
+  assert(before?.ok, 'Action Plan click-through must read AIOps status before starting', before);
+
+  const answer = await sendLiveQuestion({
+    label: 'namespace cleanup Action Plan click-through',
+    mode: 'execute',
+    question: NAMESPACE_CLEANUP_QUESTION,
+  });
+  assert(
+    answer.actionPlanButtons.includes('Action Plan 생성') &&
+      answer.textIncludesActionPlanCandidate &&
+      answer.hasGatewayDirect,
+    'execute mode namespace cleanup answer must expose an actionable Action Plan CTA before click-through',
+    answer,
+  );
+
+  const createClick = await evaluate(`(() => {
+    const assistantMessages = Array.from(document.querySelectorAll('.komsco-ai__message--assistant'));
+    const latest = assistantMessages[assistantMessages.length - 1];
+    const button = latest?.querySelector('.komsco-ai__create-action-plan-button');
+    const label = button?.textContent?.trim() || '';
+    const disabled = Boolean(button?.disabled);
+    if (!button || disabled) return { disabled, label, ok: false };
+    button.click();
+    return { disabled, label, ok: true };
+  })()`);
+  assert(createClick?.ok, 'Action Plan 생성 CTA must be clickable on the latest answer', createClick);
+
+  const planReady = await poll(
+    `(() => {
+      const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+      const text = latest?.textContent || '';
+      const approveButton = latest?.querySelector('[data-answer-action-step="approve-plan"]');
+      const createButtons = latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || [];
+      return {
+        hasApproveButton: Boolean(approveButton),
+        createButtonCount: createButtons.length,
+        text: text.slice(0, 1200)
+      };
+    })()`,
+    (value) => value?.hasApproveButton && value?.createButtonCount === 0,
+    'Action Plan CTA click creates an approval-ready plan in the answer',
+    30000,
+  );
+
+  const planStatus = await statusSnapshot();
+  assert(
+    planStatus?.plans?.some((plan) => plan.name === 'plan-local-namespace-cleanup') &&
+      planStatus.planCount >= before.planCount,
+    'Action Plan CTA click must create or refresh the namespace cleanup sealed plan record',
+    { before, planReady, planStatus },
+  );
+
+  const approveClick = await evaluate(`(() => {
+    const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+    const button = latest?.querySelector('[data-answer-action-step="approve-plan"]');
+    const label = button?.textContent?.trim() || '';
+    const disabled = Boolean(button?.disabled);
+    if (!button || disabled) return { disabled, label, ok: false };
+    button.click();
+    return { disabled, label, ok: true };
+  })()`);
+  assert(approveClick?.ok, 'approval button must be clickable after creating the plan', approveClick);
+
+  const approvalReady = await poll(
+    `(() => {
+      const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+      const text = latest?.textContent || '';
+      const executeButton = latest?.querySelector('[data-answer-action-step="execute-approval"]');
+      const createButtons = latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || [];
+      return {
+        hasExecuteButton: Boolean(executeButton),
+        createButtonCount: createButtons.length,
+        text: text.slice(0, 1200)
+      };
+    })()`,
+    (value) => value?.hasExecuteButton && value?.createButtonCount === 0,
+    'approval click creates an executable approval record in the answer',
+    30000,
+  );
+
+  const approvalStatus = await statusSnapshot();
+  assert(
+    approvalStatus?.approvalCount > before.approvalCount,
+    'approval click must add an approval decision record',
+    { approvalReady, approvalStatus, before },
+  );
+
+  const executeClick = await evaluate(`(() => {
+    const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+    const button = latest?.querySelector('[data-answer-action-step="execute-approval"]');
+    const label = button?.textContent?.trim() || '';
+    const disabled = Boolean(button?.disabled);
+    if (!button || disabled) return { disabled, label, ok: false };
+    button.click();
+    return { disabled, label, ok: true };
+  })()`);
+  assert(executeClick?.ok, 'execute button must be clickable after approval', executeClick);
+
+  const executionReady = await poll(
+    `(async () => {
+      const response = await fetch('/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status');
+      if (!response.ok) return { ok: false, status: response.status };
+      const payload = await response.json();
+      const records = payload?.spec?.records || {};
+      const executions = records.executionRecords || [];
+      const matched = executions.find((record) =>
+        (record?.spec?.planDigest === ${JSON.stringify(namespacePlanDigest)}) &&
+        String(record?.spec?.mutationOutcome?.reason || '').includes('namespace cleanup')
+      );
+      const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+      const text = latest?.textContent || '';
+      const createButtons = latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || [];
+      const executionCard = latest?.querySelector('[data-action-lifecycle-stage="execution"]');
+      return {
+        executionCount: executions.length,
+        matched: matched ? {
+          name: matched?.metadata?.name || '',
+          mutationReason: matched?.spec?.mutationOutcome?.reason || '',
+          mutationStatus: matched?.spec?.mutationOutcome?.status || '',
+          remediationReason: matched?.spec?.remediationOutcome?.reason || ''
+        } : null,
+        createButtonCount: createButtons.length,
+        hasExecutionCard: Boolean(executionCard),
+        ok: Boolean(matched)
+      };
+    })()`,
+    (value) => value?.ok && value?.executionCount > before.executionCount && value?.hasExecutionCard && value?.createButtonCount === 0,
+    'execution click creates a namespace cleanup execution record',
+    30000,
+  );
+
+  const repeatAnswer = await sendLiveQuestion({
+    label: 'namespace cleanup repeated after execution',
+    mode: 'execute',
+    question: NAMESPACE_CLEANUP_QUESTION,
+  });
+  const repeatNeedsCreate = repeatAnswer.actionPlanButtons.includes('Action Plan 생성');
+  const repeatAlreadyResolved =
+    repeatAnswer.answerLifecycleStages.includes('execution') &&
+    repeatAnswer.actionPlanButtons.length === 0;
+  assert(
+    (repeatNeedsCreate && repeatAnswer.textIncludesActionPlanCandidate) || repeatAlreadyResolved,
+    'repeated namespace cleanup answer must either expose a fresh Action Plan CTA or resolve to the existing executed lifecycle state',
+    repeatAnswer,
+  );
+
+  let repeatCreateClick = { skipped: true, reason: 'already-resolved' };
+  let repeatedResolved = repeatAnswer;
+  if (repeatNeedsCreate) {
+    repeatCreateClick = await evaluate(`(() => {
+      const assistantMessages = Array.from(document.querySelectorAll('.komsco-ai__message--assistant'));
+      const latest = assistantMessages[assistantMessages.length - 1];
+      const button = latest?.querySelector('.komsco-ai__create-action-plan-button');
+      const label = button?.textContent?.trim() || '';
+      const disabled = Boolean(button?.disabled);
+      if (!button || disabled) return { disabled, label, ok: false };
+      button.click();
+      return { disabled, label, ok: true };
+    })()`);
+    assert(
+      repeatCreateClick?.ok,
+      'repeated Action Plan CTA must remain clickable when a fresh CTA is rendered',
+      repeatCreateClick,
+    );
+
+    repeatedResolved = await poll(
+      `(async () => {
+        const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+        const text = latest?.textContent || '';
+        const executionCard = latest?.querySelector('[data-action-lifecycle-stage="execution"]');
+        const response = await fetch('/api/proxy/plugin/cywell-aiops-console-plugin/ai-gateway/v1/aiops/status');
+        const payload = response.ok ? await response.json() : {};
+        const records = payload?.spec?.records || {};
+        return {
+          actionPlanButtons: Array.from(latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || [])
+            .map((button) => button.textContent?.trim() || ''),
+          answerActionRootCount: latest?.querySelectorAll('.komsco-ai__answer-actions').length || 0,
+          cards: Array.from(latest?.querySelectorAll('[data-action-lifecycle-stage]') || [])
+            .map((card) => ({
+              stage: card.getAttribute('data-action-lifecycle-stage'),
+              text: (card.textContent || '').slice(0, 220)
+            })),
+          hasApproveButton: Boolean(latest?.querySelector('[data-answer-action-step="approve-plan"]')),
+          hasExecutionCard: Boolean(executionCard),
+          status: response.ok ? {
+            approvals: (records.approvalDecisions || []).map((record) => ({
+              name: record?.metadata?.name || '',
+              digest: record?.spec?.approvalDecision?.planDigest || '',
+              status: record?.spec?.approvalDecision?.status || '',
+              target: record?.spec?.approvalDecision?.target?.name || ''
+            })),
+            executions: (records.executionRecords || []).map((record) => ({
+              name: record?.metadata?.name || '',
+              approvalId: record?.spec?.approvalId || '',
+              digest: record?.spec?.planDigest || '',
+              reason: record?.spec?.mutationOutcome?.reason || ''
+            })),
+            plans: (records.sealedActionPlans || []).map((record) => ({
+              name: record?.metadata?.name || '',
+              digest: record?.spec?.sealedActionPlan?.digest?.planDigest || '',
+              target: record?.spec?.sealedActionPlan?.target?.name || ''
+            })),
+            proposals: (records.actionProposals || []).map((record) => ({
+              name: record?.metadata?.name || '',
+              target: record?.spec?.candidateActionRequest?.target?.name || ''
+            }))
+          } : { ok: false, status: response.status },
+          text: text.slice(0, 1200)
+        };
+      })()`,
+      (value) =>
+        value?.hasExecutionCard &&
+        !value?.hasApproveButton &&
+        (value?.actionPlanButtons || []).length === 0,
+      'repeated Action Plan CTA must resolve to an executed lifecycle card, not an empty or stale button state',
+      30000,
+    );
+  }
+
+  return {
+    approvalReady,
+    approvalStatus,
+    before,
+    createClick,
+    executeClick,
+    executionReady,
+    planReady,
+    planStatus,
+    repeatedResolved,
+    repeatCreateClick,
+  };
 };
 
 const verifyLiveEnglishProgressLabels = async () => {
@@ -1513,13 +2276,19 @@ const verifyLiveEnglishProgressLabels = async () => {
     mode: 'read-only',
     question: UNCLEAR_CHAT_QUESTIONS[0],
   });
+  const englishHey = await sendLiveQuestion({
+    label: 'English UI English casual input',
+    language: 'en',
+    mode: 'read-only',
+    question: 'hey',
+  });
   const namespace = await sendLiveQuestion({
     label: 'English UI namespace progress',
     language: 'en',
     mode: 'execute',
     question: NAMESPACE_CLEANUP_QUESTION,
   });
-  const metrics = { namespace, unclear };
+  const metrics = { englishHey, namespace, unclear };
   const englishFeedbackCopy = await evaluate(`(async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -1552,27 +2321,66 @@ const verifyLiveEnglishProgressLabels = async () => {
         Array.isArray(parsed.records) &&
         !copied.includes('"subject"') &&
         !copied.includes('"groups"') &&
-        !copied.includes('"uid"')
+        !copied.includes('"uid"') &&
+        !/fixture|local-fixture|local_fixture|local-only/.test(copied)
     };
   })()`);
   metrics.englishFeedbackCopy = englishFeedbackCopy;
+  const englishFeedbackRailNotes = await evaluate(`(() => {
+    const section = Array.from(document.querySelectorAll('.komsco-ai__rail-section'))
+      .find((el) => (el.textContent || '').includes('Answer feedback'));
+    const text = section?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+    return {
+      hasKoreanLabels: text.includes('최근 개선 의견') || text.includes('최근 좋았던 점'),
+      ok: text.includes('Answer feedback') &&
+        text.includes('Latest needs-work note') &&
+        text.includes('Latest good note') &&
+        !text.includes('최근 개선 의견') &&
+        !text.includes('최근 좋았던 점'),
+      text
+    };
+  })()`);
+  metrics.englishFeedbackRailNotes = englishFeedbackRailNotes;
 
-  for (const item of [unclear, namespace]) {
-    assert(
-      item.progressUsesEnglishOperatorLabels &&
-        item.sourceUsesEnglishLabel &&
-        !item.sourceHasKorean &&
-        !item.progressHasKorean &&
-        !item.answerHasKorean &&
-        !item.rawProgressTerms.length,
-      'English UI answer, progress, and source labels must stay English and hide raw operator names',
-      metrics,
-    );
-  }
   assert(
-    unclear.source === 'Request clarification' &&
-      unclear.textIncludesEnglishClarification &&
-      namespace.source === 'Gateway live query' &&
+    unclear.source === 'OCP guide' &&
+      unclear.textIncludesCasualReply &&
+      unclear.sourceUsesEnglishLabel &&
+      !unclear.sourceHasKorean &&
+      !unclear.progressHasKorean &&
+      !unclear.answerHasKorean &&
+      !unclear.rawProgressTerms.length &&
+      !unclear.rawRailTerms.length &&
+      !unclear.textIncludesEnglishClarification,
+    'English UI short casual answer must show the AIOps for OCP identity guide, not request clarification',
+    metrics,
+  );
+  assert(
+    englishHey.source === 'OCP guide' &&
+      englishHey.textIncludesCasualReply &&
+      englishHey.sourceUsesEnglishLabel &&
+      !englishHey.sourceHasKorean &&
+      !englishHey.progressHasKorean &&
+      !englishHey.answerHasKorean &&
+      !englishHey.rawProgressTerms.length &&
+      !englishHey.rawRailTerms.length &&
+      !englishHey.textIncludesEnglishClarification,
+    'English UI English casual answer must stay English and must not fall back to Korean identity copy',
+    metrics,
+  );
+  assert(
+    namespace.progressUsesEnglishOperatorLabels &&
+      namespace.sourceUsesEnglishLabel &&
+      !namespace.sourceHasKorean &&
+      !namespace.progressHasKorean &&
+      !namespace.answerHasKorean &&
+      !namespace.rawProgressTerms.length &&
+      !namespace.rawRailTerms.length,
+    'English UI operational answer, progress, and source labels must stay English and hide raw operator names',
+    metrics,
+  );
+  assert(
+    namespace.source === 'Gateway live query' &&
       namespace.hasGatewayDirect &&
       namespace.textIncludesEnglishExecuteMode &&
       namespace.textIncludesEnglishActionPlanCandidate &&
@@ -1587,8 +2395,9 @@ const verifyLiveEnglishProgressLabels = async () => {
       namespace.railChromeUsesEnglish &&
       !namespace.railChromeHasKorean &&
       namespace.railChromeMissingEnglishLabels.length === 0 &&
-      englishFeedbackCopy.ok,
-    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, code action labels, footer details, and insight rail chrome',
+      englishFeedbackCopy.ok &&
+      englishFeedbackRailNotes.ok,
+    'English UI live answers must localize clarification, execution mode, Action Plan, Gateway source badges, decision tables, feedback notes, code action labels, footer details, and insight rail chrome',
     metrics,
   );
 
@@ -1673,16 +2482,322 @@ const ensureFixtureConversationLoaded = async () => {
     item.click();
     return true;
   })()`);
-  assert(clickedConversation, 'history fixture conversation must be loadable from the sidebar');
+  assert(clickedConversation, 'history seeded conversation must be loadable from the sidebar');
   await poll(
     `Boolean(document.querySelector('.komsco-ai__message--assistant .komsco-ai__message-content'))`,
     Boolean,
-    'fixture conversation loaded from history',
+    'seeded conversation loaded from history',
     60000,
   );
 };
 
+const verifyCompactViewportChrome = async () => {
+  await setViewport(1280, 720);
+  const compactFixture = await installAssistantFixture();
+  await send('Page.reload', { ignoreCache: true });
+  await poll(
+    `document.readyState === 'complete' && Boolean(document.body?.innerText?.trim())`,
+    Boolean,
+    'compact viewport console reload',
+    90000,
+  );
+  await openAssistant();
+  await setUiLanguageInUi('ko');
+  await setComposerValue('야');
+
+  const chromeMetrics = await poll(
+    `(() => {
+      const rect = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          bottom: Math.round(r.bottom),
+          height: Math.round(r.height),
+          left: Math.round(r.left),
+          right: Math.round(r.right),
+          top: Math.round(r.top),
+          width: Math.round(r.width)
+        };
+      };
+      const inside = (child, parent, pad = 1) =>
+        Boolean(child && parent) &&
+        child.left >= parent.left - pad &&
+        child.top >= parent.top - pad &&
+        child.right <= parent.right + pad &&
+        child.bottom <= parent.bottom + pad;
+      const darkBackground = (value) =>
+        /rgb\\((\\d+),\\s*(\\d+),\\s*(\\d+)\\)/.test(value)
+          ? value.match(/\\d+/g).slice(0, 3).map(Number).every((part) => part < 48)
+          : false;
+      const surface = document.querySelector('.komsco-ai__surface');
+      const header = document.querySelector('.komsco-ai__header');
+      const brand = document.querySelector('.komsco-ai__brand');
+      const headerActions = document.querySelector('.komsco-ai__header-actions');
+      const status = document.querySelector('.komsco-ai__header-status');
+      const workspace = document.querySelector('.komsco-ai__workspace');
+      const composer = document.querySelector('.komsco-ai__composer');
+      const input = document.querySelector('.komsco-ai__input');
+      const textarea = document.querySelector('.komsco-ai__composer textarea');
+      const sendButton = document.querySelector('.komsco-ai__send');
+      const surfaceRect = rect(surface);
+      const viewport = { height: window.innerHeight, width: window.innerWidth };
+      const importantElements = [
+        ['header', header],
+        ['brand', brand],
+        ['headerActions', headerActions],
+        ['status', status],
+        ['workspace', workspace],
+        ['composer', composer],
+        ['input', input],
+        ['sendButton', sendButton],
+      ];
+      const outsideSurface = importantElements
+        .map(([name, el]) => ({ name, rect: rect(el) }))
+        .filter((item) => item.rect && !inside(item.rect, surfaceRect, 2));
+      const controls = Array.from(document.querySelectorAll(
+        '.komsco-ai__sidebar-toggle, .komsco-ai__language-button, .komsco-ai__header-actions .komsco-ai__icon-button, .komsco-ai__mode-toggle-button, .komsco-ai__quick-menu-trigger, .komsco-ai__attach, .komsco-ai__send'
+      ));
+      const overflowingControls = controls
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+        .map((el) => ({
+          className: String(el.className),
+          label: el.getAttribute('aria-label') || el.textContent.trim(),
+          size: {
+            ch: el.clientHeight,
+            cw: el.clientWidth,
+            sh: el.scrollHeight,
+            sw: el.scrollWidth
+          }
+        }));
+      const headerButtons = Array.from(document.querySelectorAll(
+        '.komsco-ai__sidebar-toggle, .komsco-ai__header-actions .komsco-ai__icon-button'
+      ));
+      const headerButtonRects = headerButtons.map((el, index) => ({
+        index,
+        label: el.getAttribute('aria-label') || el.textContent.trim(),
+        rect: rect(el)
+      })).filter((item) => item.rect);
+      const headerOverlaps = [];
+      for (let i = 0; i < headerButtonRects.length; i += 1) {
+        for (let j = i + 1; j < headerButtonRects.length; j += 1) {
+          const a = headerButtonRects[i].rect;
+          const b = headerButtonRects[j].rect;
+          const separated = a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+          if (!separated) headerOverlaps.push([headerButtonRects[i].label, headerButtonRects[j].label]);
+        }
+      }
+      const inputStyle = input ? getComputedStyle(input) : null;
+      const sendStyle = sendButton ? getComputedStyle(sendButton) : null;
+      const modeLabels = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button span'))
+        .map((el) => el.textContent.trim());
+      const languageCode = document.querySelector('.komsco-ai__language-code')?.textContent.trim() || '';
+      const visibleText = document.body?.innerText || '';
+      const visibleInternalLeaks = [
+        'api.local-aiops.invalid',
+        '4.20-local',
+        'local simulator',
+        'local fixture',
+        'local-admin',
+        'fixture is not ready'
+      ].filter((term) => visibleText.toLowerCase().includes(term.toLowerCase()));
+      const visibleInternalLeakSnippets = visibleInternalLeaks.map((term) => {
+        const index = visibleText.toLowerCase().indexOf(term.toLowerCase());
+        return index < 0 ? term : visibleText.slice(Math.max(0, index - 90), index + term.length + 140);
+      });
+      return {
+        darkInput: darkBackground(inputStyle?.backgroundColor || ''),
+        darkSend: darkBackground(sendStyle?.backgroundColor || ''),
+        headerOverlaps,
+        languageCode,
+        modeLabels,
+        ok:
+          Boolean(surfaceRect) &&
+          surfaceRect.left >= 0 &&
+          surfaceRect.top >= 0 &&
+          surfaceRect.right <= viewport.width + 1 &&
+          surfaceRect.bottom <= viewport.height + 1 &&
+          modeLabels.includes('읽기 전용') &&
+          modeLabels.includes('실행 가능') &&
+          modeLabels.includes('실행 무제한') &&
+          languageCode === 'KR' &&
+          textarea?.value === '야' &&
+          outsideSurface.length === 0 &&
+          overflowingControls.length === 0 &&
+          headerOverlaps.length === 0 &&
+          visibleInternalLeaks.length === 0 &&
+          !darkBackground(inputStyle?.backgroundColor || '') &&
+          !darkBackground(sendStyle?.backgroundColor || ''),
+        outsideSurface,
+        overflowingControls,
+        sendBackground: sendStyle?.backgroundColor || '',
+        surfaceRect,
+        textareaValue: textarea?.value || '',
+        visibleInternalLeaks,
+        visibleInternalLeakSnippets,
+        viewport,
+        wrapBackground: inputStyle?.backgroundColor || ''
+      };
+    })()`,
+    (value) => value?.ok,
+    'compact 1280x720 Korean assistant chrome without overflow',
+    10000,
+  );
+
+  await setUiLanguageInUi('en');
+  const englishMetrics = await poll(
+    `(() => {
+      const controls = Array.from(document.querySelectorAll(
+        '.komsco-ai__sidebar-toggle, .komsco-ai__language-button, .komsco-ai__header-actions .komsco-ai__icon-button, .komsco-ai__mode-toggle-button, .komsco-ai__quick-menu-trigger, .komsco-ai__attach, .komsco-ai__send'
+      ));
+      const overflowingControls = controls
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+        .map((el) => ({
+          className: String(el.className),
+          label: el.getAttribute('aria-label') || el.textContent.trim(),
+          size: {
+            ch: el.clientHeight,
+            cw: el.clientWidth,
+            sh: el.scrollHeight,
+            sw: el.scrollWidth
+          }
+        }));
+      const labels = controls
+        .map((el) => el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent.trim())
+        .filter(Boolean);
+      const modeLabels = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button span'))
+        .map((el) => el.textContent.trim());
+      const languageCode = document.querySelector('.komsco-ai__language-code')?.textContent.trim() || '';
+      return {
+        koreanLabels: labels.filter((label) => /[가-힣]/.test(label)),
+        languageCode,
+        modeLabels,
+        ok:
+          languageCode === 'EN' &&
+          modeLabels.includes('Read only') &&
+          modeLabels.includes('Execute') &&
+          modeLabels.includes('Unrestricted') &&
+          overflowingControls.length === 0 &&
+          labels.every((label) => !/[가-힣]/.test(label)),
+        overflowingControls
+      };
+    })()`,
+    (value) => value?.ok,
+    'compact 1280x720 English assistant chrome without overflow or untranslated controls',
+    10000,
+  );
+
+  await setUiLanguageInUi('ko');
+  await openHistoryActionList(0);
+  const historyMetrics = await poll(
+    `(() => {
+      const rect = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+          bottom: Math.round(r.bottom),
+          height: Math.round(r.height),
+          left: Math.round(r.left),
+          right: Math.round(r.right),
+          top: Math.round(r.top),
+          width: Math.round(r.width)
+        };
+      };
+      const surface = document.querySelector('.komsco-ai__surface');
+      const sidebar = document.querySelector('.komsco-ai__history-sidebar');
+      const historyList = document.querySelector('.komsco-ai__history-list');
+      const userFooter = document.querySelector('.komsco-ai__history-user');
+      const refs = Array.from(document.querySelectorAll('.komsco-ai__history-action-ref'));
+      const rows = Array.from(document.querySelectorAll('.komsco-ai__history-item-row'));
+      const surfaceRect = rect(surface);
+      const sidebarRect = rect(sidebar);
+      const historyListRect = rect(historyList);
+      const userFooterRect = rect(userFooter);
+      const viewport = { height: window.innerHeight, width: window.innerWidth };
+      const overflowingRefs = refs
+        .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
+        .map((el) => el.textContent.replace(/\\s+/g, ' ').trim());
+      const overflowingRows = rows
+        .filter((el) => el.scrollWidth > el.clientWidth + 1)
+        .map((el) => el.textContent.replace(/\\s+/g, ' ').trim().slice(0, 120));
+      const rawHistoryTerms = [
+        'delete_namespace_after_approval',
+        'rollout_restart_deployment',
+        'ExecutionRecord',
+        'SealedActionPlanRecord',
+        'ActionProposalRecord',
+        'ApprovalDecisionRecord',
+        'proposal-local',
+        'plan-local',
+        'approval-local',
+        'execution-local',
+        'mutation_succeeded',
+        'mutation_failed'
+      ].filter((term) => refs.some((el) => (el.textContent || '').includes(term) || (el.getAttribute('title') || '').includes(term)));
+      const userFooterText = userFooter?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+      const userFooterHasInternalFixture = /local-aiops|\\.invalid|local-admin|fixture/i.test(userFooterText);
+      const userFooterHasExpectedIdentity =
+        (
+          userFooterText.includes('검증 사용자') &&
+          userFooterText.includes('Gateway 검증 환경')
+        ) ||
+        (
+          userFooterText.includes('admin') &&
+          userFooterText.includes('api.ocp.cywell.server:6443')
+        );
+      return {
+        actionRefCount: refs.length,
+        compactFixture: ${JSON.stringify(compactFixture)},
+        ok:
+          Boolean(surfaceRect && sidebarRect) &&
+          surfaceRect.left >= 0 &&
+          surfaceRect.top >= 0 &&
+          surfaceRect.right <= viewport.width + 1 &&
+          surfaceRect.bottom <= viewport.height + 1 &&
+          sidebarRect.left >= surfaceRect.left - 1 &&
+          sidebarRect.top >= surfaceRect.top - 1 &&
+          sidebarRect.bottom <= surfaceRect.bottom + 1 &&
+          sidebarRect.width >= 260 &&
+          Boolean(historyListRect && userFooterRect) &&
+          historyListRect.bottom <= userFooterRect.top + 1 &&
+          userFooterRect.bottom <= sidebarRect.bottom - 6 &&
+          userFooterRect.top >= sidebarRect.top &&
+          refs.length >= 1 &&
+          overflowingRefs.length === 0 &&
+          overflowingRows.length === 0 &&
+          rawHistoryTerms.length === 0 &&
+          !userFooterHasInternalFixture &&
+          userFooterHasExpectedIdentity,
+        overflowingRefs,
+        overflowingRows,
+        rawHistoryTerms,
+        historyListRect,
+        sidebarRect,
+        surfaceRect,
+        userFooterHasInternalFixture,
+        userFooterHasExpectedIdentity,
+        userFooterRect,
+        userFooterText,
+        viewport
+      };
+    })()`,
+    (value) => value?.ok,
+    'compact 1280x720 history sidebar and action refs without overflow',
+    10000,
+  );
+
+  const screenshotPath = path.join(screenshotDir, 'v0281-chatbot-compact.png');
+  await captureScreenshot(screenshotPath);
+
+  return {
+    chromeMetrics,
+    englishMetrics,
+    historyMetrics,
+    screenshotPath,
+  };
+};
+
 const verifyConsoleAssistant = async () => {
+  const reset = await resetLocalGatewayState();
   await navigate(consoleUrl);
   const fixture = await installAssistantFixture();
   await send('Page.reload', { ignoreCache: true });
@@ -1768,6 +2883,90 @@ const verifyConsoleAssistant = async () => {
     actionMetrics,
   );
 
+  await evaluate(`(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text) => {
+          window.__aiopsLastMessageCopy = text;
+        }
+      }
+    });
+    return true;
+  })()`);
+  await evaluate(`(() => {
+    document.querySelector('.komsco-ai__message--assistant [data-message-actions="assistant"] [aria-label="복사"]')?.click();
+    return true;
+  })()`);
+  const assistantCopyStatus = await poll(
+    `(() => {
+      const actions = document.querySelector('.komsco-ai__message--assistant [data-message-actions="assistant"]');
+      const status = actions?.querySelector('.komsco-ai__message-action-status')?.textContent.trim() || '';
+      const labels = Array.from(actions?.querySelectorAll('button') || []).map((el) => el.getAttribute('aria-label') || '');
+      return {
+        copiedTextLength: String(window.__aiopsLastMessageCopy || '').length,
+        labels,
+        ok: status === '복사됨' && labels.includes('복사됨') && String(window.__aiopsLastMessageCopy || '').length > 0,
+        status
+      };
+    })()`,
+    (value) => value?.ok,
+    'assistant copy icon visible feedback',
+    5000,
+  );
+  const messageCopyScreenshotPath = path.join(screenshotDir, 'v0281-chatbot-message-copy.png');
+  await captureScreenshot(
+    messageCopyScreenshotPath,
+    "document.querySelector('.komsco-ai__message--assistant [data-message-actions=\"assistant\"]')?.closest('.komsco-ai__message')",
+  );
+  const userCopyBefore = await evaluate(`(() => {
+    const userButtons = Array.from(document.querySelectorAll('.komsco-ai__message--user [data-message-actions="user"] button'));
+    const button = userButtons[userButtons.length - 1];
+    const rect = button?.getBoundingClientRect();
+    return rect ? { left: rect.left, right: rect.right } : null;
+  })()`);
+  await evaluate(`(() => {
+    const userButtons = Array.from(document.querySelectorAll('.komsco-ai__message--user [data-message-actions="user"] button'));
+    userButtons[userButtons.length - 1]?.click();
+    return true;
+  })()`);
+  const userCopyStatus = await poll(
+    `(() => {
+      const actions = document.querySelector('.komsco-ai__message--user [data-message-actions="user"]');
+      const status = actions?.querySelector('.komsco-ai__message-action-status')?.textContent.trim() || '';
+      const labels = Array.from(actions?.querySelectorAll('button') || []).map((el) => el.getAttribute('aria-label') || '');
+      const userButtons = Array.from(actions?.querySelectorAll('button') || []);
+      const button = userButtons[userButtons.length - 1];
+      const rect = button?.getBoundingClientRect();
+      const before = ${JSON.stringify(userCopyBefore)};
+      const copyButtonStayedPut = Boolean(
+        rect &&
+        before &&
+        Math.abs(rect.left - before.left) <= 1 &&
+        Math.abs(rect.right - before.right) <= 1
+      );
+      return {
+        copyButtonStayedPut,
+        copiedTextLength: String(window.__aiopsLastMessageCopy || '').length,
+        labels,
+        ok: status === '복사됨' &&
+          labels.includes('복사됨') &&
+          String(window.__aiopsLastMessageCopy || '').length > 0 &&
+          copyButtonStayedPut,
+        status
+      };
+    })()`,
+    (value) => value?.ok,
+    'user copy icon visible feedback',
+    5000,
+  );
+  const userMessageCopyScreenshotPath = path.join(screenshotDir, 'v0281-chatbot-user-message-copy.png');
+  await captureScreenshot(
+    userMessageCopyScreenshotPath,
+    "document.querySelector('.komsco-ai__message--user [data-message-actions=\"user\"]')?.closest('.komsco-ai__message')",
+  );
+  await sleep(1500);
+
   await setUiLanguageInUi('en');
   const englishActionMetrics = await evaluate(`(() => {
     const labelOf = (el) => el.getAttribute('aria-label') || el.textContent.trim();
@@ -1806,20 +3005,24 @@ const verifyConsoleAssistant = async () => {
     down?.click();
     const form = document.querySelector('.komsco-ai__feedback-comment');
     const input = form?.querySelector('input');
+    const status = document.querySelector('.komsco-ai__message--assistant [data-message-actions="assistant"] .komsco-ai__message-action-status')?.textContent.trim() || '';
     const metrics = {
       formTextBeforeSubmit: form?.textContent.trim() || '',
       inputPlaceholder: input?.getAttribute('placeholder') || '',
       inputValue: input?.value || '',
-      pressed: down?.getAttribute('aria-pressed') || ''
+      pressed: down?.getAttribute('aria-pressed') || '',
+      status
     };
     down?.click();
     return metrics;
   })()`);
   assert(
-    englishFeedbackClickMetrics.pressed === 'true' &&
-      englishFeedbackClickMetrics.formTextBeforeSubmit.includes('What should be improved?') &&
+      englishFeedbackClickMetrics.pressed === 'true' &&
+      englishFeedbackClickMetrics.formTextBeforeSubmit.includes('Improve') &&
+      englishFeedbackClickMetrics.formTextBeforeSubmit.includes('saved: browser+Gateway') &&
       englishFeedbackClickMetrics.inputPlaceholder === 'Note what was wrong or confusing' &&
-      englishFeedbackClickMetrics.inputValue === '',
+      englishFeedbackClickMetrics.inputValue === '' &&
+      englishFeedbackClickMetrics.status === 'Needs work selected',
     'English thumbs-down feedback must open a localized tester comment rail',
     englishFeedbackClickMetrics,
   );
@@ -1846,18 +3049,27 @@ const verifyConsoleAssistant = async () => {
     down?.click();
     const form = document.querySelector('.komsco-ai__feedback-comment');
     const input = form?.querySelector('input');
+    const status = document.querySelector('.komsco-ai__message--assistant [data-message-actions="assistant"] .komsco-ai__message-action-status')?.textContent.trim() || '';
     return {
       formTextBeforeSubmit: form?.textContent.trim() || '',
       inputValue: input?.value || '',
-      pressed: down?.getAttribute('aria-pressed') || ''
+      pressed: down?.getAttribute('aria-pressed') || '',
+      status
     };
   })()`);
   assert(
-    feedbackClickMetrics.pressed === 'true' &&
-      feedbackClickMetrics.formTextBeforeSubmit.includes('무엇을 개선할까요?') &&
-      feedbackClickMetrics.inputValue === '',
+      feedbackClickMetrics.pressed === 'true' &&
+      feedbackClickMetrics.formTextBeforeSubmit.includes('개선점') &&
+      feedbackClickMetrics.formTextBeforeSubmit.includes('기록: 브라우저+Gateway') &&
+      feedbackClickMetrics.inputValue === '' &&
+      feedbackClickMetrics.status === '싫어요 선택됨',
     'thumbs-down feedback must open an editable tester comment rail',
     feedbackClickMetrics,
+  );
+  const messageFeedbackScreenshotPath = path.join(screenshotDir, 'v0281-chatbot-message-feedback.png');
+  await captureScreenshot(
+    messageFeedbackScreenshotPath,
+    "document.querySelector('.komsco-ai__feedback-comment')",
   );
   await evaluate(`(() => {
     const input = document.querySelector('.komsco-ai__feedback-comment input');
@@ -1886,6 +3098,21 @@ const verifyConsoleAssistant = async () => {
     10000,
   );
   await evaluate(`document.querySelector('.komsco-ai__feedback-comment button')?.click(); true;`);
+  const feedbackSavedStatus = await poll(
+    `(() => {
+      const actions = document.querySelector('.komsco-ai__message--assistant [data-message-actions="assistant"]');
+      const status = actions?.querySelector('.komsco-ai__message-action-status')?.textContent.trim() || '';
+      const button = document.querySelector('.komsco-ai__feedback-comment button');
+      return {
+        buttonText: button?.textContent.trim() || '',
+        ok: status === '싫어요 저장됨' && button?.textContent.trim() === '저장됨',
+        status
+      };
+    })()`,
+    (value) => value?.ok,
+    'thumbs-down feedback saved status after tester comment submit',
+    10000,
+  );
   const feedbackStored = await poll(
     `(() => {
       const feedbackKey = 'komsco-ai.assistant.message-feedback.v1';
@@ -1971,12 +3198,13 @@ const verifyConsoleAssistant = async () => {
         copied.includes(${JSON.stringify(feedbackComment)}) &&
         !copied.includes('"subject"') &&
         !copied.includes('"groups"') &&
-        !copied.includes('"uid"')
+        !copied.includes('"uid"') &&
+        !/fixture|local-fixture|local_fixture|local-only/.test(copied)
     };
   })()`);
   assert(
     feedbackCopy.ok,
-    'feedback rail copy button must copy reviewable JSON with latest tester comment and no subject identity block',
+    'feedback rail copy button must copy reviewable JSON with latest tester comment and no subject/debug source block',
     feedbackCopy,
   );
 
@@ -1995,7 +3223,8 @@ const verifyConsoleAssistant = async () => {
   })()`);
   assert(
     positiveFeedbackClickMetrics.pressed === 'true' &&
-      positiveFeedbackClickMetrics.formTextBeforeSubmit.includes('무엇이 좋았나요?') &&
+      positiveFeedbackClickMetrics.formTextBeforeSubmit.includes('좋았던 점') &&
+      positiveFeedbackClickMetrics.formTextBeforeSubmit.includes('기록: 브라우저+Gateway') &&
       positiveFeedbackClickMetrics.inputPlaceholder === '유지할 만한 좋은 점을 짧게 입력' &&
       positiveFeedbackClickMetrics.inputValue === '',
     'thumbs-up feedback must ask what should be preserved with a specific placeholder',
@@ -2104,12 +3333,13 @@ const verifyConsoleAssistant = async () => {
         parsed.latestByRating?.good?.optionalComment === ${JSON.stringify(positiveFeedbackComment)} &&
         !copied.includes('"subject"') &&
         !copied.includes('"groups"') &&
-        !copied.includes('"uid"')
+        !copied.includes('"uid"') &&
+        !/fixture|local-fixture|local_fixture|local-only/.test(copied)
     };
   })()`);
   assert(
     combinedFeedbackCopy.ok,
-    'feedback JSON copy must expose latest good and needs-work notes without subject identity block',
+    'feedback JSON copy must expose latest good and needs-work notes without subject/debug source block',
     combinedFeedbackCopy,
   );
 
@@ -2218,7 +3448,7 @@ const verifyConsoleAssistant = async () => {
         'Switch to Korean',
         'Open full screen',
         'Unlock window size',
-        'Close AIOps Copilot',
+        'Close AIOps for OCP',
         'Open common check prompts',
         'Attach file',
         'Send question'
@@ -2425,7 +3655,7 @@ const verifyConsoleAssistant = async () => {
 
   await evaluate(`(() => {
     const close = Array.from(document.querySelectorAll('.komsco-ai__header-actions button'))
-      .find((el) => ['AIOps Copilot 닫기', 'Close AIOps Copilot'].includes(el.getAttribute('aria-label') || ''));
+      .find((el) => ['AIOps for OCP 닫기', 'Close AIOps for OCP'].includes(el.getAttribute('aria-label') || ''));
     close?.click();
     return true;
   })()`);
@@ -2511,9 +3741,31 @@ const verifyConsoleAssistant = async () => {
   const historyMetrics = await evaluate(`(() => {
     const sidebar = document.querySelector('.komsco-ai__history-sidebar');
     const brand = document.querySelector('.komsco-ai__history-brand');
+    const historyList = document.querySelector('.komsco-ai__history-list');
+    const userFooter = document.querySelector('.komsco-ai__history-user');
     const refs = Array.from(document.querySelectorAll('.komsco-ai__history-action-ref'));
     const sidebarRect = sidebar?.getBoundingClientRect();
+    const historyListRect = historyList?.getBoundingClientRect();
+    const userFooterRect = userFooter?.getBoundingClientRect();
     const brandStyle = brand ? getComputedStyle(brand) : null;
+    const rawHistoryTerms = [
+      'delete_namespace_after_approval',
+      'rollout_restart_deployment',
+      'ExecutionRecord',
+      'SealedActionPlanRecord',
+      'ActionProposalRecord',
+      'ApprovalDecisionRecord',
+      'proposal-local',
+      'plan-local',
+      'approval-local',
+      'execution-local',
+      'mutation_succeeded',
+      'mutation_failed'
+    ].filter((term) => refs.some((el) => (el.textContent || '').includes(term) || (el.getAttribute('title') || '').includes(term)));
+    const userFooterUserText = userFooter?.querySelector('strong')?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+    const userFooterClusterText = userFooter?.querySelector('small')?.textContent?.replace(/\\s+/g, ' ').trim() || '';
+    const userFooterText = [userFooterUserText, userFooterClusterText].filter(Boolean).join(' · ');
+    const userFooterHasInternalFixture = /local-aiops|\\.invalid|local-admin|fixture/i.test(userFooterText);
     return {
       actionRefCount: refs.length,
       aggregatePanelCount: document.querySelectorAll('.komsco-ai__session-actions').length,
@@ -2522,11 +3774,31 @@ const verifyConsoleAssistant = async () => {
       logoBoxBackground: brandStyle?.backgroundColor || '',
       logoBoxShadow: brandStyle?.boxShadow || '',
       overflowingRefs: refs.filter((el) => el.scrollWidth > el.clientWidth + 1).length,
-      sidebarWidth: sidebarRect ? Math.round(sidebarRect.width) : 0
+      rawHistoryTerms,
+      footerPinned:
+        Boolean(sidebarRect && historyListRect && userFooterRect) &&
+        historyListRect.bottom <= userFooterRect.top + 1 &&
+        userFooterRect.bottom <= sidebarRect.bottom - 6 &&
+        userFooterRect.top >= sidebarRect.top,
+      historyListRect: historyListRect ? {
+        bottom: Math.round(historyListRect.bottom),
+        top: Math.round(historyListRect.top)
+      } : null,
+      sidebarWidth: sidebarRect ? Math.round(sidebarRect.width) : 0,
+      userFooterHasInternalFixture,
+      userFooterRect: userFooterRect ? {
+        bottom: Math.round(userFooterRect.bottom),
+        top: Math.round(userFooterRect.top)
+      } : null,
+      userFooterUserText,
+      userFooterClusterText,
+      userFooterText,
+      userFooterVisibleInternalHost: /local-aiops|\\.invalid/i.test(userFooterText)
     };
   })()`);
   assert(historyMetrics.actionRefCount >= 1, 'history sidebar must show action refs', {
     fixture,
+    reset,
     historyMetrics,
   });
   assert(
@@ -2537,6 +3809,7 @@ const verifyConsoleAssistant = async () => {
   assert(historyMetrics.aggregatePanelCount === 0, 'history sidebar must not show a top aggregate action panel', historyMetrics);
   assert(historyMetrics.groupedRefs === historyMetrics.actionRefCount, 'history action refs must be grouped under their conversation', historyMetrics);
   assert(historyMetrics.sidebarWidth >= 260, 'history sidebar must be slightly wider than the old narrow panel', historyMetrics);
+  assert(historyMetrics.footerPinned, 'history user footer must stay pinned below the scrollable history list', historyMetrics);
   assert(
     historyMetrics.logoBoxBackground !== 'rgba(0, 0, 0, 0)' &&
       historyMetrics.logoBoxBackground !== 'transparent',
@@ -2544,6 +3817,19 @@ const verifyConsoleAssistant = async () => {
     historyMetrics,
   );
   assert(historyMetrics.overflowingRefs === 0, 'history action refs must not overflow', historyMetrics);
+  assert(
+    historyMetrics.rawHistoryTerms.length === 0,
+    'history action refs must not expose raw action tool, record kind, or local record ids',
+    historyMetrics,
+  );
+  assert(
+    !historyMetrics.userFooterHasInternalFixture &&
+      !historyMetrics.userFooterVisibleInternalHost &&
+      historyMetrics.userFooterUserText.length > 0 &&
+      historyMetrics.userFooterClusterText.length > 0,
+    'history user footer must not visibly expose local fixture user or invalid host',
+    historyMetrics,
+  );
 
   const historyOrderBefore = await evaluate(`(() =>
     Array.from(document.querySelectorAll('.komsco-ai__history-item-row .komsco-ai__history-item span'))
@@ -2557,7 +3843,7 @@ const verifyConsoleAssistant = async () => {
     target.click();
     return true;
   })()`);
-  assert(clickedOlderAction, 'history fixture must expose a second conversation action ref');
+  assert(clickedOlderAction, 'history seeded data must expose a second conversation action ref');
   await sleep(600);
   await openHistory();
   const historyOrderAfter = await evaluate(`(() =>
@@ -2570,27 +3856,34 @@ const verifyConsoleAssistant = async () => {
     { historyOrderBefore, historyOrderAfter },
   );
 
-  await send('Page.captureScreenshot', { format: 'png', fromSurface: true }).then((result) => {
-    fs.writeFileSync(path.join(screenshotDir, 'v0281-chatbot-history.png'), Buffer.from(result.data, 'base64'));
-  });
+  await captureScreenshot(path.join(screenshotDir, 'v0281-chatbot-history.png'));
 
   const liveModeRenderedAnswers = await verifyLiveModeRenderedAnswers();
+  const liveActionPlanClickThrough = await verifyLiveActionPlanClickThrough();
   const liveTestPodCreateAnswers = await verifyLiveTestPodCreateAnswers();
-  const liveClarificationAnswers = await verifyLiveClarificationAnswers();
+  const liveCasualAnswers = await verifyLiveCasualAnswers();
   const liveEnglishProgressLabels = await verifyLiveEnglishProgressLabels();
+  const compactViewportMetrics = await verifyCompactViewportChrome();
 
   return {
+    closeReopenMetrics,
+    compactViewportMetrics,
     feedbackCopy,
     feedbackGateway,
     feedbackRail,
     feedbackStored,
     fixture,
     historyMetrics,
-    liveClarificationAnswers,
+    liveActionPlanClickThrough,
+    liveCasualAnswers,
     liveEnglishProgressLabels,
     liveModeRenderedAnswers,
     liveTestPodCreateAnswers,
+    messageCopyScreenshotPath,
+    messageFeedbackScreenshotPath,
+    userMessageCopyScreenshotPath,
     metrics,
+    resizeMetrics,
   };
 };
 
@@ -2605,6 +3898,27 @@ const verifyStandalonePortal = async () => {
         hasWrongDisconnected: text.includes('게이트웨이 연결 끊김'),
         hasGatewayWaiting: text.includes('게이트웨이 연결 대기'),
         hasGatewayConnected: text.includes('게이트웨이 연결됨'),
+        visibleInternalLeaks: [
+          'api.local-aiops.invalid',
+          '4.20-local',
+          'local simulator',
+          'local fixture',
+          'local-admin',
+          'fixture is not ready'
+        ].filter((term) => text.toLowerCase().includes(term.toLowerCase())),
+        visibleInternalLeakSnippets: [
+          'api.local-aiops.invalid',
+          '4.20-local',
+          'local simulator',
+          'local fixture',
+          'local-admin',
+          'fixture is not ready'
+        ]
+          .filter((term) => text.toLowerCase().includes(term.toLowerCase()))
+          .map((term) => {
+            const index = text.toLowerCase().indexOf(term.toLowerCase());
+            return index < 0 ? term : text.slice(Math.max(0, index - 90), index + term.length + 140);
+          }),
         sample: text.slice(0, 1600)
       };
     })()`,
@@ -2622,11 +3936,18 @@ const verifyStandalonePortal = async () => {
     'standalone portal must not call auth failures Gateway waiting',
     metrics,
   );
+  assert(
+    metrics.visibleInternalLeaks.length === 0,
+    'standalone portal must not expose local fixture internals in visible text',
+    metrics,
+  );
   return metrics;
 };
 
 const main = async () => {
   sourceReview();
+  const casualContracts = await verifyCasualChatContracts();
+  const ambiguousOperationalContracts = await verifyAmbiguousOperationalContracts();
   const modeContracts = await verifyModeAnswerContracts();
   const englishNamespaceExtraction = await verifyEnglishNamespaceExtractionContract();
   const testPodContracts = await verifyTestPodCreateContracts();
@@ -2640,13 +3961,21 @@ const main = async () => {
 
   const output = {
     chrome: chromeVersion,
+    ambiguousOperationalContracts,
+    casualContracts,
     consolePluginChunks,
     consoleResult,
     englishNamespaceExtraction,
     modeContracts,
     passed: true,
     portalResult,
-    screenshots: [path.join(screenshotDir, 'v0281-chatbot-history.png')],
+    screenshots: [
+      path.join(screenshotDir, 'v0281-chatbot-history.png'),
+      path.join(screenshotDir, 'v0281-chatbot-compact.png'),
+      path.join(screenshotDir, 'v0281-chatbot-message-copy.png'),
+      path.join(screenshotDir, 'v0281-chatbot-message-feedback.png'),
+      path.join(screenshotDir, 'v0281-chatbot-user-message-copy.png'),
+    ],
     testPodContracts,
   };
   console.log(JSON.stringify(output, null, 2));

@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v0.2.8.1 Connected OKD AIOps Scenario Test Book</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --paper: #ffffff;
+      --panel: #f8fafc;
+      --line: #d8e1ec;
+      --line-strong: #b8c7d8;
+      --ink: #152235;
+      --muted: #64748b;
+      --navy: #0b1930;
+      --blue: #1f6feb;
+      --green: #16845b;
+      --amber: #b7791f;
+      --red: #c2410c;
+      --shadow: 0 14px 34px rgba(21, 34, 56, 0.1);
+      font-family: Inter, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.62;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 2px 5px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.9em;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 22px 18px;
+      border-right: 1px solid var(--line);
+      background: #edf3f9;
+    }
+    .brand {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 9px;
+      background: var(--navy);
+      color: #67e8f9;
+      font-weight: 900;
+    }
+    .brand strong { display: block; font-size: 15px; }
+    .brand span { display: block; color: var(--muted); font-size: 12px; }
+    .nav-section { margin-top: 20px; }
+    .nav-title {
+      margin: 0 0 8px;
+      color: #6b7b90;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .nav-link,
+    .scenario-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      padding: 8px 9px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+    .nav-link:hover,
+    .scenario-link:hover { background: #dfe9f5; text-decoration: none; }
+    .scenario-link .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .state {
+      flex: 0 0 auto;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .state.pass { color: var(--green); }
+    .state.fail { color: var(--red); }
+    .state.pending { color: var(--amber); }
+
+    .content {
+      min-width: 0;
+      padding: 28px clamp(22px, 4vw, 54px) 56px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 330px;
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+    .hero-main,
+    .status-panel,
+    .scenario {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+    .hero-main { padding: 24px; }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(25px, 4vw, 36px);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+    .hero-main p {
+      max-width: 880px;
+      margin: 12px 0 0;
+      color: var(--muted);
+    }
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 36px;
+      padding: 8px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 850;
+    }
+    .btn.primary {
+      border-color: var(--navy);
+      background: var(--navy);
+      color: #fff;
+    }
+    .status-panel {
+      display: grid;
+      align-content: start;
+      gap: 11px;
+      padding: 18px;
+    }
+    .metric {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .metric:last-child { border-bottom: 0; padding-bottom: 0; }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .metric strong { font-size: 20px; line-height: 1.1; text-align: right; }
+    .metric .pass { color: var(--green); }
+    .metric .fail { color: var(--red); }
+    .metric .pending { color: var(--amber); }
+
+    .notice {
+      margin: 18px 0 22px;
+      padding: 12px 14px;
+      border: 1px solid #f1d59b;
+      border-left: 4px solid var(--amber);
+      border-radius: 8px;
+      background: #fff8e6;
+      color: #573b09;
+      font-weight: 750;
+    }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 28px 0 12px;
+    }
+    .section-title h2 { margin: 0; font-size: 20px; }
+    .command {
+      display: block;
+      width: 100%;
+      margin: 8px 0 0;
+      padding: 12px 13px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: var(--navy);
+      color: #dbeafe;
+      font: 13px/1.6 "Cascadia Code", Consolas, monospace;
+      white-space: pre;
+    }
+    .scenario-grid {
+      display: grid;
+      gap: 14px;
+    }
+    .scenario { overflow: hidden; }
+    .scenario-head {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdff;
+    }
+    .scenario-num {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: #ecf2f9;
+      color: #24415f;
+      font-weight: 900;
+      font-size: 13px;
+    }
+    .scenario-head h3 { margin: 0; font-size: 17px; }
+    .scenario-head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+    .scenario-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.02fr) minmax(280px, 0.98fr);
+      gap: 16px;
+      padding: 16px;
+    }
+    .panel {
+      min-width: 0;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+    .panel h4 {
+      margin: 0 0 8px;
+      color: #29405e;
+      font-size: 13px;
+    }
+    .question {
+      margin: 0;
+      padding: 11px 12px;
+      border: 1px solid #c7d8eb;
+      border-radius: 8px;
+      background: #fff;
+      color: #15243a;
+      font-weight: 800;
+      white-space: pre-wrap;
+    }
+    .checklist {
+      display: grid;
+      gap: 7px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .checklist li {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr);
+      gap: 7px;
+      align-items: start;
+      color: #32445d;
+      font-size: 14px;
+    }
+    .checklist input {
+      width: 16px;
+      height: 16px;
+      margin-top: 3px;
+      accent-color: var(--blue);
+    }
+    .shot {
+      display: block;
+      width: 100%;
+      min-height: 220px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: #fff;
+      object-fit: cover;
+    }
+    figure { margin: 0; }
+    figure.is-missing .shot { display: none; }
+    .missing-shot {
+      display: none;
+      min-height: 220px;
+      place-items: center;
+      border: 1px dashed var(--line-strong);
+      border-radius: 9px;
+      background: #fff;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    figure.is-missing .missing-shot { display: grid; }
+    .shot-caption {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .footer {
+      margin-top: 30px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--muted);
+    }
+    @media (max-width: 1060px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { position: static; height: auto; }
+      .hero,
+      .scenario-body { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">AI</div>
+        <div>
+          <strong>Connected AIOps Test</strong>
+          <span>v0.2.8.1 OKD scenario book</span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">Targets</p>
+        <a class="nav-link" href="http://localhost:9000/dashboards/aiops" target="_blank" rel="noreferrer">OKD Console <span>9000</span></a>
+        <a class="nav-link" href="./connected-aiops-scenario-test-report.json" target="_blank" rel="noreferrer">Scenario report <span>JSON</span></a>
+        <a class="nav-link" href="./local-aiops-scenario-test-runner.html" target="_blank" rel="noreferrer">Local runner <span>fixture</span></a>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">Scenarios</p>
+        <button class="scenario-link" data-scroll="#s00"><span class="label">00 Sandbox setup</span><span class="state pending" data-state-for="00-sandbox-setup">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s01"><span class="label">01 Preflight</span><span class="state pending" data-state-for="01-preflight">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s02"><span class="label">02 Copilot open</span><span class="state pending" data-state-for="02-open-copilot">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s03"><span class="label">03 Read-only</span><span class="state pending" data-state-for="03-readonly-diagnosis">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s04"><span class="label">04 Action Plan</span><span class="state pending" data-state-for="04-execute-plan">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s05"><span class="label">05 Approval</span><span class="state pending" data-state-for="05-approval">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s06"><span class="label">06 Execution</span><span class="state pending" data-state-for="06-execution">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s07"><span class="label">07 Verification</span><span class="state pending" data-state-for="07-rollout-verification">PENDING</span></button>
+        <button class="scenario-link" data-scroll="#s08"><span class="label">08 Cleanup</span><span class="state pending" data-state-for="08-cleanup">PENDING</span></button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="hero">
+        <div class="hero-main">
+          <p class="eyebrow">Connected OKD Safe Scenario Course</p>
+          <h1>실제 OKD 연결 상태에서 AIOps Copilot의 조회, 판단, 승인, 실행, 검증 흐름을 안전하게 시연합니다.</h1>
+          <p>
+            이 테스트북은 로컬 fixture가 아니라 회사 OKD에 연결된 상태를 전제로 합니다.
+            모든 변경은 매번 새로 만드는 <code>aiops-copilot-e2e-*</code> namespace 안에서만 수행하고, cleanup은 안전 label이 모두 맞을 때만 동작합니다.
+          </p>
+          <div class="button-row">
+            <a class="btn primary" href="http://localhost:9000/dashboards/aiops" target="_blank" rel="noreferrer">OKD Console 열기</a>
+            <button class="btn" data-copy="bash scripts/setup-v0281-connected-aiops-sandbox.sh">setup 명령 복사</button>
+            <button class="btn" data-copy='PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH" node scripts/verify-v0281-connected-aiops-scenarios.cjs --setup --cleanup'>전체 검증 명령 복사</button>
+            <button class="btn" data-copy="bash scripts/cleanup-v0281-connected-aiops-sandbox.sh --namespace aiops-copilot-e2e-YYYYMMDDHHMMSS --session YYYYMMDDHHMMSS">cleanup 명령 복사</button>
+            <button class="btn" id="resetChecks">체크 초기화</button>
+          </div>
+        </div>
+        <div class="status-panel" aria-label="connected scenario status">
+          <div class="metric"><span>Report state</span><strong id="reportState" class="pending">NOT RUN</strong></div>
+          <div class="metric"><span>Namespace</span><strong id="reportNamespace">-</strong></div>
+          <div class="metric"><span>Server</span><strong id="reportServer">api.ocp.cywell.server</strong></div>
+          <div class="metric"><span>Screenshots</span><strong id="reportScreenshots">0</strong></div>
+        </div>
+      </section>
+
+      <div class="notice">
+        안전 기준: 운영/개발 namespace는 조작하지 않습니다. verifier가 허용하는 mutation은 테스트 namespace 안의
+        <code>deployment/aiops-connected-scale-target</code> scale 또는 테스트 deployment restart뿐입니다.
+      </div>
+
+      <section class="section-title">
+        <h2>한 번에 실행</h2>
+      </section>
+      <pre class="command">cd /home/kugnus/cywell/ocp-aiops_kugnus
+PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH" node scripts/verify-v0281-connected-aiops-scenarios.cjs --setup --cleanup</pre>
+
+      <section class="section-title">
+        <h2>수동 실행 순서</h2>
+      </section>
+      <pre class="command">bash scripts/setup-v0281-connected-aiops-sandbox.sh
+# 출력된 namespace/session 확인
+PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH" node scripts/verify-v0281-connected-aiops-scenarios.cjs --namespace aiops-copilot-e2e-YYYYMMDDHHMMSS --session YYYYMMDDHHMMSS
+bash scripts/cleanup-v0281-connected-aiops-sandbox.sh --namespace aiops-copilot-e2e-YYYYMMDDHHMMSS --session YYYYMMDDHHMMSS</pre>
+
+      <section class="section-title">
+        <h2>Connected 시나리오</h2>
+      </section>
+
+      <div class="scenario-grid">
+        <article class="scenario" id="s00">
+          <div class="scenario-head">
+            <div class="scenario-num">00</div>
+            <div><h3>Sandbox namespace 생성</h3><p>timestamp 기반 격리 namespace, quota, limitrange, 테스트 workload를 만듭니다.</p></div>
+            <span class="state pending" data-state-for="00-sandbox-setup">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>실행 명령</h4>
+              <p class="question">bash scripts/setup-v0281-connected-aiops-sandbox.sh</p>
+              <div class="button-row"><button class="btn" data-copy="bash scripts/setup-v0281-connected-aiops-sandbox.sh">명령 복사</button></div>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s00-1"><span><code>oc whoami --show-server</code>가 승인된 회사 OKD server와 일치한다.</span></li>
+                <li><input type="checkbox" data-check="s00-2"><span>namespace 이름이 <code>aiops-copilot-e2e-*</code>이고 safety label 4개가 붙었다.</span></li>
+                <li><input type="checkbox" data-check="s00-3"><span>정상, scale 대상, CrashLoopBackOff, ImagePullBackOff workload가 분리되어 있다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="01-open-copilot">
+              <img class="shot" src="connected-aiops-screenshots/01-open-copilot.png" alt="AIOps Copilot opened screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/01-open-copilot.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s01">
+          <div class="scenario-head">
+            <div class="scenario-num">01</div>
+            <div><h3>Preflight</h3><p>OKD 콘솔, plugin entry, gateway health, namespace 권한을 확인합니다.</p></div>
+            <span class="state pending" data-state-for="01-preflight">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>검증 기준</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s01-1"><span><code>http://localhost:9000/api/kubernetes/version</code>이 200이다.</span></li>
+                <li><input type="checkbox" data-check="s01-2"><span>plugin entry와 gateway health가 200이다.</span></li>
+                <li><input type="checkbox" data-check="s01-3"><span>test namespace 안에서 get/patch deployment 권한이 있다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="02-readonly-diagnosis">
+              <img class="shot" src="connected-aiops-screenshots/02-readonly-diagnosis.png" alt="Read-only diagnosis screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/02-readonly-diagnosis.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s02">
+          <div class="scenario-head">
+            <div class="scenario-num">02</div>
+            <div><h3>AIOps Copilot 열기</h3><p>OKD 콘솔 우측 하단 토글에서 Copilot을 열고 연결 상태를 확인합니다.</p></div>
+            <span class="state pending" data-state-for="02-open-copilot">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s02-1"><span>챗봇 헤더 명칭이 <code>AIOps Copilot</code>으로 보인다.</span></li>
+                <li><input type="checkbox" data-check="s02-2"><span>Gateway/Lightspeed 상태가 숨겨지지 않고 작은 상태 라벨로 보인다.</span></li>
+                <li><input type="checkbox" data-check="s02-3"><span>실행 모드 3개가 버튼 오버플로 없이 보인다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="01-open-copilot">
+              <img class="shot" src="connected-aiops-screenshots/01-open-copilot.png" alt="AIOps Copilot opened screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/01-open-copilot.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s03">
+          <div class="scenario-head">
+            <div class="scenario-num">03</div>
+            <div><h3>Read-only 장애 진단</h3><p>조회 근거와 read-only 명령만 제공하고 실행 버튼은 없어야 합니다.</p></div>
+            <span class="state pending" data-state-for="03-readonly-diagnosis">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">aiops-copilot-e2e-* namespace에서 CrashLoopBackOff와 ImagePullBackOff 상태를 실제 근거 중심으로 조회해줘.
+변경은 하지 말고 read-only oc 확인 명령도 같이 정리해줘.</p>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s03-1"><span>답변에 test namespace가 명시된다.</span></li>
+                <li><input type="checkbox" data-check="s03-2"><span><code>oc get</code>, <code>oc describe</code>, <code>oc logs</code> 같은 조회 명령만 나온다.</span></li>
+                <li><input type="checkbox" data-check="s03-3"><span>승인/실행 버튼이 없다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="02-readonly-diagnosis">
+              <img class="shot" src="connected-aiops-screenshots/02-readonly-diagnosis.png" alt="Read-only diagnosis screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/02-readonly-diagnosis.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s04">
+          <div class="scenario-head">
+            <div class="scenario-num">04</div>
+            <div><h3>실행 가능 모드 Action Plan</h3><p>승인 전에는 mutation 없이 계획만 생성되어야 합니다.</p></div>
+            <span class="state pending" data-state-for="04-execute-plan">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>입력 질문</h4>
+              <p class="question">Deployment aiops-copilot-e2e-*/aiops-connected-scale-target 를 2개로 scale하는 실행 계획을 생성해줘.
+승인 전에는 실행하지 말고, 영향/검증/롤백 조건을 포함해줘.</p>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s04-1"><span>Action Plan 또는 승인 필요 상태가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s04-2"><span>승인 전 <code>spec.replicas</code>가 1로 유지된다.</span></li>
+                <li><input type="checkbox" data-check="s04-3"><span>대상은 test namespace의 scale target으로 제한된다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="03-execute-plan">
+              <img class="shot" src="connected-aiops-screenshots/03-execute-plan.png" alt="Execute Action Plan screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/03-execute-plan.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s05">
+          <div class="scenario-head">
+            <div class="scenario-num">05</div>
+            <div><h3>승인 게이트</h3><p>승인 버튼이 눌린 뒤에만 실행 버튼 또는 실행 가능 상태로 넘어갑니다.</p></div>
+            <span class="state pending" data-state-for="05-approval">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s05-1"><span>승인 전 실행 기록이 생기지 않는다.</span></li>
+                <li><input type="checkbox" data-check="s05-2"><span>승인 후 승인 기록 또는 실행 버튼이 보인다.</span></li>
+                <li><input type="checkbox" data-check="s05-3"><span>서버 정책상 승인 차단이면 reason이 report에 남는다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="05-approval-recorded">
+              <img class="shot" src="connected-aiops-screenshots/05-approval-recorded.png" alt="Approval recorded screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/05-approval-recorded.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s06">
+          <div class="scenario-head">
+            <div class="scenario-num">06</div>
+            <div><h3>승인된 실행</h3><p>실행 후 변경은 test deployment scale 1→2로만 제한됩니다.</p></div>
+            <span class="state pending" data-state-for="06-execution">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s06-1"><span><code>aiops-connected-scale-target</code>만 replicas 2가 된다.</span></li>
+                <li><input type="checkbox" data-check="s06-2"><span>ExecutionRecord 또는 실행 완료 문구가 보인다.</span></li>
+                <li><input type="checkbox" data-check="s06-3"><span>다른 namespace 리소스는 변경하지 않는다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="06-execution-requested">
+              <img class="shot" src="connected-aiops-screenshots/06-execution-requested.png" alt="Execution requested screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/06-execution-requested.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s07">
+          <div class="scenario-head">
+            <div class="scenario-num">07</div>
+            <div><h3>검증</h3><p>rollout status와 ready 상태로 실행 결과를 확인합니다.</p></div>
+            <span class="state pending" data-state-for="07-rollout-verification">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>검증 명령</h4>
+              <pre class="command">oc get deploy aiops-connected-scale-target -n aiops-copilot-e2e-*
+oc rollout status deployment/aiops-connected-scale-target -n aiops-copilot-e2e-*</pre>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s07-1"><span>replicas가 2로 바뀐다.</span></li>
+                <li><input type="checkbox" data-check="s07-2"><span>ready 상태가 report에 남는다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="07-post-execution-verification">
+              <img class="shot" src="connected-aiops-screenshots/07-post-execution-verification.png" alt="Post execution verification screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/07-post-execution-verification.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="scenario" id="s08">
+          <div class="scenario-head">
+            <div class="scenario-num">08</div>
+            <div><h3>Cleanup</h3><p>safe label과 session label이 모두 맞는 namespace만 삭제합니다.</p></div>
+            <span class="state pending" data-state-for="08-cleanup">PENDING</span>
+          </div>
+          <div class="scenario-body">
+            <div class="panel">
+              <h4>실행 명령</h4>
+              <p class="question">bash scripts/cleanup-v0281-connected-aiops-sandbox.sh --namespace aiops-copilot-e2e-YYYYMMDDHHMMSS --session YYYYMMDDHHMMSS</p>
+              <h4>직접 볼 것</h4>
+              <ul class="checklist">
+                <li><input type="checkbox" data-check="s08-1"><span>safe-delete, suite, session label이 모두 맞아야 삭제된다.</span></li>
+                <li><input type="checkbox" data-check="s08-2"><span>삭제 후 <code>oc get ns</code>가 not found가 된다.</span></li>
+              </ul>
+            </div>
+            <figure data-shot="08-rollout-verified">
+              <img class="shot" src="connected-aiops-screenshots/08-rollout-verified.png" alt="Rollout verified screenshot">
+              <div class="missing-shot">검증 실행 후 스크린샷이 표시됩니다.</div>
+              <figcaption class="shot-caption"><span>증거 화면</span><a href="connected-aiops-screenshots/08-rollout-verified.png" target="_blank" rel="noreferrer">원본 보기</a></figcaption>
+            </figure>
+          </div>
+        </article>
+      </div>
+
+      <footer class="footer">
+        <strong>보호 기준:</strong>
+        이 테스트북은 기존 로컬 runner와 Claude scenario JSON을 수정하지 않습니다. 실제 연결 테스트는 새 namespace 안에서만 수행하고,
+        결과는 report JSON과 screenshot으로 남깁니다.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    const storagePrefix = "v0281-connected-aiops-book.";
+
+    document.querySelectorAll("[data-scroll]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelector(button.dataset.scroll)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
+    async function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (error) {
+          // Fall through.
+        }
+      }
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "readonly");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch (error) { copied = false; }
+      document.body.removeChild(area);
+      return copied;
+    }
+
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const before = button.textContent;
+        if (await copyText(button.dataset.copy)) {
+          button.textContent = "복사됨";
+          setTimeout(() => { button.textContent = before; }, 1100);
+        } else {
+          window.prompt("복사할 내용", button.dataset.copy);
+        }
+      });
+    });
+
+    document.querySelectorAll("input[data-check]").forEach((input) => {
+      const key = storagePrefix + input.dataset.check;
+      input.checked = localStorage.getItem(key) === "true";
+      input.addEventListener("change", () => {
+        localStorage.setItem(key, input.checked ? "true" : "false");
+      });
+    });
+
+    document.getElementById("resetChecks").addEventListener("click", () => {
+      document.querySelectorAll("input[data-check]").forEach((input) => {
+        input.checked = false;
+        localStorage.removeItem(storagePrefix + input.dataset.check);
+      });
+    });
+
+    document.querySelectorAll("figure[data-shot]").forEach((figure) => {
+      const image = figure.querySelector("img");
+      image?.addEventListener("error", () => figure.classList.add("is-missing"));
+    });
+
+    function normalizeState(state) {
+      if (state === "passed" || state === "pass") return "pass";
+      if (state === "failed" || state === "fail") return "fail";
+      return "pending";
+    }
+
+    async function hydrateReport() {
+      try {
+        const response = await fetch("./connected-aiops-scenario-test-report.json", { cache: "no-store" });
+        if (!response.ok) return;
+        const report = await response.json();
+        const state = normalizeState(report.status?.state);
+        const reportState = document.getElementById("reportState");
+        reportState.textContent = String(report.status?.state || "not_run").toUpperCase();
+        reportState.className = state;
+        document.getElementById("reportNamespace").textContent = report.spec?.namespace || "-";
+        document.getElementById("reportServer").textContent = (report.spec?.expectedServer || "").replace(/^https?:\/\//, "") || "-";
+        document.getElementById("reportScreenshots").textContent = String(report.status?.screenshots?.length || 0);
+
+        for (const scenario of report.status?.scenarios || []) {
+          document.querySelectorAll(`[data-state-for="${scenario.id}"]`).forEach((node) => {
+            const scenarioState = normalizeState(scenario.state);
+            node.textContent = scenarioState === "pass" ? "PASS" : scenarioState === "fail" ? "FAIL" : "PENDING";
+            node.className = `state ${scenarioState}`;
+          });
+        }
+      } catch (error) {
+        // file:// can block fetch in some browsers; the report link still opens directly.
+      }
+    }
+
+    hydrateReport();
+  </script>
+</body>
+</html>
