@@ -454,7 +454,12 @@ const verifyConsolePluginChunkProxy = async () => {
         'exposed-NullContextProvider-chunk-',
         'exposed-useAssistantOverlay-chunk-',
         'exposed-AiopsDashboardPage-chunk-',
-      ].some((prefix) => script.startsWith(prefix) && script.endsWith('.min.js')),
+      ].some((prefix) => script.startsWith(prefix) && script.endsWith('.min.js')) ||
+      [
+        'exposed-NullContextProvider-chunk.js',
+        'exposed-useAssistantOverlay-chunk.js',
+        'exposed-AiopsDashboardPage-chunk.js',
+      ].includes(script),
     );
   }
 
@@ -1626,6 +1631,27 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       const actionPlanButtons = Array.from(
         latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || []
       ).map((el) => el.textContent.trim());
+      const actionCandidateGroups = Array.from(
+        latest?.querySelectorAll('.komsco-ai__create-action-plan') || []
+      ).map((group) => {
+        const rows = Array.from(group.querySelectorAll('.komsco-ai__create-action-plan-row'));
+        const visibleRows = rows.filter((row) => {
+          const style = getComputedStyle(row);
+          const rect = row.getBoundingClientRect();
+          return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+        });
+        const count = Number(group.getAttribute('data-aiops-action-candidate-count') || rows.length || 0);
+        const expanded = group.getAttribute('data-aiops-action-candidates-expanded') === 'true';
+        const summary = group.querySelector('.komsco-ai__create-action-plan-summary');
+        return {
+          count,
+          expanded,
+          hasSummary: Boolean(summary),
+          rowCount: rows.length,
+          visibleRowCount: visibleRows.length,
+          summaryText: summary?.textContent?.replace(/\\s+/g, ' ').trim() || ''
+        };
+      });
       const answerActionButtons = Array.from(
         latest?.querySelectorAll('.komsco-ai__answer-action-controls .komsco-ai__action-button') || []
       ).map((el) => el.textContent.trim());
@@ -1671,6 +1697,10 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
       ].filter((term) => text.includes(term));
       return {
         actionPlanButtons,
+        actionCandidateDefaultCollapsed: actionCandidateGroups.every((group) =>
+          group.count <= 1 || (!group.expanded && group.hasSummary && group.visibleRowCount === 0)
+        ),
+        actionCandidateGroups,
         answerActionButtons,
         answerLifecycleStages,
         assistantMessages: assistantMessages.length,
@@ -1810,6 +1840,7 @@ const verifyLiveModeRenderedAnswers = async () => {
     readOnly.textIncludesReadOnlyMode &&
       readOnly.textIncludesReadOnlyCommand &&
       readOnly.actionPlanButtons.length === 0 &&
+      readOnly.actionCandidateDefaultCollapsed &&
       !readOnly.textIncludesActionPlanCandidate &&
       readOnly.hasGatewayDirect &&
       !readOnly.hasGatewayFallback &&
@@ -1822,6 +1853,7 @@ const verifyLiveModeRenderedAnswers = async () => {
     execute.textIncludesExecuteMode &&
       execute.textIncludesActionPlanCandidate &&
       execute.actionPlanButtons.includes('Action Plan 생성') &&
+      execute.actionCandidateDefaultCollapsed &&
       execute.hasGatewayDirect &&
       !execute.hasGatewayFallback &&
       !execute.hasInternalLeak &&
@@ -1833,6 +1865,7 @@ const verifyLiveModeRenderedAnswers = async () => {
     unrestricted.textIncludesUnrestrictedMode &&
       unrestricted.textIncludesActionPlanCandidate &&
       unrestricted.actionPlanButtons.includes('Action Plan 생성') &&
+      unrestricted.actionCandidateDefaultCollapsed &&
       unrestricted.hasGatewayDirect &&
       !unrestricted.hasGatewayFallback &&
       !unrestricted.hasInternalLeak &&
@@ -2037,6 +2070,30 @@ const verifyLiveActionPlanClickThrough = async () => {
 
   const before = await statusSnapshot();
   assert(before?.ok, 'Action Plan click-through must read AIOps status before starting', before);
+  const beforeAlreadyExecuted = before.executions.some(
+    (execution) =>
+      execution.planDigest === namespacePlanDigest &&
+      /namespace cleanup/i.test(execution.mutationReason || ''),
+  );
+  if (beforeAlreadyExecuted) {
+    const repeatedAnswer = await sendLiveQuestion({
+      label: 'namespace cleanup Action Plan idempotent existing execution',
+      mode: 'execute',
+      question: NAMESPACE_CLEANUP_QUESTION,
+    });
+    assert(
+      repeatedAnswer.textIncludesActionPlanCandidate &&
+        (repeatedAnswer.actionPlanButtons.includes('Action Plan 생성') ||
+          repeatedAnswer.answerLifecycleStages.includes('execution')),
+      'existing namespace cleanup execution must not fail the Action Plan click-through gate',
+      { before, repeatedAnswer },
+    );
+    return {
+      before,
+      idempotentExistingExecution: true,
+      repeatedAnswer,
+    };
+  }
 
   const answer = await sendLiveQuestion({
     label: 'namespace cleanup Action Plan click-through',
@@ -2050,6 +2107,41 @@ const verifyLiveActionPlanClickThrough = async () => {
     'execute mode namespace cleanup answer must expose an actionable Action Plan CTA before click-through',
     answer,
   );
+
+  const expandedCandidateGroup = await evaluate(`(() => {
+    const assistantMessages = Array.from(document.querySelectorAll('.komsco-ai__message--assistant'));
+    const latest = assistantMessages[assistantMessages.length - 1];
+    const group = latest?.querySelector('.komsco-ai__create-action-plan[data-aiops-action-candidates-expanded="false"]');
+    const summary = group?.querySelector('.komsco-ai__create-action-plan-summary');
+    if (!group || !summary) return { clicked: false, expanded: true, ok: true };
+    summary.click();
+    return {
+      clicked: true,
+      expanded: group.getAttribute('data-aiops-action-candidates-expanded') === 'true',
+      ok: true,
+      text: summary.textContent.replace(/\\s+/g, ' ').trim()
+    };
+  })()`);
+  if (expandedCandidateGroup?.clicked) {
+    await poll(
+      `(() => {
+        const latest = Array.from(document.querySelectorAll('.komsco-ai__message--assistant')).pop();
+        const group = latest?.querySelector('.komsco-ai__create-action-plan');
+        return {
+          expanded: group?.getAttribute('data-aiops-action-candidates-expanded') === 'true',
+          visibleButtons: Array.from(latest?.querySelectorAll('.komsco-ai__create-action-plan-button') || [])
+            .filter((button) => {
+              const rect = button.getBoundingClientRect();
+              const style = getComputedStyle(button);
+              return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
+            }).length
+        };
+      })()`,
+      (value) => value?.expanded && value?.visibleButtons >= 1,
+      'collapsed Action Plan candidates expand before click-through',
+      10000,
+    );
+  }
 
   const createClick = await evaluate(`(() => {
     const assistantMessages = Array.from(document.querySelectorAll('.komsco-ai__message--assistant'));
@@ -2535,11 +2627,15 @@ const verifyCompactViewportChrome = async () => {
       const headerActions = document.querySelector('.komsco-ai__header-actions');
       const status = document.querySelector('.komsco-ai__header-status');
       const workspace = document.querySelector('.komsco-ai__workspace');
+      const composerWrap = document.querySelector('.komsco-ai__composer-wrap');
       const composer = document.querySelector('.komsco-ai__composer');
       const input = document.querySelector('.komsco-ai__input');
       const textarea = document.querySelector('.komsco-ai__composer textarea');
       const sendButton = document.querySelector('.komsco-ai__send');
       const surfaceRect = rect(surface);
+      const composerWrapRect = rect(composerWrap);
+      const composerBottomGap =
+        surfaceRect && composerWrapRect ? Math.round(surfaceRect.bottom - composerWrapRect.bottom) : null;
       const viewport = { height: window.innerHeight, width: window.innerWidth };
       const importantElements = [
         ['header', header],
@@ -2547,6 +2643,7 @@ const verifyCompactViewportChrome = async () => {
         ['headerActions', headerActions],
         ['status', status],
         ['workspace', workspace],
+        ['composerWrap', composerWrap],
         ['composer', composer],
         ['input', input],
         ['sendButton', sendButton],
@@ -2607,6 +2704,8 @@ const verifyCompactViewportChrome = async () => {
       return {
         darkInput: darkBackground(inputStyle?.backgroundColor || ''),
         darkSend: darkBackground(sendStyle?.backgroundColor || ''),
+        composerBottomGap,
+        composerWrapRect,
         headerOverlaps,
         languageCode,
         modeLabels,
@@ -2622,6 +2721,9 @@ const verifyCompactViewportChrome = async () => {
           languageCode === 'KR' &&
           textarea?.value === '야' &&
           outsideSurface.length === 0 &&
+          composerBottomGap !== null &&
+          composerBottomGap >= -1 &&
+          composerBottomGap <= 12 &&
           overflowingControls.length === 0 &&
           headerOverlaps.length === 0 &&
           visibleInternalLeaks.length === 0 &&
@@ -2712,6 +2814,10 @@ const verifyCompactViewportChrome = async () => {
       const sidebarRect = rect(sidebar);
       const historyListRect = rect(historyList);
       const userFooterRect = rect(userFooter);
+      const historyListFooterGap =
+        historyListRect && userFooterRect ? Math.round(userFooterRect.top - historyListRect.bottom) : null;
+      const userFooterBottomInset =
+        sidebarRect && userFooterRect ? Math.round(sidebarRect.bottom - userFooterRect.bottom) : null;
       const viewport = { height: window.innerHeight, width: window.innerWidth };
       const overflowingRefs = refs
         .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
@@ -2758,8 +2864,10 @@ const verifyCompactViewportChrome = async () => {
           sidebarRect.bottom <= surfaceRect.bottom + 1 &&
           sidebarRect.width >= 260 &&
           Boolean(historyListRect && userFooterRect) &&
-          historyListRect.bottom <= userFooterRect.top + 1 &&
-          userFooterRect.bottom <= sidebarRect.bottom - 6 &&
+          historyListFooterGap !== null &&
+          historyListFooterGap >= 0 &&
+          userFooterBottomInset !== null &&
+          userFooterBottomInset >= -1 &&
           userFooterRect.top >= sidebarRect.top &&
           refs.length >= 1 &&
           overflowingRefs.length === 0 &&
@@ -2770,9 +2878,11 @@ const verifyCompactViewportChrome = async () => {
         overflowingRefs,
         overflowingRows,
         rawHistoryTerms,
+        historyListFooterGap,
         historyListRect,
         sidebarRect,
         surfaceRect,
+        userFooterBottomInset,
         userFooterHasInternalFixture,
         userFooterHasExpectedIdentity,
         userFooterRect,
@@ -3747,6 +3857,10 @@ const verifyConsoleAssistant = async () => {
     const sidebarRect = sidebar?.getBoundingClientRect();
     const historyListRect = historyList?.getBoundingClientRect();
     const userFooterRect = userFooter?.getBoundingClientRect();
+    const historyListFooterGap =
+      historyListRect && userFooterRect ? Math.round(userFooterRect.top - historyListRect.bottom) : null;
+    const userFooterBottomInset =
+      sidebarRect && userFooterRect ? Math.round(sidebarRect.bottom - userFooterRect.bottom) : null;
     const brandStyle = brand ? getComputedStyle(brand) : null;
     const rawHistoryTerms = [
       'delete_namespace_after_approval',
@@ -3777,14 +3891,18 @@ const verifyConsoleAssistant = async () => {
       rawHistoryTerms,
       footerPinned:
         Boolean(sidebarRect && historyListRect && userFooterRect) &&
-        historyListRect.bottom <= userFooterRect.top + 1 &&
-        userFooterRect.bottom <= sidebarRect.bottom - 6 &&
+        historyListFooterGap !== null &&
+        historyListFooterGap >= 0 &&
+        userFooterBottomInset !== null &&
+        userFooterBottomInset >= -1 &&
         userFooterRect.top >= sidebarRect.top,
       historyListRect: historyListRect ? {
         bottom: Math.round(historyListRect.bottom),
         top: Math.round(historyListRect.top)
       } : null,
+      historyListFooterGap,
       sidebarWidth: sidebarRect ? Math.round(sidebarRect.width) : 0,
+      userFooterBottomInset,
       userFooterHasInternalFixture,
       userFooterRect: userFooterRect ? {
         bottom: Math.round(userFooterRect.bottom),

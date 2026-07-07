@@ -57,6 +57,7 @@ import {
   STORED_MESSAGE_FEEDBACK_KEY,
 } from './assistant.constants';
 import { formatFileSize } from './assistant.attachments';
+import { dedupeActionCandidates } from './assistant.actionCandidates';
 import { TASK_MODE_EMPTY_COPY, UI_COPY } from './assistant.copy';
 import {
   buildEvidenceCopyText,
@@ -565,6 +566,22 @@ const setLastAssistantContentIfEmpty = (messages: Message[], content: string): M
   return next;
 };
 
+const markLastAssistantStreaming = (messages: Message[], streaming: boolean): Message[] => {
+  const assistantIndex = findLastAssistantIndex(messages);
+  if (assistantIndex < 0) {
+    return messages;
+  }
+
+  const next = [...messages];
+  next[assistantIndex] = {
+    ...next[assistantIndex],
+    streaming,
+    timestamp: next[assistantIndex].timestamp ?? Date.now(),
+  };
+
+  return next;
+};
+
 const attachEvidenceFooterToLastAssistant = (
   messages: Message[],
   evidenceFooter: EvidenceFooter | undefined,
@@ -744,7 +761,7 @@ const matchActionCandidatesForMessage = (
   content: string,
   candidates: AiopsActionCandidate[],
 ): AiopsActionCandidate[] => {
-  const matched = candidates.filter((candidate) => {
+  const matched: AiopsActionCandidate[] = candidates.filter((candidate) => {
     const name = candidate.target?.name;
     return Boolean(name) && content.includes(name!);
   });
@@ -759,19 +776,7 @@ const matchActionCandidatesForMessage = (
     });
   }
 
-  // Different findings (e.g. pod_crashloop and pod_restart_spike) can point at
-  // the exact same target, each producing its own candidate id — dedupe by
-  // target so the same remediation isn't offered as two separate buttons.
-  const seenTargets = new Set<string>();
-  return matched.filter((candidate) => {
-    const target = candidate.target;
-    const targetKey = `${target?.namespace}/${target?.kind}/${target?.name}`;
-    if (seenTargets.has(targetKey)) {
-      return false;
-    }
-    seenTargets.add(targetKey);
-    return true;
-  });
+  return dedupeActionCandidates(matched);
 };
 
 const namespaceCleanupCandidateNamesFromAnswer = (content: string): string[] => {
@@ -2729,13 +2734,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setMessages((prev) => {
       const assistantIndex = findLastAssistantIndex(prev);
       if (assistantIndex < 0) {
-        return [...prev, { role: 'assistant', content, timestamp: Date.now() }];
+        return [...prev, { role: 'assistant', content, streaming: true, timestamp: Date.now() }];
       }
 
       const next = [...prev];
       next[assistantIndex] = {
         ...next[assistantIndex],
         content: next[assistantIndex].content + content,
+        streaming: true,
         timestamp: next[assistantIndex].timestamp ?? Date.now(),
       };
 
@@ -3242,7 +3248,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setMessages((prev) => [
         ...prev,
         { role: 'user', attachments, content: question, timestamp: messageTimestamp },
-        { role: 'assistant', content: '', progressSteps: [] },
+        { role: 'assistant', content: '', progressSteps: [], streaming: true },
       ]);
 
       const abortController = new AbortController();
@@ -3698,6 +3704,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         }
         finishResponseWaitStep('스트림 종료');
         await waitForAssistantTextQueue();
+        setMessages((prev) => markLastAssistantStreaming(prev, false));
         finishAnswerStreamStep();
         finalizeRunningProgressSteps('답변 완료');
         await refreshAiopsRuntimeStatus();
@@ -3727,9 +3734,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         flushAssistantTextQueueNow();
         if (stopped) {
           markRunningProgressFailed('사용자가 응답 생성을 중지했습니다.');
-          setMessages((prev) => setLastAssistantContentIfEmpty(prev, '응답 생성을 중지했습니다.'));
+          setMessages((prev) =>
+            markLastAssistantStreaming(
+              setLastAssistantContentIfEmpty(prev, '응답 생성을 중지했습니다.'),
+              false,
+            ),
+          );
         } else {
           markRunningProgressFailed(error instanceof Error ? error.message : 'AI response failed.');
+          setMessages((prev) => markLastAssistantStreaming(prev, false));
           setMessages((prev) => [
             ...prev,
             {

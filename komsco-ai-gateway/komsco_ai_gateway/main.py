@@ -2795,11 +2795,11 @@ def answer_section_contract(req: ChatRequest) -> str:
     if answer_language(req) == "en":
         return (
             "Use this structure when RCA or operations status is requested: "
-            "Summary, Impact Scope, Verified Evidence, Root Cause Candidates, Action Plan, Additional Checks, Prevention."
+            "Current Assessment, Root Cause Candidates, Verified Evidence, Action Method, Additional Checks."
         )
     return (
         "RCA 또는 운영 상태 질문에는 가능한 경우 아래 순서를 사용하세요: "
-        "요약, 영향 범위, 확인한 근거, 원인 후보, Action Plan, 추가 확인, 재발 방지."
+        "현재 판단, 원인 후보, 확인한 근거, 조치 방법, 추가 확인."
     )
 
 
@@ -9030,6 +9030,10 @@ OpenShift 경고 분석 프로토콜:
 - Watchdog alert는 Alertmanager 경로 확인용 상시 경고임을 설명하고 우선 조치 대상에서 제외하세요.
 - Markdown은 GitHub Flavored Markdown으로 작성하고, 코드블록은 반드시 삼중 백틱으로 열고 삼중 백틱으로 닫으세요.
 - 코드블록 안에는 실행 가능한 명령만 넣고, "Pod 로그 확인" 같은 설명 문장은 코드블록 밖에 작성하세요.
+- 장애 분석 답변은 가능한 경우 `현재 판단`, `원인 후보`, `확인한 근거`, `조치 방법`, `추가 확인` 순서로 작성하세요.
+- 단순 개념 질문은 RCA 보고서로 늘리지 말고, 짧은 정의와 확인 방법만 답하세요.
+- `Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖에 작성하세요.
+- 코드블록 안에 다시 ```bash 같은 fence를 중첩하지 마세요.
 - OpenShift 관점에서 설명하세요.
 """
     return redact_sensitive(query)
@@ -11856,18 +11860,19 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
             [
                 "## RCA 보고서",
                 "",
+                "### 현재 판단",
                 "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
                 "",
                 "### 원인 후보",
                 "- 조회 범위가 맞지 않거나, 현재 접근 권한/namespace 기준으로 대상 Pod가 없을 수 있습니다.",
                 "",
-                "### 확인한 증적",
+                "### 확인한 근거",
                 f"- Namespace: `{namespace}`",
                 "- 조회된 Pod가 없습니다.",
                 "- Evidence 범위: `Current Pod list evidence`",
                 "- 현재 수집 범위에서는 Pod 장애를 확인하지 못했습니다.",
                 "",
-                "### 권장 조치",
+                "### 조치 방법",
                 "1. namespace와 대상 워크로드 이름을 먼저 확정합니다.",
                 "",
                 "### 추가 확인",
@@ -11896,6 +11901,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
     lines = [
         "## RCA 보고서",
         "",
+        "### 현재 판단",
         "Gateway가 수집한 Kubernetes 증거 기준으로 Pod 목록을 조회했습니다.",
         "",
         "### 원인 후보",
@@ -11905,7 +11911,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
             else "- 현재 목록 근거만으로는 즉시 장애 원인을 특정할 신호가 없습니다."
         ),
         "",
-        "### 확인한 증적",
+        "### 확인한 근거",
         f"- Namespace: `{namespace}`",
         f"- Evidence 범위: `{evidence_scope}`",
         f"- 표시 Pod/Container row: `{total_rows}`" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
@@ -11913,7 +11919,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
         f"- Warning/Error 계열 상태: `{len(problem_rows)}`",
         "- Pod phase, container ready, restart count, lastState, owner 기준으로 목록을 정리했습니다.",
         "",
-        "### 권장 조치",
+        "### 조치 방법",
         "1. Warning/Error 계열 Pod의 상세와 Event를 먼저 확인합니다.",
         "2. Ready 아님 상태가 계속되는 Pod는 owner/controller 상태를 확인합니다.",
         "3. restart count는 누적값이므로 최근 증가 여부는 metric 또는 lastState 시간으로 따로 확인합니다.",
@@ -11982,13 +11988,14 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
     lines = [
         "## RCA 보고서",
         "",
+        "### 현재 판단",
         "Gateway가 수집한 Kubernetes 증거 기준으로 대상 Pod를 우선 분석했습니다.",
         "",
         "### 원인 후보",
         f"- 1순위 후보: {cause}",
         "- 로그, Event, resource limit, image pull 세부 원인은 추가 근거가 있어야 확정할 수 있습니다.",
         "",
-        "### 확인한 증적",
+        "### 확인한 근거",
         f"- 대상: `{namespace}` / Pod `{pod}` / Container `{container}`",
         f"- 현재 상태: {state}, Ready `{ready}`, restart count `{restarts}`",
         f"- 마지막 종료: `{last_state}`" + (f", `{last_finished}`" if last_finished != "-" else ""),
@@ -11998,7 +12005,7 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
         f"- Args: `{args}`",
         f"- 관리 객체: `{owner_chain}`",
         "",
-        "### 권장 조치",
+        "### 조치 방법",
     ]
 
     if deployment:
@@ -12132,10 +12139,13 @@ def build_empty_answer_fallback(
         "",
         "## RCA 보고서",
         "",
+        "### 현재 판단",
+        "- Gateway 수집 증거 기준으로 임시 요약합니다. 원인은 후보로만 봅니다.",
+        "",
         "### 원인 후보",
         "- 현재 fallback은 수집된 증거를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 근거가 함께 맞을 때만 확정합니다.",
         "",
-        "### 확인한 증적",
+        "### 확인한 근거",
         f"- 질문: {redact_sensitive(req.message)}",
         "- Gateway가 수집한 증거 기준으로만 임시 요약합니다.",
         "- Lightspeed 최종 분석이 아니므로 원인은 후보로만 봅니다.",
@@ -12170,7 +12180,7 @@ def build_empty_answer_fallback(
         lines.append("")
 
     lines.extend([
-        "### 권장 조치",
+        "### 조치 방법",
         "- 확인된 비정상 리소스가 있으면 상세/Event/metric을 먼저 연결하고, 변경 작업은 승인 흐름으로 분리합니다.",
         "",
         "### 추가 확인",

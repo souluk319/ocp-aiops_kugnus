@@ -583,7 +583,7 @@ def test_rca_context_tracks_evidence_refs_and_missing_evidence() -> None:
         "unrestricted",
     ]
     assert "원인 후보" in context["analysisPlan"]["answerContract"]["requiredSections"]
-    assert "확인한 증적" in context["analysisPlan"]["answerContract"]["requiredSections"]
+    assert "확인한 근거" in context["analysisPlan"]["answerContract"]["requiredSections"]
     step_status = {
         item["evidenceType"]: item
         for item in context["analysisPlan"]["evidenceCollectionSteps"]
@@ -2964,7 +2964,7 @@ def test_build_ols_query_defaults_to_minimal_safe_prompt() -> None:
     assert "Do not invent alert, pod, node, namespace, resource names" in query
     assert "If no screenshot/image is attached" in query
     assert "Policy decision:" in query
-    assert "우선 판단" in query
+    assert "현재 판단" in query
     assert len(query) < 1200
     assert "title" not in query
     assert "OKD" not in query
@@ -3158,9 +3158,9 @@ def test_build_ols_query_context_profile_includes_gateway_evidence(monkeypatch) 
     assert "Verified operational context:" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
     assert "## RCA 보고서" in query
-    assert "### 우선 판단" in query
-    assert "### 수집 근거" in query
-    assert "### 확인 불가" in query
+    assert "현재 판단" in query
+    assert "확인한 근거" in query
+    assert "추가 확인" in query
     monkeypatch.setattr(gateway_main, "OLS_QUERY_PROFILE", "minimal")
 
 
@@ -3189,11 +3189,11 @@ def test_empty_answer_fallback_includes_question_and_tool_summary() -> None:
     )
 
     assert "## RCA 보고서" in fallback
-    assert "### 우선 판단" in fallback
-    assert "### 수집 근거" in fallback
+    assert "### 현재 판단" in fallback
+    assert "### 확인한 근거" in fallback
     assert "### 원인 후보" in fallback
-    assert "### 확인 불가" in fallback
-    assert "### 다음 확인 명령" in fallback
+    assert "### 조치 방법" in fallback
+    assert "### 추가 확인" in fallback
     assert "authentication" in fallback
     assert "resources_list" in fallback
     assert "조회 완료" in fallback
@@ -3222,7 +3222,7 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "ClusterOperator" in fallback
     assert "## RCA 보고서" in fallback
     assert "### 원인 후보" in fallback
-    assert "### 확인 불가" in fallback
+    assert "### 추가 확인" in fallback
     assert "Gateway가 수집한 증거 기준" in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
@@ -3593,7 +3593,7 @@ def test_chat_stream_retries_empty_ols_answer_before_fallback(monkeypatch) -> No
         gateway_main.update_ols_stream_status("succeeded", context_digest=context_digest)
         yield {
             "type": "text",
-            "content": "## RCA 보고서\n\n### 우선 판단\n재시도 후 Lightspeed 답변입니다.\n\n### 수집 근거\nGateway evidence.",
+            "content": "## RCA 보고서\n\n### 현재 판단\n재시도 후 Lightspeed 답변입니다.\n\n### 확인한 근거\nGateway evidence.",
         }
         yield {"type": "end", "conversationId": "conversation-answer"}
 
@@ -3768,7 +3768,7 @@ def test_grounded_pod_screen_rca_uses_evidence_renderer_instead_of_generic_answe
 
     answer = build_grounded_aiops_answer(
         ChatRequest(
-            message="현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 증적과 원인 후보, 승인 가능한 조치 후보를 정리해줘.",
+            message="현재 화면의 대상 리소스에 대해 가능한 안전 조회를 실행하고, 확인한 근거와 원인 후보, 승인 가능한 조치 후보를 정리해줘.",
             pageContext={"resourceKind": "Pod", "namespace": "team-a", "resourceName": "sample-crashy-6fd7d7cfd7-r4nd0"},
         ),
         {"task_type": "pod_screen_rca"},

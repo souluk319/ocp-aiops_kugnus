@@ -97,6 +97,9 @@
   },
   "packageManager": "yarn@4.13.0",
   "dependencies": {
-    "lucide-react": "^0.468.0"
+    "lucide-react": "^0.468.0",
+    "react-markdown": "8.0.7",
+    "rehype-sanitize": "5.0.1",
+    "remark-gfm": "3.0.1"
   }
 }

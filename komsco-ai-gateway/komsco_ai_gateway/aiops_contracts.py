@@ -769,8 +769,8 @@ def build_rca_context(
                 "format": "operations_rca_report",
                 "requiredSections": [
                     "원인 후보",
-                    "확인한 증적",
-                    "권장 조치",
+                    "확인한 근거",
+                    "조치 방법",
                     "추가 확인",
                     "재발 방지",
                 ],

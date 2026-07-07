@@ -20,6 +20,7 @@ export type Message = {
   feedbackComment?: string;
   gatewayContextDigest?: string;
   progressSteps?: ProgressStep[];
+  streaming?: boolean;
   timestamp?: number;
   toolPlan?: ToolPlanFooter;
 };

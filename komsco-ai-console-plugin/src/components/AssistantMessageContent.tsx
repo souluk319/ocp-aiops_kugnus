@@ -1,6 +1,8 @@
 import * as React from 'react';
 
+import AssistantMarkdown from './AssistantMarkdown';
 import { normalizeAssistantDisplayText } from './assistant.display';
+import { prepareMarkdownContent } from './assistant.markdownPrepare';
 import { formatFileSize, getAttachmentPreviewUrl } from './assistant.attachments';
 import {
   cleanMarkdownLabel,
@@ -268,7 +270,11 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
   ) {
     return 'cause';
   }
-  if (/^(action plan|조치 계획|실행 계획|권장 조치|권장 명령|조치)$/i.test(heading)) {
+  if (
+    /^(action plan|action method|조치 방법|조치 방법 및 추가 확인|조치 계획|실행 계획|권장 조치|권장 명령|조치)$/i.test(
+      heading,
+    )
+  ) {
     return 'action';
   }
   if (
@@ -292,7 +298,7 @@ const runbookSectionId = (line: string): RunbookSectionId | null => {
 };
 
 const parseRunbookSections = (content: string, language: UiLanguage): RunbookSection[] | null => {
-  const lines = stripDefaultEvidenceAppendix(content).split('\n');
+  const lines = prepareMarkdownContent(stripDefaultEvidenceAppendix(content), false).split('\n');
   const intro: string[] = [];
   const sections: RunbookSection[] = [];
   const titles = RUNBOOK_SECTION_TITLES[language];
@@ -393,6 +399,17 @@ const renderRunbookLines = (
   sectionId: RunbookSectionId,
   language: UiLanguage,
 ): React.ReactNode => {
+  const markdown = lines.join('\n').trim();
+  if (markdown) {
+    return (
+      <AssistantMarkdown
+        content={markdown}
+        uiLanguage={language}
+        variant="runbook"
+      />
+    );
+  }
+
   const contentLines = lines
     .map((line) => line.trim())
     .filter(Boolean)
@@ -538,6 +555,16 @@ export const renderFormattedContent = (
   const runbookSections = parseRunbookSections(displayContent, language);
   if (runbookSections) {
     return renderRunbookAnswer(runbookSections, language);
+  }
+
+  if (message.answerContract !== 'legacy_line_parser') {
+    return (
+      <AssistantMarkdown
+        content={stripDefaultEvidenceAppendix(displayContent)}
+        streaming={message.streaming}
+        uiLanguage={language}
+      />
+    );
   }
 
   const lines = stripDefaultEvidenceAppendix(displayContent).split('\n');

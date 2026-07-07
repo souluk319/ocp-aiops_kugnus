@@ -2,8 +2,11 @@ import * as React from 'react';
 
 import { CoolCopyIcon, CoolWrapTextIcon } from './coolicons';
 import { INLINE_PATTERN, MARKDOWN_LINK_PATTERN, URL_PATTERN } from './assistant.constants';
+import { isCommandLikeLine } from './assistant.commandDetection';
 import type { RagAppendixRef, UiLanguage } from './assistant.types';
 import { redactSensitiveText } from '../utils/evidenceDisplay';
+
+export { isCommandLikeLine, isMarkdownHeadingLine } from './assistant.commandDetection';
 
 export const cleanMarkdownLabel = (label: string): string =>
   label
@@ -69,11 +72,6 @@ export const parseMarkdownLink = (line: string): { href: string; label: string }
 };
 
 export const trimIndentedCodeLine = (line: string): string => line.replace(/^( {4}|\t)/, '');
-
-export const isCommandLikeLine = (line: string): boolean =>
-  /^(#|oc\s+|kubectl\s+|helm\s+|etcdctl\s+|curl\s+|podman\s+|docker\s+|jq\s+|grep\s+|watch\s+|export\s+)/.test(
-    line.trim(),
-  );
 
 export const collectIndentedBlock = (lines: string[], startIndex: number): string[] => {
   const block: string[] = [];
