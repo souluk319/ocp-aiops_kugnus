@@ -87,9 +87,7 @@ export const getAiopsRecordAction = (
   const records = aiopsStatus?.spec.records;
   const modeDisabledReason = !executionModeAllowsActions(executionMode)
     ? '읽기 전용 모드에서는 승인·실행 불가'
-    : !canUseActionExecution(aiopsStatus)
-      ? 'Gateway 실행 기능 미구성'
-      : '';
+    : '';
   const cleanAction = (action: AiopsRecordAction): AiopsRecordAction => {
     if (action.disabledReason !== undefined) {
       return action;
@@ -264,7 +262,7 @@ export const getActionLifecycleSummary = (
 
   const actionExecutorConfigured = Boolean(status?.spec.capabilities.actionExecutorConfigured);
   const mutationsEnabled = Boolean(status?.spec.capabilities.mutationsEnabled);
-  const actionsAllowed = canUseActionExecution(status) && executionModeAllowsActions(executionMode);
+  const actionRequestsAllowed = executionModeAllowsActions(executionMode);
   const blockers: string[] = [];
   if (!actionExecutorConfigured) {
     blockers.push(
@@ -286,7 +284,16 @@ export const getActionLifecycleSummary = (
     );
   }
 
-  if (blockers.length === 0 && actionsAllowed) {
+  if (!actionRequestsAllowed) {
+    return {
+      label: isKo ? '현재 모드' : 'Current mode',
+      text: blockers.join('; '),
+      tone: 'warn' as UiTone,
+      value: getExecutionModeShortLabel(executionMode, language),
+    };
+  }
+
+  if (blockers.length === 0) {
     return {
       label: isKo ? '현재 상태' : 'Current state',
       text: isKo
@@ -298,9 +305,11 @@ export const getActionLifecycleSummary = (
   }
 
   return {
-    label: isKo ? '제한 사유' : 'Blocking reason',
-    text: blockers.join('; '),
-    tone: 'warn' as UiTone,
-    value: isKo ? '설정 필요' : 'Setup required',
+    label: isKo ? '적용 제한' : 'Apply limitation',
+    text: isKo
+      ? `계획·승인·실행 요청은 가능합니다. ${blockers.join('; ')}. 실제 클러스터 적용이 제한되면 실행 결과에 사유를 기록합니다.`
+      : `Plan, approval, and execution requests are available. ${blockers.join('; ')}. If cluster apply is limited, the execution result records the reason.`,
+    tone: 'review' as UiTone,
+    value: getExecutionModeShortLabel(executionMode, language),
   };
 };

@@ -276,6 +276,10 @@ assert(actionRecordHelpers.includes('review_recorded'), 'Review-only Action Plan
 assert(actionRecordHelpers.includes('검토 기록 완료'), 'Review-only Action Plan records must not be labeled as ordinary execution completion');
 assert(actionRecordHelpers.includes('reviewOnly: isReviewOnlyActionRecord'), 'Conversation action refs must persist review-only state for history rendering');
 assert(actionState.includes('검토 기록'), 'Review-only Action Plan approval flow must render a record-review action label');
+assert(!actionState.includes('Gateway 실행 기능 미구성'), 'Execute mode must not pre-block Action Plan buttons because the executor is not configured');
+assert(actionState.includes('modeDisabledReason = !executionModeAllowsActions(executionMode)'), 'Action Plan UI gating must be based on selected execution mode, not mutation backend readiness');
+assert(gatewayTypes.includes('actionExecutionRecordFromErrorPayload'), 'Execute API client must recover mutation-disabled ExecutionRecord payloads');
+assert(gatewayTypes.includes('response.status === 403') && gatewayTypes.includes("kind: 'ExecutionRecord'"), 'Execute API client must render server-recorded execution outcomes even when HTTP status is 403');
 assert(insightRail.includes("'확인 결과'"), 'Insight rail must use product-facing answer context copy');
 assert(!insightRail.includes('답변 근거'), 'Insight rail must not expose old answer evidence wording');
 assert(gateway.includes('코드블록 안에는 실행 가능한 명령만'), 'Gateway prompt must forbid prose inside code blocks');

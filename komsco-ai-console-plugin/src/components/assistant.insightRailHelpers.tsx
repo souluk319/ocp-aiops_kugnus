@@ -565,12 +565,20 @@ export const renderExecutionCapabilityBadges = (
       )}
       {renderStatusTag(
         isKo ? '실행 가능' : 'Execute',
-        actionExecutionAvailable ? (executeActive ? 'review' : 'ok') : 'warn',
-        actionExecutionAvailable
-          ? isKo
-            ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
-            : 'Action Executor is connected and can run approved requests.'
-          : getActionExecutionDisabledReason(status, language),
+        executeActive ? 'review' : actionExecutionAvailable ? 'ok' : 'neutral',
+        executeActive
+          ? actionExecutionAvailable
+            ? isKo
+              ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
+              : 'Action Executor is connected and can run approved requests.'
+            : isKo
+              ? '계획·승인·실행 요청은 보낼 수 있습니다. 실제 적용이 제한되면 서버가 실행 결과에 사유를 기록합니다.'
+              : 'Plan, approval, and execution requests are available. If apply is limited, the server records the reason in the execution result.'
+          : actionExecutionAvailable
+            ? isKo
+              ? 'Action Executor가 연결되어 승인된 실행 요청을 보낼 수 있습니다.'
+              : 'Action Executor is connected and can run approved requests.'
+            : getActionExecutionDisabledReason(status, language),
         <CoolTerminalIcon />,
       )}
       {renderStatusTag(

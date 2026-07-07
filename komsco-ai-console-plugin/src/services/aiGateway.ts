@@ -674,6 +674,10 @@ async function gatewayErrorMessage(
 
 async function gatewayResponseDetail(response: Response): Promise<string> {
   const body = (await response.text()).trim();
+  return gatewayResponseDetailFromBody(body);
+}
+
+function gatewayResponseDetailFromBody(body: string): string {
   if (!body) {
     return '';
   }
@@ -708,6 +712,36 @@ async function gatewayResponseDetail(response: Response): Promise<string> {
   }
 
   return body.slice(0, 240);
+}
+
+function actionExecutionRecordFromErrorPayload(payload: unknown): AiopsRecord | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const body = payload as Record<string, unknown>;
+  const detail =
+    body.detail && typeof body.detail === 'object'
+      ? (body.detail as Record<string, unknown>)
+      : body;
+  const mutationOutcome = detail.mutationOutcome;
+  const hasExecutionSpec =
+    typeof detail.executionId === 'string' &&
+    mutationOutcome &&
+    typeof mutationOutcome === 'object';
+
+  if (!hasExecutionSpec) {
+    return null;
+  }
+
+  return {
+    kind: 'ExecutionRecord',
+    metadata: {
+      createdAt: new Date().toISOString(),
+      name: String(detail.executionId),
+    },
+    spec: detail,
+  };
 }
 
 async function postGatewayJson<TResponse>(
@@ -1053,11 +1087,47 @@ export async function executeApprovedAction(
   planId: string,
   expectedPlanDigest: string,
 ): Promise<AiopsRecord> {
-  return postGatewayJson<AiopsRecord>('/execute', {
-    approvalId,
-    expectedPlanDigest,
-    planId,
-  });
+  const response = await consoleFetch(
+    `${GATEWAY_ACTIONS_URL}/execute`,
+    {
+      body: JSON.stringify({
+        approvalId,
+        expectedPlanDigest,
+        planId,
+      }),
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    },
+    60 * 1000,
+  );
+
+  if (response.ok) {
+    return (await response.json()) as AiopsRecord;
+  }
+
+  const body = (await response.text()).trim();
+  if (response.status === 403) {
+    try {
+      const executionRecord = actionExecutionRecordFromErrorPayload(JSON.parse(body) as unknown);
+      if (executionRecord) {
+        return executionRecord;
+      }
+    } catch {
+      // Fall through to the regular human-readable error below.
+    }
+  }
+
+  if (response.status === 401) {
+    throw new Error(GATEWAY_AUTH_ERROR_MESSAGE);
+  }
+
+  const detail = gatewayResponseDetailFromBody(body);
+  throw new Error(
+    `AIOps action request failed: ${detail || `${response.status} ${response.statusText}`}`,
+  );
 }
 
 export async function* streamChat(
