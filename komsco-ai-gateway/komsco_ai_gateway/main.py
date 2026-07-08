@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -637,6 +637,17 @@ TEST_POD_CREATE_DEFAULT_NAMESPACE = "gpu-test-kugnus"
 TEST_POD_CREATE_DEFAULT_COUNT = 3
 TEST_POD_CREATE_DEFAULT_IMAGE = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
 TEST_POD_CREATE_NAME_PREFIX = "aiops-test-pod"
+TEST_POD_CREATE_APP_LABEL = "aiops-test-pods"
+TEST_POD_CREATE_ALLOWED_NAMESPACES = {
+    item.strip()
+    for item in os.getenv("KOMSCO_AI_TEST_POD_CREATE_ALLOWED_NAMESPACES", TEST_POD_CREATE_DEFAULT_NAMESPACE).split(",")
+    if item.strip()
+}
+TEST_POD_CREATE_FAILURE_COMMAND = [
+    "/bin/sh",
+    "-c",
+    "echo aiops intentional crashloop test pod; exit 1",
+]
 # Serializes concurrent auto-execute attempts against the same target so two
 # near-simultaneous candidate-plan requests (e.g. a retried webhook) can't each
 # independently auto-approve+execute their own sealed plan for the same Pod.
@@ -784,6 +795,22 @@ ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
         "request": {
             "method": "GET",
             "pathTemplate": "/api/v1/namespaces/{name}",
+        },
+    },
+    "create_crashloop_test_pods": {
+        "toolName": "create_crashloop_test_pods",
+        "toolVersion": "v1",
+        "targetKind": "Namespace",
+        "risk": "low",
+        "authorization": {
+            "apiGroup": "",
+            "resource": "pods",
+            "subresource": "",
+            "verb": "create",
+        },
+        "request": {
+            "method": "POST",
+            "pathTemplate": "/api/v1/namespaces/{namespace}/pods",
         },
     },
     "pod_diagnostic_review": {
@@ -1749,6 +1776,25 @@ def normalize_action_parameters(
             "reviewOnly": True,
         }
 
+    if tool_name == "create_crashloop_test_pods":
+        count = parameters.get("count", TEST_POD_CREATE_DEFAULT_COUNT)
+        image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
+        name_prefix = str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX).strip()
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
+            raise HTTPException(status_code=400, detail="test pod count must be an integer between 1 and 5")
+        if image != TEST_POD_CREATE_DEFAULT_IMAGE:
+            raise HTTPException(status_code=400, detail="test pod image is fixed by policy")
+        if not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", name_prefix):
+            raise HTTPException(status_code=400, detail="test pod namePrefix must be a Kubernetes-safe name")
+        return {
+            "appLabel": TEST_POD_CREATE_APP_LABEL,
+            "count": count,
+            "failureMode": "crashloop",
+            "fixedCommand": list(TEST_POD_CREATE_FAILURE_COMMAND),
+            "image": image,
+            "namePrefix": name_prefix[:48],
+        }
+
     if tool_name == "pod_diagnostic_review":
         include_describe = parameters.get("includeDescribe", True)
         include_events = parameters.get("includeEvents", True)
@@ -2676,7 +2722,7 @@ class DiagnosticRequestCreate(StrictBaseModel):
     targetNode: DiagnosticTargetNode
     collector: str = Field(min_length=1, max_length=120)
     collectorVersion: str = Field(default="v1", min_length=1, max_length=64)
-    collectorProfile: str = Field(default="passive-triage", min_length=1, max_length=80)
+    collectorProfile: str = Field(default="passive-readonly", min_length=1, max_length=80)
     timeRange: DiagnosticTimeRange
     limits: DiagnosticLimits = Field(default_factory=DiagnosticLimits)
     evidencePolicy: DiagnosticEvidencePolicy = Field(default_factory=DiagnosticEvidencePolicy)
@@ -3592,14 +3638,15 @@ def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, An
                 "kind": "Namespace",
                 "namespace": namespace or target.name,
                 "targetName": target.name,
-                "toolName": "test_pod_create_review",
+                "toolName": "create_crashloop_test_pods",
                 "parameters": parameters
                 or {
+                    "failureMode": "crashloop",
                     "count": TEST_POD_CREATE_DEFAULT_COUNT,
                     "image": TEST_POD_CREATE_DEFAULT_IMAGE,
                     "namePrefix": TEST_POD_CREATE_NAME_PREFIX,
                 },
-                "summary": f"Test Pod creation review in namespace `{target.name}`",
+                "summary": f"Create CrashLoop test Pods in namespace `{target.name}`",
             }
         return {
             "apiVersion": target.apiVersion or "v1",
@@ -4067,7 +4114,11 @@ async def execute_natural_action_plan_result(
     grant_reference = build_execution_grant_reference(approval_record, plan_record, subject)
     execution_id = f"execution-{uuid.uuid4()}"
     if MUTATIONS_ENABLED:
-        executor_result = await execute_action_with_executor(sealed_plan, grant_reference)
+        executor_result = await execute_action_with_executor(
+            sealed_plan,
+            grant_reference,
+            fallback_authorization=authorization,
+        )
     else:
         executor_result = {
             "mutationOutcome": {
@@ -7354,6 +7405,7 @@ def test_pod_create_request_from_message(message: str) -> dict[str, Any]:
     namespace = names[0] if names else TEST_POD_CREATE_DEFAULT_NAMESPACE
     return {
         "count": test_pod_create_count_from_message(message),
+        "failureMode": "crashloop",
         "image": TEST_POD_CREATE_DEFAULT_IMAGE,
         "namespace": namespace,
         "targetName": "aiops-test-pods",
@@ -7365,6 +7417,14 @@ async def collect_test_pod_create_preflight(
     request: Mapping[str, Any],
 ) -> dict[str, Any]:
     namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    if namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
+        return {
+            "error": f"namespace `{namespace}` is outside the test Pod creation allowlist",
+            "namespace": namespace,
+            "ok": False,
+            "server": OPENSHIFT_API_URL,
+            "status": "unsupported_namespace_for_test_pod_create",
+        }
     if not OPENSHIFT_API_URL:
         return {
             "error": "OPENSHIFT_API_URL is not configured",
@@ -7410,36 +7470,42 @@ def test_pod_create_candidate_from_preflight(
     candidate_id = f"action-candidate-test-pod-create-{hashlib.sha256(namespace.encode()).hexdigest()[:12]}"
     return {
         "approvalRequired": True,
-        "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
-        "blockedReasons": ["approval-required", "review-only-plan"],
+        "blockedActions": [],
+        "blockedReasons": ["approval-required"],
         "confidence": "high" if preflight.get("ok") else "medium",
-        "evidence": f"{namespace} namespace 존재 확인 후 테스트 Pod {count}개 생성 계획 검토가 필요합니다.",
+        "evidence": f"{namespace} namespace 존재 확인 후 의도적으로 CrashLoopBackOff가 나는 테스트 Pod {count}개를 생성할 수 있습니다.",
         "evidenceRefs": [
             {
                 "evidenceType": "namespace_preflight",
                 "findingId": f"test-pod-create-{namespace}",
-                "sourceType": "test_pod_create_review",
+                "sourceType": "create_crashloop_test_pods",
                 "status": "collected" if preflight.get("ok") else "missing",
             }
         ],
-        "executable": False,
+        "executable": True,
         "executionPolicy": {
-            "executionEnabled": False,
-            "mode": "review-only",
-            "mutationVerbsDisabled": True,
-            "proposalOnly": True,
+            "executionEnabled": True,
+            "mode": "execute",
+            "mutationVerbsDisabled": False,
+            "proposalOnly": False,
         },
-        "expectedImpact": f"{namespace} namespace에 aiops-test-pods 테스트 Pod {count}개 생성 계획을 검토합니다. 승인 전에는 생성하지 않습니다.",
+        "expectedImpact": f"{namespace} namespace에 의도적으로 CrashLoopBackOff가 나는 테스트 Pod {count}개를 생성합니다. 승인 전에는 생성하지 않습니다.",
         "id": candidate_id,
         "priority": 35,
+        "parameters": {
+            "count": count,
+            "failureMode": "crashloop",
+            "image": str(request.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE),
+            "namePrefix": TEST_POD_CREATE_NAME_PREFIX,
+        },
         "prerequisiteChecks": ["대상 namespace 존재 확인", "테스트 목적 확인", "정리 방법 확인"],
-        "recommendationSteps": ["테스트 Pod 생성 계획 작성", "승인 게이트 통과", "생성 후 label 기준 조회로 검증"],
+        "recommendationSteps": ["CrashLoop 테스트 Pod 생성 계획 작성", "승인 게이트 통과", "생성 후 CrashLoopBackOff 상태 조회로 검증"],
         "riskLevel": "low",
         "riskLabel": "낮음",
-        "severity": "확인 필요",
+        "severity": "실행 가능",
         "sourceFindingId": f"test-pod-create-{namespace}",
-        "sourceType": "test_pod_create_review",
-        "statusLabel": "승인 필요",
+        "sourceType": "create_crashloop_test_pods",
+        "statusLabel": "승인 후 실행 가능",
         "target": {
             "apiVersion": "v1",
             "kind": "Namespace",
@@ -7447,8 +7513,8 @@ def test_pod_create_candidate_from_preflight(
             "namespace": namespace,
             "uid": str(preflight.get("uid") or f"namespace-{namespace}"),
         },
-        "title": "테스트 Pod 3개 생성",
-        "verificationChecks": ["생성 전 namespace 재확인", "label app=aiops-test-pods 기준 Pod 3개 조회"],
+        "title": f"CrashLoop 테스트 Pod {count}개 생성",
+        "verificationChecks": ["생성 전 namespace 재확인", f"label app={TEST_POD_CREATE_APP_LABEL} 기준 Pod {count}개 조회"],
         "chatRunId": run_id,
         "incidentId": incident_id,
         "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
@@ -7475,7 +7541,7 @@ def test_pod_create_answer(
             (
                 f"{execution_mode_sentence(execution_mode, language)} "
                 + (
-                    "A test Pod creation review candidate can be created."
+                    "After Action Plan creation, approval, and execution, intentional CrashLoopBackOff test Pods can be created."
                     if action_mode and preflight.get("ok")
                     else "Plan candidates can be reviewed, but creation and execution are locked."
                     if not action_mode
@@ -7485,8 +7551,9 @@ def test_pod_create_answer(
             "",
             "## Target",
             f"- namespace: `{namespace}`",
-            f"- requested object group: `aiops-test-pods`",
+            f"- object group: `aiops-test-pods`",
             f"- requested count: `{count}`",
+            "- failure mode: `CrashLoopBackOff`",
             "",
             "## Confirmed Evidence",
             f"- API server: {preflight.get('server') or '-'}",
@@ -7494,20 +7561,21 @@ def test_pod_create_answer(
             "",
             "## Action Plan",
             (
-                f"- Approval-required candidates: `{namespace}` test Pod creation review"
+                f"- Approval-required candidate: create `{count}` CrashLoopBackOff test Pods in `{namespace}`"
                 if action_mode and preflight.get("ok")
                 else "- Status: read-only mode shows the plan candidate only; switch to execution-enabled mode to create it."
                 if not action_mode
                 else "- Status: namespace must be rechecked before a candidate is created."
             ),
             "- No Pod is created before approval.",
-            "- Verification: after approval, confirm that `aiops-test-pods` has 3 labeled Pod objects.",
+            f"- Execution: after approval, the Gateway creates {count} Pod objects with a fixed command that exits with code 1.",
+            f"- Verification: after execution, confirm that `app={TEST_POD_CREATE_APP_LABEL}` has {count} Pods and the containers enter CrashLoopBackOff/Error.",
             "",
             "## Terminal Check Commands",
             "```bash",
             "oc whoami --show-server",
             f"oc get namespace {namespace}",
-            f"oc get pods -n {namespace} -l app=aiops-test-pods",
+            f"oc get pods -n {namespace} -l app={TEST_POD_CREATE_APP_LABEL}",
             "```",
         ]
         return "\n".join(lines)
@@ -7517,7 +7585,7 @@ def test_pod_create_answer(
         (
             f"{execution_mode_sentence(execution_mode, language)} "
             + (
-                "테스트 Pod 생성 검토용 Action Plan 후보를 만들 수 있습니다."
+                "Action Plan 생성 후 승인·실행하면 의도적으로 CrashLoopBackOff가 나는 테스트 Pod를 만들 수 있습니다."
                 if action_mode and preflight.get("ok")
                 else "계획 후보는 확인할 수 있지만 생성과 실행은 잠겨 있습니다."
                 if not action_mode
@@ -7527,8 +7595,9 @@ def test_pod_create_answer(
         "",
         "## 대상",
         f"- namespace: `{namespace}`",
-        "- 요청 오브젝트: `aiops-test-pods` 테스트 Pod",
+        "- 오브젝트 그룹: `aiops-test-pods`",
         f"- 생성 수량: `{count}`",
+        "- 실패 방식: `CrashLoopBackOff`",
         "",
         "## 확인 결과",
         f"- API 서버: {preflight.get('server') or '-'}",
@@ -7536,23 +7605,82 @@ def test_pod_create_answer(
         "",
         "## Action Plan",
         (
-            f"- 승인 필요 후보: `{namespace}` 테스트 Pod {count}개 생성 검토"
+            f"- 승인 필요 후보: `{namespace}`에 CrashLoopBackOff 테스트 Pod {count}개 생성"
             if action_mode and preflight.get("ok")
             else "- 상태: 읽기 전용 모드에서는 계획 후보만 표시하고, 생성은 실행 가능 모드에서 진행합니다."
             if not action_mode
             else "- 상태: 실행 전 namespace 재확인 필요"
         ),
         "- 승인 전에는 Pod를 생성하지 않습니다.",
-        "- 검증: 승인 후 `aiops-test-pods` label 기준으로 Pod 3개가 조회되는지 확인합니다.",
+        "- 실행: 승인 후 Gateway가 종료 코드 1로 즉시 종료되는 Pod 오브젝트를 생성합니다.",
+        f"- 검증: 실행 후 `app={TEST_POD_CREATE_APP_LABEL}` label 기준으로 Pod {count}개와 CrashLoopBackOff/Error 상태를 확인합니다.",
         "",
         "## 터미널 확인 명령",
         "```bash",
         "oc whoami --show-server",
         f"oc get namespace {namespace}",
-        f"oc get pods -n {namespace} -l app=aiops-test-pods",
+        f"oc get pods -n {namespace} -l app={TEST_POD_CREATE_APP_LABEL}",
         "```",
     ]
     return "\n".join(lines)
+
+
+def test_pod_create_tool_plan(
+    request: Mapping[str, Any],
+    execution_mode: str,
+    *,
+    can_propose: bool | None = None,
+) -> dict[str, Any]:
+    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    action_ready = action_capable_execution_mode(execution_mode) if can_propose is None else bool(can_propose)
+    plan_steps: list[dict[str, Any]] = [
+        {
+            "step": 1,
+            "adapter": "oc",
+            "tool": "oc_get_namespace",
+            "verb": "get",
+            "purpose": "대상 namespace 존재 확인",
+        }
+    ]
+    if action_ready:
+        plan_steps.extend(
+            [
+                {
+                    "step": 2,
+                    "adapter": "aiops-gateway",
+                    "tool": "create_test_pod_action_candidate",
+                    "verb": "propose",
+                    "purpose": "승인 필요 테스트 Pod 생성 Action Plan 후보 생성",
+                },
+                {
+                    "step": 3,
+                    "adapter": "oc",
+                    "tool": "oc_get_created_pods",
+                    "verb": "get",
+                    "purpose": "승인 후 생성된 Pod 오브젝트 확인",
+                },
+            ]
+        )
+    return {
+        "task_type": "test_pod_create",
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "name": namespace,
+            "namespace": namespace,
+        },
+        "execution_policy": {
+            "mode": action_policy_mode_for_execution_mode(execution_mode, action_ready),
+            "mutations_enabled": action_ready,
+            "proposal_only": not action_ready,
+            "review_only": False,
+        },
+        "tool_plan": plan_steps,
+        "validation": {
+            "ok": True,
+            "status": "action_candidate_ready" if action_ready else "preflight_required",
+        },
+    }
 
 
 def namespace_cleanup_candidates_from_inventory(inventory: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -11348,6 +11476,8 @@ def build_action_access_review_request(plan: Mapping[str, Any]) -> dict[str, Any
         "namespace": target.get("namespace") or "",
         "name": target.get("name") or "",
     }
+    if resource_attributes["verb"] == "create":
+        resource_attributes.pop("name", None)
     if not resource_attributes["group"]:
         resource_attributes.pop("group", None)
     if not resource_attributes["subresource"]:
@@ -11980,6 +12110,94 @@ def ready_summary_is_full(ready: str) -> bool:
     return bool(match and match.group(1) == match.group(2))
 
 
+def parse_restart_count(value: str) -> int:
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group(0)) if match else 0
+
+
+def pod_row_has_current_failure(row: Mapping[str, str]) -> bool:
+    current = str(row.get("currentState") or "")
+    ready = str(row.get("ready") or "")
+    return bool(
+        re.search(
+            r"(?i)(crashloopbackoff|imagepullbackoff|errimagepull|pending|failed|error|waiting:)",
+            current,
+        )
+        or (ready and not ready_summary_is_full(ready) and current.lower().startswith("running"))
+    )
+
+
+def pod_row_has_error_exit(row: Mapping[str, str]) -> bool:
+    last_state = str(row.get("lastState") or "")
+    return bool(re.search(r"(?i)(error|oomkilled|exit\s*code\s*(?!0\b)[1-9]|/[1-9][0-9]*)", last_state))
+
+
+def pod_row_has_completed_restart_loop(row: Mapping[str, str]) -> bool:
+    current = str(row.get("currentState") or "")
+    last_state = str(row.get("lastState") or "")
+    return (
+        parse_restart_count(str(row.get("restarts") or "")) > 0
+        and re.search(r"(?i)\brunning\b", current) is not None
+        and re.search(r"(?i)completed\s*/\s*0", last_state) is not None
+    )
+
+
+def pod_row_priority(row: Mapping[str, str]) -> tuple[int, str, str]:
+    if pod_row_has_current_failure(row):
+        return 1, "높음", "현재 비정상 상태 또는 Ready 아님"
+    if pod_row_has_error_exit(row):
+        return 2, "높음", "최근 Error 종료 이력"
+    if pod_row_has_completed_restart_loop(row):
+        return 3, "중간", "Completed/0 반복 재시작 이력"
+    if parse_restart_count(str(row.get("restarts") or "")) > 0:
+        return 4, "중간", "재시작 이력 확인 필요"
+    return 5, "낮음", "현재 목록 기준 즉시 장애 신호 낮음"
+
+
+def pod_row_target(row: Mapping[str, str]) -> str:
+    namespace = row.get("namespace") or "-"
+    pod = row.get("pod") or "-"
+    container = row.get("container") or "-"
+    return f"{namespace}/{pod}/{container}"
+
+
+def pod_inventory_check_commands(rows: list[Mapping[str, str]], namespace: str) -> list[str]:
+    commands: list[str] = []
+    sorted_rows = sorted(
+        rows,
+        key=lambda row: (pod_row_priority(row)[0], -parse_restart_count(row.get("restarts") or "")),
+    )
+    for row in sorted_rows[:2]:
+        ns = row.get("namespace") or namespace
+        pod = row.get("pod") or ""
+        container = row.get("container") or ""
+        if not ns or not pod or pod == "-":
+            continue
+        current = str(row.get("currentState") or "")
+        last_state = str(row.get("lastState") or "")
+        if (
+            container
+            and container != "-"
+            and (
+                re.search(r"(?i)(crashloopbackoff)", current)
+                or re.search(r"(?i)(error|oomkilled)", last_state)
+            )
+        ):
+            commands.append(f"oc logs {pod} -n {ns} -c {container} --previous --tail=120")
+            commands.append(f"oc describe pod {pod} -n {ns}")
+        elif re.search(r"(?i)(imagepullbackoff|errimagepull|pending|waiting:)", current):
+            commands.append(f"oc describe pod {pod} -n {ns}")
+        else:
+            commands.append(f"oc describe pod {pod} -n {ns}")
+    if not commands:
+        commands.append(f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A")
+    deduped: list[str] = []
+    for command in commands:
+        if command not in deduped:
+            deduped.append(command)
+    return deduped[:4]
+
+
 def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> str | None:
     if not is_pod_list_request(req.message):
         return None
@@ -11997,13 +12215,10 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
     if not rows:
         return "\n".join(
             [
-                "## RCA 보고서",
+                "## Pod 인벤토리",
                 "",
-                "### 현재 판단",
-                "Gateway가 수집한 Kubernetes 확인 결과 기준으로 Pod 목록을 조회했습니다.",
-                "",
-                "### 원인 후보",
-                "- 조회 범위가 맞지 않거나, 현재 접근 권한/namespace 기준으로 대상 Pod가 없을 수 있습니다.",
+                "### 요약",
+                "현재 조회 범위에서 Pod 목록을 확인했지만 표시할 Pod가 없습니다.",
                 "",
                 "### 확인 결과",
                 f"- Namespace: `{namespace}`",
@@ -12011,68 +12226,55 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
                 "- Evidence 범위: `Current Pod list evidence`",
                 "- 현재 수집 범위에서는 Pod 장애를 확인하지 못했습니다.",
                 "",
-                "### 조치 방법",
-                "1. namespace와 대상 워크로드 이름을 먼저 확정합니다.",
+                "### 다음 확인 명령",
+                "조회 범위를 다시 확인합니다.",
                 "",
-                "### 추가 확인",
+                f"```bash\n{f'oc get pods -n {namespace}' if namespace != 'all-accessible-namespaces' else 'oc get pods -A'}\n```",
+                "",
+                "### 사용한 확인 결과",
                 "- Pod 상세, Event, 로그는 대상 Pod가 식별되지 않아 확인하지 못했습니다.",
-                "",
-                "```bash",
-                f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A",
-                "```",
-                "",
-                "### 재발 방지",
-                "- 운영 질문에는 namespace, 관리 객체 이름, 증상을 함께 남겨 다음 RCA가 같은 범위를 바로 조회하게 합니다.",
             ]
         )
 
     total_rows = len(rows)
-    not_ready_rows = [row for row in rows if not ready_summary_is_full(str(row.get("ready") or ""))]
-    problem_rows = [
+    current_failure_rows = [row for row in rows if pod_row_has_current_failure(row)]
+    error_exit_rows = [row for row in rows if pod_row_has_error_exit(row)]
+    completed_restart_rows = [row for row in rows if pod_row_has_completed_restart_loop(row)]
+    suspect_rows = [
         row
         for row in rows
-        if re.search(
-            r"(?i)(crashloopbackoff|imagepullbackoff|errimagepull|error|failed|pending|waiting:)",
-            " ".join(str(row.get(key, "")) for key in ("currentState", "lastState")),
-        )
+        if pod_row_has_current_failure(row)
+        or pod_row_has_error_exit(row)
+        or pod_row_has_completed_restart_loop(row)
+        or parse_restart_count(str(row.get("restarts") or "")) > 0
     ]
+    display_rows = sorted(
+        rows,
+        key=lambda row: (pod_row_priority(row)[0], -parse_restart_count(row.get("restarts") or "")),
+    )
+    top_targets = ", ".join(pod_row_target(row) for row in display_rows[:2]) or "없음"
+    commands = pod_inventory_check_commands(display_rows, namespace)
 
     lines = [
-        "## RCA 보고서",
+        "## Pod 인벤토리",
         "",
-        "### 현재 판단",
-        "Gateway가 수집한 Kubernetes 확인 결과 기준으로 Pod 목록을 조회했습니다.",
+        "### 요약",
+        f"현재 조회 범위에서 문제 의심 Pod/Container {len(suspect_rows)}건을 확인했습니다.",
+        f"- 수집 row: {total_rows}" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
+        f"- 즉시 장애 상태(CrashLoopBackOff/ImagePullBackOff/Pending/NotReady): {len(current_failure_rows)}건",
+        f"- 최근 Error 종료 이력: {len(error_exit_rows)}건",
+        f"- Completed/0 반복 재시작 이력: {len(completed_restart_rows)}건",
+        f"- 우선 확인 대상: {top_targets}",
         "",
-        "### 원인 후보",
-        (
-            "- Warning/Error 계열 상태가 있는 Pod부터 현재 장애 가능성을 확인해야 합니다."
-            if problem_rows
-            else "- 현재 목록 결과만으로는 즉시 장애 원인을 특정할 신호가 없습니다."
-        ),
-        "",
-        "### 확인 결과",
-        f"- Namespace: `{namespace}`",
-        f"- Evidence 범위: `{evidence_scope}`",
-        f"- 표시 Pod/Container row: `{total_rows}`" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
-        f"- Ready 아님: `{len(not_ready_rows)}`",
-        f"- Warning/Error 계열 상태: `{len(problem_rows)}`",
-        "- Pod phase, container ready, restart count, lastState, owner 기준으로 목록을 정리했습니다.",
-        "",
-        "### 조치 방법",
-        "1. Warning/Error 계열 Pod의 상세와 Event를 먼저 확인합니다.",
-        "2. Ready 아님 상태가 계속되는 Pod는 owner/controller 상태를 확인합니다.",
-        "3. restart count는 누적값이므로 최근 증가 여부는 metric 또는 lastState 시간으로 따로 확인합니다.",
-        "",
-        "### 추가 확인",
-        "- 개별 Pod 상세, Event, 이전 로그는 이 목록 요약만으로 확정하지 않습니다.",
-        "",
-        "### Pod 목록",
-        "| Namespace | Pod | Container | Current State | Ready | Restarts | Last State/Exit | Owner |",
-        "| :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+        "### 우선순위 표",
+        "| 우선순위 | Namespace | Pod | Container | 현재 상태 | Ready | Restart | Last State | 판단 |",
+        "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
     ]
-    for row in rows:
+    for row in display_rows:
+        _, priority, reason = pod_row_priority(row)
         lines.append(
-            "| {namespace} | `{pod}` | `{container}` | {currentState} | {ready} | {restarts} | {lastState} | {owner} |".format(
+            "| {priority} | {namespace} | `{pod}` | `{container}` | {currentState} | {ready} | {restarts} | {lastState} | {reason} |".format(
+                priority=priority,
                 namespace=row.get("namespace") or "-",
                 pod=row.get("pod") or "-",
                 container=row.get("container") or "-",
@@ -12080,21 +12282,47 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
                 ready=row.get("ready") or "-",
                 restarts=row.get("restarts") or "0",
                 lastState=row.get("lastState") or "-",
-                owner=row.get("owner") or "-",
+                reason=reason,
             )
         )
 
     lines.extend(
         [
             "",
-            "```bash",
-            f"oc get pods -n {namespace}" if namespace != "all-accessible-namespaces" else "oc get pods -A",
-            "```",
-            "",
-            "### 재발 방지",
-            "- Pod 목록 요약만으로 원인 확정을 하지 않고, 문제가 있는 row를 Pod 상세/Event/metric 확인 결과와 연결해 기록합니다.",
+            "### 판단",
         ]
     )
+    if current_failure_rows:
+        lines.append("- 현재 비정상 상태 또는 Ready 아님인 항목을 먼저 확인해야 합니다.")
+    if error_exit_rows:
+        lines.append("- `Error` 종료 이력이 있는 항목은 이전 로그와 Event를 우선 확인합니다.")
+    if completed_restart_rows:
+        lines.append(
+            "- `Running` + `Completed/0` 항목은 장애 확정이 아닙니다. 정상 종료 후 재시작되는 작업성 컨테이너인지 확인해야 합니다."
+        )
+    if not suspect_rows:
+        lines.append("- 현재 목록 기준 즉시 장애나 재시작 이력 신호는 낮습니다.")
+    lines.extend(
+        [
+            "",
+            "### 다음 확인 명령",
+            "우선순위가 높은 대상부터 확인합니다.",
+            "",
+            "```bash",
+            *commands,
+            "```",
+            "",
+            "### 사용한 확인 결과",
+            f"- Namespace: `{namespace}`",
+            f"- Evidence 범위: `{evidence_scope}`",
+            "- Pod 상태",
+            "- Container Ready",
+            "- Restart count",
+            "- Last termination state",
+            "- Owner reference",
+        ]
+    )
+
     return "\n".join(lines)
 
 
@@ -12729,6 +12957,204 @@ def test_pod_create_review_execution_result(sealed_plan: Mapping[str, Any]) -> d
     }
 
 
+def crashloop_test_pod_name(prefix: str, request_id: str, index: int) -> str:
+    suffix = f"{request_id}-{index}"
+    trimmed_prefix = prefix[: max(1, 63 - len(suffix) - 1)].rstrip("-")
+    return f"{trimmed_prefix}-{suffix}"
+
+
+def crashloop_test_pod_manifest(
+    *,
+    image: str,
+    index: int,
+    namespace: str,
+    pod_name: str,
+    request_id: str,
+) -> dict[str, Any]:
+    labels = {
+        "app": TEST_POD_CREATE_APP_LABEL,
+        "aiops.komsco/scenario": "crashloop-test",
+        "aiops.komsco/request-id": request_id,
+    }
+    return {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+            "annotations": {
+                "aiops.komsco/created-by": "aiops-action-plan",
+                "aiops.komsco/purpose": "intentional-crashloop-test",
+            },
+            "labels": labels,
+            "name": pod_name,
+            "namespace": namespace,
+        },
+        "spec": {
+            "containers": [
+                {
+                    "command": list(TEST_POD_CREATE_FAILURE_COMMAND),
+                    "image": image,
+                    "imagePullPolicy": "IfNotPresent",
+                    "name": "crashloop",
+                    "resources": {
+                        "requests": {"cpu": "5m", "memory": "16Mi"},
+                        "limits": {"cpu": "50m", "memory": "64Mi"},
+                    },
+                }
+            ],
+            "restartPolicy": "Always",
+        },
+    }
+
+
+async def create_crashloop_test_pods_execution_result(
+    sealed_plan: Mapping[str, Any],
+    client: httpx.AsyncClient,
+    authorization: str,
+) -> dict[str, Any]:
+    target = target_from_plan(sealed_plan)
+    parameters = parameters_from_plan(sealed_plan)
+    namespace = str(target.get("namespace") or target.get("name") or "")
+    count = int(parameters.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
+    image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
+    name_prefix = str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX)
+
+    if namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
+        return {
+            "mutationOutcome": {
+                "status": "mutation_rejected",
+                "reason": f"namespace `{namespace}` is outside the test Pod creation allowlist",
+                "httpStatus": 403,
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
+        }
+    if image != TEST_POD_CREATE_DEFAULT_IMAGE:
+        return {
+            "mutationOutcome": {
+                "status": "mutation_rejected",
+                "reason": "test Pod image is fixed by policy",
+                "httpStatus": 400,
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
+        }
+
+    plan_digest = ""
+    if isinstance(sealed_plan.get("digest"), Mapping):
+        plan_digest = str(sealed_plan["digest"].get("planDigest") or "")
+    request_id = canonical_digest(
+        {
+            "idempotencyKey": sealed_plan.get("metadata", {}).get("idempotencyKey")
+            if isinstance(sealed_plan.get("metadata"), Mapping)
+            else "",
+            "planDigest": plan_digest,
+        }
+    ).removeprefix("sha256:")[:10]
+    manifests = [
+        crashloop_test_pod_manifest(
+            image=image,
+            index=index,
+            namespace=namespace,
+            pod_name=crashloop_test_pod_name(name_prefix, request_id, index),
+            request_id=request_id,
+        )
+        for index in range(1, count + 1)
+    ]
+    pods_path = f"/api/v1/namespaces/{path_segment(namespace)}/pods"
+    dry_run_path = append_query(
+        pods_path,
+        {"dryRun": "All", "fieldManager": ACTION_EXECUTOR_FIELD_MANAGER},
+    )
+    mutation_path = append_query(
+        pods_path,
+        {"fieldManager": ACTION_EXECUTOR_FIELD_MANAGER},
+    )
+
+    dry_run_errors: list[str] = []
+    for manifest in manifests:
+        response = await submit_ocp_request(
+            client,
+            authorization,
+            method="POST",
+            path=dry_run_path,
+            content_type="application/json",
+            body=manifest,
+        )
+        if response.status_code not in {200, 201}:
+            dry_run_errors.append(f"{manifest['metadata']['name']}: HTTP {response.status_code} {response.text[:300]}")
+    increment_metric("aiops_execution_dry_run_total")
+    if dry_run_errors:
+        return {
+            "mutationOutcome": {
+                "status": "mutation_failed",
+                "reason": "server_side_dry_run_failed",
+                "httpStatus": 400,
+                "body": "; ".join(dry_run_errors)[:1000],
+            },
+            "remediationOutcome": {"status": "mutation_failed"},
+            "executorTrace": {
+                "dryRunPath": dry_run_path,
+                "mutationSubmitted": False,
+                "toolName": "create_crashloop_test_pods",
+                "target": target,
+            },
+        }
+
+    created: list[str] = []
+    mutation_errors: list[str] = []
+    for manifest in manifests:
+        response = await submit_ocp_request(
+            client,
+            authorization,
+            method="POST",
+            path=mutation_path,
+            content_type="application/json",
+            body=manifest,
+        )
+        if response.status_code in {200, 201}:
+            created.append(str(manifest["metadata"]["name"]))
+        else:
+            mutation_errors.append(f"{manifest['metadata']['name']}: HTTP {response.status_code} {response.text[:300]}")
+
+    label_selector = quote(f"app={TEST_POD_CREATE_APP_LABEL},aiops.komsco/request-id={request_id}", safe="")
+    observed_payload = await fetch_ocp_json(
+        client,
+        f"/api/v1/namespaces/{path_segment(namespace)}/pods?labelSelector={label_selector}",
+        authorization,
+    )
+    observed = len(resource_items(observed_payload))
+    ok = not mutation_errors and observed == count
+    if ok:
+        increment_metric("aiops_execution_mutation_succeeded_total")
+    else:
+        increment_metric("aiops_execution_mutation_failed_total")
+    return {
+        "mutationOutcome": {
+            "status": "mutation_succeeded" if ok else "mutation_partial" if created else "mutation_failed",
+            "reason": (
+                f"created {observed}/{count} intentional CrashLoopBackOff test Pods"
+                if ok
+                else f"created {len(created)}/{count}; {'; '.join(mutation_errors)[:700]}"
+            ),
+            "httpStatus": 201 if ok else 207 if created else 500,
+        },
+        "remediationOutcome": {
+            "status": "verified" if ok else "verification_failed",
+            "reason": f"observed {observed}/{count} Pods with app={TEST_POD_CREATE_APP_LABEL} and request-id={request_id}",
+        },
+        "executorTrace": {
+            "createdPods": created,
+            "dryRunPath": dry_run_path,
+            "mutationPath": mutation_path,
+            "mutationSubmitted": bool(created),
+            "requestId": request_id,
+            "target": target,
+            "toolName": "create_crashloop_test_pods",
+            "verificationSelector": f"app={TEST_POD_CREATE_APP_LABEL},aiops.komsco/request-id={request_id}",
+        },
+    }
+
+
 def pod_diagnostic_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
     target = target_from_plan(sealed_plan)
     target_label = "/".join(
@@ -12796,6 +13222,9 @@ async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str,
         verify=OPENSHIFT_API_CA_FILE,
         timeout=httpx.Timeout(30.0, connect=5.0),
     ) as client:
+        if str(action.get("toolName") or "") == "create_crashloop_test_pods":
+            return await create_crashloop_test_pods_execution_result(sealed_plan, client, executor_auth)
+
         live_state = await fetch_executor_live_state(client, executor_auth, sealed_plan)
         try:
             mutation = build_mutation_request(
@@ -12888,6 +13317,8 @@ async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str,
 async def execute_action_with_executor(
     sealed_plan: Mapping[str, Any],
     grant_reference: Mapping[str, Any],
+    *,
+    fallback_authorization: str | None = None,
 ) -> dict[str, Any]:
     action = action_from_plan(sealed_plan)
     if str(action.get("toolName") or "") == "namespace_cleanup_review":
@@ -12898,6 +13329,14 @@ async def execute_action_with_executor(
         return pod_diagnostic_review_execution_result(sealed_plan)
     if str(action.get("toolName") or "") == "pod_fix_or_rollback_review":
         return pod_fix_or_rollback_review_execution_result(sealed_plan)
+
+    if str(action.get("toolName") or "") == "create_crashloop_test_pods":
+        action_auth = fallback_authorization or executor_auth_header()
+        async with httpx.AsyncClient(
+            verify=OPENSHIFT_API_CA_FILE,
+            timeout=httpx.Timeout(30.0, connect=5.0),
+        ) as client:
+            return await create_crashloop_test_pods_execution_result(sealed_plan, client, action_auth)
 
     if not ACTION_EXECUTOR_URL:
         return await execute_typed_action_plan(sealed_plan)
@@ -15397,7 +15836,11 @@ async def _execute_action_impl(
     grant_reference = build_execution_grant_reference(approval, plan, subject)
     execution_id = f"execution-{uuid.uuid4()}"
     if MUTATIONS_ENABLED:
-        executor_result = await execute_action_with_executor(sealed_plan, grant_reference)
+        executor_result = await execute_action_with_executor(
+            sealed_plan,
+            grant_reference,
+            fallback_authorization=user_auth_header,
+        )
     else:
         executor_result = {
             "mutationOutcome": {
@@ -16285,11 +16728,17 @@ async def chat_stream(
                     "summary": policy_check_summary(policy),
                 }
             )
-            runtime_tool_plan = build_runtime_tool_plan(
-                req.message,
-                page_context=normalize_console_page_context(req.pageContext),
-                execution_mode=page_context_aiops_execution_mode(req),
-            )
+            if is_test_pod_create_request(req):
+                runtime_tool_plan = test_pod_create_tool_plan(
+                    test_pod_create_request_from_message(req.message),
+                    page_context_aiops_execution_mode(req),
+                )
+            else:
+                runtime_tool_plan = build_runtime_tool_plan(
+                    req.message,
+                    page_context=normalize_console_page_context(req.pageContext),
+                    execution_mode=page_context_aiops_execution_mode(req),
+                )
             LAST_RUNTIME_TOOL_PLAN = runtime_tool_plan
             def current_rca_context_event(phase: str) -> dict[str, Any]:
                 return build_rca_context_stream_event(
@@ -16427,48 +16876,7 @@ async def chat_stream(
                     {
                         "type": "tool_plan",
                         "plan": {
-                            "task_type": "test_pod_create",
-                            "target": {
-                                "apiVersion": "v1",
-                                "kind": "Namespace",
-                                "name": request.get("namespace"),
-                                "namespace": request.get("namespace"),
-                            },
-                            "execution_policy": {
-                                "mode": action_policy_mode_for_execution_mode(execution_mode, can_propose),
-                                "mutations_enabled": bool(can_propose),
-                                "proposal_only": True,
-                                "review_only": True,
-                            },
-                            "tool_plan": [
-                                {
-                                    "step": 1,
-                                    "adapter": "oc",
-                                    "tool": "oc_get_namespace",
-                                    "verb": "get",
-                                    "purpose": "대상 namespace 존재 확인",
-                                },
-                                *(
-                                    [
-                                        {
-                                            "step": 2,
-                                            "adapter": "aiops-gateway",
-                                            "tool": "create_test_pod_action_candidate",
-                                            "verb": "propose",
-                                            "purpose": "승인 필요 테스트 Pod 생성 Action Plan 후보 생성",
-                                        },
-                                        {
-                                            "step": 3,
-                                            "adapter": "oc",
-                                            "tool": "oc_get_created_pods",
-                                            "verb": "get",
-                                            "purpose": "승인 후 생성된 Pod 오브젝트 확인",
-                                        },
-                                    ]
-                                    if can_propose
-                                    else []
-                                ),
-                            ],
+                            **test_pod_create_tool_plan(request, execution_mode, can_propose=can_propose),
                             "validation": {
                                 "ok": bool(preflight.get("ok")),
                                 "status": (

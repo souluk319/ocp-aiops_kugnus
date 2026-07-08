@@ -219,6 +219,7 @@ export const TOOL_LABELS: Record<string, string> = {
 
 export const ACTION_POLICY_LABELS: Record<string, string> = {
   delete_namespace_after_approval: '네임스페이스 정리',
+  create_crashloop_test_pods: 'CrashLoop 테스트 Pod 생성',
   evict_one_unhealthy_controller_owned_pod: '비정상 Pod 축출(재생성 유도)',
   namespace_cleanup_review: '네임스페이스 정리 검토',
   pod_diagnostic_review: 'Pod 원인 확인 플랜',
@@ -233,6 +234,7 @@ export const ACTION_POLICY_LABELS: Record<string, string> = {
 
 export const ACTION_POLICY_LABELS_EN: Record<string, string> = {
   delete_namespace_after_approval: 'Namespace cleanup',
+  create_crashloop_test_pods: 'Create CrashLoop test Pods',
   evict_one_unhealthy_controller_owned_pod: 'Evict unhealthy Pod',
   namespace_cleanup_review: 'Namespace cleanup review',
   pod_diagnostic_review: 'Pod diagnostic plan',

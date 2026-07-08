@@ -715,6 +715,73 @@ def build_rca_context(
         for step in tool_steps
         if isinstance(step.get("official_tool"), str) and str(step.get("official_tool")).strip()
     ]
+    task_type = str(plan.get("task_type") or "generic_openshift_question")
+    target_namespace = str(
+        target.get("namespace")
+        or target.get("name")
+        or page_context.get("namespace")
+        or ""
+    )
+    default_cause_candidates = [
+        {
+            "basis": ["event_tool", "snapshot_tool", "metric_tool", "grep_tool"],
+            "confidence": "candidate",
+            "evidenceRequired": ["event", "snapshot", "metric", "pod_log"],
+            "id": "oom-or-memory-pressure",
+            "label": "OOMKilled 또는 Memory/Node Pressure",
+            "status": "candidate_until_evidence_confirms",
+        },
+        {
+            "basis": ["grep_tool", "snapshot_tool"],
+            "confidence": "candidate",
+            "evidenceRequired": ["pod_log", "snapshot"],
+            "id": "application-error-pattern",
+            "label": "애플리케이션 예외 또는 실행 명령 오류",
+            "status": "candidate_until_log_pattern_confirms",
+        },
+        {
+            "basis": ["event_tool", "snapshot_tool"],
+            "confidence": "candidate",
+            "evidenceRequired": ["event", "snapshot"],
+            "id": "eviction-or-scheduling-pressure",
+            "label": "Eviction, node pressure, scheduling 관련 영향",
+            "status": "candidate_until_event_confirms",
+        },
+    ]
+    default_action_candidates = [
+        {
+            "approvalRequired": True,
+            "mode": "proposal_only_evidence",
+            "risk": "medium",
+            "title": "Event, snapshot, metric, log-pattern evidence를 먼저 확인",
+        },
+        {
+            "approvalRequired": True,
+            "mode": "proposal_only_evidence",
+            "risk": "high",
+            "title": "원인 확정 전 rollout/delete/patch/scale 실행 금지",
+        },
+    ]
+    if task_type == "test_pod_create":
+        cause_candidates: list[dict[str, Any]] = []
+        action_candidates: list[dict[str, Any]] = [
+            {
+                "approvalRequired": True,
+                "mode": "controlled_execution",
+                "risk": "low",
+                "sourceType": "create_crashloop_test_pods",
+                "target": {
+                    "apiVersion": "v1",
+                    "kind": "Namespace",
+                    "name": target_namespace,
+                    "namespace": target_namespace,
+                },
+                "title": "CrashLoop 테스트 Pod 생성",
+            }
+        ]
+    else:
+        cause_candidates = default_cause_candidates
+        action_candidates = default_action_candidates
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
     demo_cycle_context = page_context.get("aiopsDemoCycle")
     if not isinstance(demo_cycle_context, Mapping):
@@ -758,7 +825,7 @@ def build_rca_context(
                 if page_context.get(key)
             },
             "scenarioContext": scenario_context,
-            "taskType": plan.get("task_type", "generic_openshift_question"),
+            "taskType": task_type,
             "target": dict(target),
         },
         "analysisPlan": {
@@ -832,46 +899,8 @@ def build_rca_context(
             "auditView": "raw_tool_plan_and_rca_context_json",
             "queryPlan": query_plan,
         },
-        "causeCandidates": [
-            {
-                "basis": ["event_tool", "snapshot_tool", "metric_tool", "grep_tool"],
-                "confidence": "candidate",
-                "evidenceRequired": ["event", "snapshot", "metric", "pod_log"],
-                "id": "oom-or-memory-pressure",
-                "label": "OOMKilled 또는 Memory/Node Pressure",
-                "status": "candidate_until_evidence_confirms",
-            },
-            {
-                "basis": ["grep_tool", "snapshot_tool"],
-                "confidence": "candidate",
-                "evidenceRequired": ["pod_log", "snapshot"],
-                "id": "application-error-pattern",
-                "label": "애플리케이션 예외 또는 실행 명령 오류",
-                "status": "candidate_until_log_pattern_confirms",
-            },
-            {
-                "basis": ["event_tool", "snapshot_tool"],
-                "confidence": "candidate",
-                "evidenceRequired": ["event", "snapshot"],
-                "id": "eviction-or-scheduling-pressure",
-                "label": "Eviction, node pressure, scheduling 관련 영향",
-                "status": "candidate_until_event_confirms",
-            },
-        ],
-        "actionCandidates": [
-            {
-                "approvalRequired": True,
-                "mode": "proposal_only_evidence",
-                "risk": "medium",
-                "title": "Event, snapshot, metric, log-pattern evidence를 먼저 확인",
-            },
-            {
-                "approvalRequired": True,
-                "mode": "proposal_only_evidence",
-                "risk": "high",
-                "title": "원인 확정 전 rollout/delete/patch/scale 실행 금지",
-            },
-        ],
+        "causeCandidates": cause_candidates,
+        "actionCandidates": action_candidates,
         "evidence_refs": refs,
         "safety": {
             "mode": plan.get("execution_policy", {}).get("mode", "evidence_check")
@@ -1010,6 +1039,19 @@ def build_runtime_tool_plan(
             "pvc",
             "affinity",
             "node selector",
+        ),
+    )
+    asks_pod_list = asks_pod and _message_has_any(
+        message,
+        (
+            "list",
+            "리스트",
+            "목록",
+            "전체",
+            "inventory",
+            "인벤토리",
+            "가져와",
+            "보여",
         ),
     )
     asks_action_followup = message.strip().lower() in {
@@ -1212,7 +1254,7 @@ def build_runtime_tool_plan(
                 "reason": "ClusterOperator evidence may be included in pod status evidence, but is not a separate RCA evidence ref yet",
             },
         ]
-    elif asks_pod and asks_count:
+    elif asks_pod and (asks_count or asks_pod_list):
         task_type = "pod_inventory"
         tool_steps = [
             {

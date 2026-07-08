@@ -2081,9 +2081,15 @@ def test_chat_stream_unrestricted_executes_natural_scale_action(monkeypatch) -> 
             },
         }
 
-    async def fake_execute_action_with_executor(sealed_plan: dict, _grant_reference: dict) -> dict:
+    async def fake_execute_action_with_executor(
+        sealed_plan: dict,
+        _grant_reference: dict,
+        *,
+        fallback_authorization: str | None = None,
+    ) -> dict:
         assert sealed_plan["action"]["toolName"] == "set_replicas_within_bounds"
         assert sealed_plan["action"]["normalizedParameters"]["replicas"] == 3
+        assert fallback_authorization == "Bearer token"
         return {
             "mutationOutcome": {
                 "status": "mutation_succeeded",
@@ -3814,6 +3820,7 @@ def test_pod_list_request_fallback_returns_list_instead_of_single_pod_analysis()
             "| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |",
             "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
             "| team-a | `sample-crashy-6fd7d7cfd7-r4nd0` | `app` | Running (CrashLoopBackOff) / waiting:CrashLoopBackOff | 2026-06-22T00:54:32Z | 0/1 | 158 | Error/1 | ReplicaSet/sample-crashy-6fd7d7cfd7 |",
+            "| team-a | `sleeper-loop-77b4d9c55c-abcde` | `sleeper` | Running / running since 2026-06-22T01:00:00Z | 2026-06-22T00:54:32Z | 1/1 | 374 | Completed/0 | ReplicaSet/sleeper-loop-77b4d9c55c |",
             "| team-a | `healthy-api-7ccbbd8c86-fs28q` | `app` | Running / running since 2026-06-22T00:54:32Z | 2026-06-22T00:54:32Z | 1/1 | 0 | - | ReplicaSet/healthy-api-7ccbbd8c86 |",
         ]
     )
@@ -3825,10 +3832,27 @@ def test_pod_list_request_fallback_returns_list_instead_of_single_pod_analysis()
         gateway_evidence,
     )
 
-    assert "### Pod 목록" in fallback
+    assert "## Pod 인벤토리" in fallback
+    assert "### 요약" in fallback
+    assert "### 우선순위 표" in fallback
+    assert "### 판단" in fallback
+    assert "### 다음 확인 명령" in fallback
+    assert "### 사용한 확인 결과" in fallback
+    assert "문제 의심 Pod/Container" in fallback
+    assert "즉시 장애 상태" in fallback
+    assert "최근 Error 종료 이력" in fallback
+    assert "Completed/0 반복 재시작 이력" in fallback
+    assert "우선 확인 대상" in fallback
     assert "`sample-crashy-6fd7d7cfd7-r4nd0`" in fallback
+    assert "`sleeper-loop-77b4d9c55c-abcde`" in fallback
     assert "`healthy-api-7ccbbd8c86-fs28q`" in fallback
-    assert "oc get pods -n team-a" in fallback
+    assert "oc logs sample-crashy-6fd7d7cfd7-r4nd0 -n team-a -c app --previous --tail=120" in fallback
+    assert "oc describe pod sample-crashy-6fd7d7cfd7-r4nd0 -n team-a" in fallback
+    assert "장애 확정이 아닙니다" in fallback
+    assert "## RCA 보고서" not in fallback
+    assert "### 원인 후보" not in fallback
+    assert "### 조치 방법" not in fallback
+    assert "### 재발 방지" not in fallback
     assert "### 조치 계획" not in fallback
     assert "대상 Pod를 우선 분석" not in fallback
     assert "- 대상:" not in fallback
@@ -4275,6 +4299,7 @@ def test_agentic_safety_and_evidence_scenario_matrix_covers_non_mutating_paths()
         message="파드 하나 재시작해줘",
         pageContext={"aiopsExecutionMode": "unrestricted"},
     )
+    pod_inventory_plan = build_runtime_tool_plan("문제있는 파드 목록 가져와")
     pod_list_policy = classify_request_policy("team-a 네임스페이스 파드 리스트 조회해줘")
     crashloop_policy = classify_request_policy("CrashLoopBackOff 파드 원인 분석해줘")
     diagnostic_request = DiagnosticRequestCreate(
@@ -4296,6 +4321,8 @@ def test_agentic_safety_and_evidence_scenario_matrix_covers_non_mutating_paths()
     assert parse_natural_action_intent(ambiguous) is None
     assert "대상 리소스 이름이 명확하지 않습니다" in unresolved_natural_action_response(ambiguous)
     assert is_pod_list_request("team-a 네임스페이스 파드 리스트 조회해줘")
+    assert pod_inventory_plan["task_type"] == "pod_inventory"
+    assert any(step["tool"] == "openshift_pod_list" for step in pod_inventory_plan["tool_plan"])
     assert pod_list_policy["decision"] == "allow_evidence_collection"
     assert should_collect_pod_status_evidence("CrashLoopBackOff 파드 원인 분석해줘")
     assert crashloop_policy["decision"] == "allow_evidence_collection"
@@ -7469,12 +7496,154 @@ def test_action_registry_contains_allowed_actions() -> None:
         "set_hpa_bounds",
         "namespace_cleanup_review",
         "test_pod_create_review",
+        "create_crashloop_test_pods",
         "pod_diagnostic_review",
         "pod_fix_or_rollback_review",
     }
     assert "patch_resource" not in ACTION_REGISTRY_ENTRIES
     assert "apply_manifest" not in ACTION_REGISTRY_ENTRIES
     assert "run_command" not in ACTION_REGISTRY_ENTRIES
+
+
+def test_create_crashloop_test_pods_action_posts_fixed_failure_pod_manifests(monkeypatch) -> None:
+    submitted: list[tuple[str, dict[str, object]]] = []
+
+    class FakeResponse:
+        status_code = 201
+        text = "{}"
+
+    async def fake_submit_ocp_request(_client, _authorization, *, method, path, content_type, body):
+        assert method == "POST"
+        assert content_type == "application/json"
+        submitted.append((path, body))
+        return FakeResponse()
+
+    async def fake_fetch_ocp_json(_client, path, _authorization, **_kwargs):
+        assert "labelSelector=" in path
+        return {"items": [{"metadata": {"name": f"pod-{index}"}} for index in range(3)]}
+
+    monkeypatch.setattr(gateway_main, "submit_ocp_request", fake_submit_ocp_request)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+
+    sealed_plan = {
+        "metadata": {"idempotencyKey": "idem-test-pods"},
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "namespace": "gpu-test-kugnus",
+            "name": "gpu-test-kugnus",
+            "uid": "namespace-uid",
+        },
+        "action": {
+            "toolName": "create_crashloop_test_pods",
+            "normalizedParameters": {
+                "appLabel": "aiops-test-pods",
+                "count": 3,
+                "failureMode": "crashloop",
+                "fixedCommand": ["/bin/sh", "-c", "echo aiops intentional crashloop test pod; exit 1"],
+                "image": "registry.access.redhat.com/ubi9/ubi-minimal:latest",
+                "namePrefix": "aiops-test-pod",
+            },
+        },
+        "digest": {"planDigest": "sha256:test-plan"},
+    }
+
+    result = asyncio.run(
+        gateway_main.create_crashloop_test_pods_execution_result(sealed_plan, object(), "Bearer executor-token")
+    )
+
+    dry_runs = [item for item in submitted if "dryRun=All" in item[0]]
+    mutations = [item for item in submitted if "dryRun=All" not in item[0]]
+    assert result["mutationOutcome"]["status"] == "mutation_succeeded"
+    assert len(dry_runs) == 3
+    assert len(mutations) == 3
+    first_body = mutations[0][1]
+    assert first_body["metadata"]["namespace"] == "gpu-test-kugnus"
+    assert first_body["metadata"]["labels"]["app"] == "aiops-test-pods"
+    assert first_body["metadata"]["labels"]["aiops.komsco/scenario"] == "crashloop-test"
+    assert first_body["spec"]["restartPolicy"] == "Always"
+    assert first_body["spec"]["containers"][0]["command"] == [
+        "/bin/sh",
+        "-c",
+        "echo aiops intentional crashloop test pod; exit 1",
+    ]
+
+
+def test_test_pod_create_candidate_maps_to_executable_crashloop_action() -> None:
+    intent = action_candidate_plan_intent(
+        ActionCandidatePlanCreate(
+            candidateId="chat-test-pod-create-gpu-test-kugnus",
+            title="CrashLoop 테스트 Pod 3개 생성",
+            sourceFindingId="test-pod-create-gpu-test-kugnus",
+            sourceType="test_pod_create_review",
+            target=ActionCandidateTargetCreate(
+                apiVersion="v1",
+                kind="Namespace",
+                name="gpu-test-kugnus",
+                namespace="gpu-test-kugnus",
+            ),
+            parameters={
+                "count": 3,
+                "failureMode": "crashloop",
+                "image": "registry.access.redhat.com/ubi9/ubi-minimal:latest",
+                "namePrefix": "aiops-test-pod",
+            },
+        )
+    )
+
+    assert intent["toolName"] == "create_crashloop_test_pods"
+    assert intent["parameters"]["count"] == 3
+    assert intent["parameters"]["failureMode"] == "crashloop"
+
+
+def test_test_pod_create_candidate_plan_preserves_pods_create_action(monkeypatch) -> None:
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, *_, **__) -> dict:
+        assert path == "/api/v1/namespaces/gpu-test-kugnus"
+        return {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {"name": "gpu-test-kugnus", "uid": "namespace-uid-gpu-test"},
+        }
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+
+    request = ActionCandidatePlanCreate(
+        candidateId="chat-test-pod-create-gpu-test-kugnus",
+        title="CrashLoop 테스트 Pod 3개 생성",
+        sourceFindingId="test-pod-create-gpu-test-kugnus",
+        sourceType="create_crashloop_test_pods",
+        target=ActionCandidateTargetCreate(
+            apiVersion="v1",
+            kind="Namespace",
+            name="gpu-test-kugnus",
+            namespace="gpu-test-kugnus",
+        ),
+        parameters={
+            "count": 3,
+            "failureMode": "crashloop",
+            "image": "registry.access.redhat.com/ubi9/ubi-minimal:latest",
+            "namePrefix": "aiops-test-pod",
+        },
+    )
+    subject = safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    result = asyncio.run(
+        gateway_main.create_plan_from_action_candidate(request, "Bearer user-token", subject)
+    )
+
+    sealed_plan = result["spec"]["plan"]["spec"]["sealedActionPlan"]
+    assert sealed_plan["action"]["toolName"] == "create_crashloop_test_pods"
+    assert sealed_plan["action"]["authorization"]["resource"] == "pods"
+    assert sealed_plan["action"]["authorization"]["verb"] == "create"
+    assert sealed_plan["action"]["normalizedParameters"]["count"] == 3
+    assert sealed_plan["action"]["normalizedParameters"]["failureMode"] == "crashloop"
+    assert sealed_plan["safety"]["risk"] == "low"
+    assert len(ACTION_PROPOSALS) == 1
+    assert len(SEALED_ACTION_PLANS) == 1
 
 
 def test_core_action_hpa_guard_requires_review_for_deployment_scale() -> None:

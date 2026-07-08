@@ -165,7 +165,7 @@ const differentActionCandidates = actionCandidates.dedupeActionCandidates([
   },
   {
     id: 'chat-test-pod-create-komsco-aiops-lab',
-    sourceType: 'test_pod_create_review',
+    sourceType: 'create_crashloop_test_pods',
     target,
     title: '테스트 Pod 3개 생성',
   },
