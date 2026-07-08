@@ -131,6 +131,7 @@ from komsco_ai_gateway.aiops_core import (
     build_hpa_bounds_request,
     build_mutation_request,
     build_rollback_request,
+    build_set_deployment_container_command_request,
     matching_hpas_for_deployment,
 )
 from komsco_ai_gateway.aiops_contracts import (
@@ -3277,6 +3278,7 @@ def test_empty_answer_fallback_keeps_crashloop_rca_when_policy_is_action_proposa
     assert policy["decision"] == "action_proposal_only"
     assert "현재 요청은 변경/재시작/삭제/스케일/패치 계열 작업으로 분류되었습니다." not in fallback
     assert "CrashLoopBackOff" in fallback
+    assert fallback.startswith("CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고")
     assert "## RCA 보고서" in fallback
 
 
@@ -3746,6 +3748,7 @@ def test_empty_answer_fallback_summarizes_pod_evidence_without_truncating_raw_ta
     )
 
     assert "Gateway가 수집한 Kubernetes 확인 결과 기준" in fallback
+    assert fallback.startswith("CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고")
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
     assert "... truncated ..." not in fallback
@@ -3785,6 +3788,7 @@ def test_grounded_pod_screen_rca_uses_evidence_renderer_instead_of_generic_answe
     )
 
     assert answer is not None
+    assert answer.startswith("CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고")
     assert "Gateway가 수집한 Kubernetes 확인 결과 기준" in answer
     assert "sample-crashy-6fd7d7cfd7-r4nd0" in answer
     assert "raise SystemExit('boom')" in answer
@@ -7454,14 +7458,19 @@ def test_controller_submission_compaction_keeps_digest_not_raw_log() -> None:
     assert collector_pod["evidenceSummary"]["sections"] == ["kernel_summary"]
 
 
-def test_action_registry_contains_only_initial_allow_list() -> None:
+def test_action_registry_contains_allowed_actions() -> None:
     assert ACTION_REGISTRY_DIGEST.startswith("sha256:")
     assert set(ACTION_REGISTRY_ENTRIES) == {
         "rollout_restart_deployment",
         "set_replicas_within_bounds",
         "evict_one_unhealthy_controller_owned_pod",
         "rollback_deployment_to_revision",
+        "set_deployment_container_command",
         "set_hpa_bounds",
+        "namespace_cleanup_review",
+        "test_pod_create_review",
+        "pod_diagnostic_review",
+        "pod_fix_or_rollback_review",
     }
     assert "patch_resource" not in ACTION_REGISTRY_ENTRIES
     assert "apply_manifest" not in ACTION_REGISTRY_ENTRIES
@@ -7573,6 +7582,62 @@ def test_core_action_rollback_uses_owned_replicaset_revision() -> None:
     assert "pod-template-hash" not in str(template)
 
 
+def test_core_action_updates_deployment_container_command() -> None:
+    plan = {
+        "target": {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "namespace": "team-a",
+            "name": "sample-crashy",
+            "uid": "deployment-uid-a",
+        },
+        "action": {
+            "toolName": "set_deployment_container_command",
+            "normalizedParameters": {
+                "command": ["python", "-c", "import time; time.sleep(86400)"],
+                "containerName": "app",
+                "expectedPreviousCommandDigest": "",
+                "reason": "CrashLoopBackOff command fix",
+            },
+        },
+    }
+    deployment = {
+        "metadata": {
+            "namespace": "team-a",
+            "name": "sample-crashy",
+            "uid": "deployment-uid-a",
+        },
+        "spec": {
+            "template": {
+                "metadata": {"labels": {"app": "sample-crashy"}},
+                "spec": {
+                    "containers": [
+                        {
+                            "name": "app",
+                            "image": "example/sample:v1",
+                            "command": ["python", "-c", "raise SystemExit('boom')"],
+                        }
+                    ]
+                },
+            }
+        },
+    }
+
+    request = build_set_deployment_container_command_request(plan, deployment)
+    container_patch = request.body["spec"]["template"]["spec"]["containers"][0]
+    annotations = request.body["spec"]["template"]["metadata"]["annotations"]
+
+    assert request.method == "PATCH"
+    assert request.path.endswith("/deployments/sample-crashy")
+    assert request.content_type == "application/strategic-merge-patch+json"
+    assert container_patch == {
+        "name": "app",
+        "command": ["python", "-c", "import time; time.sleep(86400)"],
+    }
+    assert annotations["aiops.komsco/command-container"] == "app"
+    assert annotations["aiops.komsco/command-action-digest"].startswith("sha256:")
+
+
 def test_core_action_hpa_bounds_blocks_unreviewed_max_increase() -> None:
     plan = {
         "target": {
@@ -7671,6 +7736,35 @@ def test_action_candidate_plan_intent_maps_deployment_to_restart_action() -> Non
     assert "restartedAt" in intent["parameters"]
 
 
+def test_action_candidate_plan_intent_maps_deployment_command_fix_to_patch_action() -> None:
+    intent = action_candidate_plan_intent(
+        ActionCandidatePlanCreate(
+            candidateId="action-candidate-deployment-command-fix",
+            sourceType="deployment_container_command_fix",
+            title="Deployment command 수정",
+            target=ActionCandidateTargetCreate(
+                apiVersion="apps/v1",
+                kind="Deployment",
+                namespace="team-a",
+                name="sample-crashy",
+            ),
+            parameters={
+                "command": ["python", "-c", "import time; time.sleep(86400)"],
+                "containerName": "app",
+                "reason": "CrashLoopBackOff command fix",
+            },
+        )
+    )
+
+    assert intent["apiVersion"] == "apps/v1"
+    assert intent["kind"] == "Deployment"
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "sample-crashy"
+    assert intent["toolName"] == "set_deployment_container_command"
+    assert intent["parameters"]["containerName"] == "app"
+    assert intent["parameters"]["command"] == ["python", "-c", "import time; time.sleep(86400)"]
+
+
 def test_action_candidate_plan_intent_maps_pod_to_eviction_action() -> None:
     intent = action_candidate_plan_intent(
         ActionCandidatePlanCreate(
@@ -7691,6 +7785,211 @@ def test_action_candidate_plan_intent_maps_pod_to_eviction_action() -> None:
     assert intent["targetName"] == "web-abc"
     assert intent["toolName"] == "evict_one_unhealthy_controller_owned_pod"
     assert intent["parameters"] == {"reason": "action_candidate_unhealthy_pod_eviction"}
+
+
+def test_action_candidate_plan_intent_maps_pod_diagnostic_to_review_action() -> None:
+    intent = action_candidate_plan_intent(
+        ActionCandidatePlanCreate(
+            candidateId="action-candidate-pod-diagnostic",
+            sourceFindingId="pod-crashloop-diagnostic",
+            sourceType="pod_diagnostic_review",
+            title="원인 확인 플랜",
+            target=ActionCandidateTargetCreate(
+                apiVersion="v1",
+                kind="Pod",
+                namespace="team-a",
+                name="web-abc",
+            ),
+        )
+    )
+
+    assert intent["apiVersion"] == "v1"
+    assert intent["kind"] == "Pod"
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "web-abc"
+    assert intent["toolName"] == "pod_diagnostic_review"
+    assert intent["parameters"] == {"includePreviousLogs": True, "includeEvents": True}
+
+
+def test_action_candidate_plan_intent_keeps_pod_fix_review_separate_from_diagnostic() -> None:
+    intent = action_candidate_plan_intent(
+        ActionCandidatePlanCreate(
+            candidateId="action-candidate-pod-fix-review",
+            sourceFindingId="pod-crashloop-fix-review",
+            sourceType="pod_fix_or_rollback_review",
+            title="수정/롤백 검토 플랜",
+            target=ActionCandidateTargetCreate(
+                apiVersion="v1",
+                kind="Pod",
+                namespace="team-a",
+                name="web-abc",
+            ),
+        )
+    )
+
+    assert intent["apiVersion"] == "v1"
+    assert intent["kind"] == "Pod"
+    assert intent["namespace"] == "team-a"
+    assert intent["targetName"] == "web-abc"
+    assert intent["toolName"] == "pod_fix_or_rollback_review"
+    assert intent["parameters"] == {
+        "includeOwnerChain": True,
+        "includeRolloutHistory": True,
+        "includeTemplateReview": True,
+    }
+
+
+def test_pod_diagnostic_review_action_proposal_is_review_only() -> None:
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+    proposal = build_action_proposal_record(
+        ActionProposalCreate(
+            toolName="pod_diagnostic_review",
+            target=ActionTarget(
+                apiVersion="v1",
+                kind="Pod",
+                namespace="team-a",
+                name="web-abc",
+                uid="pod-uid-a",
+            ),
+            parameters={"includePreviousLogs": True, "includeEvents": True},
+            policy={"sourceType": "pod_diagnostic_review"},
+        ),
+        subject,
+    )
+    plan = build_sealed_action_plan_record(proposal)["spec"]["sealedActionPlan"]
+
+    assert plan["action"]["toolName"] == "pod_diagnostic_review"
+    assert plan["action"]["request"]["method"] == "GET"
+    assert plan["action"]["authorization"]["verb"] == "get"
+    assert plan["action"]["normalizedParameters"] == {
+        "includeDescribe": True,
+        "includeEvents": True,
+        "includePreviousLogs": True,
+        "reviewOnly": True,
+    }
+    assert plan["safety"]["risk"] == "low"
+    assert proposal["spec"]["sourceType"] == "pod_diagnostic_review"
+
+
+def test_pod_diagnostic_review_lifecycle_allows_same_user_review_record(monkeypatch) -> None:
+    previous_stores = (
+        dict(ACTION_PROPOSALS),
+        dict(SEALED_ACTION_PLANS),
+        dict(APPROVAL_DECISIONS),
+        dict(EXECUTION_RECORDS),
+    )
+    ACTION_PROPOSALS.clear()
+    SEALED_ACTION_PLANS.clear()
+    APPROVAL_DECISIONS.clear()
+    EXECUTION_RECORDS.clear()
+
+    subject = safe_subject({"username": "user@example.com", "uid": "uid-1", "groups": ["ops"]})
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return subject
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {"allowed": True}
+
+    async def fake_action_access_review(_user_auth_header: str, plan: Mapping[str, object]) -> dict:
+        action = plan.get("action") if isinstance(plan.get("action"), Mapping) else {}
+        return {
+            "allowed": True,
+            "enabled": True,
+            "resourceAttributes": {
+                "group": "",
+                "resource": "pods",
+                "verb": "get",
+                "name": plan.get("target", {}).get("name") if isinstance(plan.get("target"), Mapping) else "",
+                "namespace": plan.get("target", {}).get("namespace") if isinstance(plan.get("target"), Mapping) else "",
+            },
+            "toolName": action.get("toolName") if isinstance(action, Mapping) else "",
+        }
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_action_access_review", fake_action_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            proposal_response = await client.post(
+                "/v1/actions/proposals",
+                headers=headers,
+                json={
+                    "toolName": "pod_diagnostic_review",
+                    "target": {
+                        "apiVersion": "v1",
+                        "kind": "Pod",
+                        "namespace": "team-a",
+                        "name": "web-abc",
+                        "uid": "pod-uid-a",
+                    },
+                    "parameters": {"includePreviousLogs": True, "includeEvents": True},
+                    "policy": {"sourceType": "pod_diagnostic_review"},
+                },
+            )
+            assert proposal_response.status_code == 200, proposal_response.text
+            proposal_id = proposal_response.json()["metadata"]["name"]
+
+            plan_response = await client.post(
+                "/v1/actions/plans",
+                headers=headers,
+                json={"proposalId": proposal_id},
+            )
+            assert plan_response.status_code == 200, plan_response.text
+            plan_payload = plan_response.json()
+            sealed_plan = plan_payload["spec"]["sealedActionPlan"]
+            plan_id = plan_payload["metadata"]["name"]
+            plan_digest = sealed_plan["digest"]["planDigest"]
+            assert sealed_plan["action"]["toolName"] == "pod_diagnostic_review"
+            assert sealed_plan["action"]["normalizedParameters"]["reviewOnly"] is True
+            assert sealed_plan["safety"]["risk"] == "low"
+
+            approval_response = await client.post(
+                "/v1/actions/approvals",
+                headers=headers,
+                json={
+                    "approvalScope": "single-target",
+                    "expectedPlanDigest": plan_digest,
+                    "planId": plan_id,
+                },
+            )
+            assert approval_response.status_code == 200, approval_response.text
+            approval_id = approval_response.json()["metadata"]["name"]
+
+            execution_response = await client.post(
+                "/v1/actions/execute",
+                headers=headers,
+                json={
+                    "approvalId": approval_id,
+                    "expectedPlanDigest": plan_digest,
+                    "planId": plan_id,
+                },
+            )
+            assert execution_response.status_code == 200, execution_response.text
+            execution = execution_response.json()
+
+        spec = execution["spec"]
+        assert spec["mutationOutcome"]["status"] == "review_recorded"
+        assert spec["executorTrace"]["reviewOnly"] is True
+        assert spec["executorTrace"]["mutationSubmitted"] is False
+        assert spec["executorTrace"]["toolName"] == "pod_diagnostic_review"
+        assert APPROVAL_DECISIONS[approval_id]["spec"]["approvalDecision"]["status"] == "executed"
+        assert list(EXECUTION_RECORDS.values())[0]["spec"]["mutationOutcome"]["status"] == "review_recorded"
+
+    try:
+        asyncio.run(run())
+    finally:
+        ACTION_PROPOSALS.clear()
+        SEALED_ACTION_PLANS.clear()
+        APPROVAL_DECISIONS.clear()
+        EXECUTION_RECORDS.clear()
+        ACTION_PROPOSALS.update(previous_stores[0])
+        SEALED_ACTION_PLANS.update(previous_stores[1])
+        APPROVAL_DECISIONS.update(previous_stores[2])
+        EXECUTION_RECORDS.update(previous_stores[3])
 
 
 def test_review_only_execution_results_do_not_claim_mutation_success() -> None:

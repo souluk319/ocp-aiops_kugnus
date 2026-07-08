@@ -79,6 +79,7 @@ import {
   getRecordName,
   getRecordSpecMap,
   getRecordTargetLabel,
+  isReviewOnlyActionRecord,
 } from './assistant.actionRecords';
 import {
   canUseActionExecution,
@@ -199,8 +200,17 @@ const aiopsActionErrorMessage = (error: unknown): string => {
   if (/disabled|capability|executor|mutation.*disabled|mutations.*disabled/.test(lower)) {
     return '게이트웨이 실행 기능이 꺼져 있어 실제 변경을 보낼 수 없습니다. 실행 기능과 Action Executor 설정을 확인해 주세요.';
   }
-  if (/separation of duties|same.*approver|requester and approver|conflict|409/.test(lower)) {
-    return '승인 정책과 충돌했습니다. 위험도가 있는 조치는 요청자 본인이 승인할 수 없거나 최신 계획과 승인 조건이 맞지 않습니다.';
+  if (/already.*used|이미.*사용|이미.*실행|이미.*검토 기록/.test(lower)) {
+    return '이 승인은 이미 실행 또는 검토 기록에 사용됐습니다. 실행 기록을 확인해 주세요.';
+  }
+  if (/not approved|승인 완료 상태가 아닌/.test(lower)) {
+    return '승인 완료 상태가 아닌 기록입니다. 새 Action Plan을 다시 생성해 주세요.';
+  }
+  if (/separation of duties|same.*approver|requester and approver|요청자와 승인자/.test(lower)) {
+    return '승인 정책상 요청자와 승인자가 달라야 합니다. 다른 운영자 계정으로 승인하거나 새 승인 절차를 시작해 주세요.';
+  }
+  if (/conflict|409/.test(lower)) {
+    return '현재 화면의 계획/승인 상태와 서버 기록이 맞지 않습니다. 새로고침 후 같은 대상의 Action Plan을 다시 확인해 주세요.';
   }
   if (/failed|error|exception|timeout/.test(lower)) {
     return '조치 요청 처리 중 오류가 발생했습니다. 잠시 후 다시 시도하거나 실행 기록에서 원문 오류를 확인해 주세요.';
@@ -848,6 +858,16 @@ const KUBERNETES_NAME_PATTERN = '[a-z0-9](?:[-a-z0-9]*[a-z0-9])?';
 const answerTextForCandidateParsing = (content: string): string =>
   content.replace(/https?:\/\/\S+/gi, ' ');
 
+const answerHasConfirmedPodRootCause = (content: string): boolean => {
+  const source = answerTextForCandidateParsing(content);
+  const confirmedSignal =
+    /(확정|확인(?:된|했|했습니다)?|의도적으로 생성|의도적인\s*CrashLoop|intentional\s+crashloop|raise\s+SystemExit|spec\.containers\[[0-9]+\]\.command|실행 명령|컨테이너 로그|종료 코드|exit\s*code)/i.test(
+      source,
+    );
+  const podFailureSignal = /(CrashLoopBackOff|restart\s*count|재시작|파드|Pod|컨테이너)/i.test(source);
+  return confirmedSignal && podFailureSignal;
+};
+
 const firstPodTargetFromAnswer = (
   content: string,
 ): { namespace: string; name: string } | undefined => {
@@ -886,10 +906,158 @@ const firstPodTargetFromAnswer = (
     : undefined;
 };
 
+const firstDeploymentTargetFromAnswer = (
+  content: string,
+  fallbackNamespace?: string,
+): { namespace: string; name: string } | undefined => {
+  const source = answerTextForCandidateParsing(content);
+  const namespacedDeployment = source.match(
+    new RegExp(
+      `\\b(${KUBERNETES_NAME_PATTERN})\\s*/\\s*(?:Deployment|deployment)\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`,
+      'i',
+    ),
+  );
+  if (namespacedDeployment?.[1] && namespacedDeployment[2]) {
+    return { namespace: namespacedDeployment[1], name: namespacedDeployment[2] };
+  }
+
+  const deploymentRef = source.match(
+    new RegExp(`(?:Deployment|deployment)\\s*/\\s*\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`, 'i'),
+  );
+  if (deploymentRef?.[1] && fallbackNamespace) {
+    return { namespace: fallbackNamespace, name: deploymentRef[1] };
+  }
+
+  const deploymentInline = source.match(
+    new RegExp(`(?:deployment|Deployment)\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`, 'i'),
+  );
+  if (deploymentInline?.[1] && fallbackNamespace) {
+    return { namespace: fallbackNamespace, name: deploymentInline[1] };
+  }
+
+  return undefined;
+};
+
+const firstContainerNameFromAnswer = (content: string): string => {
+  const source = answerTextForCandidateParsing(content);
+  const containerRef = source.match(
+    new RegExp(`(?:Container|container|컨테이너)\\s*[:：]?\\s*\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`, 'i'),
+  );
+  return containerRef?.[1] || 'crashloop';
+};
+
+const stableCommandForConfirmedCrashloop = (content: string): string[] | undefined => {
+  const source = answerTextForCandidateParsing(content);
+  const looksLikeDemoCrashloop =
+    /(aiops[-_]?scenario|scenario|sample-crashy|intentional\s+crashloop|의도적|테스트|시나리오)/i.test(
+      source,
+    ) && /raise\s+SystemExit|SystemExit|즉시 종료/i.test(source);
+  return looksLikeDemoCrashloop
+    ? ['python', '-c', 'import time; print("aiops scenario stable"); time.sleep(86400)']
+    : undefined;
+};
+
 const podDiagnosticCandidateFromAnswer = (content: string): AiopsActionCandidate | undefined => {
   const target = firstPodTargetFromAnswer(content);
   if (!target) {
     return undefined;
+  }
+  const rootCauseConfirmed = answerHasConfirmedPodRootCause(content);
+
+  if (rootCauseConfirmed) {
+    const deploymentTarget = firstDeploymentTargetFromAnswer(content, target.namespace);
+    const stableCommand = stableCommandForConfirmedCrashloop(content);
+    if (deploymentTarget && stableCommand) {
+      const containerName = firstContainerNameFromAnswer(content);
+      return {
+        approvalRequired: true,
+        blockedActions: [],
+        blockedReasons: ['approval-required'],
+        confidence: 'medium',
+        evidence: `${deploymentTarget.namespace}/${deploymentTarget.name} Deployment template command가 CrashLoopBackOff 원인으로 확인됐습니다.`,
+        executable: true,
+        executionPolicy: {
+          executionEnabled: true,
+          mode: 'execute',
+          mutationVerbsDisabled: false,
+          proposalOnly: false,
+        },
+        expectedImpact:
+          'Deployment template의 컨테이너 command를 즉시 종료 명령에서 안정 실행 명령으로 바꾸고 새 ReplicaSet rollout을 유도합니다.',
+        id: `chat-deployment-command-fix-${deploymentTarget.namespace}-${deploymentTarget.name}-${containerName}`,
+        parameters: {
+          command: stableCommand,
+          containerName,
+          reason: 'CrashLoopBackOff root cause is an immediate-exit container command.',
+        },
+        priority: 58,
+        prerequisiteChecks: [
+          '대상 Deployment와 container 이름 확인',
+          '현재 command가 즉시 종료 명령인지 확인',
+          '승인 전 영향 범위 확인',
+        ],
+        recommendationSteps: [
+          'Deployment template container command 수정',
+          'rollout status 확인',
+          '새 Pod Ready와 restart count 확인',
+        ],
+        riskLabel: '보통',
+        riskLevel: 'medium',
+        sourceFindingId: `deployment-command-fix-${deploymentTarget.namespace}-${deploymentTarget.name}`,
+        sourceType: 'deployment_container_command_fix',
+        statusLabel: '승인 후 실행 가능',
+        target: {
+          apiVersion: 'apps/v1',
+          kind: 'Deployment',
+          name: deploymentTarget.name,
+          namespace: deploymentTarget.namespace,
+        },
+        title: 'Deployment command 수정',
+        verificationChecks: ['rollout status 확인', 'Ready Pod 1개 이상 확인', 'restart count 증가 중단 확인'],
+      };
+    }
+
+    return {
+      approvalRequired: true,
+      blockedActions: ['delete', 'patch', 'apply', 'scale', 'exec'],
+      blockedReasons: ['root-cause-confirmed', 'review-only-plan'],
+      confidence: 'medium',
+      evidence: `${target.namespace}/${target.name} Pod 원인은 확인됐고 수정 또는 rollback 판단이 필요합니다.`,
+      executable: false,
+      executionPolicy: {
+        executionEnabled: false,
+        mode: 'review-only',
+        mutationVerbsDisabled: true,
+        proposalOnly: true,
+      },
+      expectedImpact:
+        '이 플랜은 클러스터를 자동 변경하지 않습니다. Deployment template 수정, 정상 revision rollback, config/env 수정 중 무엇이 맞는지 검토 기록을 남깁니다.',
+      id: `chat-pod-fix-review-${target.namespace}-${target.name}`,
+      priority: 44,
+      prerequisiteChecks: [
+        '상위 ReplicaSet/Deployment owner chain 확인',
+        '현재 command/image/env/config 확인',
+        '정상 revision rollback 가능 여부 확인',
+      ],
+      recommendationSteps: [
+        'Deployment template에서 비정상 종료 명령 제거 또는 정상 명령으로 교체 검토',
+        '최근 배포가 원인이면 이전 정상 revision rollback 검토',
+        '변경 전 영향 범위와 검증 방법 확인',
+      ],
+      riskLabel: '낮음',
+      riskLevel: 'low',
+      sourceFindingId: `pod-fix-review-${target.namespace}-${target.name}`,
+      sourceType: 'pod_fix_or_rollback_review',
+      statusLabel: '수정 검토 필요',
+      target: {
+        apiVersion: 'v1',
+        kind: 'Pod',
+        name: target.name,
+        namespace: target.namespace,
+      },
+      title: '수정/롤백 검토 플랜',
+      verificationChecks: ['rollout status 확인', 'Ready Pod 수 확인', 'restart 증가 중단 확인'],
+    };
   }
 
   return {
@@ -965,7 +1133,7 @@ const targetRequiredDiagnosticCandidateFromAnswer = (
     blockedActions: ['create', 'delete', 'patch', 'apply', 'scale', 'exec'],
     blockedReasons: ['target-required', 'review-only-plan'],
     confidence: 'low',
-    evidence: '답변에 조치 흐름은 있으나 대상 리소스가 아직 확정되지 않았습니다.',
+    evidence: '대상 리소스가 아직 확정되지 않아 실행 계획 대신 확인 계획만 준비했습니다.',
     executable: false,
     executionPolicy: {
       executionEnabled: false,
@@ -998,10 +1166,28 @@ const matchActionCandidatesForMessage = (
   content: string,
   candidates: AiopsActionCandidate[],
 ): AiopsActionCandidate[] => {
-  const matched: AiopsActionCandidate[] = candidates.filter((candidate) => {
+  let matched: AiopsActionCandidate[] = candidates.filter((candidate) => {
     const name = candidate.target?.name;
     return Boolean(name) && content.includes(name!);
   });
+  const rootCauseConfirmed = answerHasConfirmedPodRootCause(content);
+  if (rootCauseConfirmed) {
+    matched = matched.filter((candidate) => {
+      const actionText = `${candidate.sourceType || ''} ${candidate.sourceFindingId || ''} ${candidate.title || ''}`;
+      return !/pod_diagnostic_review|diagnostic|원인\s*확인/i.test(actionText);
+    });
+    const hasFixReview = matched.some((candidate) =>
+      /pod_fix_or_rollback_review|fix[-_]?review|rollback/i.test(
+        `${candidate.sourceType || ''} ${candidate.sourceFindingId || ''} ${candidate.title || ''}`,
+      ),
+    );
+    if (!hasFixReview) {
+      const fixReviewCandidate = podDiagnosticCandidateFromAnswer(content);
+      if (fixReviewCandidate) {
+        matched.push(fixReviewCandidate);
+      }
+    }
+  }
   const testPodCreateNames = testPodCreateCandidateNamesFromAnswer(content);
   testPodCreateNames.forEach((name) => {
     matched.push(testPodCreateCandidateFromAnswer(name));
@@ -1210,6 +1396,21 @@ const conversationActionRefFromCandidate = (
   };
 };
 
+const pendingActionCandidatesForRefs = (
+  candidates: AiopsActionCandidate[],
+  refs: ConversationActionRef[],
+): AiopsActionCandidate[] => {
+  const createdCandidateIds = new Set(
+    refs
+      .map((ref) => ref.candidateId)
+      .filter((candidateId): candidateId is string => Boolean(candidateId)),
+  );
+  if (createdCandidateIds.size === 0) {
+    return candidates;
+  }
+  return candidates.filter((candidate) => !createdCandidateIds.has(candidate.id));
+};
+
 const mergeConversationActionRefs = (
   refs: ConversationActionRef[],
   ref: ConversationActionRef,
@@ -1239,6 +1440,7 @@ const mergeConversationActionRefs = (
     next[existingIndex] = {
       ...existing,
       ...ref,
+      candidateId: ref.candidateId ?? existing.candidateId,
       messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
       updatedAt: Date.now(),
     };
@@ -1764,6 +1966,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const aiopsStatusRequestSeqRef = React.useRef(0);
   const [actionCandidates, setActionCandidates] = React.useState<AiopsActionCandidate[]>([]);
   const [busyActionCandidateId, setBusyActionCandidateId] = React.useState('');
+  const [actionCandidateFeedback, setActionCandidateFeedback] = React.useState<{
+    candidateId: string;
+    message: string;
+    tone: 'error' | 'pending' | 'success';
+  } | null>(null);
   const busyActionCandidateIdRef = React.useRef('');
   const [autoProposeActions, setAutoProposeActions] = React.useState(false);
   const actionCandidatesRef = React.useRef<AiopsActionCandidate[]>([]);
@@ -1949,6 +2156,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     const style = {} as React.CSSProperties & Record<string, string>;
     if (panelSize.height) {
       style.height = `${panelSize.height}px`;
+      style['--komsco-panel-height'] = `${panelSize.height}px`;
     }
     if (panelSize.width) {
       style.width = `${panelSize.width}px`;
@@ -2441,6 +2649,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setAttachmentError('');
     setAiopsActionError('');
     setAiopsActionNotice('');
+    setActionCandidateFeedback(null);
     setQuickPromptMenuOpen(false);
     setTaskModeMenuOpen(false);
   }, [loading, saveCurrentConversation]);
@@ -2466,6 +2675,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setInput('');
       setPendingAttachments([]);
       setAttachmentError('');
+      setActionCandidateFeedback(null);
       setQuickPromptMenuOpen(false);
       setTaskModeMenuOpen(false);
     },
@@ -2968,7 +3178,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             approvalDecisions: [executedApproval],
             executionRecords: [execution],
           });
-          setAiopsActionNotice('승인된 조치를 실행했습니다.');
+          setAiopsActionNotice(
+            isReviewOnlyActionRecord(execution)
+              ? '검토 기록을 남겼습니다. 클러스터 변경은 실행하지 않았습니다.'
+              : '승인된 조치를 실행했습니다.',
+          );
           upsertSessionActionRef(
             conversationActionRefFromRecord(
               executedApproval,
@@ -3005,9 +3219,25 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
 	  const handleCreateActionPlanFromChat = React.useCallback(
 	    async (candidate: AiopsActionCandidate) => {
+      if (!executionModeAllowsActions(executionMode)) {
+        const message = '읽기 전용: 후보만 표시';
+        setAiopsActionNotice('');
+        setAiopsActionError(message);
+        setActionCandidateFeedback({
+          candidateId: candidate.id,
+          message,
+          tone: 'error',
+        });
+        return;
+      }
 	      if (candidate.planDisabledReason) {
 	        setAiopsActionNotice('');
 	        setAiopsActionError(candidate.planDisabledReason);
+        setActionCandidateFeedback({
+          candidateId: candidate.id,
+          message: candidate.planDisabledReason,
+          tone: 'error',
+        });
 	        return;
 	      }
 	      if (busyActionCandidateIdRef.current) {
@@ -3017,6 +3247,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setBusyActionCandidateId(candidate.id);
       setAiopsActionError('');
       setAiopsActionNotice('');
+      setActionCandidateFeedback({
+        candidateId: candidate.id,
+        message: 'Action Plan 생성 중입니다.',
+        tone: 'pending',
+      });
       const actionMessageAnchor = getLatestAssistantMessageAnchor();
 
       try {
@@ -3025,16 +3260,26 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           actionProposals: result.spec?.proposal ? [result.spec.proposal] : undefined,
           sealedActionPlans: result.spec?.plan ? [result.spec.plan] : undefined,
         });
-        setAiopsActionNotice('조치 계획을 생성했습니다.');
+        const createdMessage =
+          'Action Plan을 생성했습니다. 아래 카드에서 승인 또는 실행을 이어갈 수 있습니다.';
+        setAiopsActionNotice(createdMessage);
+        setActionCandidateFeedback({
+          candidateId: candidate.id,
+          message: createdMessage,
+          tone: 'success',
+        });
         const targetKey = targetKeyFromParts(candidate.target?.namespace, candidate.target?.name);
         setSessionActionTargetKeys((prev) => new Set(prev).add(targetKey));
         upsertSessionActionRef(
           result.spec?.plan
-            ? conversationActionRefFromRecord(
-                result.spec.plan,
-                executionMode,
-                actionMessageAnchor,
-              )
+            ? {
+                ...conversationActionRefFromRecord(
+                  result.spec.plan,
+                  executionMode,
+                  actionMessageAnchor,
+                ),
+                candidateId: candidate.id,
+              }
             : conversationActionRefFromCandidate(candidate, actionMessageAnchor),
         );
         const refreshedStatus = await refreshAiopsRuntimeStatus();
@@ -3051,7 +3296,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           );
         }
       } catch (error) {
-        setAiopsActionError(aiopsActionErrorMessage(error));
+        const message = aiopsActionErrorMessage(error);
+        setAiopsActionError(message);
+        setActionCandidateFeedback({
+          candidateId: candidate.id,
+          message,
+          tone: 'error',
+        });
       } finally {
         busyActionCandidateIdRef.current = '';
         setBusyActionCandidateId('');
@@ -3573,6 +3824,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setPendingAttachments([]);
       setDraftPageContext(undefined);
       setAttachmentError('');
+      setActionCandidateFeedback(null);
       setQuickPromptMenuOpen(false);
       setTaskModeMenuOpen(false);
       flushReactSync(() => setLoading(true));
@@ -4299,10 +4551,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           message.role === 'assistant' ? actionAnchorForMessageIndex(index) : undefined;
                         const matchedActionCandidates =
                           isLatestAssistantMessage &&
-                          hasContent &&
-                          executionModeAllowsActions(executionMode)
+                          hasContent
                             ? matchActionCandidatesForMessage(message.content, actionCandidates)
                             : [];
+                        const createPlanDisabledReason =
+                          executionModeAllowsActions(executionMode)
+                            ? ''
+                            : '읽기 전용: 후보만 표시';
                         const answerActionRecords =
                           isLatestAssistantMessage && hasContent
                             ? latestAnswerActionRecords(
@@ -4325,6 +4580,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                             : isLatestAssistantMessage && hasContent
                               ? sortConversationActionRefsForDisplay(effectiveSessionActionRefs).slice(0, 3)
                               : [];
+                        const pendingActionCandidates = pendingActionCandidatesForRefs(
+                          matchedActionCandidates,
+                          answerActionRefs,
+                        );
                         const candidateActionRecords =
                           isLatestAssistantMessage &&
                           hasContent &&
@@ -4339,11 +4598,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const resolvedAnswerActionRecords =
                           answerActionRecords.length > 0 ? answerActionRecords : candidateActionRecords;
                         const showCreateActionPlanButtons =
-                          matchedActionCandidates.length > 0 &&
-                          resolvedAnswerActionRecords.length === 0 &&
-                          answerActionRefs.length === 0;
+                          pendingActionCandidates.length > 0;
+                        const showActionPrepGroup =
+                          Boolean(message.toolPlan) && showCreateActionPlanButtons;
                         const waitingForContent =
                           activeMessage && message.role === 'assistant' && !hasContent;
+                        const assistantStillStreaming =
+                          message.role === 'assistant' && message.streaming === true;
+                        const canShowAssistantPostAnswer =
+                          message.role === 'assistant' && hasContent && !assistantStillStreaming;
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
                         return (
                           <div
@@ -4369,8 +4632,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                   )}
                                 </div>
                               )}
-                              {message.role === 'assistant' &&
-                                hasContent &&
+                              {canShowAssistantPostAnswer &&
                                 (
                                   <AssistantEvidenceFooter
                                     footer={message.evidenceFooter}
@@ -4378,25 +4640,46 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     messageContent={message.content}
                                   />
                                 )}
-                              {message.role === 'assistant' &&
-                                hasContent &&
+                              {canShowAssistantPostAnswer &&
+                                showActionPrepGroup &&
+                                (
+                                  <div className="komsco-ai__action-prep" data-aiops-action-prep>
+                                    <AssistantToolPlanFooter
+                                      executionMode={executionMode}
+                                      language={uiLanguage}
+                                      toolPlan={message.toolPlan}
+                                    />
+                                    <AssistantCreateActionPlanButtons
+                                      actionFeedback={actionCandidateFeedback}
+		                                    busyCandidateId={busyActionCandidateId}
+		                                    candidates={pendingActionCandidates}
+                                      createDisabledReason={createPlanDisabledReason}
+		                                    language={uiLanguage}
+		                                    onCreatePlan={handleCreateActionPlanFromChat}
+		                                  />
+                                  </div>
+                                )}
+                              {canShowAssistantPostAnswer &&
+                                !showActionPrepGroup &&
                                 <AssistantToolPlanFooter
+                                  executionMode={executionMode}
                                   language={uiLanguage}
                                   toolPlan={message.toolPlan}
                                 />}
-                              {message.role === 'assistant' &&
-                                hasContent &&
+                              {canShowAssistantPostAnswer &&
+                                !showActionPrepGroup &&
                                 showCreateActionPlanButtons &&
                                 (
-                                  <AssistantCreateActionPlanButtons
-	                                    busyCandidateId={busyActionCandidateId}
-	                                    candidates={matchedActionCandidates}
-	                                    language={uiLanguage}
-	                                    onCreatePlan={handleCreateActionPlanFromChat}
-	                                  />
+	                                  <AssistantCreateActionPlanButtons
+	                                      actionFeedback={actionCandidateFeedback}
+		                                    busyCandidateId={busyActionCandidateId}
+		                                    candidates={pendingActionCandidates}
+                                      createDisabledReason={createPlanDisabledReason}
+		                                    language={uiLanguage}
+		                                    onCreatePlan={handleCreateActionPlanFromChat}
+		                                  />
                                 )}
-                              {message.role === 'assistant' &&
-                                hasContent &&
+                              {canShowAssistantPostAnswer &&
                                 (
                                   <AssistantAnswerActions
                                     aiopsActionError={aiopsActionError}
@@ -4422,7 +4705,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 <div className="komsco-ai__message-time">{messageTime}</div>
                               )}
                               {hasContent &&
-                                (message.role === 'assistant' || message.role === 'user') && (
+                                (message.role === 'user' ||
+                                  (message.role === 'assistant' && !assistantStillStreaming)) && (
                                   <MessageActionFooter
                                     copied={copiedMessageIndex === index}
                                     copiedLabel={copy.answerCopied}
@@ -4444,7 +4728,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     role={message.role}
                                   />
                                 )}
-                              {hasContent && message.role === 'assistant' && message.feedback && (
+                              {hasContent &&
+                                message.role === 'assistant' &&
+                                !assistantStillStreaming &&
+                                message.feedback && (
                                 <MessageFeedbackComment
                                   comment={message.feedbackComment}
                                   feedback={message.feedback}

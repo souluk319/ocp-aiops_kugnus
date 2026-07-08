@@ -75,7 +75,7 @@ export const isReadOnlyExecutionPolicy = (mode?: string): boolean => mode === 'e
 export const executionPolicyLabel = (mode?: string, language: UiLanguage = 'ko'): string => {
   const isKo = language === 'ko';
   if (mode === 'evidence_check') {
-    return isKo ? '조회 전용' : 'Read-only evidence check';
+    return isKo ? '읽기 전용' : 'Read-only';
   }
   if (mode === 'unrestricted') {
     return isKo ? '실행 무제한' : 'Unrestricted execution';

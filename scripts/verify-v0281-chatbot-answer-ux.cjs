@@ -77,9 +77,9 @@ const sourceReview = () => {
   assert(
     actionRecords.includes('getActionRecordToolLabel(record, language)') &&
       actionRecords.includes('getActionToolLabel(ref.toolName, language)') &&
-      actionRecords.includes("'감사 상세'") &&
+      actionRecords.includes("'기록 원문'") &&
       !actionRecords.includes("'상세보기 (JSON)'"),
-    'default action lifecycle rail must show human action labels and hide JSON wording behind audit detail',
+    'default action lifecycle rail must show human action labels and hide raw JSON behind record detail',
   );
   assert(
     historyPanel.includes('HistoryActionStageIcon'),
@@ -161,13 +161,23 @@ const sourceReview = () => {
     'assistant formatted content controls must localize code and attachment actions in English mode',
   );
   assert(
+    launcher.includes('showActionPrepGroup') &&
+      launcher.includes('data-aiops-action-prep') &&
+      css.includes('.komsco-ai__action-prep'),
+    'assistant query plan and Action Plan candidates must render as one visual preparation group when both exist',
+  );
+  assert(
       launcher.includes('buildEvidenceCopyText(') &&
       launcher.includes('uiLanguage') &&
       launcher.includes('language={uiLanguage}') &&
       evidenceFooter.includes("isKo ? '확인 결과' : 'Evidence'") &&
-      evidenceFooter.includes("isKo ? '확인 결과 상세' : 'Evidence details'") &&
+      evidenceFooter.includes('komsco-ai__footer-inline-summary') &&
+      evidenceFooter.includes('komsco-ai__footer-detail-toggle') &&
       toolPlanFooter.includes("isKo ? '조회 계획' : 'Query plan'") &&
-      toolPlanFooter.includes("isKo ? '조회 계획 상세보기' : 'Query plan details'"),
+      toolPlanFooter.includes('executionMode: AiopsExecutionMode') &&
+      launcher.includes('executionMode={executionMode}') &&
+      toolPlanFooter.includes('komsco-ai__footer-inline-summary') &&
+      toolPlanFooter.includes('komsco-ai__footer-detail-toggle'),
     'assistant evidence and tool-plan footers must localize visible details in English mode',
   );
   assert(
@@ -318,9 +328,10 @@ const sourceReview = () => {
   );
   assert(
     css.includes('v0.2.8.1: responding header light rail') &&
-      css.includes('komsco-ai-header-bottom-scan') &&
-      css.includes('.komsco-ai__surface.komsco-ai__surface--responding .komsco-ai__header::after'),
-    'assistant header must show a moving light rail while responding',
+      css.includes('.komsco-ai__surface.komsco-ai__surface--responding .komsco-ai__header::after') &&
+      !css.includes('komsco-ai-header-bottom-scan') &&
+      !css.includes('komsco-ai-header-bottom-glow'),
+    'assistant header must keep a calm static rail while responding, not a scanner animation',
   );
   assert(
     portal.includes('OpenShift 인증 필요') && portal.includes('portalConnectionLabel'),
@@ -1740,6 +1751,11 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
         'unclear_or_out_of_scope',
         'insufficient_operational_context',
         'confidence',
+        'AI 응답 대기',
+        '화면 표시 준비',
+        '화면 표시 중',
+        '도구 호출',
+        '도구 응답을 기다리는 중입니다',
       ].filter((term) => progressText.includes(term));
       const scenarioTerms = [
         'KubePodNotReady',
@@ -1813,7 +1829,9 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
             progressText.includes('요청 해석 확인') ||
             progressText.includes('네임스페이스 사용 여부 확인') ||
             progressText.includes('테스트 Pod 생성 사전 확인') ||
-            progressText.includes('조회 계획')
+            progressText.includes('조회 계획') ||
+            progressText.includes('모델 답변 생성') ||
+            progressText.includes('답변 작성')
           ),
         progressUsesEnglishOperatorLabels:
           progressText.length > 0 &&
@@ -1823,7 +1841,9 @@ const sendLiveQuestion = async ({ label, language = 'ko', mode, question }) => {
             progressText.includes('Request interpretation') ||
             progressText.includes('Namespace usage check') ||
             progressText.includes('Test Pod creation preflight') ||
-            progressText.includes('Evidence plan')
+            progressText.includes('Evidence plan') ||
+            progressText.includes('Generating model answer') ||
+            progressText.includes('Writing answer')
           ),
         progressHasKorean:
           /[가-힣]/.test(progressText),
@@ -1875,6 +1895,10 @@ const sendLiveModeQuestion = async (mode) =>
     question: NAMESPACE_CLEANUP_QUESTION,
   });
 
+const hasActionPlanCreateButton = (answer) =>
+  answer.actionPlanButtons.includes('Action Plan 생성') ||
+  answer.actionPlanButtons.includes('Create Action Plan');
+
 const verifyLiveModeRenderedAnswers = async () => {
   const readOnly = await sendLiveModeQuestion('read-only');
   const execute = await sendLiveModeQuestion('execute');
@@ -1892,7 +1916,7 @@ const verifyLiveModeRenderedAnswers = async () => {
   assert(
     readOnly.textIncludesReadOnlyMode &&
       readOnly.textIncludesReadOnlyCommand &&
-      readOnly.actionPlanButtons.length === 0 &&
+      !hasActionPlanCreateButton(readOnly) &&
       readOnly.actionCandidateDefaultCollapsed &&
       !readOnly.textIncludesActionPlanCandidate &&
       readOnly.hasGatewayDirect &&
@@ -1960,7 +1984,7 @@ const verifyLiveTestPodCreateAnswers = async () => {
     readOnly.textIncludesReadOnlyMode &&
       readOnly.textIncludesTestPodCommand &&
       readOnly.textIncludesTestPodTarget &&
-      readOnly.actionPlanButtons.length === 0 &&
+      !hasActionPlanCreateButton(readOnly) &&
       !readOnly.textIncludesActionPlanCandidate &&
       readOnly.hasGatewayDirect &&
       !readOnly.hasGatewayFallback &&
@@ -4048,9 +4072,10 @@ const verifyConsoleAssistant = async () => {
   })()`);
   assert(
     respondingRailMetrics?.display === 'block' &&
-      respondingRailMetrics.animationName === 'komsco-ai-header-bottom-scan' &&
-      parseFloat(respondingRailMetrics.height) >= 3,
-    'responding assistant header must animate a visible bottom light rail',
+      (respondingRailMetrics.animationName === 'none' ||
+        respondingRailMetrics.animationName === '') &&
+      parseFloat(respondingRailMetrics.height) >= 2,
+    'responding assistant header must keep a calm static bottom rail',
     respondingRailMetrics,
   );
 

@@ -191,6 +191,7 @@ export type AiopsActionCandidate = {
   expectedImpact?: string;
   id: string;
   mutationSubmitted?: boolean;
+  parameters?: Record<string, unknown>;
   priority?: number;
   prerequisiteChecks?: string[];
   planDisabledReason?: string;
@@ -698,6 +699,18 @@ function gatewayResponseDetailFromBody(body: string): string {
       if (detail === 'expectedPlanDigest does not match the sealed plan') {
         return '승인 실패: 화면의 계획 digest가 현재 sealed plan과 다릅니다. 새로고침 후 다시 확인하세요.';
       }
+      if (detail === 'Execution request is stale for this sealed plan') {
+        return '기록 실패: 화면의 계획 또는 승인 정보가 최신 서버 기록과 맞지 않습니다. 새로고침 후 다시 확인하세요.';
+      }
+      if (detail === 'Approval decision is not approved') {
+        return '기록 실패: 승인 완료 상태가 아닌 승인 기록입니다. 새 Action Plan을 다시 생성하세요.';
+      }
+      if (detail === 'Approval decision is expired') {
+        return '기록 실패: 승인 시간이 만료되었습니다. 같은 대상에 대해 새 Action Plan을 다시 생성하세요.';
+      }
+      if (detail === 'Approval decision has already been used for execution') {
+        return '기록 실패: 이 승인은 이미 실행 또는 검토 기록에 사용됐습니다. 실행 기록을 확인하세요.';
+      }
       if (detail === 'lab-auto-unrestricted approval requires unrestricted command gate') {
         return '실행 무제한 승인 실패: Gateway가 실행 무제한 capability를 허용하지 않았습니다.';
       }
@@ -709,6 +722,12 @@ function gatewayResponseDetailFromBody(body: string): string {
 
   if (body.includes('separation of duties requires requester and approver to differ')) {
     return '승인 실패: 요청자와 승인자는 달라야 합니다. 다른 운영자 계정으로 승인하거나 새 승인 절차를 시작하세요.';
+  }
+  if (body.includes('Approval decision has already been used for execution')) {
+    return '기록 실패: 이 승인은 이미 실행 또는 검토 기록에 사용됐습니다. 실행 기록을 확인하세요.';
+  }
+  if (body.includes('Execution request is stale for this sealed plan')) {
+    return '기록 실패: 화면의 계획 또는 승인 정보가 최신 서버 기록과 맞지 않습니다. 새로고침 후 다시 확인하세요.';
   }
 
   return body.slice(0, 240);
@@ -1033,6 +1052,7 @@ export async function createActionCandidatePlan(
     evidenceRefs: candidate.evidenceRefs ?? [],
     expectedImpact: candidate.expectedImpact,
     incidentId: context?.incidentId,
+    parameters: candidate.parameters ?? {},
     prerequisiteChecks: candidate.prerequisiteChecks ?? [],
     problemSummary: candidate.evidence || candidate.statusLabel || candidate.title,
     recommendationSteps: candidate.recommendationSteps ?? [],

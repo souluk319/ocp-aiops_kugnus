@@ -178,6 +178,8 @@ const REMEDIATION_REASON_LABEL_KO: Record<string, string> = {
   scale_spec_mismatch: '레플리카 수 변경이 아직 반영되지 않았습니다.',
   rollback_template_annotation_observed: '이전 리비전으로 롤백이 반영되었습니다.',
   rollback_annotation_not_observed: '롤백 반영이 아직 확인되지 않았습니다.',
+  deployment_container_command_matches: 'Deployment container command 변경이 반영되었습니다.',
+  deployment_container_command_mismatch: 'Deployment container command 변경이 아직 확인되지 않았습니다.',
   hpa_bounds_match: 'HPA 범위 변경이 반영되었습니다.',
   hpa_bounds_mismatch: 'HPA 범위 변경이 아직 반영되지 않았습니다.',
   no_postcondition_for_tool:
@@ -188,6 +190,7 @@ const REMEDIATION_REASON_LABEL_KO: Record<string, string> = {
 const REVIEW_ONLY_ACTION_TOOLS = new Set([
   'namespace_cleanup_review',
   'pod_diagnostic_review',
+  'pod_fix_or_rollback_review',
   'test_pod_create_review',
 ]);
 
@@ -223,6 +226,9 @@ const reviewOnlyExecutionDetail = (toolName: string, reason: string): string => 
   }
   if (/pod.*diagnostic|pod_diagnostic|diagnostic/.test(text)) {
     return 'Pod 진단 검토가 실행 기록으로 남았습니다. Pod 삭제나 재시작은 실행하지 않았습니다.';
+  }
+  if (/pod.*fix|pod.*rollback|pod_fix_or_rollback|rollback_review/.test(text)) {
+    return 'Pod 수정/롤백 검토가 실행 기록으로 남았습니다. 실제 수정이나 롤백은 실행하지 않았습니다.';
   }
   return '검토 실행 기록이 남았습니다. 클러스터 변경은 실행하지 않았습니다.';
 };

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawn } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -21,6 +21,9 @@ const port = Number(process.env.AIOPS_CHROME_DEBUG_PORT || '9362');
 const consoleUrl =
   process.env.AIOPS_CONSOLE_URL ||
   'http://localhost:9000/dashboards/aiops?codex_v=029-action-history';
+const reportPath =
+  process.env.AIOPS_ACTION_HISTORY_REPORT ||
+  path.join(root, '.tmp-kugnus-demo', 'v029-chatbot-action-history-flow.json');
 const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiops-v029-action-history-'));
 
 let chromeProcess;
@@ -41,6 +44,14 @@ const question = [
 ].join('\n');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const gitValue = (args) => {
+  try {
+    return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch (_error) {
+    return '';
+  }
+};
 
 const assert = (condition, message, evidence = undefined) => {
   if (!condition) {
@@ -167,7 +178,7 @@ const setExecutionMode = async (mode) => {
     'read-only': ['읽기 전용 모드', 'Read-only mode'],
     unrestricted: ['실행 무제한 모드', 'Unrestricted execution mode'],
   }[mode];
-  const clicked = await evaluate(`(() => {
+  const clicked = await poll(`(() => {
     const labels = ${JSON.stringify(labels)};
     const button = Array.from(document.querySelectorAll('.komsco-ai__mode-toggle-button'))
       .find((el) => labels.includes(el.getAttribute('aria-label') || ''));
@@ -180,7 +191,11 @@ const setExecutionMode = async (mode) => {
     }
     button.click();
     return { ok: true, label: button.getAttribute('aria-label') };
-  })()`);
+  })()`,
+    (value) => value?.ok === true,
+    `execution mode ${mode} selectable`,
+    30000,
+  );
   assert(clicked?.ok, `execution mode ${mode} must be selectable`, clicked);
 };
 
@@ -542,8 +557,8 @@ const verifyHistoryAndJson = async () => {
       const details = scopedDetails.length
         ? scopedDetails
         : Array.from(document.querySelectorAll('.komsco-ai__rail-command-detail'));
-      const detail = details.find((item) => /감사 상세|Audit detail/.test(item.textContent || '')) || details[0];
-      if (!detail) return { ok: false, reason: 'missing audit detail' };
+      const detail = details.find((item) => /기록 원문|Record JSON/.test(item.textContent || '')) || details[0];
+      if (!detail) return { ok: false, reason: 'missing record detail' };
       const summary = detail.querySelector('summary');
       if (!detail.open) summary?.click();
       const raw = detail.querySelector('pre')?.textContent || '';
@@ -636,33 +651,45 @@ const main = async () => {
   const execution = await executePlan();
   const history = await verifyHistoryAndJson();
 
+  const report = {
+    apiVersion: 'aiops.komsco/v1',
+    kind: 'V029ChatbotActionHistoryFlowVerification',
+    generatedAt: new Date().toISOString(),
+    branch: gitValue(['branch', '--show-current']),
+    head: gitValue(['rev-parse', '--short', 'HEAD']),
+    answer: {
+      actionButtonCount: answer.actionButtonCount,
+      text: answer.text.slice(0, 240),
+    },
+    chrome: chromeVersion,
+    history,
+    passed: true,
+    path: 'approval-then-execution',
+    approval: {
+      hasExecuteButton: approval?.hasExecuteButton ?? false,
+      stages: approval?.stages ?? [],
+    },
+    execution: {
+      executionCount: execution.executionCount,
+      stages: execution.stages,
+    },
+    plan: {
+      detailCount: plan.detailCount,
+      fieldKeys: plan.fieldKeys,
+      hasApprovalButton: plan.hasApprovalButton,
+      hasExecuteButton: plan.hasExecuteButton,
+      hasRejectButton: plan.hasRejectButton,
+      stages: plan.stages,
+    },
+  };
+
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   console.log(
     JSON.stringify(
       {
-        answer: {
-          actionButtonCount: answer.actionButtonCount,
-          text: answer.text.slice(0, 240),
-        },
-        chrome: chromeVersion,
-        history,
-        passed: true,
-        path: 'approval-then-execution',
-        approval: {
-          hasExecuteButton: approval?.hasExecuteButton ?? false,
-          stages: approval?.stages ?? [],
-        },
-        execution: {
-          executionCount: execution.executionCount,
-          stages: execution.stages,
-        },
-        plan: {
-          detailCount: plan.detailCount,
-          fieldKeys: plan.fieldKeys,
-          hasApprovalButton: plan.hasApprovalButton,
-          hasExecuteButton: plan.hasExecuteButton,
-          hasRejectButton: plan.hasRejectButton,
-          stages: plan.stages,
-        },
+        ...report,
+        reportPath: path.relative(root, reportPath).replace(/\\/g, '/'),
       },
       null,
       2,

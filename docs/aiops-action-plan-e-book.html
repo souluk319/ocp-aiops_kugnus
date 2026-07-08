@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIOps Action Plan E-BOOK</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --paper: #ffffff;
+      --ink: #131820;
+      --muted: #5d6875;
+      --line: #d9e0e8;
+      --soft-line: #e9eef3;
+      --blue: #005ea8;
+      --blue-soft: #edf6ff;
+      --green: #147a3d;
+      --green-soft: #eefaf2;
+      --orange: #a95b00;
+      --orange-soft: #fff6e8;
+      --red: #b42318;
+      --red-soft: #fff1f0;
+      --slate: #213041;
+      --code-bg: #101820;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Malgun Gothic", "맑은 고딕", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 20px;
+      border-right: 1px solid var(--line);
+      background: var(--paper);
+    }
+
+    .sidebar h1 {
+      margin: 0 0 8px;
+      color: var(--slate);
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .sidebar .meta {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .nav-title {
+      margin: 18px 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .nav-link {
+      display: block;
+      padding: 7px 8px;
+      border-radius: 6px;
+      color: var(--slate);
+      font-size: 14px;
+    }
+
+    .nav-link:hover {
+      background: var(--blue-soft);
+      text-decoration: none;
+    }
+
+    .main {
+      padding: 42px 48px 72px;
+    }
+
+    .book {
+      max-width: 980px;
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      background: var(--paper);
+      box-shadow: 0 16px 36px rgba(20, 28, 38, 0.08);
+    }
+
+    header {
+      padding: 42px 48px 34px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    h2, h3, h4, p { margin-top: 0; }
+    h2 { margin-bottom: 16px; font-size: 24px; line-height: 1.25; }
+    h3 { margin: 28px 0 10px; font-size: 18px; line-height: 1.35; }
+    h4 { margin: 18px 0 8px; font-size: 15px; }
+    header h2 { margin: 0; font-size: 34px; line-height: 1.18; }
+    header p { max-width: 760px; margin: 14px 0 0; color: var(--muted); }
+
+    section {
+      padding: 36px 48px;
+      border-bottom: 1px solid var(--soft-line);
+    }
+
+    section:last-child { border-bottom: 0; }
+
+    ul, ol { margin: 8px 0 18px 22px; padding: 0; }
+    li { margin: 7px 0; }
+
+    code {
+      padding: 2px 6px;
+      border: 1px solid var(--soft-line);
+      border-radius: 4px;
+      background: #f6f8fa;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.9em;
+    }
+
+    pre {
+      margin: 10px 0 18px;
+      padding: 14px 16px;
+      border-radius: 6px;
+      background: var(--code-bg);
+      color: #f2f6fb;
+      overflow: auto;
+      line-height: 1.6;
+    }
+
+    pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 13px;
+    }
+
+    table {
+      width: 100%;
+      margin: 14px 0 22px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f2f6fa;
+      font-weight: 700;
+    }
+
+    .callout {
+      margin: 18px 0;
+      padding: 16px 18px;
+      border: 1px solid #b7d5f5;
+      border-left: 4px solid var(--blue);
+      border-radius: 0 6px 6px 0;
+      background: var(--blue-soft);
+    }
+
+    .callout.warning {
+      border-color: #ffd7a8;
+      border-left-color: var(--orange);
+      background: var(--orange-soft);
+    }
+
+    .callout.success {
+      border-color: #a8d5b4;
+      border-left-color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .callout.danger {
+      border-color: #f5b5b0;
+      border-left-color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .callout p:last-child { margin-bottom: 0; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+
+    .summary-item {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }
+
+    .summary-item strong {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--slate);
+    }
+
+    .summary-item span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .flow {
+      margin: 18px 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .flow-row {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      border-bottom: 1px solid var(--soft-line);
+    }
+
+    .flow-row:last-child { border-bottom: 0; }
+    .flow-row strong, .flow-row span { padding: 12px 14px; }
+    .flow-row strong { background: #f6f8fb; }
+
+    .checklist {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+
+    .check {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .check strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--slate);
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; }
+      .sidebar {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .main { padding: 24px 16px 48px; }
+      header, section { padding: 28px 24px; }
+      header h2 { font-size: 28px; }
+      .summary-grid, .checklist { grid-template-columns: 1fr; }
+      .flow-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>AIOps Action Plan E-BOOK</h1>
+      <p class="meta">최종 업데이트: 2026-07-08</p>
+
+      <div class="nav-title">먼저 보기</div>
+      <a class="nav-link" href="#answer">한 줄 결론</a>
+      <a class="nav-link" href="#goal">문서 목표</a>
+      <a class="nav-link" href="#flow">전체 흐름</a>
+      <a class="nav-link" href="#modes">실행 모드</a>
+
+      <div class="nav-title">기록 확인</div>
+      <a class="nav-link" href="#record">검토 기록 위치</a>
+      <a class="nav-link" href="#local-check">로컬 확인 명령</a>
+      <a class="nav-link" href="#deploy-check">배포판 확인 명령</a>
+      <a class="nav-link" href="#retention">보관 기간</a>
+
+      <div class="nav-title">설계 판단</div>
+      <a class="nav-link" href="#db">DB와 저장소</a>
+      <a class="nav-link" href="#terms">용어</a>
+      <a class="nav-link" href="#criteria">완료 기준</a>
+      <a class="nav-link" href="#sources">근거 파일</a>
+    </aside>
+
+    <main class="main">
+      <article class="book">
+        <header>
+          <p class="eyebrow">KOMSCO AIOps 운영자용 안내서</p>
+          <h2>Action Plan은 어디까지 실행되고 어디에 기록되는가</h2>
+          <p>
+            이 문서는 AIOps 챗봇의 Action Plan을 누르는 사람이 반드시 알아야 할 흐름을 정리합니다.
+            버튼을 누르면 무엇이 생기고, 검토 기록은 어디서 확인하며, 로컬과 배포판의 저장 방식이 어떻게 다른지 먼저 설명합니다.
+          </p>
+        </header>
+
+        <section id="answer">
+          <h2>한 줄 결론</h2>
+          <div class="callout">
+            <p>
+              현재 로컬에서 <code>review_recorded</code>는 Gateway 메모리에 남고, 배포판에서는
+              OpenShift <code>ConfigMap/komsco-ai-gateway-ledger</code>의
+              <code>executionRecords.json</code>에 남습니다.
+            </p>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-item">
+              <strong>로컬 현재 상태</strong>
+              <span>Gateway 프로세스 메모리. Gateway를 끄면 사라질 수 있습니다.</span>
+            </div>
+            <div class="summary-item">
+              <strong>배포판 상태</strong>
+              <span>OpenShift ConfigMap ledger. Pod 재시작에는 남습니다.</span>
+            </div>
+            <div class="summary-item">
+              <strong>보관 제한</strong>
+              <span>기본 1000건. 넘으면 오래된 기록부터 밀립니다.</span>
+            </div>
+            <div class="summary-item">
+              <strong>운영 완성 gap</strong>
+              <span>장기 감사 보존은 ConfigMap보다 DB 또는 외부 감사 저장소가 더 적합합니다.</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="goal">
+          <h2>목표, 완료 조건, 하지 않을 것</h2>
+          <table>
+            <tbody>
+              <tr>
+                <th>목표</th>
+                <td>Action Plan 버튼을 누른 뒤 생기는 계획, 승인, 실행 또는 검토 기록의 위치를 운영자가 스스로 확인할 수 있게 한다.</td>
+              </tr>
+              <tr>
+                <th>완료 조건</th>
+                <td>로컬과 배포판에서 <code>review_recorded</code>를 확인하는 명령을 알고, 기록이 언제 사라질 수 있는지 말할 수 있다.</td>
+              </tr>
+              <tr>
+                <th>검증 방법</th>
+                <td><code>/v1/aiops/status</code> 또는 <code>komsco-ai-gateway-ledger</code> ConfigMap에서 <code>executionRecords</code>를 확인한다.</td>
+              </tr>
+              <tr>
+                <th>하지 않을 것</th>
+                <td>승인 전 클러스터 변경을 하지 않는다. ConfigMap ledger를 장기 감사 DB라고 과장하지 않는다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="flow">
+          <h2>Action Plan 전체 흐름</h2>
+          <p>
+            Action Plan은 단순 버튼이 아닙니다. 사용자의 질문이 바로 서버 변경으로 이어지지 않게 중간 단계를 나눠 둔 안전장치입니다.
+          </p>
+
+          <div class="flow">
+            <div class="flow-row"><strong>1. Action Proposal</strong><span>근거를 바탕으로 나온 조치 후보입니다. 아직 실행 계획은 아닙니다.</span></div>
+            <div class="flow-row"><strong>2. Sealed Action Plan</strong><span>대상, 조치, 검증, 롤백, 승인 조건을 묶은 계획입니다.</span></div>
+            <div class="flow-row"><strong>3. Approval Decision</strong><span>운영자가 승인 또는 거절한 판단입니다.</span></div>
+            <div class="flow-row"><strong>4. Execution Record</strong><span>실제 실행 결과 또는 검토 기록입니다. <code>review_recorded</code>도 여기에 속합니다.</span></div>
+          </div>
+
+          <pre><code>사용자 질문
+  -> Gateway가 근거 수집
+    -> Action Proposal 생성
+      -> Action Plan 생성
+        -> 운영자 승인 또는 거절
+          -> 실행 또는 검토 기록
+            -> ExecutionRecord 저장</code></pre>
+        </section>
+
+        <section id="modes">
+          <h2>실행 모드별로 가능한 일</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>모드</th>
+                <th>가능한 일</th>
+                <th>막히는 일</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>읽기 전용</code></td>
+                <td>상태 조회, 원인 분석, 조치 후보 확인</td>
+                <td>Action Plan 생성, 승인, 실행</td>
+              </tr>
+              <tr>
+                <td><code>실행 가능</code></td>
+                <td>Action Plan 생성, 승인, 제한된 typed action 실행 또는 검토 기록</td>
+                <td>승인 없는 변경, 임의 shell, generic patch</td>
+              </tr>
+              <tr>
+                <td><code>실행 무제한</code></td>
+                <td>개발 또는 실험용 확장 모드</td>
+                <td>서버 정책이 거절하는 작업은 여전히 막힘</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="callout warning">
+            <p>
+              읽기 전용에서도 조치 후보를 보는 것은 괜찮습니다.
+              다만 실제 Action Plan 생성과 승인, 실행은 잠겨 있어야 합니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="record">
+          <h2>검토 기록은 어디에 남나</h2>
+          <p>
+            안전한 원인 확인 플랜처럼 클러스터를 바꾸지 않는 조치는 실행 결과가
+            <code>mutation_succeeded</code>가 아니라 <code>review_recorded</code>로 남습니다.
+          </p>
+
+          <table>
+            <thead>
+              <tr>
+                <th>환경</th>
+                <th>저장소</th>
+                <th>확인 대상</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>현재 로컬 실행</td>
+                <td>Gateway 프로세스 메모리</td>
+                <td><code>/v1/aiops/status</code>의 <code>spec.records.executionRecords</code></td>
+              </tr>
+              <tr>
+                <td>OpenShift 배포판</td>
+                <td><code>komsco-ai-gateway-ledger</code> ConfigMap</td>
+                <td><code>executionRecords.json</code></td>
+              </tr>
+              <tr>
+                <td>장기 운영 목표</td>
+                <td>별도 DB 또는 감사 저장소 필요</td>
+                <td>아직 제품 gap. ConfigMap은 PoC/초기 운영 저장소로 봐야 합니다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="local-check">
+          <h2>로컬에서 확인하는 법</h2>
+          <p>
+            로컬 Gateway는 보통 <code>http://127.0.0.1:18080</code>에 떠 있습니다.
+            인증이 필요한 API이므로 먼저 <code>oc login</code> 상태가 살아 있어야 합니다.
+          </p>
+
+          <pre><code>TOKEN=$(oc whoami -t)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:18080/v1/aiops/status \
+| jq '.spec.records.executionRecords[]
+  | select(.spec.mutationOutcome.status=="review_recorded")'</code></pre>
+
+          <p>최근 기록 하나만 보고 싶으면 아래처럼 봅니다.</p>
+
+          <pre><code>TOKEN=$(oc whoami -t)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:18080/v1/aiops/status \
+| jq '.spec.records.executionRecords[0]
+  | {name:.metadata.name, createdAt:.metadata.createdAt, status:.spec.mutationOutcome.status, planId:.spec.planId}'</code></pre>
+
+          <div class="callout danger">
+            <p>
+              현재 로컬 Gateway에 <code>KOMSCO_AI_RECORD_STORE_ENABLED</code>가 없으면 이 기록은 메모리 기록입니다.
+              Gateway를 재시작하면 사라질 수 있습니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="deploy-check">
+          <h2>배포판에서 확인하는 법</h2>
+          <p>
+            배포판에서는 Gateway가 <code>komsco-ai-gateway-ledger</code> ConfigMap에 기록을 씁니다.
+            namespace는 실제 설치 namespace로 바꿔야 합니다.
+          </p>
+
+          <pre><code>NS=&lt;배포네임스페이스&gt;
+oc -n "$NS" get configmap komsco-ai-gateway-ledger \
+  -o jsonpath='{.data.executionRecords\.json}' \
+| jq '.[] | select(.spec.mutationOutcome.status=="review_recorded")'</code></pre>
+
+          <p>ConfigMap이 있는지만 먼저 보려면:</p>
+
+          <pre><code>NS=&lt;배포네임스페이스&gt;
+oc -n "$NS" get configmap komsco-ai-gateway-ledger</code></pre>
+
+          <p>Gateway가 record store를 켜고 떠 있는지 보려면:</p>
+
+          <pre><code>NS=&lt;배포네임스페이스&gt;
+oc -n "$NS" set env deployment/komsco-ai-gateway --list \
+| grep KOMSCO_AI_RECORD_STORE</code></pre>
+
+          <div class="callout success">
+            <p>
+              배포판에서 정상이라면 <code>KOMSCO_AI_RECORD_STORE_ENABLED=true</code>,
+              <code>KOMSCO_AI_RECORD_STORE_CONFIGMAP=komsco-ai-gateway-ledger</code>가 보여야 합니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="retention">
+          <h2>언제까지 저장되나</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>상황</th>
+                <th>기록 유지 여부</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>브라우저 새로고침</td>
+                <td>남습니다.</td>
+              </tr>
+              <tr>
+                <td>Gateway Pod 재시작</td>
+                <td>배포판 ConfigMap 저장이면 남습니다. 로컬 메모리 저장이면 사라집니다.</td>
+              </tr>
+              <tr>
+                <td>내 PC 재부팅</td>
+                <td>배포판 ConfigMap 저장이면 남습니다. 로컬 Gateway만 쓰던 기록은 사라질 수 있습니다.</td>
+              </tr>
+              <tr>
+                <td>ConfigMap 삭제</td>
+                <td>사라집니다.</td>
+              </tr>
+              <tr>
+                <td>namespace 삭제</td>
+                <td>사라집니다.</td>
+              </tr>
+              <tr>
+                <td>기록 1000건 초과</td>
+                <td>기본 설정에서는 오래된 기록부터 밀립니다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="db">
+          <h2>DB 관련 지시는 무엇이었나</h2>
+          <p>
+            공식 산출물의 DB 지시는 주로 Runbook/SOP 검색을 위한 RAG 저장소입니다.
+            권장안은 PostgreSQL + pgvector입니다.
+          </p>
+
+          <div class="flow">
+            <div class="flow-row"><strong>RAG DB</strong><span>문서, chunk text, embedding vector, ACL metadata 저장. PostgreSQL + pgvector 권장.</span></div>
+            <div class="flow-row"><strong>Action 기록</strong><span>현재 구현은 ConfigMap ledger. <code>executionRecords.json</code>에 실행 또는 검토 기록 저장.</span></div>
+            <div class="flow-row"><strong>장기 감사</strong><span>산출물은 감사로그 영구 보존을 요구합니다. 운영 완성판에서는 ConfigMap보다 강한 저장소가 필요합니다.</span></div>
+          </div>
+
+          <div class="callout warning">
+            <p>
+              따라서 “명세서대로 기록을 남긴다”는 방향은 맞습니다.
+              하지만 “ConfigMap이 최종 장기 감사 DB다”라고 말하면 안 됩니다.
+            </p>
+          </div>
+        </section>
+
+        <section id="terms">
+          <h2>용어를 쉽게 정리</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>용어</th>
+                <th>뜻</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Gateway</td>
+                <td>챗봇 뒤에서 OpenShift 조회, 권한 확인, Action Plan 생성, 기록 저장을 담당하는 백엔드 서버입니다.</td>
+              </tr>
+              <tr>
+                <td>Action Plan</td>
+                <td>운영자가 승인하거나 거절할 수 있게 정리된 조치 계획입니다.</td>
+              </tr>
+              <tr>
+                <td>검토 기록</td>
+                <td>클러스터를 바꾸지 않고 “검토했다”는 결과만 남기는 안전한 실행 결과입니다.</td>
+              </tr>
+              <tr>
+                <td>Execution Record</td>
+                <td>실행 결과 또는 검토 결과를 담는 기록 형식입니다. 화면에서는 “실행 기록” 또는 “검토 기록”으로 보여야 합니다.</td>
+              </tr>
+              <tr>
+                <td>Audit Ledger</td>
+                <td>누가 어떤 계획을 승인했고 어떤 결과가 남았는지 모아두는 조치 이력 저장소입니다.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="criteria">
+          <h2>제품 완료 기준</h2>
+          <div class="checklist">
+            <div class="check">
+              <strong>Action Plan 생성</strong>
+              <span>대상, 문제, 조치, 영향, 검증, 롤백, 승인 조건이 보여야 합니다.</span>
+            </div>
+            <div class="check">
+              <strong>승인 전 실행 차단</strong>
+              <span>AI 답변이나 버튼 하나로 바로 클러스터 변경이 일어나면 실패입니다.</span>
+            </div>
+            <div class="check">
+              <strong>검토형 조치</strong>
+              <span>클러스터 변경 없이 <code>review_recorded</code>로 남아야 합니다.</span>
+            </div>
+            <div class="check">
+              <strong>저장 위치 표시</strong>
+              <span>로컬 메모리인지, ConfigMap ledger인지 UI 또는 상세에서 확인 가능해야 합니다.</span>
+            </div>
+            <div class="check">
+              <strong>보관 정책 표시</strong>
+              <span>1000건 제한, ConfigMap 삭제, namespace 삭제 같은 소실 조건을 숨기면 안 됩니다.</span>
+            </div>
+            <div class="check">
+              <strong>운영 장기 보존</strong>
+              <span>고객 납품 기준에서는 별도 DB, 백업, 보존 주기, 마스킹 정책이 필요합니다.</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="sources">
+          <h2>근거 파일</h2>
+          <ul>
+            <li><code>docs/contracts/Komsco_ai_agent_final.contract.md</code>: 공식 PDF 검색용 변환본</li>
+            <li><code>docs/contracts/AIOps-For-OCP.contract.md</code>: 최종 산출물 PDF 검색용 변환본</li>
+            <li><code>komsco-ai-gateway/komsco_ai_gateway/main.py</code>: record store와 <code>ExecutionRecord</code> 생성 코드</li>
+            <li><code>komsco-ai-gateway/komsco_ai_gateway/olm_operator.py</code>: 배포판 record store env와 ConfigMap RBAC 코드</li>
+            <li><code>komsco-ai-console-plugin/src/components/assistant.actionRecords.ts</code>: 화면에 표시되는 검토 기록 문구</li>
+          </ul>
+
+          <div class="callout">
+            <p>
+              이 문서는 보호 문서가 아닙니다. Action Plan 구현과 UI가 바뀌면 이 문서도 같이 업데이트해야 합니다.
+            </p>
+          </div>
+        </section>
+      </article>
+    </main>
+  </div>
+</body>
+</html>

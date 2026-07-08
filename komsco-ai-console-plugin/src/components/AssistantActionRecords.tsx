@@ -123,6 +123,17 @@ const actionCardMetaLabel = (stage: AiopsLifecycleStage, language: UiLanguage = 
   return isKo ? '실행 결과' : 'Execution result';
 };
 
+const actionCardMetaLabelForRecord = (
+  stage: AiopsLifecycleStage,
+  record: AiopsRecordView,
+  language: UiLanguage = 'ko',
+): string => {
+  if (stage === 'execution' && isReviewOnlyActionRecord(record)) {
+    return language === 'ko' ? '검토 결과' : 'Review result';
+  }
+  return actionCardMetaLabel(stage, language);
+};
+
 const highestActionStage = (records: AiopsRecordView[]): AiopsLifecycleStage => {
   return records.reduce<AiopsLifecycleStage>((highest, record) => {
     const stage = getActionRecordStage(record);
@@ -133,14 +144,20 @@ const highestActionStage = (records: AiopsRecordView[]): AiopsLifecycleStage => 
 const actionFlowDescription = (
   records: AiopsRecordView[],
   hasResolvedRecords: boolean,
+  hasFallbackRefs: boolean,
   readOnlyBlocked: boolean,
   language: UiLanguage,
 ): string => {
   const isKo = language === 'ko';
   if (!hasResolvedRecords) {
+    if (hasFallbackRefs) {
+      return isKo
+        ? '이 답변에서 진행한 Action Plan입니다.'
+        : 'Action Plan activity from this answer.';
+    }
     return isKo
-      ? '이 답변에 조치 흐름이 연결되어 있습니다. 기록이 연결되면 승인/실행 상태를 표시합니다.'
-      : 'This answer is linked to the action flow. Approval and execution state appears after records are connected.';
+      ? 'Action Plan 상태를 확인 중입니다.'
+      : 'Checking Action Plan status.';
   }
   if (readOnlyBlocked) {
     return isKo
@@ -152,11 +169,11 @@ const actionFlowDescription = (
   if (stage === 'execution') {
     if (records.some(isReviewOnlyActionRecord)) {
       return isKo
-        ? '검토 결과와 감사 기록을 표시합니다. 클러스터 변경은 실행하지 않았습니다.'
+        ? '검토 결과를 표시합니다. 클러스터 변경은 실행하지 않았습니다.'
         : 'Shows the review result and audit record. No cluster change was executed.';
     }
     return isKo
-      ? '실행 결과와 감사 기록을 표시합니다.'
+      ? '실행 결과를 표시합니다.'
       : 'Shows the execution result and audit record.';
   }
   if (stage === 'approval') {
@@ -271,7 +288,7 @@ const ActionRecordAuditDetail: React.FC<{
   record: AiopsRecordView;
 }> = ({ language = 'ko', record }) => (
   <details className="komsco-ai__rail-command-detail">
-    <summary>{language === 'ko' ? '감사 상세' : 'Audit detail'}</summary>
+    <summary>{language === 'ko' ? '기록 원문' : 'Record JSON'}</summary>
     <pre>{JSON.stringify(record, null, 2)}</pre>
   </details>
 );
@@ -281,7 +298,7 @@ const ActionRefAuditDetail: React.FC<{
   language?: UiLanguage;
 }> = ({ actionRef, language = 'ko' }) => (
   <details className="komsco-ai__rail-command-detail">
-    <summary>{language === 'ko' ? '감사 상세' : 'Audit detail'}</summary>
+    <summary>{language === 'ko' ? '기록 원문' : 'Record JSON'}</summary>
     <pre>
       {JSON.stringify(
         {
@@ -305,6 +322,129 @@ const ActionRefAuditDetail: React.FC<{
     </pre>
   </details>
 );
+
+const actionRefDisplayRank = (ref: ConversationActionRef): number =>
+  ACTION_STAGE_ORDER.indexOf(ref.stage);
+
+const actionRefDisplayTimestamp = (ref: ConversationActionRef): number =>
+  ref.updatedAt || new Date(String(ref.createdAt ?? 0)).getTime() || 0;
+
+const fallbackActionRefKey = (ref: ConversationActionRef): string =>
+  [
+    ref.messageAnchor || 'message',
+    ref.targetKey || 'target',
+    ref.toolName || 'action',
+  ].join('|');
+
+const collapseFallbackActionRefs = (
+  refs: ConversationActionRef[],
+): ConversationActionRef[] => {
+  const seen = new Set<string>();
+
+  return [...refs]
+    .sort((a, b) => {
+      const rankDelta = actionRefDisplayRank(b) - actionRefDisplayRank(a);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      return actionRefDisplayTimestamp(b) - actionRefDisplayTimestamp(a);
+    })
+    .filter((ref) => {
+      const key = fallbackActionRefKey(ref);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+};
+
+const fallbackActionRefStageLabel = (
+  ref: ConversationActionRef,
+  language: UiLanguage,
+): string => {
+  const isKo = language === 'ko';
+  if (ref.stage === 'execution') {
+    if (ref.reviewOnly) {
+      return isKo ? '검토 기록을 남겼습니다.' : 'Review record saved.';
+    }
+    return isKo ? '실행 요청을 처리했습니다.' : 'Execution request processed.';
+  }
+  if (ref.stage === 'approval') {
+    return isKo ? '승인을 처리했습니다.' : 'Approval processed.';
+  }
+  if (ref.stage === 'plan') {
+    return isKo ? 'Action Plan을 생성했습니다.' : 'Action Plan created.';
+  }
+  return isKo ? '조치 후보를 준비했습니다.' : 'Action candidate prepared.';
+};
+
+const fallbackActionRefTitle = (
+  ref: ConversationActionRef,
+  language: UiLanguage,
+): string => {
+  if (ref.toolName) {
+    return getActionToolLabel(ref.toolName, language);
+  }
+  return language === 'ko' ? 'Action Plan' : 'Action Plan';
+};
+
+const FallbackActionRefCard: React.FC<{
+  language: UiLanguage;
+  refs: ConversationActionRef[];
+}> = ({ language, refs }) => {
+  const primaryRef = refs[0];
+  if (!primaryRef) {
+    return null;
+  }
+  const isKo = language === 'ko';
+  const extraCount = refs.length - 1;
+
+  return (
+    <div
+      className="komsco-ai__answer-action-card komsco-ai__answer-action-card--fallback"
+      data-action-lifecycle-stage={primaryRef.stage}
+      data-action-ref-count={refs.length}
+    >
+      <div className="komsco-ai__answer-action-headline">
+        <ActionStageIcon stage={primaryRef.stage} />
+        <div className="komsco-ai__answer-action-main">
+          <span>{isKo ? '진행한 Action Plan' : 'Processed Action Plan'}</span>
+          <strong title={primaryRef.targetKey || undefined}>
+            {fallbackActionRefTitle(primaryRef, language)}
+          </strong>
+          <small>
+            {fallbackActionRefStageLabel(primaryRef, language)}
+            {extraCount > 0
+              ? isKo
+                ? ` · 관련 내역 ${extraCount}건`
+                : ` · ${extraCount} related`
+              : ''}
+          </small>
+        </div>
+      </div>
+      <div className="komsco-ai__answer-action-proof">
+        {isKo
+          ? '이 답변에서 사용자가 진행한 Action Plan 상태입니다. 상세 원문은 아래에서 접어 볼 수 있습니다.'
+          : 'This summarizes the Action Plan activity from this answer. Raw records are available below.'}
+      </div>
+      {refs.length > 1 && (
+        <details className="komsco-ai__fallback-action-ref-list">
+          <summary>{isKo ? `관련 처리 내역 ${refs.length}건` : `${refs.length} related records`}</summary>
+          <div>
+            {refs.map((ref) => (
+              <p key={ref.id}>
+                <strong>{fallbackActionRefStageLabel(ref, language)}</strong>
+                <span>{fallbackActionRefTitle(ref, language)}</span>
+              </p>
+            ))}
+          </div>
+        </details>
+      )}
+      <ActionRefAuditDetail actionRef={primaryRef} language={language} />
+    </div>
+  );
+};
 
 const stringList = (value: unknown): string[] =>
   Array.isArray(value)
@@ -491,24 +631,37 @@ const ActionPlanDecisionBlock: React.FC<{
   if (rows.length === 0) {
     return null;
   }
+  const isKo = language === 'ko';
+  const summaryHint = rows
+    .filter((row) => ['target', 'problem', 'impact', 'verification', 'rollback'].includes(row.key))
+    .slice(0, 4)
+    .map((row) => row.label)
+    .join(' · ');
 
   return (
-    <div
-      className="komsco-ai__action-plan-decision"
+    <details
+      className="komsco-ai__action-plan-decision-detail"
       data-action-plan-decision-card
-      aria-label={language === 'ko' ? 'Action Plan 승인 판단 항목' : 'Action Plan approval checklist'}
+      data-action-plan-decision-collapsed
+      aria-label={isKo ? 'Action Plan 승인 판단 항목' : 'Action Plan approval checklist'}
     >
-      {rows.map((row) => (
-        <div
-          className="komsco-ai__action-plan-decision-row"
-          data-action-plan-field={row.key}
-          key={row.key}
-        >
-          <span>{row.label}</span>
-          <p title={row.value}>{row.value}</p>
-        </div>
-      ))}
-    </div>
+      <summary>
+        <span>{isKo ? '상세 판단 항목' : 'Decision details'}</span>
+        <small>{summaryHint}</small>
+      </summary>
+      <div className="komsco-ai__action-plan-decision">
+        {rows.map((row) => (
+          <div
+            className="komsco-ai__action-plan-decision-row"
+            data-action-plan-field={row.key}
+            key={row.key}
+          >
+            <span>{row.label}</span>
+            <p title={row.value}>{row.value}</p>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 };
 
@@ -665,9 +818,10 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
   records,
   resolveAction,
 }) => {
-  const visibleFallbackRefs = records.length === 0 ? fallbackRefs.slice(0, 3) : [];
+  const visibleFallbackRefs = records.length === 0 ? collapseFallbackActionRefs(fallbackRefs) : [];
+  const hasActionMessage = Boolean(aiopsActionError || aiopsActionNotice);
 
-  if (records.length === 0 && visibleFallbackRefs.length === 0) {
+  if (records.length === 0 && visibleFallbackRefs.length === 0 && !hasActionMessage) {
     return null;
   }
 
@@ -676,6 +830,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
   const description = actionFlowDescription(
     records,
     hasResolvedRecords,
+    visibleFallbackRefs.length > 0,
     readOnlyBlocked,
     language,
   );
@@ -693,9 +848,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
         <span>{description}</span>
       </div>
       {aiopsActionError && <div className="komsco-ai__rail-error">{aiopsActionError}</div>}
-      {aiopsActionNotice && !hasResolvedRecords && (
-        <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>
-      )}
+      {aiopsActionNotice && <div className="komsco-ai__rail-success">{aiopsActionNotice}</div>}
       <div className="komsco-ai__answer-action-list">
         {records.map((record) => {
           const action = resolveAction(record, aiopsStatus, executionMode);
@@ -744,7 +897,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                 <div className="komsco-ai__answer-action-headline">
                   <ActionStageIcon stage="execution" />
                   <div className="komsco-ai__answer-action-main">
-                    <span>{actionCardMetaLabel('execution', language)}</span>
+                    <span>{actionCardMetaLabelForRecord('execution', record, language)}</span>
                     <strong title={targetLabel}>{toolLabel}</strong>
                     <small title={outcomeTargetRoleLabel}>{`${outcomeStageLabel} · ${targetLabel}`}</small>
                   </div>
@@ -771,7 +924,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
               <div className="komsco-ai__answer-action-headline">
                 <ActionStageIcon stage={stage} />
                 <div className="komsco-ai__answer-action-main">
-                  <span>{actionCardMetaLabel(stage, language)}</span>
+                  <span>{actionCardMetaLabelForRecord(stage, record, language)}</span>
                   <strong title={targetLabel}>{toolLabel}</strong>
                   <small title={targetRoleLabel}>{`${stageLabel} · ${targetLabel}`}</small>
                 </div>
@@ -823,42 +976,7 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
             </div>
           );
         })}
-        {visibleFallbackRefs.map((ref) => (
-          <div
-            className="komsco-ai__answer-action-card komsco-ai__answer-action-card--fallback"
-            data-action-lifecycle-stage={ref.stage}
-            key={ref.id}
-          >
-            <div className="komsco-ai__answer-action-headline">
-              <ActionStageIcon stage={ref.stage} />
-              <div className="komsco-ai__answer-action-main">
-                <span>{actionCardMetaLabel(ref.stage, language)}</span>
-                <strong title={ref.targetKey || undefined}>
-                  {actionCardTargetDisplayLabel(ref.stage, undefined, language)}
-                </strong>
-                <small>
-                  {language === 'ko'
-                    ? ref.label.replace(/^\d+단계\s*·\s*/, '')
-                    : getActionRecordStageLabel(
-                        { kind: ref.recordKind, metadata: { name: ref.recordName }, spec: {} },
-                        executionMode,
-                        language,
-                      ).replace(/^Step\s+\d+\s*·\s*/, '')}
-                </small>
-              </div>
-            </div>
-            <div className="komsco-ai__answer-action-proof">
-              {ref.toolName
-                ? language === 'ko'
-                  ? `${getActionToolLabel(ref.toolName, language)} 조치 흐름이 이 답변에 연결되어 있습니다. Gateway 기록이 연결되면 승인/실행 버튼을 표시합니다.`
-                  : `${getActionToolLabel(ref.toolName, language)} action flow is linked to this answer. Approval and execution buttons appear after Gateway records are connected.`
-                : language === 'ko'
-                  ? '조치 흐름이 이 답변에 연결되어 있습니다. Gateway 기록이 연결되면 승인/실행 버튼을 표시합니다.'
-                  : 'An action flow is linked to this answer. Approval and execution buttons appear after Gateway records are connected.'}
-            </div>
-            <ActionRefAuditDetail actionRef={ref} language={language} />
-          </div>
-        ))}
+        <FallbackActionRefCard language={language} refs={visibleFallbackRefs} />
       </div>
     </div>
   );

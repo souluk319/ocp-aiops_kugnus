@@ -62,6 +62,26 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
     (ref) => !ref.sourceUri || !isPublicWebReferenceHref(ref.sourceUri),
   );
   const evidenceSummary = compactEvidenceTypeSummary(footer.collectedRefs, language);
+  const hasDetails =
+    collectedRefs.length > 0 ||
+    missing.length > 0 ||
+    queryPlan.length > 0 ||
+    ragAppendixRefs.length > 0;
+
+  const head = (
+    <span className="komsco-ai__evidence-footer-head">
+      <span className="komsco-ai__evidence-title">{isKo ? '확인 결과' : 'Evidence'}</span>
+      <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
+        {isKo ? `확인 ${footer.collectedCount}건` : `Collected ${footer.collectedCount}`}
+      </span>
+      {footer.missingCount > 0 && (
+        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
+          {isKo ? `추가 확인 ${footer.missingCount}건` : `Missing ${footer.missingCount}`}
+        </span>
+      )}
+      <span className="komsco-ai__evidence-summary">{evidenceSummary}</span>
+    </span>
+  );
 
   return (
     <div
@@ -69,26 +89,13 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
       data-evidence-context-id={footer.contextId || ''}
       data-evidence-digest={footer.digest || ''}
     >
-      <div className="komsco-ai__evidence-footer-head">
-        <span className="komsco-ai__evidence-title">{isKo ? '확인 결과' : 'Evidence'}</span>
-        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
-          {isKo ? `확인 ${footer.collectedCount}건` : `Collected ${footer.collectedCount}`}
-        </span>
-        {footer.missingCount > 0 && (
-          <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
-            {isKo ? `추가 확인 ${footer.missingCount}건` : `Missing ${footer.missingCount}`}
-          </span>
-        )}
-        <span className="komsco-ai__evidence-summary">{evidenceSummary}</span>
-      </div>
-
-      {(collectedRefs.length > 0 ||
-        missing.length > 0 ||
-        queryPlan.length > 0 ||
-        ragAppendixRefs.length > 0) && (
-        <details className="komsco-ai__evidence-detail">
-          <summary>
-            <span>{isKo ? '확인 결과 상세' : 'Evidence details'}</span>
+      {hasDetails ? (
+        <details className="komsco-ai__evidence-detail komsco-ai__evidence-detail--inline">
+          <summary className="komsco-ai__footer-inline-summary">
+            {head}
+            <span className="komsco-ai__footer-detail-toggle">
+              {isKo ? '상세' : 'Details'}
+            </span>
           </summary>
           {ragAppendixRefs.length > 0 && (
             <div
@@ -155,6 +162,8 @@ const AssistantEvidenceFooter: React.FC<AssistantEvidenceFooterProps> = ({
             ))}
           </ol>
         </details>
+      ) : (
+        head
       )}
     </div>
   );

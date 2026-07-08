@@ -738,6 +738,22 @@ ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
             "pathTemplate": "/apis/autoscaling/v2/namespaces/{namespace}/horizontalpodautoscalers/{name}",
         },
     },
+    "set_deployment_container_command": {
+        "toolName": "set_deployment_container_command",
+        "toolVersion": "v1",
+        "targetKind": "Deployment",
+        "risk": "medium",
+        "authorization": {
+            "apiGroup": "apps",
+            "resource": "deployments",
+            "subresource": "",
+            "verb": "patch",
+        },
+        "request": {
+            "method": "PATCH",
+            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
+        },
+    },
     "namespace_cleanup_review": {
         "toolName": "namespace_cleanup_review",
         "toolVersion": "v1",
@@ -772,6 +788,22 @@ ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
     },
     "pod_diagnostic_review": {
         "toolName": "pod_diagnostic_review",
+        "toolVersion": "v1",
+        "targetKind": "Pod",
+        "risk": "low",
+        "authorization": {
+            "apiGroup": "",
+            "resource": "pods",
+            "subresource": "",
+            "verb": "get",
+        },
+        "request": {
+            "method": "GET",
+            "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}",
+        },
+    },
+    "pod_fix_or_rollback_review": {
+        "toolName": "pod_fix_or_rollback_review",
         "toolVersion": "v1",
         "targetKind": "Pod",
         "risk": "low",
@@ -896,6 +928,27 @@ RUNBOOK_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
             "targetUidRequired": True,
             "platformNamespaceRequiresExplicitPolicy": True,
             "hpaPolicyReviewRequired": True,
+        },
+    },
+    "deployment_container_command_fix_v1": {
+        "runbookId": "deployment_container_command_fix_v1",
+        "runbookVersion": "v1",
+        "incidentClass": "deployment_command_crashloop_recovery",
+        "targetKind": "Deployment",
+        "allowedSteps": [
+            {
+                "stepId": "set_container_command",
+                "toolName": "set_deployment_container_command",
+                "toolVersion": "v1",
+                "requiredParameters": ["containerName", "command"],
+            }
+        ],
+        "policyChecks": {
+            "namespaceRequired": True,
+            "targetUidRequired": True,
+            "platformNamespaceRequiresExplicitPolicy": True,
+            "ownerReviewRequired": True,
+            "commandChangeReviewRequired": True,
         },
     },
 }
@@ -1646,6 +1699,31 @@ def normalize_action_parameters(
             "minReplicas": min_replicas,
         }
 
+    if tool_name == "set_deployment_container_command":
+        container_name = parameters.get("containerName")
+        command = parameters.get("command")
+        expected_previous_digest = parameters.get("expectedPreviousCommandDigest")
+        reason = parameters.get("reason")
+        if not isinstance(container_name, str) or not container_name.strip():
+            raise HTTPException(status_code=400, detail="containerName must be a non-empty string")
+        if not isinstance(command, list) or not command or len(command) > 8:
+            raise HTTPException(status_code=400, detail="command must be a list of 1 to 8 strings")
+        normalized_command = []
+        for item in command:
+            if not isinstance(item, str) or not item.strip() or len(item.strip()) > 256:
+                raise HTTPException(status_code=400, detail="command entries must be non-empty strings up to 256 chars")
+            normalized_command.append(item.strip())
+        if expected_previous_digest is not None and not isinstance(expected_previous_digest, str):
+            raise HTTPException(status_code=400, detail="expectedPreviousCommandDigest must be a string")
+        if reason is not None and not isinstance(reason, str):
+            raise HTTPException(status_code=400, detail="reason must be a string")
+        return {
+            "command": normalized_command,
+            "containerName": container_name.strip(),
+            "expectedPreviousCommandDigest": str(expected_previous_digest or ""),
+            "reason": str(reason or "approved deployment container command fix")[:240],
+        }
+
     if tool_name == "namespace_cleanup_review":
         owner_confirmed = parameters.get("ownerConfirmed", False)
         pvc_route_reviewed = parameters.get("pvcRouteReviewed", False)
@@ -1668,6 +1746,35 @@ def normalize_action_parameters(
             "count": count,
             "image": image[:240],
             "namePrefix": str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX)[:63],
+            "reviewOnly": True,
+        }
+
+    if tool_name == "pod_diagnostic_review":
+        include_describe = parameters.get("includeDescribe", True)
+        include_events = parameters.get("includeEvents", True)
+        include_previous_logs = parameters.get("includePreviousLogs", True)
+        if not all(isinstance(value, bool) for value in (include_describe, include_events, include_previous_logs)):
+            raise HTTPException(status_code=400, detail="pod diagnostic review flags must be boolean values")
+        return {
+            "includeDescribe": include_describe,
+            "includeEvents": include_events,
+            "includePreviousLogs": include_previous_logs,
+            "reviewOnly": True,
+        }
+
+    if tool_name == "pod_fix_or_rollback_review":
+        include_owner_chain = parameters.get("includeOwnerChain", True)
+        include_rollout_history = parameters.get("includeRolloutHistory", True)
+        include_template_review = parameters.get("includeTemplateReview", True)
+        if not all(
+            isinstance(value, bool)
+            for value in (include_owner_chain, include_rollout_history, include_template_review)
+        ):
+            raise HTTPException(status_code=400, detail="pod fix review flags must be boolean values")
+        return {
+            "includeOwnerChain": include_owner_chain,
+            "includeRolloutHistory": include_rollout_history,
+            "includeTemplateReview": include_template_review,
             "reviewOnly": True,
         }
 
@@ -3388,6 +3495,24 @@ def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, An
     parameters = dict(req.parameters)
 
     if kind == "Deployment":
+        source_hint = " ".join(
+            [
+                str(req.candidateId or ""),
+                str(req.sourceType or ""),
+                str(req.title or ""),
+                str(req.sourceFindingId or ""),
+            ]
+        ).lower()
+        if any(token in source_hint for token in ("container_command", "command_fix", "set_deployment_container_command")):
+            return {
+                "apiVersion": target.apiVersion or "apps/v1",
+                "kind": "Deployment",
+                "namespace": namespace,
+                "targetName": target.name,
+                "toolName": "set_deployment_container_command",
+                "parameters": parameters,
+                "summary": f"Deployment `{namespace}/{target.name}` container command update",
+            }
         return {
             "apiVersion": target.apiVersion or "apps/v1",
             "kind": "Deployment",
@@ -3407,14 +3532,26 @@ def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, An
                 str(req.sourceFindingId or ""),
             ]
         ).lower()
+        if any(token in source_hint for token in ("fix-review", "fix_or_rollback", "rollback_review")):
+            return {
+                "apiVersion": target.apiVersion or "v1",
+                "kind": "Pod",
+                "namespace": namespace,
+                "targetName": target.name,
+                "toolName": "pod_fix_or_rollback_review",
+                "parameters": parameters
+                or {
+                    "includeOwnerChain": True,
+                    "includeRolloutHistory": True,
+                    "includeTemplateReview": True,
+                },
+                "summary": f"Pod `{namespace}/{target.name}` fix or rollback review",
+            }
         if any(
             token in source_hint
             for token in (
                 "diagnostic",
                 "diagnosis",
-                "fix-review",
-                "fix_or_rollback",
-                "rollback_review",
                 "rca",
                 "evidence",
                 "log-review",
@@ -3497,6 +3634,12 @@ async def create_plan_from_action_candidate(
         )
 
     intent = action_candidate_plan_intent(req)
+    review_only_candidate = str(intent.get("toolName") or "") in {
+        "namespace_cleanup_review",
+        "test_pod_create_review",
+        "pod_diagnostic_review",
+        "pod_fix_or_rollback_review",
+    }
     if str(intent.get("kind") or "") == "Namespace":
         target_name = str(intent["targetName"])
         async with httpx.AsyncClient(
@@ -3538,8 +3681,8 @@ async def create_plan_from_action_candidate(
                 "source": "aiops-action-candidate-board",
                 "sourceFindingId": req.sourceFindingId,
                 "sourceType": req.sourceType,
-                "reviewOnly": True,
                 **dict(req.policy),
+                **({"reviewOnly": True} if review_only_candidate else {}),
             },
             verificationChecks=req.verificationChecks,
         )
@@ -3637,6 +3780,7 @@ async def create_plan_from_action_candidate(
             "sourceFindingId": req.sourceFindingId,
             "sourceType": req.sourceType,
             **dict(req.policy),
+            **({"reviewOnly": True} if review_only_candidate else {}),
         },
         verificationChecks=req.verificationChecks,
     )
@@ -7181,9 +7325,9 @@ def execution_mode_sentence(mode: str, language: str) -> str:
             else "실행 가능 모드: 조회 후 승인 가능한 Action Plan 후보를 만들 수 있습니다. 승인 전 변경은 실행하지 않습니다."
         )
     return (
-        "Read-only mode: only query evidence and safe `oc get/describe` commands are provided. No Action Plan or change is created."
+        "Read-only mode: evidence and plan candidates can be reviewed, but Action Plan creation, approval, and execution are locked."
         if is_en
-        else "읽기 전용 모드: 조회 결과와 안전한 `oc get/describe` 명령만 제공합니다. Action Plan이나 변경 작업은 만들지 않습니다."
+        else "읽기 전용 모드: 조회 결과와 계획 후보는 확인할 수 있지만, Action Plan 생성·승인·실행은 잠겨 있습니다."
     )
 
 
@@ -7333,7 +7477,7 @@ def test_pod_create_answer(
                 + (
                     "A test Pod creation review candidate can be created."
                     if action_mode and preflight.get("ok")
-                    else "Only read-only commands are shown."
+                    else "Plan candidates can be reviewed, but creation and execution are locked."
                     if not action_mode
                     else "The namespace must be rechecked before an Action Plan candidate is created."
                 )
@@ -7352,7 +7496,7 @@ def test_pod_create_answer(
             (
                 f"- Approval-required candidates: `{namespace}` test Pod creation review"
                 if action_mode and preflight.get("ok")
-                else "- Status: read-only mode does not create plan or execution buttons."
+                else "- Status: read-only mode shows the plan candidate only; switch to execution-enabled mode to create it."
                 if not action_mode
                 else "- Status: namespace must be rechecked before a candidate is created."
             ),
@@ -7375,7 +7519,7 @@ def test_pod_create_answer(
             + (
                 "테스트 Pod 생성 검토용 Action Plan 후보를 만들 수 있습니다."
                 if action_mode and preflight.get("ok")
-                else "조회 명령만 제공합니다."
+                else "계획 후보는 확인할 수 있지만 생성과 실행은 잠겨 있습니다."
                 if not action_mode
                 else "Action Plan 후보 생성 전 namespace 재확인이 필요합니다."
             )
@@ -7394,7 +7538,7 @@ def test_pod_create_answer(
         (
             f"- 승인 필요 후보: `{namespace}` 테스트 Pod {count}개 생성 검토"
             if action_mode and preflight.get("ok")
-            else "- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않습니다."
+            else "- 상태: 읽기 전용 모드에서는 계획 후보만 표시하고, 생성은 실행 가능 모드에서 진행합니다."
             if not action_mode
             else "- 상태: 실행 전 namespace 재확인 필요"
         ),
@@ -7537,7 +7681,7 @@ def namespace_cleanup_answer(inventory: Mapping[str, Any], execution_mode: str, 
                     if action_mode and cleanup_candidates
                     else "- Status: execution mode is enabled, but no safe cleanup candidate was found."
                     if action_mode
-                    else "- Status: read-only mode does not create plan or execution buttons."
+                    else "- Status: read-only mode shows cleanup review candidates only; switch to execution-enabled mode to create an Action Plan."
                 ),
                 "- This review plan does not delete a namespace by itself.",
                 "- Deletion requires a separate owner/backup/PVC/Route confirmation policy.",
@@ -7588,7 +7732,7 @@ def namespace_cleanup_answer(inventory: Mapping[str, Any], execution_mode: str, 
                 if action_mode and cleanup_candidates
                 else "- 상태: 실행 가능 모드이지만 안전한 정리 후보가 없어 Action Plan 버튼을 만들지 않습니다."
                 if action_mode
-                else "- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않습니다."
+                else "- 상태: 읽기 전용 모드에서는 정리 검토 후보만 표시하고, Action Plan 생성은 실행 가능 모드에서 진행합니다."
             ),
             "- 이 검토 계획은 namespace 삭제를 직접 실행하지 않습니다.",
             "- 실제 삭제는 소유자 확인, PVC/Route 잔존 여부, 백업 필요 여부를 별도로 승인해야 합니다.",
@@ -9015,6 +9159,7 @@ OpenShift 경고 분석 프로토콜:
 - Markdown은 GitHub Flavored Markdown으로 작성하고, 코드블록은 반드시 삼중 백틱으로 열고 삼중 백틱으로 닫으세요.
 - 코드블록 안에는 실행 가능한 명령만 넣고, "Pod 로그 확인" 같은 설명 문장은 코드블록 밖에 작성하세요.
 - 장애 분석 답변은 가능한 경우 `현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인` 순서로 작성하세요.
+- 사용자가 `CrashLoopBackOff` 또는 `크래시 루프 백 오프`를 말했거나 확인 결과에 `CrashLoopBackOff`가 있으면 첫 문장에 "컨테이너가 시작 후 곧바로 종료되고 Kubernetes가 재시작을 반복하다가 대기 시간을 늘리는 상태"라는 뜻을 먼저 설명하세요.
 - 단순 개념 질문은 RCA 보고서로 늘리지 말고, 짧은 정의와 확인 방법만 답하세요.
 - `Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖에 작성하세요.
 - 코드블록 안에 다시 ```bash 같은 fence를 중첩하지 마세요.
@@ -11820,6 +11965,16 @@ def command_suggests_immediate_exit(command: str, args: str) -> bool:
     return any(marker in text for marker in ["systemexit", "raise ", "exit ", "exit(", "false", "sys.exit"])
 
 
+CRASHLOOPBACKOFF_PLAIN_DEFINITION = (
+    "CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고, Kubernetes가 재시작을 반복하다가 "
+    "잠시 대기 시간을 늘리는 상태입니다."
+)
+
+
+def message_mentions_crashloop(message: str) -> bool:
+    return bool(re.search(r"crash\s*loop\s*back\s*off|crashloopbackoff|크래시\s*루프\s*백\s*오프", message, re.IGNORECASE))
+
+
 def ready_summary_is_full(ready: str) -> bool:
     match = re.fullmatch(r"\s*(\d+)\s*/\s*(\d+)\s*", ready)
     return bool(match and match.group(1) == match.group(2))
@@ -11970,6 +12125,10 @@ def build_pod_evidence_fallback(req: ChatRequest, gateway_evidence: str | None) 
         cause = "컨테이너 실행 명령/args가 프로세스의 즉시 종료를 유발하는 형태로 확인됩니다."
 
     lines = [
+        CRASHLOOPBACKOFF_PLAIN_DEFINITION,
+        "",
+        f"이 Pod의 경우 {cause}",
+        "",
         "## RCA 보고서",
         "",
         "### 현재 판단",
@@ -12117,7 +12276,17 @@ def build_empty_answer_fallback(
     ns = str(ctx.get("namespace") or "default")
 
     # ── build answer ─────────────────────────────────────────
+    crashloop_intro = (
+        [
+            CRASHLOOPBACKOFF_PLAIN_DEFINITION,
+            "",
+        ]
+        if message_mentions_crashloop(req.message)
+        or re.search(r"CrashLoopBackOff", str(gateway_evidence or ""), re.IGNORECASE)
+        else []
+    )
     lines: list[str] = [
+        *crashloop_intro,
         "> ⚠️ **AI 최종 답변 미수신** — OpenShift Lightspeed가 최종 답변 텍스트를 반환하지 않아 Gateway 조회 결과만으로 요약합니다.",
         "> OLS 연결 자체가 아니라 최종 텍스트 생성 단계의 문제일 수 있습니다. 아래 내용은 Gateway가 확인한 조회 결과 기준입니다.",
         "",
@@ -12482,6 +12651,34 @@ async def verify_typed_action_postcondition(
             },
         }
 
+    if tool_name == "set_deployment_container_command":
+        container_name = str(parameters.get("containerName") or "")
+        command = parameters.get("command") if isinstance(parameters.get("command"), list) else []
+        containers = (
+            target_resource.get("spec", {})
+            .get("template", {})
+            .get("spec", {})
+            .get("containers", [])
+        )
+        observed_command = None
+        if isinstance(containers, list):
+            for container in containers:
+                if isinstance(container, Mapping) and container.get("name") == container_name:
+                    observed_command = container.get("command")
+                    break
+        if observed_command == command:
+            return {
+                "status": "verified",
+                "reason": "deployment_container_command_matches",
+                "containerName": container_name,
+            }
+        return {
+            "status": "verification_failed",
+            "reason": "deployment_container_command_mismatch",
+            "containerName": container_name,
+            "observedCommand": observed_command,
+        }
+
     return {"status": "inconclusive", "reason": "no_postcondition_for_tool"}
 
 
@@ -12556,6 +12753,30 @@ def pod_diagnostic_review_execution_result(sealed_plan: Mapping[str, Any]) -> di
     }
 
 
+def pod_fix_or_rollback_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
+    target = target_from_plan(sealed_plan)
+    target_label = "/".join(
+        part for part in [str(target.get("namespace") or ""), str(target.get("name") or "")] if part
+    ) or "pod"
+    return {
+        "mutationOutcome": {
+            "status": "review_recorded",
+            "reason": f"pod fix/rollback review recorded for {target_label}; no Pod restart, eviction, patch, or rollback was executed",
+            "httpStatus": 200,
+        },
+        "remediationOutcome": {
+            "status": "verified",
+            "reason": f"{target_label} fix/rollback review recorded without mutation",
+        },
+        "executorTrace": {
+            "mutationSubmitted": False,
+            "reviewOnly": True,
+            "target": target,
+            "toolName": "pod_fix_or_rollback_review",
+        },
+    }
+
+
 async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
     if not OPENSHIFT_API_URL:
         raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
@@ -12567,6 +12788,8 @@ async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str,
         return test_pod_create_review_execution_result(sealed_plan)
     if str(action.get("toolName") or "") == "pod_diagnostic_review":
         return pod_diagnostic_review_execution_result(sealed_plan)
+    if str(action.get("toolName") or "") == "pod_fix_or_rollback_review":
+        return pod_fix_or_rollback_review_execution_result(sealed_plan)
 
     executor_auth = executor_auth_header()
     async with httpx.AsyncClient(
@@ -12673,6 +12896,8 @@ async def execute_action_with_executor(
         return test_pod_create_review_execution_result(sealed_plan)
     if str(action.get("toolName") or "") == "pod_diagnostic_review":
         return pod_diagnostic_review_execution_result(sealed_plan)
+    if str(action.get("toolName") or "") == "pod_fix_or_rollback_review":
+        return pod_fix_or_rollback_review_execution_result(sealed_plan)
 
     if not ACTION_EXECUTOR_URL:
         return await execute_typed_action_plan(sealed_plan)
@@ -15056,7 +15281,13 @@ async def _create_approval_decision_impl(
     action = plan["spec"]["sealedActionPlan"].get("action", {})
     review_only_action = (
         isinstance(action, Mapping)
-        and str(action.get("toolName") or "") in {"namespace_cleanup_review", "test_pod_create_review", "pod_diagnostic_review"}
+        and str(action.get("toolName") or "")
+        in {
+            "namespace_cleanup_review",
+            "test_pod_create_review",
+            "pod_diagnostic_review",
+            "pod_fix_or_rollback_review",
+        }
     )
     record = build_approval_decision_record(
         plan,

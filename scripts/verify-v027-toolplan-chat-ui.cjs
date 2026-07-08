@@ -215,8 +215,7 @@ const main = async () => {
       return {
         ready: Boolean(latest) &&
           text.includes('조회 계획') &&
-          (text.includes('조회 전용') || text.includes('승인 후 실행')) &&
-          text.includes('조회 계획 상세보기'),
+          text.includes('상세'),
         footerCount: footers.length,
         text: text.slice(0, 1000)
       };

@@ -369,6 +369,14 @@ tasks:
           --output "{{.OUTPUT | default ".tmp-kugnus-demo/aiops-learning-dataset.json"}}" \
           --limit "{{.LIMIT | default "100"}}"
 
+  kugnus:aiops:completion-audit:
+    desc: Generate the official-PDF-aligned AIOps completion audit without publishing or installing
+    cmds:
+      - |
+        node scripts/verify-v029-aiops-completion-audit.cjs \
+          --output "{{.OUTPUT | default ".tmp-kugnus-demo/aiops-completion-audit.json"}}" \
+          --markdown "{{.MARKDOWN | default ".tmp-kugnus-demo/aiops-completion-audit.md"}}"
+
   kugnus:aiops:repair:
     desc: Repair stale local OKD AIOps console, plugin, and bridge readiness
     cmds:

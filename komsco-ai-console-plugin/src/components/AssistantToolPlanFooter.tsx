@@ -8,9 +8,10 @@ import {
   toolPlanPlannerLabel,
   toolPlanPlannerSummary,
 } from './assistant.toolPlan';
-import type { ToolPlanFooter, UiLanguage } from './assistant.types';
+import type { AiopsExecutionMode, ToolPlanFooter, UiLanguage } from './assistant.types';
 
 type AssistantToolPlanFooterProps = {
+  executionMode: AiopsExecutionMode;
   language: UiLanguage;
   toolPlan?: ToolPlanFooter;
 };
@@ -46,6 +47,7 @@ const translateToolPlanText = (value: string | undefined, language: UiLanguage):
 };
 
 const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
+  executionMode,
   language,
   toolPlan,
 }) => {
@@ -57,17 +59,17 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
   const steps = toolPlan.steps.slice(0, 6);
   const missingEvidence = toolPlan.missingEvidence.slice(0, 3);
   const readOnly = isReadOnlyExecutionPolicy(toolPlan.executionPolicyMode);
+  const showExecutionPolicy = !readOnly || executionMode === 'read-only';
   const targetLabel = [toolPlan.targetResourceKind, toolPlan.targetResourceName]
     .filter(Boolean)
     .join(' ');
-
-  return (
-    <div className="komsco-ai__toolplan-footer">
-      <div className="komsco-ai__toolplan-footer-head">
-        <span className="komsco-ai__evidence-title">{isKo ? '조회 계획' : 'Query plan'}</span>
-        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
-          {toolPlan.taskType}
-        </span>
+  const head = (
+    <span className="komsco-ai__toolplan-footer-head">
+      <span className="komsco-ai__evidence-title">{isKo ? '조회 계획' : 'Query plan'}</span>
+      <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--collected">
+        {toolPlan.taskType}
+      </span>
+      {showExecutionPolicy && (
         <span
           className={`komsco-ai__evidence-pill ${
             readOnly
@@ -77,16 +79,23 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
         >
           {executionPolicyLabel(toolPlan.executionPolicyMode, language)}
         </span>
-        {toolPlan.validationOk === false && (
-          <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
-            {isKo ? '계획 검증 실패' : 'Plan validation failed'}
-          </span>
-        )}
-      </div>
+      )}
+      {toolPlan.validationOk === false && (
+        <span className="komsco-ai__evidence-pill komsco-ai__evidence-pill--missing">
+          {isKo ? '계획 검증 실패' : 'Plan validation failed'}
+        </span>
+      )}
+    </span>
+  );
 
-      <details className="komsco-ai__evidence-detail">
-        <summary>
-          <span>{isKo ? '조회 계획 상세보기' : 'Query plan details'}</span>
+  return (
+    <div className="komsco-ai__toolplan-footer">
+      <details className="komsco-ai__evidence-detail komsco-ai__evidence-detail--inline">
+        <summary className="komsco-ai__footer-inline-summary">
+          {head}
+          <span className="komsco-ai__footer-detail-toggle">
+            {isKo ? '상세' : 'Details'}
+          </span>
         </summary>
         <div className="komsco-ai__toolplan-source">
           <strong>
@@ -143,7 +152,7 @@ const AssistantToolPlanFooter: React.FC<AssistantToolPlanFooterProps> = ({
         {toolPlan.rawPlanJson && (
           <details className="komsco-ai__toolplan-json">
             <summary>
-              <span>{isKo ? '감사용 JSON' : 'Audit JSON'}</span>
+              <span>{isKo ? '원본 기록(JSON)' : 'Raw record JSON'}</span>
             </summary>
             <div className="komsco-ai__toolplan-json-head">
               <span>redacted tool plan</span>

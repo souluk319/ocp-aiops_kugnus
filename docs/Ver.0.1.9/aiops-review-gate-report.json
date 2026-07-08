@@ -1,16 +1,16 @@
 {
   "schemaVersion": "v1",
-  "generatedAt": "2026-07-01T07:23:16.992701Z",
-  "branch": "v0.2.2-aiops-answer-experience",
+  "generatedAt": "2026-07-08T01:48:23.626003Z",
+  "branch": "feature/v0.2.9-aiops-chatbot-plan",
   "reviewerCount": 3,
   "minimumReviewPassesRequired": 5,
   "scope": "offline-local-review-gate",
   "reviewPassCount": 12,
   "offlineGatePassed": true,
-  "fullGoalCompletionProven": true,
+  "fullGoalCompletionProven": false,
   "passed": true,
   "liveVerification": {
-    "status": "proven",
+    "status": "not_proven",
     "preflightCommand": "task kugnus:vpn:doctor",
     "liveGateCommand": "task kugnus:aiops:live-verify",
     "report": ".tmp-kugnus-demo/ocp-vpn-route-report.json",
@@ -30,7 +30,7 @@
       "runtime": true,
       "rag": true,
       "actions": true,
-      "lightspeed": true
+      "lightspeed": false
     },
     "ui": {
       "ok": true,
@@ -49,21 +49,21 @@
       "failedChecks": []
     },
     "lightspeed": {
-      "allSucceeded": true,
-      "generatedAt": "2026-07-01T01:24:24.832633Z",
+      "allSucceeded": false,
+      "generatedAt": "2026-07-01T15:45:34.444527Z",
       "cases": [
         {
           "caseId": "cluster-summary",
-          "ok": true,
-          "olsTextEvents": 40,
+          "ok": false,
+          "olsTextEvents": 42,
           "fallbackEvents": 0,
           "streamProbe": "succeeded",
           "fallbackActive": false
         },
         {
           "caseId": "official-evidence-rca",
-          "ok": true,
-          "olsTextEvents": 37,
+          "ok": false,
+          "olsTextEvents": 23,
           "fallbackEvents": 0,
           "streamProbe": "succeeded",
           "fallbackActive": false
@@ -136,7 +136,7 @@
       "evidence": [
         "ignored PDF/PNG references",
         "company runtime apply approval gate",
-        "komsco-aiops-kugnus-operator.v0.1.9"
+        "cywell-aiops-operator.v0.1.10"
       ]
     }
   ],
@@ -147,7 +147,7 @@
       "ok": true,
       "command": "python3 -m py_compile komsco-ai-gateway/komsco_ai_gateway/main.py komsco-ai-gateway/tests/test_health.py",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:07.593703Z",
+      "startedAt": "2026-07-08T01:48:03.582052Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
@@ -158,9 +158,9 @@
       "ok": true,
       "command": "komsco-ai-gateway/.venv/bin/python -m pytest komsco-ai-gateway/tests/test_health.py -q -k runtime_tool_plan or rca_context or action_candidates or execute_mode_action_plan_response_has_post_answer_rca or chat_action_plan_can_continue_through_standard_approval_api or unrestricted_executes_natural_scale_action or execute_action_request_emits_plan_and_post_answer_rca_context or read_only_action_request_skips_plan_and_emits_post_answer_rca_context",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:07.804383Z",
+      "startedAt": "2026-07-08T01:48:04.147214Z",
       "returnCode": 0,
-      "stdoutPreview": ": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"execute\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-01T07:23:08.921720+00:00\"}}\n.{\"aiopsAudit\": {\"schemaVersion\": \"v1\", \"action\": \"chat_request_accepted\", \"auditId\": \"audit-49823c64b1a045da\", \"incidentId\": \"inc-991aabc5-134c-4ca6-831d-7cab31aa143e\", \"policy\": {\"schemaVersion\": \"v1\", \"phase\": \"phase5-action-execution\", \"decision\": \"action_proposal_only\", \"identityMode\": \"user-token\", \"mutationAllowed\": false, \"risk\": \"approval_required\", \"reason\": \"Natural-language mutation requests must be converted to an ActionProposal and executed only through the Approval API and Action Executor.\"}, \"requestId\": \"req-741f95bd-be6c-4cae-8dee-007ebe7defdf\", \"runId\": \"run-b97da113-69e7-4257-9407-91793c43ae49\", \"subject\": {\"authenticatedByCluster\": \"api-server\", \"groups\": [\"system:authenticated\"], \"groupsDigest\": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"read-only\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-01T07:23:08.975315+00:00\"}}\n...\n17 passed, 201 deselected in 0.91s\n",
+      "stdoutPreview": "ct\": {\"authenticatedByCluster\": \"api-server\", \"groups\": [\"system:authenticated\"], \"groupsDigest\": \"sha256:c7174c59a96ef46407fe01098c9c4386793ba076d318788789173db3a31fa558\", \"uid\": \"uid-dev\", \"username\": \"dev-user\"}, \"target\": {\"attachments\": 0, \"messageLength\": 33, \"pageContext\": {\"aiopsExecutionMode\": \"read-only\"}, \"productAccessReview\": {\"allowed\": true, \"enabled\": true, \"required\": true, \"resourceAttributes\": {\"resource\": \"consoleplugins\", \"verb\": \"get\"}}}, \"timestamp\": \"2026-07-08T01:48:07.438757+00:00\"}}\n...\n=============================== warnings summary ===============================\ntests/test_health.py::test_chat_stream_emits_rca_context_event\n  /home/kugnus/cywell/ocp-aiops_kugnus/komsco-ai-gateway/komsco_ai_gateway/main.py:17510: RuntimeWarning: RAG embedding service fallback active — embedding service returned None (connection error or bad response). Chunks will be stored with hashing-bow-v1 until this is resolved.\n    rag_status, rag_reason, rag_results = await search_pgvector_runbooks(\n\ntests/test_health.py::test_chat_stream_emits_rca_context_event\n  /home/kugnus/cywell/ocp-aiops_kugnus/komsco-ai-gateway/komsco_ai_gateway/main.py:14247: UserWarning: KOMSCO_AI_EMBEDDING_MODEL='dragonkue/bge-m3-ko' is configured but hashing-bow-v1 fallback is being used for this embedding call. Check the embedding service URL, response dimensions, or timeout if semantic-service was expected.\n    query_vector = pgvector_literal(build_rag_embedding(req.query))\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n17 passed, 206 deselected, 2 warnings in 2.42s\n",
       "stderrPreview": ""
     },
     {
@@ -169,9 +169,9 @@
       "ok": true,
       "command": "python3 scripts/verify-aiops-answer-experience.py",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:09.369338Z",
+      "startedAt": "2026-07-08T01:48:08.024778Z",
       "returnCode": 0,
-      "stdoutPreview": "ce from page context\nPASS Gateway prompt forbids procedure-only screen answers\nPASS transcript stores answerMode\nPASS transcript stores assistantAnswer\nPASS transcript stores toolPlanDigest\nPASS transcript stores rcaContextDigest\nPASS transcript stores evidenceRefs\nPASS transcript names human RCA answer mode\nPASS action text uses human query plan wording\nPASS default action text does not print Tool Plan line\nPASS console has query step type\nPASS console builds queryPlan for Evidence footer\nPASS console has Evidence detail toggle\nPASS console labels human query plan\nPASS quick prompt asks AIOps to run safe checks\nPASS console styles query plan detail\nPASS audit page keeps raw Tool Plan JSON\nPASS audit page keeps raw RCA Context JSON\nPASS console keeps three modes\nPASS console keeps read-only label\nPASS console keeps execute label\nPASS console keeps unrestricted label\nPASS console keeps unrestricted button selectable\nPASS console does not auto-demote unrestricted mode\nPASS console closes history sidebar with assistant\nPASS console clears detached history drawer bounds\nPASS console does not render sidebar portal after close\nPASS console does not show stream relay jargon\nPASS console does not show OLS query jargon\nPASS console does not show streaming jargon\nPASS console does not show relay wording\nPASS gateway keeps evidence-check mode\nPASS gateway keeps controlled execution mode\nPASS gateway keeps unrestricted mode\nPASS tests cover read-only action skip\nPASS tests cover execute action planning\nPASS tests cover current Pod screen promotion\nPASS runtime transcript JSONL ignored\n",
+      "stdoutPreview": "portals floating assistant out of OKD stacking context\nPASS console marks portaled assistant surface\nPASS console does not show stream relay jargon\nPASS console does not show OLS query jargon\nPASS console does not show streaming jargon\nPASS console does not show relay wording\nPASS console has conversation history storage key\nPASS console has active conversation storage key\nPASS console persists language selection\nPASS console restores language selection\nPASS console stores language selection\nPASS console exposes current language state\nPASS console language button shows current language\nPASS console restores conversation history\nPASS console restores active conversation\nPASS console persists conversation history\nPASS console persists active conversation\nPASS console strips raw attachments from stored messages\nPASS console strips raw attachments before persisting history\nPASS console strips raw attachments before persisting active conversation\nPASS assistant answer body uses readable font size\nPASS assistant answer body uses readable line height\nPASS assistant overlay sits above OKD chrome\nPASS assistant floating surface has portal wrapper\nPASS assistant header icons do not steal clicks\nPASS assistant overlay click contract blocks only decorative layers\nPASS gateway keeps evidence-check mode\nPASS gateway keeps controlled execution mode\nPASS gateway keeps unrestricted mode\nPASS tests cover read-only action skip\nPASS tests cover execute action planning\nPASS tests cover current Pod screen promotion\nPASS tests cover grounded Pod RCA renderer\nPASS runtime transcript JSONL ignored\n",
       "stderrPreview": ""
     },
     {
@@ -180,7 +180,7 @@
       "ok": true,
       "command": "./node_modules/.bin/tsc --noEmit",
       "cwd": "komsco-ai-console-plugin",
-      "startedAt": "2026-07-01T07:23:09.427410Z",
+      "startedAt": "2026-07-08T01:48:08.186008Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
@@ -191,7 +191,7 @@
       "ok": true,
       "command": "node --check scripts/verify-kugnus-ui.mjs",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:16.054294Z",
+      "startedAt": "2026-07-08T01:48:22.880152Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""
@@ -200,6 +200,7 @@
       "name": "Console action approval button wiring",
       "reviewer": "console-ux-reviewer",
       "ok": true,
+      "contract": "v0.2.9 answer action records + collapsed candidate group + browser action flow report",
       "missingImplementationMarkers": [],
       "missingVerifierMarkers": []
     },
@@ -246,7 +247,7 @@
       "ok": true,
       "command": "task kugnus:scenario:verify",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:16.195749Z",
+      "startedAt": "2026-07-08T01:48:22.976260Z",
       "returnCode": 0,
       "stdoutPreview": "{\n  \"report\": \"docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\",\n  \"scenarioCount\": 13,\n  \"expectedScenarioCount\": 13,\n  \"passed\": 13,\n  \"failed\": 0,\n  \"missingRequiredScenarioIds\": [],\n  \"unexpectedScenarioIds\": [],\n  \"duplicateScenarioIds\": [],\n  \"negativeControlsPassed\": true\n}\n",
       "stderrPreview": "task: [kugnus:evaluate] python3 scripts/evaluate-aiops-scenarios.py --scenarios evals/aiops-scenarios --report docs/Ver.0.1.3/aiops-scenario-evaluation-report.json\n"
@@ -257,10 +258,10 @@
       "ok": true,
       "command": "task kugnus:package",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:16.562528Z",
+      "startedAt": "2026-07-08T01:48:23.283127Z",
       "returnCode": 0,
-      "stdoutPreview": "Generated OLM package under /home/kugnus/cywell/ocp-aiops_kugnus/olm/generated\nCSV: komsco-aiops-kugnus-operator.v0.1.9\nCatalogSource: openshift-marketplace/komsco-aiops-catalog-kugnus\nSubscription namespace: komsco-ai-kugnus\nKugnus package verification passed\nCSV: komsco-aiops-kugnus-operator.v0.1.9\nCatalogSource: openshift-marketplace/komsco-aiops-catalog-kugnus\nPackageManifest: komsco-aiops-kugnus\nConsolePlugin: komsco-ai-console-plugin-kugnus\nReadiness conditions: ActionExecutorReady, ConsolePluginConfigured, ConsolePluginDeploymentReady, GatewayReady, GatewayServiceReady, HostDiagnosticsReady, RBACReady, SafetyModeReady, ServiceCABundleReady, TargetNamespaceReady\n",
-      "stderrPreview": "task: [kugnus:package] ./scripts/kugnus-olm.sh package\n"
+      "stdoutPreview": "Generated OLM package under /home/kugnus/cywell/ocp-aiops_kugnus/olm/generated\nCSV: cywell-aiops-operator.v0.1.10\nCatalogSource: openshift-marketplace/cywell-aiops-catalog\nSubscription namespace: cywell-aiops\nAIOps package verification passed\nCSV: cywell-aiops-operator.v0.1.10\nCatalogSource: openshift-marketplace/cywell-aiops-catalog\nPackageManifest: cywell-aiops\nConsolePlugin: cywell-aiops-console-plugin\nReadiness conditions: ActionExecutorReady, ConsolePluginConfigured, ConsolePluginDeploymentReady, GatewayReady, GatewayServiceReady, HostDiagnosticsReady, RBACReady, SafetyModeReady, ServiceCABundleReady, TargetNamespaceReady\n",
+      "stderrPreview": "task: [aiops:package] ./scripts/kugnus-olm.sh package\n"
     },
     {
       "name": "Diff whitespace",
@@ -268,7 +269,7 @@
       "ok": true,
       "command": "git diff --check",
       "cwd": ".",
-      "startedAt": "2026-07-01T07:23:16.984182Z",
+      "startedAt": "2026-07-08T01:48:23.605651Z",
       "returnCode": 0,
       "stdoutPreview": "",
       "stderrPreview": ""

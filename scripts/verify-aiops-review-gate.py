@@ -96,20 +96,35 @@ def static_console_action_button_check() -> dict[str, Any]:
     assistant = (REPO_ROOT / "komsco-ai-console-plugin/src/components/AssistantLauncher.tsx").read_text(
         encoding="utf-8"
     )
+    action_buttons = (
+        REPO_ROOT / "komsco-ai-console-plugin/src/components/AssistantCreateActionPlanButtons.tsx"
+    ).read_text(encoding="utf-8")
+    action_records = (
+        REPO_ROOT / "komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx"
+    ).read_text(encoding="utf-8")
+    action_flow_verifier = (REPO_ROOT / "scripts/verify-v029-chatbot-action-history-flow.cjs").read_text(
+        encoding="utf-8"
+    )
     gateway = (REPO_ROOT / "komsco-ai-console-plugin/src/services/aiGateway.ts").read_text(encoding="utf-8")
     verifier = (REPO_ROOT / "scripts/verify-kugnus-ui.mjs").read_text(encoding="utf-8")
+    implementation = "\n".join([assistant, action_buttons, action_records, action_flow_verifier, gateway])
     needles = {
-        "answer action buttons": "data-komsco-answer-action-buttons",
+        "answer action container": "data-komsco-answer-action-buttons",
+        "candidate create button": "komsco-ai__create-action-plan-button",
+        "candidate collapsed group": "data-aiops-action-candidates-expanded",
         "create-plan step": "'create-plan'",
         "approve-plan step": "'approve-plan'",
         "reject-plan step": "'reject-plan'",
         "execute-approval step": "'execute-approval'",
-        "rail action button": "komsco-ai__rail-action-button",
+        "action control buttons": "komsco-ai__answer-action-controls",
+        "action lifecycle stage": "data-action-lifecycle-stage",
+        "action button step marker": "data-answer-action-step",
         "approve API": "approveActionPlan",
         "reject API": "rejectActionPlan",
         "execute API": "executeApprovedAction",
+        "browser action flow report": "V029ChatbotActionHistoryFlowVerification",
     }
-    missing = [name for name, needle in needles.items() if needle not in assistant and needle not in gateway]
+    missing = [name for name, needle in needles.items() if needle not in implementation]
     verifier_needles = [
         "actionLifecycleText",
         "Proposal:",
@@ -123,6 +138,7 @@ def static_console_action_button_check() -> dict[str, Any]:
         "name": "Console action approval button wiring",
         "reviewer": "console-ux-reviewer",
         "ok": not missing and not missing_verifier,
+        "contract": "v0.2.9 answer action records + collapsed candidate group + browser action flow report",
         "missingImplementationMarkers": missing,
         "missingVerifierMarkers": missing_verifier,
     }

@@ -1280,12 +1280,12 @@ const namespaceInventoryAnswer = (inventory, executionMode = 'read-only', langua
         ? `- Approval-required candidates: ${cleanupCandidates.map((item) => `\`${item.namespace}\``).join(', ')}`
         : actionCapableMode
           ? '- Status: execution mode is enabled, but no safe cleanup candidate was found.'
-          : '- Status: read-only mode does not create plan or execution buttons.'
+          : '- Status: read-only mode shows cleanup review candidates only; switch to execution-enabled mode to create an Action Plan.'
       : actionCapableMode && cleanupCandidates.length
         ? `- 승인 필요 후보: ${cleanupCandidates.map((item) => `\`${item.namespace}\``).join(', ')}`
         : actionCapableMode
           ? '- 상태: 실행 가능 모드이지만 안전한 삭제 후보가 없어 Action Plan 버튼을 만들지 않습니다.'
-          : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않습니다.',
+          : '- 상태: 읽기 전용 모드에서는 정리 검토 후보만 표시하고, Action Plan 생성은 실행 가능 모드에서 진행합니다.',
     isEn
       ? '- Only `Cleanup candidate` namespaces are eligible for a delete plan.'
       : '- `정리 검토 가능`만 삭제 계획 후보로 올립니다.',
@@ -1614,8 +1614,8 @@ const testPodCreateAnswer = (request, preflight, executionMode = 'read-only', la
         ? '- status: approval-required Action Plan candidate can be created'
         : '- 상태: 승인 필요 Action Plan 후보 생성 가능'
       : isEn
-        ? '- status: read-only mode does not show plan creation or execution buttons'
-        : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
+        ? '- status: read-only mode shows the plan candidate only; switch to execution-enabled mode to create it'
+        : '- 상태: 읽기 전용 모드에서는 계획 후보만 표시하고, 생성은 실행 가능 모드에서 진행합니다',
     isEn
       ? `- proposed action: create test Pods \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${requestedCount}\``
       : `- 조치 후보: \`${LOCAL_TEST_POD_NAME_PREFIX}-<id>-1..${requestedCount}\` 테스트 Pod 생성`,
@@ -2206,7 +2206,7 @@ const streamLocalChat = async (req, res) => {
           '## Action Plan',
           crashloopActionCapableMode
             ? '- status: approval-required Action Plan candidate can be created'
-            : '- status: read-only mode does not show plan creation or execution buttons',
+            : '- status: read-only mode shows the plan candidate only; switch to execution-enabled mode to create it',
           '- action: Deployment rollout restart',
           '- verification: confirm ready replica recovers to `1/1` after restart',
           '- rollback: run rollout undo to the previous ReplicaSet if needed',
@@ -2234,7 +2234,7 @@ const streamLocalChat = async (req, res) => {
           '## Action Plan',
           crashloopActionCapableMode
             ? '- 상태: 승인 필요 Action Plan 후보 생성 가능'
-            : '- 상태: 읽기 전용 모드라 계획 생성/실행 버튼을 표시하지 않음',
+            : '- 상태: 읽기 전용 모드에서는 계획 후보만 표시하고, 생성은 실행 가능 모드에서 진행합니다',
           '- 조치: Deployment rollout restart',
           '- 검증: 재시작 후 ready replica가 `1/1`로 회복되는지 확인',
           '- 롤백: 필요 시 직전 ReplicaSet으로 rollout undo',

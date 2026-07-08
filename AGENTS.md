@@ -52,6 +52,22 @@ Before continuing interrupted work:
 - Identify which files are protected artifacts and which files are integration code.
 - Run the smallest useful verifier once before changing behavior, so failures are based on evidence.
 
+## Intent And Operator Judgment
+
+Before acting on a user command, identify the reason behind the command and the decision the user needs to make next. A technically plausible answer is not enough if it does not help the user understand what is happening, where the delay or failure is, and what can safely be done.
+
+- Do not treat user requests as isolated button presses. Lock the user's goal, the needed evidence, the expected system effect, and the no-change boundary before proposing or executing an action.
+- When a command arrives, first state what kind of work it is, why it is needed, and what judgment or output it must produce.
+- For code changes, operational actions, deployments, verifier changes, and UI regressions, attach a parallel agent or independent review lane by default before completion.
+- If session policy or available tools prevent a parallel agent, say that explicitly and run an equivalent independent review checklist instead.
+- Do not report completion for review-required work until the review lane has produced pass/fail evidence.
+- For operational questions such as CrashLoopBackOff, explain the state in plain language first, then show the exact pod/event/log evidence, then offer safe next actions. Do not jump straight to vague action-plan language.
+- Progress labels must reflect real system stages such as auth/RBAC check, policy check, cluster query, evidence collection, model/RAG, answer rendering, action-plan creation, approval, execution, and audit write. Do not invent nice-looking placeholder states.
+- Chatbot waiting UI must show the actual active stage, not generic text such as "displaying screen" or "loading". Each visible status should map to a real gateway, cluster, model, rendering, action, or audit step.
+- Avoid radar, scanner, or alarm-like waiting animations that make long waits feel worse. Prefer calm assistant-style response animation patterns similar to ChatGPT or Claude: subtle typing, streaming text, quiet shimmer, or small inline progress.
+- If a step is slow, expose the measured timing and the exact layer that is waiting. The user must be able to tell whether the bottleneck is cluster I/O, gateway logic, model generation, UI rendering, or stale state.
+- If an answer or action does not increase the user's ability to judge the situation, treat it as incomplete even when the code path technically ran.
+
 ## Design Context
 
 Before creating or modifying frontend, UI, website, presentation, visual asset, or design-system work:

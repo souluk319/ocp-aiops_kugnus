@@ -115,6 +115,35 @@ def bool_parameter(parameters: Mapping[str, Any], key: str, *, default: bool = F
     raise AiopsCoreError(f"{key} must be a boolean", reason="invalid_parameters")
 
 
+def str_parameter(parameters: Mapping[str, Any], key: str) -> str:
+    value = parameters.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise AiopsCoreError(f"{key} must be a non-empty string", reason="invalid_parameters")
+    return value.strip()
+
+
+def command_parameter(parameters: Mapping[str, Any], key: str) -> list[str]:
+    value = parameters.get(key)
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise AiopsCoreError(f"{key} must be a list of strings", reason="invalid_parameters")
+    command = [str(item).strip() for item in value if isinstance(item, str) and str(item).strip()]
+    if not command or len(command) > 8:
+        raise AiopsCoreError(f"{key} must contain between 1 and 8 command tokens", reason="invalid_parameters")
+    if any(len(item) > 256 for item in command):
+        raise AiopsCoreError(f"{key} command tokens are too long", reason="invalid_parameters")
+    return command
+
+
+def deployment_container(live: Mapping[str, Any], container_name: str) -> Mapping[str, Any]:
+    containers = live.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+    if not isinstance(containers, Sequence) or isinstance(containers, (str, bytes)):
+        raise AiopsCoreError("Deployment template containers are unavailable", reason="container_missing")
+    for container in containers:
+        if isinstance(container, Mapping) and container.get("name") == container_name:
+            return container
+    raise AiopsCoreError("requested container was not found in Deployment template", reason="container_missing")
+
+
 def owned_by_uid(resource: Mapping[str, Any], owner_uid: str) -> bool:
     owners = resource.get("metadata", {}).get("ownerReferences", [])
     if not isinstance(owners, Sequence) or isinstance(owners, (str, bytes)):
@@ -390,6 +419,57 @@ def build_hpa_bounds_request(plan: Mapping[str, Any], live: Mapping[str, Any]) -
     )
 
 
+def build_set_deployment_container_command_request(
+    plan: Mapping[str, Any],
+    live: Mapping[str, Any],
+) -> MutationRequest:
+    target = target_from_plan(plan)
+    validate_live_target(target, live)
+    parameters = parameters_from_plan(plan)
+    container_name = str_parameter(parameters, "containerName")
+    command = command_parameter(parameters, "command")
+    current_container = deployment_container(live, container_name)
+    expected_previous_digest = str(parameters.get("expectedPreviousCommandDigest") or "").strip()
+    current_command = current_container.get("command")
+    if expected_previous_digest and canonical_digest(current_command or []) != expected_previous_digest:
+        raise AiopsCoreError(
+            "Deployment container command changed after the Action Plan was created",
+            reason="command_precondition_mismatch",
+        )
+    annotation_value = canonical_digest(
+        {
+            "containerName": container_name,
+            "command": command,
+            "target": target,
+        }
+    )
+    return MutationRequest(
+        method="PATCH",
+        path=target_path(target),
+        content_type="application/strategic-merge-patch+json",
+        body={
+            "spec": {
+                "template": {
+                    "metadata": {
+                        "annotations": {
+                            "aiops.komsco/command-action-digest": annotation_value,
+                            "aiops.komsco/command-container": container_name,
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": container_name,
+                                "command": command,
+                            }
+                        ]
+                    },
+                }
+            }
+        },
+    )
+
+
 def build_mutation_request(
     plan: Mapping[str, Any],
     *,
@@ -408,6 +488,8 @@ def build_mutation_request(
         return build_rollback_request(plan, live_target, replica_sets)
     if tool_name == "set_hpa_bounds":
         return build_hpa_bounds_request(plan, live_target)
+    if tool_name == "set_deployment_container_command":
+        return build_set_deployment_container_command_request(plan, live_target)
     raise AiopsCoreError(f"unsupported action tool: {tool_name}", reason="unsupported_action")
 
 
