@@ -646,6 +646,22 @@ export type LedgerEntry = {
   variant: 'action' | 'audit';
 };
 
+export type OperationSummary = {
+  action: string;
+  detail: string;
+  evidence: string;
+  id: string;
+  nextStep: string;
+  recordIds: string[];
+  result: string;
+  serverChange: string;
+  status: string;
+  target: string;
+  time: string;
+  title: string;
+  tone: ActivityItem['tone'];
+};
+
 export const targetProjection = (record: AiopsRecord): { kind: string; name: string; namespace: string; target: string } => {
   const spec = asObject(record.spec);
   const target = asObject(spec.target);
@@ -673,6 +689,236 @@ export const targetProjection = (record: AiopsRecord): { kind: string; name: str
     namespace: namespaceLabel,
     target: parts.length > 0 ? parts.join(' / ') : recordTarget(record),
   };
+};
+
+const planDigestOfRecord = (record: AiopsRecord): string => {
+  const spec = asObject(record.spec);
+  const sealedActionPlan = asObject(spec.sealedActionPlan);
+  const digest = asObject(sealedActionPlan.digest);
+  const approvalDecision = asObject(spec.approvalDecision);
+
+  return textValue(
+    digest.planDigest ?? approvalDecision.planDigest ?? spec.planDigest,
+    '',
+  );
+};
+
+const actionPlanOfRecord = (record: AiopsRecord): Record<string, unknown> => {
+  const spec = asObject(record.spec);
+  return asObject(spec.sealedActionPlan);
+};
+
+const actionPlanPresentation = (record: AiopsRecord): Record<string, unknown> => {
+  const spec = asObject(record.spec);
+  const plan = actionPlanOfRecord(record);
+  return asObject(plan.approvalPresentation ?? spec.operatorPresentation);
+};
+
+const actionToolNameOfRecord = (record: AiopsRecord): string => {
+  const spec = asObject(record.spec);
+  const plan = actionPlanOfRecord(record);
+  const approvalDecision = asObject(spec.approvalDecision);
+  const candidate = asObject(spec.candidateActionRequest);
+  const action =
+    asObject(plan.action) ??
+    asObject(approvalDecision.action) ??
+    asObject(candidate.action);
+  const executorTrace = asObject(spec.executorTrace);
+
+  return textValue(
+    action.toolName ?? executorTrace.toolName ?? spec.action ?? recordPhase(record),
+    '',
+  );
+};
+
+const actionPlanTitle = (record: AiopsRecord): string => {
+  const presentation = actionPlanPresentation(record);
+  const toolName = actionToolNameOfRecord(record);
+  const labels: Record<string, string> = {
+    evict_one_unhealthy_controller_owned_pod: 'Pod 재생성 실행 플랜',
+    namespace_cleanup_review: 'Namespace 정리 검토 플랜',
+    pod_diagnostic_review: 'Pod 원인 확인 플랜',
+    pod_fix_or_rollback_review: '수정/롤백 검토 플랜',
+    rollout_restart: '롤아웃 재시작 플랜',
+    rollout_restart_deployment: 'Deployment 롤아웃 재시작 플랜',
+    scale_deployment_replicas: 'Replica 수 조정 플랜',
+    set_deployment_container_command: 'Deployment 명령 수정 플랜',
+    test_pod_create_review: '테스트 Pod 생성 검토 플랜',
+    update_hpa_bounds: 'HPA 범위 조정 플랜',
+  };
+
+  return textValue(presentation.title, '') || labels[toolName] || ledgerActionLabel(toolName);
+};
+
+const executionStatusSummary = (
+  execution?: AiopsRecord,
+  approval?: AiopsRecord,
+): { nextStep: string; result: string; serverChange: string; status: string; tone: ActivityItem['tone'] } => {
+  const executionSpec = execution ? asObject(execution.spec) : {};
+  const mutationOutcome = asObject(executionSpec.mutationOutcome);
+  const executorTrace = asObject(executionSpec.executorTrace);
+  const mutationStatus = textValue(mutationOutcome.status, '').toLowerCase();
+  const localOnlyExecution =
+    textValue(executorTrace.mode, '').toLowerCase() === 'local-only' ||
+    executorTrace.companyMutationExecuted === false;
+  const approvalStatus = approval ? textValue(asObject(asObject(approval.spec).approvalDecision).status, '').toLowerCase() : '';
+
+  if (mutationStatus === 'review_recorded') {
+    return {
+      nextStep: '상세 원문에서 planDigest와 executionId를 확인할 수 있습니다.',
+      result: '검토 기록이 남았습니다. Pod 삭제나 재시작 같은 서버 변경은 실행하지 않았습니다.',
+      serverChange: '서버 변경 없음',
+      status: '검토 기록 완료',
+      tone: 'green',
+    };
+  }
+  if (mutationStatus === 'mutation_succeeded' || mutationStatus === 'succeeded') {
+    if (localOnlyExecution) {
+      return {
+        nextStep: '실제 서버 조치가 필요하면 운영 대상 계획을 다시 생성하고 승인하세요.',
+        result: '로컬 검증 실행 기록이 남았습니다. 회사 서버나 클러스터 리소스는 변경하지 않았습니다.',
+        serverChange: '서버 변경 없음',
+        status: '검증 기록 완료',
+        tone: 'green',
+      };
+    }
+    return {
+      nextStep: '대상 리소스 상태와 이벤트를 다시 확인하세요.',
+      result: '승인된 조치가 실행됐고 실행 결과가 기록됐습니다.',
+      serverChange: '서버 변경 있음',
+      status: '실행 완료',
+      tone: 'green',
+    };
+  }
+  if (mutationStatus === 'mutation_disabled') {
+    return {
+      nextStep: '실행이 필요한 경우 실행 정책과 게이트웨이 mutation 설정을 확인하세요.',
+      result: '계획은 승인됐지만 서버 정책 때문에 변경은 실행되지 않았습니다.',
+      serverChange: '서버 변경 없음',
+      status: '실행 차단',
+      tone: 'orange',
+    };
+  }
+  if (execution) {
+    return {
+      nextStep: '상세 원문에서 실패 사유와 executorTrace를 확인하세요.',
+      result: '실행 기록은 남았지만 결과 상태를 명확히 판정하지 못했습니다.',
+      serverChange: '확인 필요',
+      status: '실행 결과 확인 필요',
+      tone: 'red',
+    };
+  }
+  if (approvalStatus === 'approved' || approvalStatus === 'executed') {
+    return {
+      nextStep: '실행 버튼 또는 실행 기록 생성 여부를 확인하세요.',
+      result: '승인은 완료됐지만 실행 결과 기록은 아직 확인되지 않았습니다.',
+      serverChange: '아직 없음',
+      status: '승인 완료',
+      tone: 'orange',
+    };
+  }
+  if (approvalStatus === 'rejected') {
+    return {
+      nextStep: '필요하면 새 Action Plan을 생성하세요.',
+      result: '승인이 거절되어 서버 변경은 실행하지 않았습니다.',
+      serverChange: '서버 변경 없음',
+      status: '거절됨',
+      tone: 'red',
+    };
+  }
+  return {
+    nextStep: '대상·영향·검증 방법을 확인한 뒤 승인 또는 거절하세요.',
+    result: 'Action Plan이 생성됐고 승인 대기 상태입니다.',
+    serverChange: '아직 없음',
+    status: '승인 대기',
+    tone: 'orange',
+  };
+};
+
+const operationEvidenceLabel = (record: AiopsRecord): string => {
+  const presentation = actionPlanPresentation(record);
+  const evidenceRefs = Array.isArray(presentation.evidenceRefs) ? presentation.evidenceRefs : [];
+  if (evidenceRefs.length > 0) {
+    return `확인 결과 ${evidenceRefs.length}건`;
+  }
+
+  const spec = asObject(record.spec);
+  return displayLedgerId(textValue(spec.evidenceId, '-'));
+};
+
+const stringListValue = (value: unknown): string[] =>
+  Array.isArray(value)
+    ? value.map((item) => textValue(item, '')).filter(Boolean).slice(0, 3)
+    : [];
+
+export const buildOperationSummaries = (records: AiopsRecord[]): OperationSummary[] => {
+  const plans = records.filter((record) => {
+    const plan = actionPlanOfRecord(record);
+    return Object.keys(plan).length > 0;
+  });
+  const approvals = records.filter((record) => Boolean(asObject(asObject(record.spec).approvalDecision).planDigest));
+  const executions = records.filter((record) => Boolean(textValue(asObject(record.spec).planDigest, '')));
+  const consumedRecordNames = new Set<string>();
+
+  const summaries = plans.map((plan, index): OperationSummary => {
+    const digest = planDigestOfRecord(plan);
+    const approval = approvals.find((record) => planDigestOfRecord(record) === digest);
+    const execution = executions.find((record) => planDigestOfRecord(record) === digest);
+    const status = executionStatusSummary(execution, approval);
+    const presentation = actionPlanPresentation(plan);
+    const target = targetProjection(plan);
+    const toolName = actionToolNameOfRecord(plan);
+    const recordIds = [plan, approval, execution]
+      .filter((record): record is AiopsRecord => Boolean(record))
+      .map((record) => displayLedgerId(record.metadata?.name ?? '-'));
+    recordIds.forEach((id) => consumedRecordNames.add(id));
+
+    return {
+      action:
+        stringListValue(presentation.recommendationSteps).join(' · ') ||
+        ledgerActionLabel(toolName),
+      detail:
+        textValue(presentation.problemSummary, '') ||
+        textValue(presentation.expectedImpact, '') ||
+        '대상·영향·검증 조건을 포함한 승인 기반 Action Plan입니다.',
+      evidence: operationEvidenceLabel(plan),
+      id: `operation-${digest || plan.metadata?.name || index}`,
+      nextStep: status.nextStep,
+      recordIds,
+      result: status.result,
+      serverChange: status.serverChange,
+      status: status.status,
+      target: target.target,
+      time: execution?.metadata?.createdAt ?? approval?.metadata?.createdAt ?? plan.metadata?.createdAt ?? '',
+      title: actionPlanTitle(plan),
+      tone: status.tone,
+    };
+  });
+
+  executions.forEach((execution, index) => {
+    const executionId = displayLedgerId(execution.metadata?.name ?? '-');
+    if (consumedRecordNames.has(executionId)) {
+      return;
+    }
+    const status = executionStatusSummary(execution, undefined);
+    summaries.push({
+      action: ledgerActionLabel(actionToolNameOfRecord(execution)),
+      detail: '연결된 Action Plan 원문이 현재 목록에 없어 실행 기록 기준으로 표시합니다.',
+      evidence: displayLedgerId(textValue(asObject(execution.spec).evidenceId, '-')),
+      id: `operation-execution-${execution.metadata?.name || index}`,
+      nextStep: status.nextStep,
+      recordIds: [executionId],
+      result: status.result,
+      serverChange: status.serverChange,
+      status: status.status,
+      target: targetProjection(execution).target,
+      time: execution.metadata?.createdAt ?? '',
+      title: ledgerActionLabel(actionToolNameOfRecord(execution)),
+      tone: status.tone,
+    });
+  });
+
+  return summaries.sort((a, b) => String(b.time).localeCompare(String(a.time)));
 };
 
 export const ledgerCategory = (record: AiopsRecord, variant: 'action' | 'audit'): LedgerEntry['category'] => {
@@ -709,9 +955,12 @@ export const ledgerPhase = (entry: Pick<LedgerEntry, 'category'>, record: AiopsR
   }
   const labels: Record<string, string> = {
     ActionProposal: '조치 제안',
+    ActionProposalRecord: '조치 제안',
     ApprovalDecision: '승인 완료',
+    ApprovalDecisionRecord: '승인 완료',
     ExecutionRecord: '변경 실행',
     SealedActionPlan: '승인 필요 계획',
+    SealedActionPlanRecord: '승인 필요 계획',
   };
   return labels[record.kind ?? ''] ?? recordKindLabel(record.kind);
 };
@@ -783,8 +1032,10 @@ export const ledgerActionLabel = (value: string): string => {
     executed: '실행 기록',
     mutation_succeeded: '변경 성공',
     proposed: '조치 제안',
+    recorded: '기록됨',
     restart_rollout: '롤아웃 재시작 제안',
     rollout_restart: '롤아웃 재시작 실행',
+    rollout_restart_deployment: 'Deployment 롤아웃 재시작',
     sealed: '계획 봉인',
     seal_mutation_plan: '변경 계획 봉인',
     sealed_pending_approval: '승인 대기 계획',
@@ -864,6 +1115,7 @@ export const ledgerResultLabel = (value: string): string => {
     mutation_succeeded: '변경 성공',
     proposed: '제안됨',
     recorded: '기록됨',
+    rollout_restart_deployment: 'Deployment 롤아웃 재시작',
     sealed: '봉인됨',
     sealed_pending_approval: '승인 대기',
     succeeded: '성공',
@@ -1564,7 +1816,17 @@ export const eventSeverityRank: Record<Severity, number> = {
   risk: 2,
 };
 
-export const eventReason = (row: AlertEventRow): string => {
+/* AlertEventRow와 원본 AiopsEventItem 둘 다에서 이유/대상 분류를 재사용하기 위한 최소 형태 */
+type EventTextRow = {
+  category: string;
+  detail: string;
+  severity: Severity;
+  source?: string;
+  target?: string;
+  title: string;
+};
+
+export const eventReason = (row: EventTextRow): string => {
   const text = `${row.title} ${row.detail} ${row.category}`.toLowerCase();
   if (/backoff|crashloopbackoff|imagepullbackoff/.test(text)) {
     return 'BackOff';
@@ -1596,7 +1858,7 @@ export const eventReason = (row: AlertEventRow): string => {
   return row.title.replace(/^샘플:\s*/, '').split(' · ')[0];
 };
 
-export const eventObjectKind = (row: AlertEventRow): string => {
+export const eventObjectKind = (row: EventTextRow): string => {
   const text = `${row.title} ${row.detail} ${row.source} ${row.target}`.toLowerCase();
   if (/build|docker/.test(text)) {
     return 'Build';
@@ -1616,7 +1878,7 @@ export const eventObjectKind = (row: AlertEventRow): string => {
   return row.category === '샘플' ? 'Sample' : 'Resource';
 };
 
-export const isNormalLifecycleEvent = (row: AlertEventRow): boolean =>
+export const isNormalLifecycleEvent = (row: EventTextRow): boolean =>
   row.severity === 'ok' || /^(Pulled|Created|Scheduled|AddedInterface)$/i.test(eventReason(row));
 
 export const relatedIssueForEvent = (group: Pick<EventInboxGroup, 'kind' | 'reason' | 'target'>, queues: QueueItem[]): QueueItem | undefined => {
@@ -2568,11 +2830,52 @@ export const topologyNodeSummary = (
 
   const resource = resourceById(summary, key);
   return {
-    detail: resourceNodeDetail(resource, `${topologyNodeLabel[key]} 스냅샷 없음`),
+    detail: resourceNodeDetail(resource, `${topologyNodeLabel[key]} 신호 없음`),
     score: resource?.score ?? '-',
     severity: resourceNodeSeverity(resource),
     title: resource ? resourceNameLabel(resource.id, resource.name, resource.kind) : topologyNodeLabel[key],
   };
+};
+
+const topologyKeysForEventKind = (kind: string): TopologyNodeKey[] => {
+  if (kind === 'Route') return ['routes'];
+  if (kind === 'Node') return ['nodes'];
+  if (kind === 'Pod') return ['pods'];
+  if (kind === 'Workload') return ['deployments', 'statefulsets', 'daemonsets', 'replicasets'];
+  return [];
+};
+
+export type TopologySeverityHint = { detail: string; severity: Severity };
+
+/**
+ * 이벤트 피드(AiopsEventFeed)에서 위험 신호를 뽑아 토폴로지 노드별 최고 심각도로 집계한다.
+ * summary.resources.items[].severity(게이트웨이가 종류별로 미리 계산해 내려주는 값)와는
+ * 완전히 별도 API라 지금까지 서로 연결된 적이 없었다 — 이 함수가 그 연결 지점.
+ * 정상 라이프사이클 이벤트는 isNormalLifecycleEvent로 제외하고, 서버 값보다 낮게는 절대
+ * 내리지 않는다(호출부에서 max로 병합).
+ */
+export const topologySeverityHints = (
+  events: AiopsEventFeed,
+): Partial<Record<TopologyNodeKey, TopologySeverityHint>> => {
+  const hints: Partial<Record<TopologyNodeKey, TopologySeverityHint>> = {};
+  for (const event of events.spec.items) {
+    if (isNormalLifecycleEvent(event)) {
+      continue;
+    }
+    const keys = topologyKeysForEventKind(eventObjectKind(event));
+    if (keys.length === 0) {
+      continue;
+    }
+    const reason = eventReason(event);
+    const detail = event.target ? `${reason} · ${event.target}` : reason;
+    for (const key of keys) {
+      const current = hints[key];
+      if (!current || eventSeverityRank[event.severity] > eventSeverityRank[current.severity]) {
+        hints[key] = { detail, severity: event.severity };
+      }
+    }
+  }
+  return hints;
 };
 
 export const topologyTracePath = (key: TopologyNodeKey): string => {

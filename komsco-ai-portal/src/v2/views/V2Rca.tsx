@@ -37,7 +37,7 @@ export const V2Rca: React.FC<{
   onOpenItem: (item: QueueItem) => void;
   runtime: V2Runtime;
 }> = ({ onNavigate, onOpenItem, runtime }) => {
-  const { status, summary } = runtime;
+  const { events, status, summary } = runtime;
   const liveQueues = buildQueues(summary, status);
   const sampleMode = liveQueues.length === 0;
   const queues = sampleMode ? sampleRcaQueues : liveQueues;
@@ -280,7 +280,7 @@ export const V2Rca: React.FC<{
               ))}
             </div>
           ) : (
-            <V2Topology compact summary={summary} />
+            <V2Topology compact events={events} summary={summary} />
           )}
         </Card>
 

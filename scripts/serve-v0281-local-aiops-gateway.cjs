@@ -63,9 +63,9 @@ const localSimulatedExecutionRecord = () => ({
   metadata: { name: 'execution-local-simulated', createdAt: nowIso() },
   spec: {
     executionId: 'execution-local-simulated',
-    approvalId: 'approval-local-previous',
-    planId: 'plan-local-previous',
-    planDigest: 'sha256:local-previous-plan',
+    approvalId: 'approval-local-crashloop',
+    planId: 'plan-local-crashloop',
+    planDigest: LOCAL_PLAN_DIGEST,
     mutationOutcome: {
       status: 'mutation_succeeded',
       reason: 'local simulator only',

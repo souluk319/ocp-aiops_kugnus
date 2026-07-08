@@ -33,7 +33,7 @@ export const V2ServiceMap: React.FC<{
   onNavigate: (view: V2View) => void;
   runtime: V2Runtime;
 }> = ({ onNavigate, runtime }) => {
-  const { summary } = runtime;
+  const { events, summary } = runtime;
   const [affectedOnly, setAffectedOnly] = React.useState(false);
   const [edgeMode, setEdgeMode] = React.useState<TopologyEdgeMode>('all');
   const [showEdgeLabels, setShowEdgeLabels] = React.useState(true);
@@ -108,6 +108,7 @@ export const V2ServiceMap: React.FC<{
         <V2Topology
           affectedOnly={affectedOnly}
           edgeMode={edgeMode}
+          events={events}
           onSelectNode={setSelectedNode}
           selectedNode={selectedNode}
           showEdgeLabels={showEdgeLabels}

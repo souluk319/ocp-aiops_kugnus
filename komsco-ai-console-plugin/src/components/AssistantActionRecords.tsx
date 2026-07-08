@@ -169,12 +169,12 @@ const actionFlowDescription = (
   if (stage === 'execution') {
     if (records.some(isReviewOnlyActionRecord)) {
       return isKo
-        ? '검토 결과를 표시합니다. 클러스터 변경은 실행하지 않았습니다.'
-        : 'Shows the review result and audit record. No cluster change was executed.';
+        ? '검토 기록 · 서버 변경 없음'
+        : 'Review recorded · no cluster change';
     }
     return isKo
-      ? '실행 결과를 표시합니다.'
-      : 'Shows the execution result and audit record.';
+      ? '실행 결과 · 감사 기록'
+      : 'Execution result · audit record';
   }
   if (stage === 'approval') {
     return isKo
@@ -806,6 +806,177 @@ type AssistantAnswerActionsProps = {
   ) => AiopsRecordAction | null;
 };
 
+type AssistantInlineActionRecordsProps = {
+  aiopsStatus: AiopsRuntimeStatus | null;
+  busyActionId: string;
+  executionMode: AiopsExecutionMode;
+  fallbackRefs?: ConversationActionRef[];
+  language?: UiLanguage;
+  onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void;
+  records: AiopsRecordView[];
+  resolveAction: (
+    record: AiopsRecordView,
+    aiopsStatus: AiopsRuntimeStatus | null,
+    executionMode: AiopsExecutionMode,
+  ) => AiopsRecordAction | null;
+};
+
+export const AssistantInlineActionRecords: React.FC<AssistantInlineActionRecordsProps> = ({
+  aiopsStatus,
+  busyActionId,
+  executionMode,
+  fallbackRefs = [],
+  language = 'ko',
+  onAction,
+  records,
+  resolveAction,
+}) => {
+  const visibleFallbackRefs = records.length === 0 ? collapseFallbackActionRefs(fallbackRefs) : [];
+  if (records.length === 0 && visibleFallbackRefs.length === 0) {
+    return null;
+  }
+
+  const readOnlyBlocked = executionMode === 'read-only';
+
+  return (
+    <div className="komsco-ai__inline-action-records" data-aiops-inline-action-records>
+      <span className="komsco-ai__inline-action-records-label">
+        {language === 'ko' ? '진행 상태' : 'Progress'}
+      </span>
+      <div className="komsco-ai__answer-action-list">
+        {records.map((record) => {
+          const action = resolveAction(record, aiopsStatus, executionMode);
+          const stage = getActionRecordStage(record);
+          const actions =
+            action?.step === 'approve-plan'
+              ? [
+                  action,
+                  {
+                    ...action,
+                    label: language === 'ko' ? '거절' : 'Reject',
+                    step: 'reject-plan' as const,
+                  },
+                ]
+              : action
+                ? [action]
+                : [];
+
+          const phase = getRecordPhase(record);
+          const stageLabel = getActionRecordStageLabel(record, executionMode, language);
+          const targetLabel = getRecordTargetLabel(record);
+          const targetRoleLabel = actionCardTargetDisplayLabel(stage, record, language);
+          const toolLabel = getActionRecordToolLabel(record, language);
+
+          if (actions.length === 0 && !action) {
+            const outcome = getExecutionOutcomeSummary(record, aiopsStatus);
+            if (!outcome) {
+              return null;
+            }
+            const outcomeIcon = outcome.tone === 'ok' ? '✓' : outcome.tone === 'warn' ? '!' : '✕';
+            const outcomeStageLabel = isReviewOnlyActionRecord(record)
+              ? language === 'ko'
+                ? '검토 기록 완료'
+                : 'Review recorded'
+              : language === 'ko'
+                ? '실행 완료'
+                : 'Executed';
+
+            return (
+              <div
+                className={`komsco-ai__answer-action-card komsco-ai__answer-action-card--outcome komsco-ai__answer-action-card--${outcome.tone}`}
+                data-action-lifecycle-stage="execution"
+                key={getRecordName(record) || phase}
+              >
+                <div className="komsco-ai__answer-action-headline">
+                  <div className="komsco-ai__answer-action-main">
+                    <span>{actionCardMetaLabelForRecord('execution', record, language)}</span>
+                    <strong title={targetLabel}>{toolLabel}</strong>
+                    <small title={targetLabel}>{`${outcomeStageLabel} · ${targetLabel}`}</small>
+                  </div>
+                </div>
+                <div className="komsco-ai__answer-action-outcome">
+                  <div className="komsco-ai__answer-action-outcome-title">
+                    <span className="komsco-ai__answer-action-outcome-icon">{outcomeIcon}</span>
+                    {outcome.title}
+                  </div>
+                  <details className="komsco-ai__answer-action-outcome-detail">
+                    <summary>{language === 'ko' ? '처리 내용' : 'Processing details'}</summary>
+                    <p>{outcome.detail}</p>
+                  </details>
+                </div>
+                <ActionPlanDecisionBlock aiopsStatus={aiopsStatus} record={record} language={language} />
+                <ActionRecordAuditDetail language={language} record={record} />
+              </div>
+            );
+          }
+
+          return (
+            <div
+              className="komsco-ai__answer-action-card"
+              data-action-lifecycle-stage={getActionRecordStage(record)}
+              key={getRecordName(record) || phase}
+            >
+              <div className="komsco-ai__answer-action-headline">
+                <ActionStageIcon stage={stage} />
+                <div className="komsco-ai__answer-action-main">
+                  <span>{actionCardMetaLabelForRecord(stage, record, language)}</span>
+                  <strong title={targetLabel}>{toolLabel}</strong>
+                  <small title={targetRoleLabel}>{`${stageLabel} · ${targetLabel}`}</small>
+                </div>
+              </div>
+              <div className="komsco-ai__answer-action-proof">
+                {getActionRecordProof(record, executionMode, language)}
+              </div>
+              <PlanSummaryBlock record={record} executionMode={executionMode} language={language} />
+              <ActionPlanDecisionBlock aiopsStatus={aiopsStatus} record={record} language={language} />
+              {!readOnlyBlocked && actions.length > 0 && (
+                <div className="komsco-ai__answer-action-controls">
+                  {actions.map((item) => {
+                    const actionId = `${item.step}:${getRecordName(record)}`;
+                    const busy = actionId === busyActionId;
+                    return (
+                      <Button
+                        className="komsco-ai__action-button"
+                        data-answer-action-step={item.step}
+                        isDisabled={busy || Boolean(item.disabledReason)}
+                        isLoading={busy}
+                        key={item.step}
+                        onClick={() => onAction(record, item)}
+                        size="sm"
+                        title={item.disabledReason}
+                        variant={item.step === 'reject-plan' ? 'link' : 'secondary'}
+                      >
+                        <span className="komsco-ai__rail-action-icon">
+                          <CoolTerminalIcon />
+                        </span>
+                        {busy
+                          ? language === 'ko'
+                            ? '처리 중'
+                            : 'Processing'
+                          : primaryActionLabel(item, language)}
+                      </Button>
+                    );
+                  })}
+                </div>
+              )}
+              {(readOnlyBlocked || action?.disabledReason) && (
+                <div className="komsco-ai__answer-action-note">
+                  {action?.disabledReason ??
+                    (language === 'ko'
+                      ? '읽기 전용 모드에서는 승인·실행 요청을 보내지 않습니다.'
+                      : 'Read-only mode does not send approval or execution requests.')}
+                </div>
+              )}
+              <ActionRecordAuditDetail language={language} record={record} />
+            </div>
+          );
+        })}
+        <FallbackActionRefCard language={language} refs={visibleFallbackRefs} />
+      </div>
+    </div>
+  );
+};
+
 const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
   aiopsActionError,
   aiopsActionNotice,
@@ -890,12 +1061,11 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
 
             return (
               <div
-                className={`komsco-ai__answer-action-card komsco-ai__answer-action-card--${outcome.tone}`}
+                className={`komsco-ai__answer-action-card komsco-ai__answer-action-card--outcome komsco-ai__answer-action-card--${outcome.tone}`}
                 data-action-lifecycle-stage="execution"
                 key={getRecordName(record) || phase}
               >
                 <div className="komsco-ai__answer-action-headline">
-                  <ActionStageIcon stage="execution" />
                   <div className="komsco-ai__answer-action-main">
                     <span>{actionCardMetaLabelForRecord('execution', record, language)}</span>
                     <strong title={targetLabel}>{toolLabel}</strong>
@@ -907,7 +1077,10 @@ const AssistantAnswerActions: React.FC<AssistantAnswerActionsProps> = ({
                     <span className="komsco-ai__answer-action-outcome-icon">{outcomeIcon}</span>
                     {outcome.title}
                   </div>
-                  <div className="komsco-ai__answer-action-outcome-detail">{outcome.detail}</div>
+                  <details className="komsco-ai__answer-action-outcome-detail">
+                    <summary>{language === 'ko' ? '처리 내용' : 'Processing details'}</summary>
+                    <p>{outcome.detail}</p>
+                  </details>
                 </div>
                 <ActionPlanDecisionBlock aiopsStatus={aiopsStatus} record={record} language={language} />
                 <ActionRecordAuditDetail language={language} record={record} />

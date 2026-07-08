@@ -48,6 +48,9 @@ Before continuing interrupted work:
 - Before creating or modifying frontend, UI, visual layout, presentation, design-system, or browser-facing work, read `DESIGN.md` if it exists.
 - Read the latest user request and any attached handoff text.
 - Check `git status --short`.
+- Before changing runtime logic, code behavior, product functionality, verifier logic, Action Plan flow, RCA/Evidence behavior, or chatbot answer contracts, read the active contract copies:
+  - `docs/contracts/Komsco_ai_agent_final.contract.md`
+  - `docs/contracts/AIOps-For-OCP.contract.md`
 - Search references with `rg` before editing.
 - Identify which files are protected artifacts and which files are integration code.
 - Run the smallest useful verifier once before changing behavior, so failures are based on evidence.
@@ -198,6 +201,7 @@ Avoid:
 
 Use this order for code changes:
 
+- Contract: before changing logic, code behavior, product functionality, verifier logic, Action Plan flow, RCA/Evidence behavior, or chatbot answer contracts, check `docs/contracts/Komsco_ai_agent_final.contract.md` and `docs/contracts/AIOps-For-OCP.contract.md`. The original PDFs still win if the contract copy and PDF conflict.
 - Search: `rg` references and read the nearby code.
 - Inspect: understand existing patterns before patching.
 - Patch: use `apply_patch` for manual file edits.

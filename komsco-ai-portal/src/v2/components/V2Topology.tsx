@@ -1,14 +1,16 @@
 import React from 'react';
 import { Boxes, Database, Globe, Layers, Server, Share2 } from 'lucide-react';
-import type { ClusterSummary, Severity } from '../../types';
+import type { AiopsEventFeed, ClusterSummary, Severity } from '../../types';
 import {
   buildPodRcaSummary,
   clusterLabel,
+  eventSeverityRank,
   formatTime,
   resourceNameLabel,
   resourceNodeDetail,
   resourceNodeSeverity,
   topologyNodeSummary,
+  topologySeverityHints,
   type TopologyEdgeMode,
   type TopologyNodeKey,
 } from '../lib/model';
@@ -108,6 +110,7 @@ export const V2Topology: React.FC<{
   affectedOnly?: boolean;
   compact?: boolean;
   edgeMode?: TopologyEdgeMode;
+  events?: AiopsEventFeed;
   onSelectNode?: (node: TopologyNodeKey) => void;
   selectedNode?: TopologyNodeKey;
   showEdgeLabels?: boolean;
@@ -116,6 +119,7 @@ export const V2Topology: React.FC<{
   affectedOnly = false,
   compact = false,
   edgeMode = 'all',
+  events,
   onSelectNode,
   selectedNode,
   showEdgeLabels = true,
@@ -127,10 +131,18 @@ export const V2Topology: React.FC<{
   const byId = (id: string) => resources.find((resource) => resource.id === id);
   const issueCount = summary.resources?.issues ?? 0;
   const podSummary = buildPodRcaSummary(summary);
+  // 게이트웨이 종류별 집계(summary.resources)와 별도 API인 이벤트 피드를 여기서 합류시킨다 —
+  // 종류별 집계가 'ok'라도 실제 이벤트(CrashLoopBackOff 등)가 있으면 해당 노드를 끌어올린다.
+  const eventHints = React.useMemo(() => (events ? topologySeverityHints(events) : {}), [events]);
 
   const nodeModel = (key: TopologyNodeKey): { detail: string; label: string; severity: Severity } => {
+    const hint = eventHints[key];
     if (key === 'nodes') {
-      return { detail: topologyNodeSummary(summary, 'nodes').detail, label: '노드', severity: nodeState };
+      const base = { detail: topologyNodeSummary(summary, 'nodes').detail, label: '노드', severity: nodeState };
+      if (hint && eventSeverityRank[hint.severity] > eventSeverityRank[base.severity]) {
+        return { ...base, detail: hint.detail, severity: hint.severity };
+      }
+      return base;
     }
     const resource = byId(key);
     const fallback: Record<TopologyNodeKey, string> = {
@@ -144,10 +156,15 @@ export const V2Topology: React.FC<{
       nodes: '노드',
       persistentvolumeclaims: 'PVC',
     };
+    const label = resource ? resourceNameLabel(resource.id, resource.name, resource.kind) : fallback[key];
+    const baseSeverity = resourceNodeSeverity(resource);
+    if (hint && eventSeverityRank[hint.severity] > eventSeverityRank[baseSeverity]) {
+      return { detail: hint.detail, label, severity: hint.severity };
+    }
     return {
-      detail: resourceNodeDetail(resource, `${fallback[key]} 스냅샷 없음`),
-      label: resource ? resourceNameLabel(resource.id, resource.name, resource.kind) : fallback[key],
-      severity: resourceNodeSeverity(resource),
+      detail: resourceNodeDetail(resource, `${fallback[key]} 신호 없음`),
+      label,
+      severity: baseSeverity,
     };
   };
 
@@ -245,10 +262,13 @@ export const V2Topology: React.FC<{
                   )}
                   {edge.label && showEdgeLabels && visible && (
                     <g className="v2-net-edge__label" transform={`translate(${lx}, ${ly})`}>
+                      {/* 실제 엔드포인트/마운트 라이브 상태가 아니라, 연결된 두 노드의 심각도로 추정한 상태다 */}
+                      <title>{`${edge.label} · ${severity === 'ok' ? '정상' : '확인 필요'} (연결 노드 상태 기반 추정)`}</title>
                       <rect x="-23" y="-10" width="46" height="20" rx="10" />
                       <text textAnchor="middle" dominantBaseline="central" dy="0.5">
                         {edge.label}
                       </text>
+                      {severity !== 'ok' && <circle className="v2-net-edge__label-dot" cx="19" cy="-6" r="3" />}
                     </g>
                   )}
                 </g>

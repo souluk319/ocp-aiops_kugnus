@@ -1,14 +1,16 @@
 import React from 'react';
 import { Activity, AlertTriangle, ArrowUpRight, ChevronRight, Cpu, ShieldCheck } from 'lucide-react';
-import type { QueueItem, ScopeItem } from '../../types';
+import type { AiopsEventFeed, ClusterSummary, QueueItem, ScopeItem, Severity } from '../../types';
 import type { V2Runtime } from '../V2App';
 import type { V2View } from '../router';
 import {
   AreaChart,
   Button,
   Card,
+  CommandBlock,
   CountUp,
   DeltaChip,
+  Drawer,
   Empty,
   HealthRing,
   SearchInput,
@@ -27,11 +29,129 @@ import {
   buildEndpoints,
   buildQueues,
   buildScopes,
+  buildTraceInspector,
   displayOpenShiftVersion,
+  eventSeverityRank,
   formatTime,
   queueMetaItems,
+  resourceById,
+  resourceNodeSeverity,
   scopeDetailRows,
+  topologySeverityHints,
+  type TopologyNodeKey,
 } from '../lib/model';
+
+const IMPACT_ANALYSIS_KEYS: TopologyNodeKey[] = [
+  'routes',
+  'services',
+  'pods',
+  'nodes',
+  'persistentvolumeclaims',
+  'deployments',
+  'statefulsets',
+  'daemonsets',
+  'replicasets',
+];
+
+const worstSeverity = (severities: Severity[]): Severity =>
+  severities.includes('risk') ? 'risk' : severities.includes('warn') ? 'warn' : 'ok';
+
+// 지도 카드 크기와 완전히 분리된 계산 — 결과는 트리거 버튼(색 점)과 드로어 콘텐츠 둘 다에서 쓴다.
+const useImpactAnalysis = (events: AiopsEventFeed, queues: QueueItem[], summary: ClusterSummary) => {
+  const hints = topologySeverityHints(events);
+  const escalate = (key: TopologyNodeKey, base: Severity): Severity => {
+    const hint = hints[key];
+    return hint && eventSeverityRank[hint.severity] > eventSeverityRank[base] ? hint.severity : base;
+  };
+
+  const severityByKey = Object.fromEntries(
+    IMPACT_ANALYSIS_KEYS.map((key) => {
+      const base =
+        key === 'nodes'
+          ? summary.nodes.notReady > 0
+            ? 'risk'
+            : summary.nodes.pressureCount > 0
+              ? 'warn'
+              : 'ok'
+          : resourceNodeSeverity(resourceById(summary, key));
+      return [key, escalate(key, base)];
+    }),
+  ) as Record<TopologyNodeKey, Severity>;
+
+  const trafficSeverity = worstSeverity([severityByKey.routes, severityByKey.services, severityByKey.pods]);
+  const ownerSeverity = worstSeverity(
+    (['deployments', 'statefulsets', 'daemonsets', 'replicasets'] as TopologyNodeKey[]).map((key) => severityByKey[key]),
+  );
+
+  const lines: Array<{ label: string; severity: Severity }> = [
+    {
+      label: `트래픽 경로 Route → Service → Pod ${trafficSeverity === 'ok' ? '정상' : '확인 필요'}`,
+      severity: trafficSeverity,
+    },
+    {
+      label: `Pod → Node 스케줄 ${severityByKey.nodes === 'ok' ? '정상' : '확인 필요'}`,
+      severity: severityByKey.nodes,
+    },
+    {
+      label: `PVC 마운트 관계 ${severityByKey.persistentvolumeclaims === 'ok' ? '정상' : '확인 필요'}`,
+      severity: severityByKey.persistentvolumeclaims,
+    },
+    {
+      label: `Deployment/ReplicaSet 소유 관계 ${ownerSeverity === 'ok' ? '정상' : '확인 필요'}`,
+      severity: ownerSeverity,
+    },
+  ];
+
+  const topIssue = queues[0];
+  const worstKey = IMPACT_ANALYSIS_KEYS.reduce((best, key) =>
+    eventSeverityRank[severityByKey[key]] > eventSeverityRank[severityByKey[best]] ? key : best,
+  );
+  const inspector = topIssue ? buildTraceInspector(summary, worstKey) : undefined;
+  const firstCommand = inspector?.commands[0];
+  const overallSeverity = worstSeverity(lines.map((line) => line.severity));
+
+  return { firstCommand, lines, overallSeverity, topIssue };
+};
+
+const ImpactAnalysisTrigger: React.FC<{
+  onClick: () => void;
+  severity: Severity;
+}> = ({ onClick, severity }) => (
+  <button className="v2-impact-trigger" onClick={onClick} type="button">
+    <ToneDot tone={severity === 'risk' ? 'red' : severity === 'warn' ? 'orange' : 'green'} />
+    영향 분석
+  </button>
+);
+
+// 드로어(오버레이)라서 열고 닫혀도 지도 카드 크기에는 전혀 영향을 주지 않는다.
+const ImpactAnalysisDrawer: React.FC<{
+  data: ReturnType<typeof useImpactAnalysis>;
+  onClose: () => void;
+  open: boolean;
+}> = ({ data, onClose, open }) => {
+  const { firstCommand, lines, topIssue } = data;
+  return (
+    <Drawer onClose={onClose} open={open} sub="서비스 영향 지도 · 게이트웨이 요약 기준" title="영향 분석">
+      <div className="v2-impact-analysis">
+        <ul className="v2-impact-analysis__lines">
+          {lines.map((line) => (
+            <li className={`is-${line.severity}`} key={line.label}>
+              {line.label}
+            </li>
+          ))}
+        </ul>
+        {topIssue ? (
+          <p className="v2-impact-analysis__focus is-risk">
+            현재 영향 후보: <strong>{topIssue.title}</strong>
+          </p>
+        ) : (
+          <p className="v2-impact-analysis__focus is-ok">현재 영향 후보 없음 · 게이트웨이 요약 기준 정상</p>
+        )}
+        {firstCommand && <CommandBlock command={firstCommand.command} title={`우선 확인 · ${firstCommand.title}`} />}
+      </div>
+    </Drawer>
+  );
+};
 
 const ScopePanel: React.FC<{ runtime: V2Runtime; scopes: ScopeItem[] }> = ({ runtime, scopes }) => {
   const [query, setQuery] = React.useState('');
@@ -139,6 +259,8 @@ export const V2Dashboard: React.FC<{
   const { events, loading, status, summary } = runtime;
   const scopes = buildScopes(summary, status);
   const queues = buildQueues(summary, status);
+  const impactData = useImpactAnalysis(events, queues, summary);
+  const [impactOpen, setImpactOpen] = React.useState(false);
   const alerts = buildAlerts(summary, status);
   const endpoints = buildEndpoints(summary);
   const activities = buildActivities(summary, status, events);
@@ -313,17 +435,21 @@ export const V2Dashboard: React.FC<{
         <ScopePanel runtime={runtime} scopes={scopes} />
         <Card
           actions={
-            <Button onClick={() => onNavigate('service-map')} size="sm" variant="outline">
-              지도 확대
-            </Button>
+            <div className="v2-inline-actions">
+              <ImpactAnalysisTrigger onClick={() => setImpactOpen(true)} severity={impactData.overallSeverity} />
+              <Button onClick={() => onNavigate('service-map')} size="sm" variant="outline">
+                지도 확대
+              </Button>
+            </div>
           }
           className="v2-map-card"
           flush
           title="서비스 영향 지도"
         >
-          <V2Topology compact summary={summary} />
+          <V2Topology compact events={events} summary={summary} />
         </Card>
       </section>
+      <ImpactAnalysisDrawer data={impactData} onClose={() => setImpactOpen(false)} open={impactOpen} />
 
       <section className="v2-grid v2-grid--issues">
         <QueuePanel onOpenItem={onOpenItem} queues={queues} />

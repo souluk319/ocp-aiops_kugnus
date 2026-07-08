@@ -5,6 +5,7 @@ import type { V2View } from '../router';
 import { Button, Card, DefList, Empty, SevBadge, Tabs } from '../components/primitives';
 import {
   actionRecords,
+  buildOperationSummaries,
   buildLedgerEntries,
   formatTime,
   ledgerActionLabel,
@@ -18,6 +19,7 @@ import {
   mutationStatusLabel,
   runWindowLabel,
   type LedgerEntry,
+  type OperationSummary,
 } from '../lib/model';
 
 const ledgerFilters: Array<{ id: 'all' | LedgerEntry['category']; label: string }> = [
@@ -27,6 +29,126 @@ const ledgerFilters: Array<{ id: 'all' | LedgerEntry['category']; label: string 
   { id: 'gateway', label: '게이트웨이' },
   { id: 'evidence', label: '증거' },
 ];
+
+const entryServerChangeLabel = (entry: LedgerEntry): string => {
+  const signal = `${entry.phase} ${entry.result} ${entry.action}`.toLowerCase();
+  if (entry.category !== 'mutation') {
+    return '아직 없음';
+  }
+  if (
+    signal.includes('review_recorded') ||
+    signal.includes('blocked') ||
+    signal.includes('disabled') ||
+    signal.includes('simulated')
+  ) {
+    return '서버 변경 없음';
+  }
+  if (signal.includes('succeeded') || signal.includes('executed')) {
+    return '서버 변경 있음';
+  }
+  return '확인 필요';
+};
+
+const entryStatusLabel = (entry: LedgerEntry): string => {
+  if (entry.category === 'mutation') {
+    return entryServerChangeLabel(entry) === '서버 변경 없음' ? '검토 기록' : '실행 기록';
+  }
+  if (entry.category === 'approval') {
+    return '승인/계획 기록';
+  }
+  return '조치 제안 기록';
+};
+
+const entryResultText = (entry: LedgerEntry): string => {
+  const serverChange = entryServerChangeLabel(entry);
+  if (entry.category === 'mutation' && serverChange === '서버 변경 없음') {
+    return '검토 또는 로컬 검증 기록이 남았습니다. 서버 변경은 실행하지 않았습니다.';
+  }
+  if (entry.category === 'mutation') {
+    return `${ledgerResultLabel(entry.result)} 상태로 실행 기록이 남았습니다. 세부 원장은 아래 표에서 확인할 수 있습니다.`;
+  }
+  if (entry.category === 'approval') {
+    return '승인 또는 봉인된 계획 기록이 남았습니다. 실행 여부는 변경 실행 기록에서 확인합니다.';
+  }
+  return 'Action Plan 후보 또는 제안 기록이 남았습니다. 승인 전에는 서버 변경이 없습니다.';
+};
+
+const buildLedgerFallbackSummaries = (entries: LedgerEntry[]): OperationSummary[] =>
+  entries
+    .filter((entry) => entry.category === 'proposal' || entry.category === 'approval' || entry.category === 'mutation')
+    .map((entry): OperationSummary => ({
+      action: ledgerActionLabel(entry.action),
+      detail: `${ledgerGateLabel(entry.gate)} · ${ledgerKindLabel(entry.kind)}`,
+      evidence: entry.evidenceId,
+      id: `ledger-summary-${entry.id}`,
+      nextStep: entry.category === 'mutation'
+        ? '대상 상태와 이벤트를 다시 확인하세요.'
+        : '대상·영향·검증 방법을 확인한 뒤 승인 또는 거절하세요.',
+      recordIds: [entry.auditId].filter((id) => id && id !== '-'),
+      result: entryResultText(entry),
+      serverChange: entryServerChangeLabel(entry),
+      status: entryStatusLabel(entry),
+      target: ledgerTargetLabel(entry),
+      time: entry.time,
+      title: ledgerActionLabel(entry.action),
+      tone: entry.tone,
+    }));
+
+const OperationSummaryPanel: React.FC<{ summaries: OperationSummary[] }> = ({ summaries }) => (
+  <Card
+    className="v2-operation-summary-card"
+    sub="제안·승인·실행 기록을 조치 단위로 정리합니다."
+    title="조치 요약"
+  >
+    {summaries.length === 0 ? (
+      <Empty label="아직 Action Plan 실행/검토 요약이 없습니다." />
+    ) : (
+      <div className="v2-operation-summary-list">
+        {summaries.map((summary) => (
+          <article className={`v2-operation-summary is-${summary.tone}`} key={summary.id}>
+            <div className="v2-operation-summary__head">
+              <div>
+                <span>{summary.status}</span>
+                <strong>{summary.title}</strong>
+              </div>
+              <span className={`v2-phase-chip is-${summary.tone}`}>{summary.serverChange}</span>
+            </div>
+            <dl className="v2-operation-summary__facts">
+              <div>
+                <dt>대상</dt>
+                <dd>{summary.target}</dd>
+              </div>
+              <div>
+                <dt>조치 내용</dt>
+                <dd>{summary.action}</dd>
+              </div>
+              <div>
+                <dt>결과</dt>
+                <dd>{summary.result}</dd>
+              </div>
+              <div>
+                <dt>확인 결과</dt>
+                <dd>{summary.evidence}</dd>
+              </div>
+            </dl>
+            <div className="v2-operation-summary__footer">
+              <span>{summary.nextStep}</span>
+              <small>{formatTime(summary.time)}</small>
+            </div>
+            <details className="v2-operation-summary__records">
+              <summary>연결된 원장 기록 {summary.recordIds.length}건</summary>
+              <div>
+                {summary.recordIds.map((recordId) => (
+                  <code className="v2-id-chip" key={recordId}>{recordId}</code>
+                ))}
+              </div>
+            </details>
+          </article>
+        ))}
+      </div>
+    )}
+  </Card>
+);
 
 export const V2Executions: React.FC<{
   onNavigate: (view: V2View) => void;
@@ -44,6 +166,10 @@ export const V2Executions: React.FC<{
     () => buildLedgerEntries(records, auditRecords, { sample: syntheticReplay }),
     [auditRecords, records, syntheticReplay],
   );
+  const operationSummaries = React.useMemo(() => buildOperationSummaries(records), [records]);
+  const fallbackOperationSummaries = React.useMemo(() => buildLedgerFallbackSummaries(entries), [entries]);
+  const visibleOperationSummaries =
+    operationSummaries.length > 0 ? operationSummaries : fallbackOperationSummaries;
   const [selectedEntryId, setSelectedEntryId] = React.useState('');
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? entries[0];
   const [ledgerFilter, setLedgerFilter] = React.useState<'all' | LedgerEntry['category']>('all');
@@ -201,6 +327,8 @@ export const V2Executions: React.FC<{
           </span>
         </div>
       </section>
+
+      <OperationSummaryPanel summaries={visibleOperationSummaries} />
 
       <section className="v2-grid v2-grid--executions">
         <Card className="v2-trace-card" flush title="실행 추적">

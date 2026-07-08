@@ -7569,6 +7569,86 @@ def test_create_crashloop_test_pods_action_posts_fixed_failure_pod_manifests(mon
     ]
 
 
+def test_test_pod_create_count_from_korean_and_english_words() -> None:
+    assert gateway_main.test_pod_create_count_from_message(
+        "gpu-test-kugnus 네임스페이스에 테스트pod 두개만 생성해봐"
+    ) == 2
+    assert gateway_main.test_pod_create_count_from_message(
+        "gpu-test-kugnus 네임스페이스에 테스트 pod 두 개 생성"
+    ) == 2
+    assert gateway_main.test_pod_create_count_from_message(
+        "gpu-test-kugnus namespace test pod two create"
+    ) == 2
+    assert gateway_main.test_pod_create_request_from_message(
+        "gpu-test-kugnus 네임스페이스에 테스트pod 두개만 생성해봐"
+    )["count"] == 2
+
+
+def test_chat_stream_test_pod_create_keeps_requested_count_in_gateway_candidate(monkeypatch) -> None:
+    gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.clear()
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    async def fake_test_pod_preflight(_user_auth_header: str, request: Mapping[str, object]) -> dict:
+        assert request["namespace"] == "gpu-test-kugnus"
+        assert request["count"] == 2
+        return {
+            "namespace": "gpu-test-kugnus",
+            "ok": True,
+            "server": "https://api.test:6443",
+            "status": "namespace_ready",
+            "uid": "namespace-uid-gpu-test",
+        }
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "collect_test_pod_create_preflight", fake_test_pod_preflight)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "gpu-test-kugnus 네임스페이스에 테스트pod 두개만 생성해봐",
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                    "runId": "run-test-pod-two",
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        text = "\n".join(
+            event.get("content", "")
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        )
+        assert "생성 수량: `2`" in text
+        candidates = [
+            candidate
+            for candidate in gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.values()
+            if candidate.get("sourceType") == "create_crashloop_test_pods"
+        ]
+        assert candidates
+        latest = candidates[-1]
+        assert latest["parameters"]["count"] == 2
+        assert latest["target"]["namespace"] == "gpu-test-kugnus"
+        assert "2개" in latest["title"]
+
+    asyncio.run(run())
+
+
 def test_test_pod_create_candidate_maps_to_executable_crashloop_action() -> None:
     intent = action_candidate_plan_intent(
         ActionCandidatePlanCreate(
@@ -7594,6 +7674,143 @@ def test_test_pod_create_candidate_maps_to_executable_crashloop_action() -> None
     assert intent["toolName"] == "create_crashloop_test_pods"
     assert intent["parameters"]["count"] == 3
     assert intent["parameters"]["failureMode"] == "crashloop"
+
+
+def test_pod_inventory_evidence_creates_review_only_action_candidates() -> None:
+    req = ChatRequest(
+        message="현재 클러스터에서 에러 상태인 pod 목록을 확인하고 원인 분석해줘",
+        pageContext={"aiopsExecutionMode": "execute"},
+    )
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 2
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+| openshift-operators | nginx-gateway-fabric-controller-manager-85458465f9-4njg9 | manager | Running | 2026-07-08T01:00:00Z | 0/1 | 61 | Error/1 | ReplicaSet/nginx-gateway-fabric-controller-manager-85458465f9 |
+| appscan-nfs-provisioner | appscan-nfs-provisioner-nfs-subdir-external-provisioner-74b6rsb | nfs-subdir-external-provisioner | Running | 2026-07-08T01:00:00Z | 1/1 | 19 | Error/255 | ReplicaSet/appscan-nfs-provisioner-nfs-subdir-external-provisioner-74b6rsb |
+| komsco-ai-dev | aiops-two-pod-exec-0 | sleeper | Running | 2026-07-08T01:00:00Z | 1/1 | 374 | Completed/0 | ReplicaSet/aiops-two-pod-exec |
+| komsco-ai-dev | healthy-api-0 | api | Running | 2026-07-08T01:00:00Z | 1/1 | 0 | - | ReplicaSet/healthy-api |
+"""
+
+    candidates = gateway_main.pod_inventory_action_candidates_from_evidence(
+        req,
+        gateway_evidence,
+        incident_id="inc-test",
+        run_id="run-test",
+    )
+
+    assert len(candidates) == 2
+    assert {candidate["sourceType"] for candidate in candidates} == {"pod_diagnostic_review"}
+    assert all(candidate["approvalRequired"] is True for candidate in candidates)
+    assert all(candidate["executable"] is False for candidate in candidates)
+    assert all(candidate["executionPolicy"]["proposalOnly"] is True for candidate in candidates)
+    assert all(candidate["mutationSubmitted"] is False for candidate in candidates)
+    assert all(candidate["target"]["kind"] == "Pod" for candidate in candidates)
+    assert {candidate["target"]["namespace"] for candidate in candidates} == {
+        "appscan-nfs-provisioner",
+        "openshift-operators",
+    }
+    assert all("delete" in set(candidate["blockedActions"]) for candidate in candidates)
+    assert all("Pod 삭제" in candidate["expectedImpact"] for candidate in candidates)
+
+    answer = build_grounded_aiops_answer(req, {"task_type": "pod_inventory"}, gateway_evidence)
+    assert answer is not None
+    assert "## Pod 인벤토리" in answer
+    assert "nginx-gateway-fabric-controller-manager-85458465f9-4njg9" in answer
+    assert "appscan-nfs-provisioner-nfs-subdir-external-provisioner-74b6rsb" in answer
+    assert "aiops-two-pod-exec-0" not in answer
+    assert "healthy-api-0" not in answer
+    assert "단순 재시작 이력만 있는 항목은 기본 표에서 제외" in answer
+    assert "docs.openshift.com" not in answer
+
+
+def test_pod_inventory_error_answer_caps_display_rows() -> None:
+    req = ChatRequest(message="현재 클러스터에서 에러 상태인 pod 목록을 확인해줘")
+    rows = "\n".join(
+        f"| ns-{index} | pod-error-{index} | app | Error | 2026-07-08T01:00:00Z | 0/1 | 1 | Error/1 | ReplicaSet/app-{index} |"
+        for index in range(12)
+    )
+    gateway_evidence = f"""
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 12
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+{rows}
+"""
+
+    answer = build_grounded_aiops_answer(req, {"task_type": "pod_inventory"}, gateway_evidence)
+
+    assert answer is not None
+    assert "에러/비정상 Pod/Container 12건" in answer
+    assert "추가 2건은 상세 확인 대상" in answer
+    assert "pod-error-0" in answer
+    assert "pod-error-9" in answer
+    assert "pod-error-10" not in answer
+    assert answer.count("| 높음 |") == 10
+
+
+def test_pod_inventory_restart_request_can_include_restart_only_rows() -> None:
+    req = ChatRequest(message="현재 클러스터에서 재시작 횟수가 높은 pod 목록을 확인해줘")
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 2
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+| komsco-ai-dev | aiops-two-pod-exec-0 | sleeper | Running | 2026-07-08T01:00:00Z | 1/1 | 374 | Completed/0 | ReplicaSet/aiops-two-pod-exec |
+| komsco-ai-dev | healthy-api-0 | api | Running | 2026-07-08T01:00:00Z | 1/1 | 0 | - | ReplicaSet/healthy-api |
+"""
+
+    answer = build_grounded_aiops_answer(req, {"task_type": "pod_inventory"}, gateway_evidence)
+
+    assert answer is not None
+    assert "aiops-two-pod-exec-0" in answer
+    assert "healthy-api-0" not in answer
+    assert "Completed/0 반복 재시작 이력" in answer
+
+
+def test_recent_chat_action_candidates_are_not_trimmed_by_overview_priority() -> None:
+    gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.clear()
+    try:
+        recent_candidate = {
+            "id": "recent-chat-pod-diagnostic",
+            "chatRunId": "run-current",
+            "priority": 99,
+            "sourceType": "pod_diagnostic_review",
+            "target": {"kind": "Pod", "namespace": "team-a", "name": "pod-a"},
+            "title": "Pod 원인 확인 플랜",
+            "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+        }
+        gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES[recent_candidate["id"]] = recent_candidate
+        overview_candidates = {
+            "apiVersion": "aiops.komsco/v1",
+            "kind": "AIOpsActionCandidateSummary",
+            "metadata": {"name": "overview"},
+            "spec": {
+                "candidates": [
+                    {
+                        "id": f"overview-{index}",
+                        "priority": index,
+                        "sourceType": "pod_restart_spike",
+                        "target": {"kind": "Pod", "namespace": "team-b", "name": f"pod-{index}"},
+                        "title": "Overview candidate",
+                    }
+                    for index in range(1, 10)
+                ],
+                "totals": {},
+            },
+        }
+
+        merged = gateway_main.merge_recent_namespace_cleanup_candidates(overview_candidates)
+        candidates = merged["spec"]["candidates"]
+
+        assert candidates[0]["id"] == "recent-chat-pod-diagnostic"
+        assert candidates[0]["chatRunId"] == "run-current"
+        assert len(candidates) == 8
+    finally:
+        gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.clear()
 
 
 def test_test_pod_create_candidate_plan_preserves_pods_create_action(monkeypatch) -> None:

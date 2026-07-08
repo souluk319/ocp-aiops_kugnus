@@ -853,477 +853,20 @@ const mergeUploadedDocuments = (
   return Array.from(merged.values());
 };
 
-const KUBERNETES_NAME_PATTERN = '[a-z0-9](?:[-a-z0-9]*[a-z0-9])?';
-
-const answerTextForCandidateParsing = (content: string): string =>
-  content.replace(/https?:\/\/\S+/gi, ' ');
-
-const answerHasConfirmedPodRootCause = (content: string): boolean => {
-  const source = answerTextForCandidateParsing(content);
-  const confirmedSignal =
-    /(확정|확인(?:된|했|했습니다)?|의도적으로 생성|의도적인\s*CrashLoop|intentional\s+crashloop|raise\s+SystemExit|spec\.containers\[[0-9]+\]\.command|실행 명령|컨테이너 로그|종료 코드|exit\s*code)/i.test(
-      source,
-    );
-  const podFailureSignal = /(CrashLoopBackOff|restart\s*count|재시작|파드|Pod|컨테이너)/i.test(source);
-  return confirmedSignal && podFailureSignal;
-};
-
-const firstPodTargetFromAnswer = (
-  content: string,
-): { namespace: string; name: string } | undefined => {
-  const source = answerTextForCandidateParsing(content);
-  const namespaceThenPod = source.match(
-    new RegExp(
-      `\\b(${KUBERNETES_NAME_PATTERN})\\s*/\\s*Pod\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`,
-      'i',
-    ),
-  );
-  if (namespaceThenPod?.[1] && namespaceThenPod[2]) {
-    return { namespace: namespaceThenPod[1], name: namespaceThenPod[2] };
-  }
-
-  const podThenNamespace = source.match(
-    new RegExp(
-      `\\bPod\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?.{0,100}\\b(?:namespace|네임스페이스)\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`,
-      'i',
-    ),
-  );
-  if (podThenNamespace?.[1] && podThenNamespace[2]) {
-    return { namespace: podThenNamespace[2], name: podThenNamespace[1] };
-  }
-
-  if (!/(?:\bPod\b|파드)/i.test(source)) {
-    return undefined;
-  }
-
-  const slashTargetPattern = new RegExp(
-    `\\b(${KUBERNETES_NAME_PATTERN})/(${KUBERNETES_NAME_PATTERN})\\b`,
-    'gi',
-  );
-  const slashTarget = slashTargetPattern.exec(source);
-  return slashTarget?.[1] && slashTarget[2]
-    ? { namespace: slashTarget[1], name: slashTarget[2] }
-    : undefined;
-};
-
-const firstDeploymentTargetFromAnswer = (
-  content: string,
-  fallbackNamespace?: string,
-): { namespace: string; name: string } | undefined => {
-  const source = answerTextForCandidateParsing(content);
-  const namespacedDeployment = source.match(
-    new RegExp(
-      `\\b(${KUBERNETES_NAME_PATTERN})\\s*/\\s*(?:Deployment|deployment)\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`,
-      'i',
-    ),
-  );
-  if (namespacedDeployment?.[1] && namespacedDeployment[2]) {
-    return { namespace: namespacedDeployment[1], name: namespacedDeployment[2] };
-  }
-
-  const deploymentRef = source.match(
-    new RegExp(`(?:Deployment|deployment)\\s*/\\s*\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`, 'i'),
-  );
-  if (deploymentRef?.[1] && fallbackNamespace) {
-    return { namespace: fallbackNamespace, name: deploymentRef[1] };
-  }
-
-  const deploymentInline = source.match(
-    new RegExp(`(?:deployment|Deployment)\\s+\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`, 'i'),
-  );
-  if (deploymentInline?.[1] && fallbackNamespace) {
-    return { namespace: fallbackNamespace, name: deploymentInline[1] };
-  }
-
-  return undefined;
-};
-
-const firstContainerNameFromAnswer = (content: string): string => {
-  const source = answerTextForCandidateParsing(content);
-  const containerRef = source.match(
-    new RegExp(`(?:Container|container|컨테이너)\\s*[:：]?\\s*\\x60?(${KUBERNETES_NAME_PATTERN})\\x60?`, 'i'),
-  );
-  return containerRef?.[1] || 'crashloop';
-};
-
-const stableCommandForConfirmedCrashloop = (content: string): string[] | undefined => {
-  const source = answerTextForCandidateParsing(content);
-  const looksLikeDemoCrashloop =
-    /(aiops[-_]?scenario|scenario|sample-crashy|intentional\s+crashloop|의도적|테스트|시나리오)/i.test(
-      source,
-    ) && /raise\s+SystemExit|SystemExit|즉시 종료/i.test(source);
-  return looksLikeDemoCrashloop
-    ? ['python', '-c', 'import time; print("aiops scenario stable"); time.sleep(86400)']
-    : undefined;
-};
-
-const podDiagnosticCandidateFromAnswer = (content: string): AiopsActionCandidate | undefined => {
-  const target = firstPodTargetFromAnswer(content);
-  if (!target) {
-    return undefined;
-  }
-  const rootCauseConfirmed = answerHasConfirmedPodRootCause(content);
-
-  if (rootCauseConfirmed) {
-    const deploymentTarget = firstDeploymentTargetFromAnswer(content, target.namespace);
-    const stableCommand = stableCommandForConfirmedCrashloop(content);
-    if (deploymentTarget && stableCommand) {
-      const containerName = firstContainerNameFromAnswer(content);
-      return {
-        approvalRequired: true,
-        blockedActions: [],
-        blockedReasons: ['approval-required'],
-        confidence: 'medium',
-        evidence: `${deploymentTarget.namespace}/${deploymentTarget.name} Deployment template command가 CrashLoopBackOff 원인으로 확인됐습니다.`,
-        executable: true,
-        executionPolicy: {
-          executionEnabled: true,
-          mode: 'execute',
-          mutationVerbsDisabled: false,
-          proposalOnly: false,
-        },
-        expectedImpact:
-          'Deployment template의 컨테이너 command를 즉시 종료 명령에서 안정 실행 명령으로 바꾸고 새 ReplicaSet rollout을 유도합니다.',
-        id: `chat-deployment-command-fix-${deploymentTarget.namespace}-${deploymentTarget.name}-${containerName}`,
-        parameters: {
-          command: stableCommand,
-          containerName,
-          reason: 'CrashLoopBackOff root cause is an immediate-exit container command.',
-        },
-        priority: 58,
-        prerequisiteChecks: [
-          '대상 Deployment와 container 이름 확인',
-          '현재 command가 즉시 종료 명령인지 확인',
-          '승인 전 영향 범위 확인',
-        ],
-        recommendationSteps: [
-          'Deployment template container command 수정',
-          'rollout status 확인',
-          '새 Pod Ready와 restart count 확인',
-        ],
-        riskLabel: '보통',
-        riskLevel: 'medium',
-        sourceFindingId: `deployment-command-fix-${deploymentTarget.namespace}-${deploymentTarget.name}`,
-        sourceType: 'deployment_container_command_fix',
-        statusLabel: '승인 후 실행 가능',
-        target: {
-          apiVersion: 'apps/v1',
-          kind: 'Deployment',
-          name: deploymentTarget.name,
-          namespace: deploymentTarget.namespace,
-        },
-        title: 'Deployment command 수정',
-        verificationChecks: ['rollout status 확인', 'Ready Pod 1개 이상 확인', 'restart count 증가 중단 확인'],
-      };
-    }
-
-    return {
-      approvalRequired: true,
-      blockedActions: ['delete', 'patch', 'apply', 'scale', 'exec'],
-      blockedReasons: ['root-cause-confirmed', 'review-only-plan'],
-      confidence: 'medium',
-      evidence: `${target.namespace}/${target.name} Pod 원인은 확인됐고 수정 또는 rollback 판단이 필요합니다.`,
-      executable: false,
-      executionPolicy: {
-        executionEnabled: false,
-        mode: 'review-only',
-        mutationVerbsDisabled: true,
-        proposalOnly: true,
-      },
-      expectedImpact:
-        '이 플랜은 클러스터를 자동 변경하지 않습니다. Deployment template 수정, 정상 revision rollback, config/env 수정 중 무엇이 맞는지 검토 기록을 남깁니다.',
-      id: `chat-pod-fix-review-${target.namespace}-${target.name}`,
-      priority: 44,
-      prerequisiteChecks: [
-        '상위 ReplicaSet/Deployment owner chain 확인',
-        '현재 command/image/env/config 확인',
-        '정상 revision rollback 가능 여부 확인',
-      ],
-      recommendationSteps: [
-        'Deployment template에서 비정상 종료 명령 제거 또는 정상 명령으로 교체 검토',
-        '최근 배포가 원인이면 이전 정상 revision rollback 검토',
-        '변경 전 영향 범위와 검증 방법 확인',
-      ],
-      riskLabel: '낮음',
-      riskLevel: 'low',
-      sourceFindingId: `pod-fix-review-${target.namespace}-${target.name}`,
-      sourceType: 'pod_fix_or_rollback_review',
-      statusLabel: '수정 검토 필요',
-      target: {
-        apiVersion: 'v1',
-        kind: 'Pod',
-        name: target.name,
-        namespace: target.namespace,
-      },
-      title: '수정/롤백 검토 플랜',
-      verificationChecks: ['rollout status 확인', 'Ready Pod 수 확인', 'restart 증가 중단 확인'],
-    };
-  }
-
-  return {
-    approvalRequired: true,
-    blockedActions: ['delete', 'patch', 'apply', 'scale', 'exec'],
-    blockedReasons: ['approval-required', 'review-only-plan'],
-    confidence: 'medium',
-    evidence: `${target.namespace}/${target.name} Pod 진단 확인이 필요합니다.`,
-    executable: false,
-    executionPolicy: {
-      executionEnabled: false,
-      mode: 'review-only',
-      mutationVerbsDisabled: true,
-      proposalOnly: true,
-    },
-    expectedImpact:
-      'Pod 로그, 이전 로그, Event 조회 계획을 승인 흐름으로 고정합니다. 이 버튼 자체는 변경을 실행하지 않습니다.',
-    id: `chat-pod-diagnostic-${target.namespace}-${target.name}`,
-    priority: 36,
-    prerequisiteChecks: ['대상 Pod 존재 확인', '이전 로그와 Event 조회 결과 확인'],
-    recommendationSteps: ['Pod 진단 조회 계획 작성', '승인 게이트 통과', '로그/Event 결과로 원인 후보 확인'],
-    riskLabel: '낮음',
-    riskLevel: 'low',
-    sourceFindingId: `pod-diagnostic-${target.namespace}-${target.name}`,
-    sourceType: 'pod_diagnostic_review',
-    statusLabel: '승인 필요',
-    target: {
-      apiVersion: 'v1',
-      kind: 'Pod',
-      name: target.name,
-      namespace: target.namespace,
-    },
-    title: 'Pod 진단 확인 플랜',
-    verificationChecks: ['생성 전 Pod가 같은 namespace에 있는지 확인', '조회 계획에 변경 작업이 없는지 확인'],
-  };
-};
-
-const targetRequiredDiagnosticCandidateFromAnswer = (
-  content: string,
-): AiopsActionCandidate | undefined => {
-  const source = answerTextForCandidateParsing(content);
-  if (
-    /저는\s*AIOps\s*for\s*OCP입니다|AIOps\s*for\s*OCP\s*역할\s*안내|전문\s*AIOps\s*모델|I am an AIOps model|AIOps for OCP guidance/i.test(
-      source,
-    )
-  ) {
-    return undefined;
-  }
-
-  const hasOperationalSection =
-    /(현재 판단|확인 결과|판단 결과|조치 방법|추가 확인|터미널 확인 명령|승인 필요 후보|CrashLoopBackOff|ImagePullBackOff|KubePodNotReady)/i.test(
-      source,
-    );
-  const hasActionIntent =
-    /(Action Plan|조치|진단|확인|복구|rollout|restart|rollback|장애|오류|에러|failed|failure)/i.test(
-      source,
-    );
-  if (!hasOperationalSection || !hasActionIntent) {
-    return undefined;
-  }
-
-  const operationalAnswer =
-    /(현재 판단|확인 결과|판단 결과|원인 후보|조치 방법|추가 확인|CrashLoopBackOff|Pod|파드|Namespace|네임스페이스|Event|이벤트|장애|오류|에러|failed|error|failure)/i.test(
-      source,
-    ) &&
-    /(Action Plan|조치|진단|확인|복구|rollout|restart|rollback)/i.test(source);
-  if (!operationalAnswer) {
-    return undefined;
-  }
-
-  return {
-    approvalRequired: true,
-    blockedActions: ['create', 'delete', 'patch', 'apply', 'scale', 'exec'],
-    blockedReasons: ['target-required', 'review-only-plan'],
-    confidence: 'low',
-    evidence: '대상 리소스가 아직 확정되지 않아 실행 계획 대신 확인 계획만 준비했습니다.',
-    executable: false,
-    executionPolicy: {
-      executionEnabled: false,
-      mode: 'review-only',
-      mutationVerbsDisabled: true,
-      proposalOnly: true,
-    },
-    expectedImpact:
-      '대상 Pod, Deployment, Namespace가 확인되기 전에는 변경 계획을 만들지 않습니다.',
-    id: 'chat-target-required-diagnostic-review',
-    planDisabledReason: '대상 Pod 또는 namespace가 확인되어야 Action Plan을 생성할 수 있습니다.',
-    priority: 12,
-    prerequisiteChecks: ['대상 리소스 이름 확인', 'namespace 확인', '조회 결과 연결'],
-    recommendationSteps: ['대상 리소스 확인', '상세/Event/로그 조회 계획으로 전환'],
-    riskLabel: '낮음',
-    riskLevel: 'low',
-    sourceFindingId: 'target-required-diagnostic-review',
-    sourceType: 'pod_diagnostic_review',
-    statusLabel: '대상 확인 필요',
-    target: {
-      apiVersion: 'v1',
-      kind: 'Pod',
-    },
-    title: '문제 확인 플랜',
-    verificationChecks: ['대상 리소스가 확인되면 다시 Action Plan 생성'],
-  };
-};
-
 const matchActionCandidatesForMessage = (
   content: string,
   candidates: AiopsActionCandidate[],
 ): AiopsActionCandidate[] => {
-  let matched: AiopsActionCandidate[] = candidates.filter((candidate) => {
-    const name = candidate.target?.name;
-    return Boolean(name) && content.includes(name!);
-  });
-  const rootCauseConfirmed = answerHasConfirmedPodRootCause(content);
-  if (rootCauseConfirmed) {
-    matched = matched.filter((candidate) => {
-      const actionText = `${candidate.sourceType || ''} ${candidate.sourceFindingId || ''} ${candidate.title || ''}`;
-      return !/pod_diagnostic_review|diagnostic|원인\s*확인/i.test(actionText);
-    });
-    const hasFixReview = matched.some((candidate) =>
-      /pod_fix_or_rollback_review|fix[-_]?review|rollback/i.test(
-        `${candidate.sourceType || ''} ${candidate.sourceFindingId || ''} ${candidate.title || ''}`,
-      ),
+  const matched = candidates.filter((candidate) => {
+    const targetName = candidate.target?.name;
+    const namespace = candidate.target?.namespace;
+    return Boolean(
+      (targetName && content.includes(targetName)) ||
+        (namespace && content.includes(namespace)),
     );
-    if (!hasFixReview) {
-      const fixReviewCandidate = podDiagnosticCandidateFromAnswer(content);
-      if (fixReviewCandidate) {
-        matched.push(fixReviewCandidate);
-      }
-    }
-  }
-  const testPodCreateNames = testPodCreateCandidateNamesFromAnswer(content);
-  testPodCreateNames.forEach((name) => {
-    matched.push(testPodCreateCandidateFromAnswer(name));
   });
-  if (!testPodCreateNames.length) {
-    const namespaceCleanupNames = namespaceCleanupCandidateNamesFromAnswer(content);
-	    namespaceCleanupNames.forEach((name) => {
-	      matched.push(namespaceCleanupCandidateFromAnswer(name));
-	    });
-	  }
-  if (matched.length === 0) {
-    const diagnosticCandidate =
-      podDiagnosticCandidateFromAnswer(content) ?? targetRequiredDiagnosticCandidateFromAnswer(content);
-    if (diagnosticCandidate) {
-      matched.push(diagnosticCandidate);
-    }
-  }
-
   return dedupeActionCandidates(matched);
 };
-
-const namespaceCleanupCandidateNamesFromAnswer = (content: string): string[] => {
-  const names = new Set<string>();
-  const collect = (value: string) => {
-    value
-      .split(',')
-      .map((item) => item.replace(/[`*_]/g, '').trim())
-      .filter((item) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(item))
-      .forEach((item) => names.add(item));
-  };
-  const ko = content.match(/승인 필요 후보:\s*([^\n]+)/);
-  if (ko?.[1]) {
-    collect(ko[1]);
-  }
-  const en = content.match(/Approval-required candidates:\s*([^\n]+)/i);
-  if (en?.[1]) {
-    collect(en[1]);
-  }
-  return Array.from(names);
-};
-
-const testPodCreateCandidateNamesFromAnswer = (content: string): string[] => {
-  if (!/테스트\s*Pod|test\s*Pod|aiops-test-pods/i.test(content)) {
-    return [];
-  }
-  const names = new Set<string>();
-  const collect = (value: string) => {
-    value
-      .split(',')
-      .map((item) => item.replace(/[`*_]/g, '').trim())
-      .map((item) => item.match(/[a-z0-9]([-a-z0-9]*[a-z0-9])?/)?.[0] || '')
-      .filter((item) => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(item))
-      .forEach((item) => names.add(item));
-  };
-  const ko = content.match(/승인 필요 후보:\s*([^\n]+)/);
-  if (ko?.[1]) {
-    collect(ko[1]);
-  }
-  const en = content.match(/Approval-required candidates:\s*([^\n]+)/i);
-  if (en?.[1]) {
-    collect(en[1]);
-  }
-  return Array.from(names);
-};
-
-const testPodCreateCandidateFromAnswer = (namespace: string): AiopsActionCandidate => ({
-  approvalRequired: true,
-  blockedActions: [],
-  blockedReasons: ['approval-required'],
-  confidence: 'high',
-  evidence: `${namespace} namespace preflight can support creating intentional CrashLoopBackOff test Pods.`,
-  executable: true,
-  executionPolicy: {
-    executionEnabled: true,
-    mode: 'execute',
-    mutationVerbsDisabled: false,
-    proposalOnly: false,
-  },
-  expectedImpact: `${namespace} namespace에 의도적으로 CrashLoopBackOff가 나는 테스트 Pod 3개를 생성합니다. 승인 전에는 Pod를 생성하지 않습니다.`,
-  id: `chat-test-pod-create-${namespace}`,
-  parameters: {
-    count: 3,
-    failureMode: 'crashloop',
-    image: 'registry.access.redhat.com/ubi9/ubi-minimal:latest',
-    namePrefix: 'aiops-test-pod',
-  },
-  priority: 35,
-  prerequisiteChecks: ['대상 namespace 존재 확인', '테스트 목적 확인', '정리 방법 확인'],
-  recommendationSteps: ['CrashLoop 테스트 Pod 생성 계획 작성', '승인 게이트 통과', '생성 후 CrashLoopBackOff 상태 조회로 검증'],
-  riskLabel: '낮음',
-  riskLevel: 'low',
-  sourceFindingId: `test-pod-create-${namespace}`,
-  sourceType: 'create_crashloop_test_pods',
-  statusLabel: '승인 후 실행 가능',
-  target: {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    name: namespace,
-    namespace,
-  },
-  title: 'CrashLoop 테스트 Pod 3개 생성',
-  verificationChecks: ['생성 전 namespace 재확인', 'label app=aiops-test-pods 기준 Pod 3개 조회'],
-});
-
-const namespaceCleanupCandidateFromAnswer = (namespace: string): AiopsActionCandidate => ({
-  approvalRequired: true,
-  blockedActions: ['delete', 'patch', 'apply', 'scale', 'exec'],
-  blockedReasons: ['approval-required', 'review-only-plan'],
-  confidence: 'medium',
-  evidence: `${namespace} namespace read-only inventory marked it as a cleanup review candidate.`,
-  executable: false,
-  executionPolicy: {
-    executionEnabled: false,
-    mode: 'review-only',
-    mutationVerbsDisabled: true,
-    proposalOnly: true,
-  },
-  expectedImpact: '정리 후보를 승인 검토 계획으로 고정합니다. 이 버튼 자체는 namespace 삭제를 실행하지 않습니다.',
-  id: `chat-namespace-cleanup-${namespace}`,
-  priority: 40,
-  prerequisiteChecks: ['소유자 확인', 'PVC/Route 잔존 여부 확인', '백업 필요 여부 확인'],
-  recommendationSteps: ['namespace 사용 신호 재확인', '정리 검토 Action Plan 생성', '별도 삭제 승인 정책 확인'],
-  riskLabel: '중간',
-  riskLevel: 'medium',
-  sourceFindingId: `namespace-cleanup-${namespace}`,
-  sourceType: 'namespace_cleanup_review',
-  statusLabel: '승인 필요',
-  target: {
-    apiVersion: 'v1',
-    kind: 'Namespace',
-    name: namespace,
-    namespace,
-  },
-  title: 'Namespace 정리 검토',
-  verificationChecks: ['Action Plan 생성 후에도 namespace가 존재하는지 확인', '삭제 실행 기록이 없는지 확인'],
-});
 
 // Matches the "namespace/name" shape getRecordTargetLabel derives from a
 // record's target, so a candidate's target and a record's target can be
@@ -1415,6 +958,71 @@ const pendingActionCandidatesForRefs = (
     return candidates;
   }
   return candidates.filter((candidate) => !createdCandidateIds.has(candidate.id));
+};
+
+const groupActionRefsByCandidateId = (
+  refs: ConversationActionRef[],
+): Record<string, ConversationActionRef[]> =>
+  refs.reduce<Record<string, ConversationActionRef[]>>((groups, ref) => {
+    if (!ref.candidateId) {
+      return groups;
+    }
+    groups[ref.candidateId] = [...(groups[ref.candidateId] ?? []), ref];
+    return groups;
+  }, {});
+
+const actionRecordMatchesRef = (
+  record: AiopsRecordView,
+  ref: ConversationActionRef,
+): boolean => {
+  if (ref.recordName && getRecordName(record) === ref.recordName) {
+    return true;
+  }
+  if (ref.planDigest && getAnyPlanDigest(record) === ref.planDigest) {
+    return true;
+  }
+  return (
+    ref.targetKey === getRecordTargetLabel(record) &&
+    (!ref.toolName || ref.toolName === getActionRecordToolName(record))
+  );
+};
+
+const actionRecordInlineKey = (record: AiopsRecordView): string =>
+  [
+    getRecordName(record) || 'record',
+    getAnyPlanDigest(record) || 'digest',
+    getRecordTargetLabel(record),
+    getActionRecordToolName(record),
+    getActionRecordStage(record),
+  ].join('|');
+
+const groupActionRecordsByCandidateId = (
+  records: AiopsRecordView[],
+  refs: ConversationActionRef[],
+): Record<string, AiopsRecordView[]> => {
+  const refsByCandidateId = groupActionRefsByCandidateId(refs);
+
+  return Object.entries(refsByCandidateId).reduce<Record<string, AiopsRecordView[]>>(
+    (groups, [candidateId, candidateRefs]) => {
+      const seen = new Set<string>();
+      const matched = records.filter((record) => {
+        if (!candidateRefs.some((ref) => actionRecordMatchesRef(record, ref))) {
+          return false;
+        }
+        const key = actionRecordInlineKey(record);
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+      if (matched.length > 0) {
+        groups[candidateId] = matched;
+      }
+      return groups;
+    },
+    {},
+  );
 };
 
 const mergeConversationActionRefs = (
@@ -2904,9 +2512,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const refreshAiopsActionCandidates = React.useCallback(async () => {
     try {
       const summary = await fetchActionCandidates();
-      setActionCandidates(summary.spec?.candidates ?? []);
+      const nextCandidates = summary.spec?.candidates ?? [];
+      actionCandidatesRef.current = nextCandidates;
+      setActionCandidates(nextCandidates);
+      return nextCandidates;
     } catch {
       // Best-effort: the "조치 계획 생성" button simply won't appear if this fails.
+      return actionCandidatesRef.current;
     }
   }, []);
 
@@ -4302,24 +3914,37 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         finishAnswerStreamStep();
         finalizeRunningProgressSteps('답변 완료');
         await refreshAiopsRuntimeStatus();
-        await refreshAiopsActionCandidates();
-        if (autoProposeActionsAllowedRef.current) {
-          let latestAssistantContent = '';
-          setMessages((prev) => {
-            const assistantIndex = findLastAssistantIndex(prev);
-            latestAssistantContent = assistantIndex >= 0 ? prev[assistantIndex].content : '';
+        const refreshedActionCandidates = await refreshAiopsActionCandidates();
+        let matchedActionCandidatesForAnswer: AiopsActionCandidate[] = [];
+        setMessages((prev) => {
+          const assistantIndex = findLastAssistantIndex(prev);
+          if (assistantIndex < 0) {
             return prev;
-          });
-          const matched = matchActionCandidatesForMessage(
+          }
+
+          const latestAssistantContent = prev[assistantIndex].content;
+          matchedActionCandidatesForAnswer = matchActionCandidatesForMessage(
             latestAssistantContent,
-            actionCandidatesRef.current,
+            refreshedActionCandidates,
           );
-	          matched
-	            .filter((candidate) => !candidate.planDisabledReason)
-	            .forEach((candidate) => {
-	              void handleCreateActionPlanFromChat(candidate);
-	            });
-	        }
+          if (matchedActionCandidatesForAnswer.length === 0) {
+            return prev;
+          }
+
+          const next = [...prev];
+          next[assistantIndex] = {
+            ...next[assistantIndex],
+            actionCandidates: matchedActionCandidatesForAnswer,
+          };
+          return next;
+        });
+        if (autoProposeActionsAllowedRef.current) {
+          matchedActionCandidatesForAnswer
+            .filter((candidate) => !candidate.planDisabledReason)
+            .forEach((candidate) => {
+              void handleCreateActionPlanFromChat(candidate);
+            });
+        }
         if (runCompleted) {
           void onRunComplete?.();
         }
@@ -4553,19 +4178,25 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const isLatestAssistantMessage =
                           message.role === 'assistant' &&
                           index === findLastAssistantIndex(messages);
+                        const isAssistantMessageWithContent =
+                          message.role === 'assistant' && hasContent;
                         const messageActionAnchor =
                           message.role === 'assistant' ? actionAnchorForMessageIndex(index) : undefined;
+                        const storedActionCandidates = message.actionCandidates ?? [];
                         const matchedActionCandidates =
-                          isLatestAssistantMessage &&
-                          hasContent
-                            ? matchActionCandidatesForMessage(message.content, actionCandidates)
+                          isAssistantMessageWithContent
+                            ? storedActionCandidates.length > 0
+                              ? storedActionCandidates
+                              : isLatestAssistantMessage
+                                ? matchActionCandidatesForMessage(message.content, actionCandidates)
+                                : []
                             : [];
                         const createPlanDisabledReason =
                           executionModeAllowsActions(executionMode)
                             ? ''
                             : '읽기 전용: 후보만 표시';
                         const answerActionRecords =
-                          isLatestAssistantMessage && hasContent
+                          isAssistantMessageWithContent
                             ? latestAnswerActionRecords(
                                 aiopsStatus,
                                 executionMode,
@@ -4575,7 +4206,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               )
                             : [];
                         const exactAnswerActionRefs =
-                          isLatestAssistantMessage && hasContent && messageActionAnchor
+                          isAssistantMessageWithContent && messageActionAnchor
                             ? effectiveSessionActionRefs.filter(
                                 (ref) => ref.messageAnchor === messageActionAnchor,
                               )
@@ -4603,8 +4234,34 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                             : [];
                         const resolvedAnswerActionRecords =
                           answerActionRecords.length > 0 ? answerActionRecords : candidateActionRecords;
+                        const candidateActionRefsById =
+                          groupActionRefsByCandidateId(answerActionRefs);
+                        const candidateActionRecordsById = groupActionRecordsByCandidateId(
+                          resolvedAnswerActionRecords,
+                          answerActionRefs,
+                        );
+                        const visibleActionCandidates =
+                          Object.keys(candidateActionRefsById).length > 0
+                            ? matchedActionCandidates
+                            : pendingActionCandidates;
+                        const inlineActionRecordKeys = new Set(
+                          Object.values(candidateActionRecordsById)
+                            .flat()
+                            .map(actionRecordInlineKey),
+                        );
+                        const inlineActionActivityVisible = visibleActionCandidates.some(
+                          (candidate) =>
+                            (candidateActionRecordsById[candidate.id]?.length ?? 0) > 0 ||
+                            (candidateActionRefsById[candidate.id]?.length ?? 0) > 0,
+                        );
+                        const remainingAnswerActionRecords = resolvedAnswerActionRecords.filter(
+                          (record) => !inlineActionRecordKeys.has(actionRecordInlineKey(record)),
+                        );
+                        const remainingAnswerActionRefs = answerActionRefs.filter(
+                          (ref) => !ref.candidateId,
+                        );
                         const showCreateActionPlanButtons =
-                          pendingActionCandidates.length > 0;
+                          visibleActionCandidates.length > 0;
                         const showActionPrepGroup =
                           Boolean(message.toolPlan) && showCreateActionPlanButtons;
                         const waitingForContent =
@@ -4657,11 +4314,18 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     />
                                     <AssistantCreateActionPlanButtons
                                       actionFeedback={actionCandidateFeedback}
+                                      actionRecordsByCandidateId={candidateActionRecordsById}
+                                      actionRefsByCandidateId={candidateActionRefsById}
+                                      aiopsStatus={aiopsStatus}
+                                      busyActionId={aiopsActionBusyId}
 		                                    busyCandidateId={busyActionCandidateId}
-		                                    candidates={pendingActionCandidates}
+		                                    candidates={visibleActionCandidates}
                                       createDisabledReason={createPlanDisabledReason}
+                                      executionMode={executionMode}
 		                                    language={uiLanguage}
+                                      onAction={handleAiopsAction}
 		                                    onCreatePlan={handleCreateActionPlanFromChat}
+                                      resolveAction={getAiopsRecordAction}
 		                                  />
                                   </div>
                                 )}
@@ -4678,25 +4342,34 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 (
 	                                  <AssistantCreateActionPlanButtons
 	                                      actionFeedback={actionCandidateFeedback}
+                                      actionRecordsByCandidateId={candidateActionRecordsById}
+                                      actionRefsByCandidateId={candidateActionRefsById}
+                                      aiopsStatus={aiopsStatus}
+                                      busyActionId={aiopsActionBusyId}
 		                                    busyCandidateId={busyActionCandidateId}
-		                                    candidates={pendingActionCandidates}
+		                                    candidates={visibleActionCandidates}
                                       createDisabledReason={createPlanDisabledReason}
+                                      executionMode={executionMode}
 		                                    language={uiLanguage}
+                                      onAction={handleAiopsAction}
 		                                    onCreatePlan={handleCreateActionPlanFromChat}
+                                      resolveAction={getAiopsRecordAction}
 		                                  />
                                 )}
                               {canShowAssistantPostAnswer &&
                                 (
                                   <AssistantAnswerActions
                                     aiopsActionError={aiopsActionError}
-                                    aiopsActionNotice={aiopsActionNotice}
+                                    aiopsActionNotice={
+                                      inlineActionActivityVisible ? '' : aiopsActionNotice
+                                    }
                                     aiopsStatus={aiopsStatus}
                                     busyActionId={aiopsActionBusyId}
                                     executionMode={executionMode}
-                                    fallbackRefs={answerActionRefs}
+                                    fallbackRefs={remainingAnswerActionRefs}
                                     language={uiLanguage}
                                     onAction={handleAiopsAction}
-                                    records={resolvedAnswerActionRecords}
+                                    records={remainingAnswerActionRecords}
                                     resolveAction={getAiopsRecordAction}
                                   />
                                 )}

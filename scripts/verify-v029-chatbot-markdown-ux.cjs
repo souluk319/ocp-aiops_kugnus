@@ -39,6 +39,7 @@ const markdownPrepare = readFile('komsco-ai-console-plugin/src/components/assist
 const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
 const gateway = readFile('komsco-ai-gateway/komsco_ai_gateway/main.py');
 const contracts = readFile('komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py');
+const assistantConstantsSource = readFile('komsco-ai-console-plugin/src/components/assistant.constants.tsx');
 
 const deps = packageJson.dependencies || {};
 assert(deps['react-markdown'] === '8.0.7', 'React 17-compatible react-markdown must be pinned');
@@ -65,6 +66,10 @@ assert(markdown.includes('komsco-ai__code-wrap-toggle'), 'Command/code blocks mu
 assert(messageContent.includes('AssistantMarkdown'), 'AssistantMessageContent must route answers through AssistantMarkdown');
 assert(messageContent.includes("message.answerContract !== 'legacy_line_parser'"), 'Legacy parser must not remain the default renderer');
 assert(types.includes('streaming?: boolean;'), 'Message type must include streaming state');
+assert(
+  assistantConstantsSource.includes("DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'execute'"),
+  'Assistant must default to approval-gated execute mode, not read-only mode',
+);
 assert(launcher.includes('streaming: true'), 'Assistant stream start must mark the assistant message as streaming');
 assert(launcher.includes('markLastAssistantStreaming(prev, false)'), 'Assistant stream completion must clear streaming state');
 assert(launcher.includes('dedupeActionCandidates(matched)'), 'Action candidates must be deduped before rendering buttons');
@@ -87,17 +92,21 @@ assert(
     css.includes('.komsco-ai__action-prep .komsco-ai__create-action-plan-row'),
   'Query plan and Action Plan candidates must be visually grouped when both are present',
 );
-assert(launcher.includes('podDiagnosticCandidateFromAnswer'), 'Answer-derived Pod diagnostic candidates must be available when the answer names a target Pod');
-assert(launcher.includes('targetRequiredDiagnosticCandidateFromAnswer'), 'Execution-enabled targetless answers must render a target-required plan candidate');
-assert(launcher.includes("sourceType: 'pod_diagnostic_review'"), 'Target-required and Pod diagnostic candidates must route to pod diagnostic review');
-assert(launcher.includes('answerHasConfirmedPodRootCause'), 'Confirmed pod root cause answers must use a separate candidate path');
-assert(launcher.includes("sourceType: 'pod_fix_or_rollback_review'"), 'Confirmed pod root cause answers must route to fix/rollback review, not another cause check');
-assert(launcher.includes("sourceType: 'deployment_container_command_fix'"), 'Confirmed command-driven CrashLoopBackOff answers must create a real Deployment command fix candidate when safe');
-assert(launcher.includes('stableCommandForConfirmedCrashloop'), 'Demo/test CrashLoopBackOff command fixes must provide executable command parameters');
 assert(
-  launcher.includes('! /pod_diagnostic_review|diagnostic|원인\\s*확인/i.test') ||
-    launcher.includes('return !/pod_diagnostic_review|diagnostic|원인\\s*확인/i.test'),
-  'Confirmed pod root cause answers must remove stale diagnostic/cause-check candidates',
+  !launcher.includes('podDiagnosticCandidateFromAnswer') &&
+    !launcher.includes('targetRequiredDiagnosticCandidateFromAnswer') &&
+    !launcher.includes('answerHasConfirmedPodRootCause') &&
+    !launcher.includes('stableCommandForConfirmedCrashloop') &&
+    !launcher.includes('namespaceCleanupCandidateFromAnswer') &&
+    !launcher.includes('testPodCreateCandidateFromAnswer'),
+  'Frontend must not synthesize Action Plan candidates from assistant answer text',
+);
+assert(
+  launcher.includes('candidate.target?.name') &&
+    launcher.includes('candidate.target?.namespace') &&
+    launcher.includes('content.includes(targetName)') &&
+    launcher.includes('content.includes(namespace)'),
+  'Frontend Action Plan matching must only filter Gateway-provided candidates by target text',
 );
 assert(launcher.includes('.filter((candidate) => !candidate.planDisabledReason)'), 'Auto-propose must not submit target-required disabled candidates');
 assert(gatewayTypes.includes('planDisabledReason?: string;'), 'Action candidate type must carry a visible disabled reason');
@@ -423,8 +432,21 @@ assert(actionRecords.includes('진행한 Action Plan'), 'Fallback Action Plan re
 assert(actionRecords.includes('사용자가 진행한 Action Plan 상태'), 'Fallback Action Plan refs must explain that the card is a status summary');
 assert(actionRecords.includes('기록 원문'), 'Action record raw JSON detail must use plain record wording');
 assert(!actionRecords.includes('감사 상세'), 'Action records must not expose audit jargon in the default UI');
+assert(actionRecords.includes('검토 기록 · 서버 변경 없음'), 'Review-only execution header must stay short and product-facing');
+assert(actionRecords.includes('komsco-ai__answer-action-card--outcome'), 'Completed Action Plan records must use the compact outcome card variant');
+assert(actionRecords.includes('처리 내용'), 'Completed Action Plan details must be collapsed behind a compact processing-detail toggle');
+assert(!actionRecords.includes('검토 결과를 표시합니다. 클러스터 변경은 실행하지 않았습니다.'), 'Action Plan header copy must not wrap into a long explanatory sentence');
+assert(actionRecords.includes('data-aiops-inline-action-records'), 'Action Plan result status must be renderable inside the candidate card');
+assert(actionPlanButtons.includes('AssistantInlineActionRecords'), 'Action Plan candidates must own their generated plan/result status instead of relying on detached cards');
+assert(actionPlanButtons.includes('data-aiops-action-candidate-activity'), 'Generated Action Plan candidates must expose an activity state for UI verification');
+assert(launcher.includes('groupActionRecordsByCandidateId'), 'Answer rendering must group Action Plan records by candidate id');
+assert(launcher.includes('remainingAnswerActionRecords'), 'Records already shown inside candidate cards must not render again as detached result cards');
+assert(css.includes('.komsco-ai__inline-action-records'), 'Inline Action Plan status CSS must exist');
+assert(!css.includes('.komsco-ai__create-action-plan + .komsco-ai__answer-actions::before'), 'Detached paint-like Action Plan connector must not remain');
 assert(actionRecords.includes('<details') && actionRecords.includes('data-action-plan-decision-collapsed'), 'Action Plan approval decision rows must be collapsed by default');
 assert(actionRecords.includes('상세 판단 항목'), 'Action Plan approval card must expose a compact decision-detail toggle');
+assert(css.includes('.komsco-ai__answer-action-card--outcome .komsco-ai__answer-action-headline'), 'Compact outcome cards must remove the large stage-icon column');
+assert(css.includes('.komsco-ai__answer-action-outcome-detail > summary'), 'Completed Action Plan outcome detail must be a compact collapsible summary');
 assert(css.includes('.komsco-ai__action-plan-decision-detail > summary'), 'Collapsed Action Plan decision detail summary CSS must exist');
 assert(actionRecordHelpers.includes('review_recorded'), 'Review-only Action Plan records must have a distinct review_recorded phase label');
 assert(actionRecordHelpers.includes('검토 기록 완료'), 'Review-only Action Plan records must not be labeled as ordinary execution completion');

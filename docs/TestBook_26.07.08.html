@@ -1,0 +1,1108 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TestBook_26.07.08 - KOMSCO AIOps 검증 E-Book</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --paper: #ffffff;
+      --panel: #f8fafc;
+      --ink: #142033;
+      --muted: #627084;
+      --line: #d8e2ee;
+      --line-strong: #aebed1;
+      --navy: #08162b;
+      --blue: #0f62fe;
+      --blue-soft: #edf5ff;
+      --green: #17845b;
+      --green-soft: #ecf9f2;
+      --amber: #b26b00;
+      --amber-soft: #fff7e6;
+      --red: #b42318;
+      --red-soft: #fff1f0;
+      --shadow: 0 16px 34px rgba(20, 32, 51, 0.09);
+      --mono: "Cascadia Mono", "D2Coding", Consolas, monospace;
+      --sans: "Malgun Gothic", "맑은 고딕", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.68;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 2px 6px;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      font-family: var(--mono);
+      font-size: 0.9em;
+    }
+    pre {
+      margin: 0;
+      padding: 14px 16px;
+      border-radius: 8px;
+      background: #101820;
+      color: #eef5ff;
+      overflow: auto;
+      line-height: 1.58;
+    }
+    pre code {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font-size: 13px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 24px 18px;
+      border-right: 1px solid var(--line);
+      background: #edf3f9;
+    }
+    .brand {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: var(--navy);
+      color: #70e1ff;
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .brand strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.25;
+    }
+    .brand span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .nav-section { margin-top: 18px; }
+    .nav-title {
+      margin: 0 0 8px;
+      color: #67768a;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .nav-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 9px;
+      border-radius: 8px;
+      color: var(--ink);
+      font-size: 14px;
+    }
+    .nav-link:hover {
+      background: #dfe9f5;
+      text-decoration: none;
+    }
+    .nav-link small {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .content {
+      min-width: 0;
+      padding: 30px clamp(20px, 4vw, 56px) 64px;
+    }
+    .book {
+      max-width: 1040px;
+      margin: 0 auto;
+    }
+    .cover,
+    .section,
+    .scenario,
+    .summary-panel {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+    .cover {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 18px;
+      margin-bottom: 18px;
+      padding: 26px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 4vw, 36px);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      line-height: 1.28;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+    h4 {
+      margin: 18px 0 8px;
+      font-size: 14px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+    p { margin: 0 0 12px; }
+    ul, ol { margin: 8px 0 14px 21px; padding: 0; }
+    li { margin: 6px 0; }
+    table {
+      width: 100%;
+      margin: 12px 0 18px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #f2f6fb; font-weight: 800; }
+
+    .cover-note {
+      color: var(--muted);
+      max-width: 760px;
+      margin-top: 12px;
+    }
+    .status-panel {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .metric:last-child { padding-bottom: 0; border-bottom: 0; }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .metric strong { text-align: right; font-size: 14px; }
+
+    .section {
+      margin-top: 18px;
+      padding: 24px;
+    }
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .section-head p {
+      color: var(--muted);
+      margin: 4px 0 0;
+    }
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin: 10px 0 0;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 24px;
+      padding: 2px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .tag.green { border-color: #a8d9bf; background: var(--green-soft); color: #0d5d3e; }
+    .tag.amber { border-color: #f1cd8b; background: var(--amber-soft); color: #714300; }
+    .tag.red { border-color: #f1aaa5; background: var(--red-soft); color: #8d1b13; }
+    .tag.blue { border-color: #b8d7ff; background: var(--blue-soft); color: #174a94; }
+
+    .callout {
+      margin: 14px 0;
+      padding: 14px 16px;
+      border: 1px solid #b7d5f5;
+      border-left: 4px solid var(--blue);
+      border-radius: 0 8px 8px 0;
+      background: #f4f9ff;
+    }
+    .callout.warning {
+      border-color: #ffd8a8;
+      border-left-color: var(--amber);
+      background: var(--amber-soft);
+    }
+    .callout.danger {
+      border-color: #f3b8b3;
+      border-left-color: var(--red);
+      background: var(--red-soft);
+    }
+    .callout.success {
+      border-color: #a9d9ba;
+      border-left-color: var(--green);
+      background: var(--green-soft);
+    }
+    .callout p:last-child { margin-bottom: 0; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin: 16px 0;
+    }
+    .flow-step {
+      min-height: 78px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .flow-step strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+    .flow-step span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .term-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .term-card {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .term-card strong { display: block; margin-bottom: 5px; }
+    .term-card p { color: var(--muted); margin: 0; }
+
+    .scenario {
+      margin-top: 18px;
+      overflow: hidden;
+    }
+    .scenario-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: start;
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+    .scenario-num {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .scenario-header h2 { margin: 3px 0 4px; }
+    .scenario-header p { color: var(--muted); margin: 0; }
+    .scenario-body { padding: 22px 24px 24px; }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+    .panel {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--panel);
+    }
+    .panel h3 { font-size: 15px; }
+    .panel p:last-child { margin-bottom: 0; }
+
+    .command {
+      margin: 12px 0 16px;
+      border: 1px solid #1a2b45;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #101820;
+    }
+    .command-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      color: #c7d7ea;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .copy {
+      min-height: 28px;
+      padding: 4px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .copy:hover { background: rgba(255, 255, 255, 0.16); }
+
+    .checklist {
+      display: grid;
+      gap: 9px;
+      margin-top: 10px;
+    }
+    .check {
+      display: grid;
+      grid-template-columns: 22px minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .check input {
+      width: 17px;
+      height: 17px;
+      margin-top: 3px;
+      accent-color: var(--blue);
+    }
+    .check strong { display: block; font-size: 13px; }
+    .check span { display: block; color: var(--muted); font-size: 12px; }
+
+    .decision-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin: 10px 0 14px;
+    }
+    .decision {
+      display: grid;
+      gap: 6px;
+      padding: 11px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .decision label {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      font-weight: 900;
+      font-size: 13px;
+    }
+    .decision input { accent-color: var(--blue); }
+    .decision span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 118px;
+      resize: vertical;
+      padding: 11px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      line-height: 1.55;
+    }
+    textarea:focus,
+    input:focus,
+    button:focus {
+      outline: 3px solid rgba(15, 98, 254, 0.18);
+      outline-offset: 1px;
+    }
+
+    .result-table td:first-child {
+      width: 140px;
+      font-weight: 900;
+      background: #f7faff;
+    }
+    .failure-list {
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .failure-list li {
+      margin: 7px 0;
+      padding: 9px 10px;
+      border: 1px solid #f1aaa5;
+      border-radius: 7px;
+      background: var(--red-soft);
+      color: #74130d;
+      font-size: 13px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .summary-panel {
+      padding: 16px;
+      box-shadow: none;
+    }
+    .summary-panel strong { display: block; margin-bottom: 5px; }
+    .summary-panel p { color: var(--muted); margin: 0; }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .btn {
+      min-height: 36px;
+      padding: 7px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .btn.primary {
+      border-color: var(--navy);
+      background: var(--navy);
+      color: #fff;
+    }
+    .btn.danger {
+      border-color: #f1aaa5;
+      color: #8d1b13;
+      background: #fff;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .print-only { display: none; }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .content { padding: 18px 12px 42px; }
+      .cover,
+      .split,
+      .term-grid,
+      .summary-grid { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .decision-grid { grid-template-columns: 1fr; }
+    }
+    @media print {
+      body { background: #fff; }
+      .shell { display: block; }
+      .sidebar, .actions, .copy { display: none; }
+      .content { padding: 0; }
+      .cover, .section, .scenario {
+        box-shadow: none;
+        break-inside: avoid;
+      }
+      .print-only { display: block; }
+      textarea { min-height: 80px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">A</div>
+        <div>
+          <strong>TestBook_26.07.08</strong>
+          <span>KOMSCO AIOps 검증 E-Book</span>
+        </div>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">시작</p>
+        <a class="nav-link" href="#goal">오늘 목표 <small>왜 하는가</small></a>
+        <a class="nav-link" href="#preflight">실행 전 체크 <small>먼저 확인</small></a>
+        <a class="nav-link" href="#terms">흐름 용어 <small>6단계</small></a>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">실습 시나리오</p>
+        <a class="nav-link" href="#scenario-1">1. 에러 Pod RCA <small>조회</small></a>
+        <a class="nav-link" href="#scenario-2">2. Namespace 검토 <small>기록</small></a>
+        <a class="nav-link" href="#scenario-3">3. 테스트 Pod 생성 <small>변경</small></a>
+      </div>
+
+      <div class="nav-section">
+        <p class="nav-title">기록</p>
+        <a class="nav-link" href="#troubleshooting">실패 메모 <small>원인 분리</small></a>
+        <a class="nav-link" href="#final-check">최종 판정 <small>퇴근 전</small></a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="book">
+        <header class="cover" id="goal">
+          <div>
+            <p class="eyebrow">Hands-on Verification Book</p>
+            <h1>챗봇을 직접 굴려서 AIOps 흐름을 검증한다</h1>
+            <p class="cover-note">
+              이 책은 성공 보장 문서가 아니다. 챗봇에 같은 문장을 넣고, 결과가 어디서 좋아졌고 어디서 깨지는지 바로 기록하는 실험 책이다.
+              실패하면 그 실패가 곧 트러블슈팅 기록이 된다.
+            </p>
+            <div class="tag-row" aria-label="핵심 범위">
+              <span class="tag blue">Tool Plan</span>
+              <span class="tag blue">Evidence</span>
+              <span class="tag blue">RCA</span>
+              <span class="tag blue">Action Plan</span>
+              <span class="tag blue">승인</span>
+              <span class="tag blue">실행 기록</span>
+            </div>
+          </div>
+          <div class="status-panel" aria-label="문서 기준">
+            <div class="metric"><span>작성일</span><strong>2026-07-08</strong></div>
+            <div class="metric"><span>대상 브랜치</span><strong>feature/v0.2.9</strong></div>
+            <div class="metric"><span>기준 HEAD</span><strong>374e938</strong></div>
+            <div class="metric"><span>실제 변경 시나리오</span><strong>1개만 허용</strong></div>
+          </div>
+        </header>
+
+        <section class="section" id="preflight">
+          <div class="section-head">
+            <div>
+              <h2>실행 전 체크</h2>
+              <p>여기서 틀리면 시나리오 결과도 믿을 수 없다. 먼저 로컬 연결, 서버, 실행 모드를 확인한다.</p>
+            </div>
+            <span class="tag amber">먼저 실행</span>
+          </div>
+
+          <div class="callout warning">
+            <p><strong>원칙:</strong> 이 책에서 서버를 실제로 바꾸는 행동은 챗봇의 Action Plan 승인 흐름 안에서만 한다. 터미널에서는 확인 명령만 사용한다.</p>
+          </div>
+
+          <div class="split">
+            <div class="panel">
+              <h3>로컬 연결 확인</h3>
+              <div class="command">
+                <div class="command-head"><span>터미널 확인 명령</span><button class="copy" data-copy-target="cmd-preflight-1">복사</button></div>
+                <pre><code id="cmd-preflight-1">task kugnus:dev:doctor
+task kugnus:aiops:doctor</code></pre>
+              </div>
+              <p class="small">정상 기준: FAIL 0. 여기서 실패하면 챗봇 품질을 보기 전에 연결부터 고친다.</p>
+            </div>
+
+            <div class="panel">
+              <h3>OpenShift 대상 확인</h3>
+              <div class="command">
+                <div class="command-head"><span>터미널 확인 명령</span><button class="copy" data-copy-target="cmd-preflight-2">복사</button></div>
+                <pre><code id="cmd-preflight-2">oc whoami --show-server
+oc get namespace gpu-test-kugnus
+oc get pods -n gpu-test-kugnus -l app=aiops-test-pods</code></pre>
+              </div>
+              <p class="small">정상 기준: 서버가 회사 OKD API이고, `gpu-test-kugnus` namespace가 존재한다.</p>
+            </div>
+          </div>
+
+          <div class="checklist" data-scope="preflight">
+            <label class="check"><input type="checkbox" data-key="preflight-dev-doctor"><span><strong>로컬 doctor 통과</strong><span>`task kugnus:dev:doctor`와 `task kugnus:aiops:doctor`가 실패 없이 끝났다.</span></span></label>
+            <label class="check"><input type="checkbox" data-key="preflight-server"><span><strong>서버 확인</strong><span>`oc whoami --show-server` 결과가 의도한 회사 OKD API이다.</span></span></label>
+            <label class="check"><input type="checkbox" data-key="preflight-mode"><span><strong>챗봇 실행 모드 확인</strong><span>챗봇 상단에서 `실행 가능`이 선택되어 있고, `실행 무제한`은 선택하지 않았다.</span></span></label>
+          </div>
+        </section>
+
+        <section class="section" id="terms">
+          <div class="section-head">
+            <div>
+              <h2>오늘 검증할 6단계</h2>
+              <p>말이 어렵게 느껴지면 이 표만 보면 된다. 각 단계가 화면에 보여야 검증할 수 있다.</p>
+            </div>
+            <span class="tag blue">기본 계약</span>
+          </div>
+
+          <div class="flow" aria-label="AIOps flow">
+            <div class="flow-step"><strong>Tool Plan</strong><span>무엇을 어떤 순서로 조회하거나 조치할지 정한 계획</span></div>
+            <div class="flow-step"><strong>Evidence</strong><span>클러스터에서 실제로 가져온 상태, 이벤트, 로그, 메트릭</span></div>
+            <div class="flow-step"><strong>RCA</strong><span>수집한 정보로 원인을 좁히는 분석</span></div>
+            <div class="flow-step"><strong>Action Plan</strong><span>실제 조치 후보와 영향, 검증, 승인 조건</span></div>
+            <div class="flow-step"><strong>승인</strong><span>운영자가 이 계획을 진행해도 된다고 확인하는 단계</span></div>
+            <div class="flow-step"><strong>실행 기록</strong><span>무엇을 했고, 서버를 바꿨는지 남기는 기록</span></div>
+          </div>
+
+          <div class="term-grid">
+            <div class="term-card"><strong>조회만 한 경우</strong><p>Evidence와 RCA까지만 있어도 정상이다. 서버 변경이 없는 질문에 무조건 실행 버튼이 나올 필요는 없다.</p></div>
+            <div class="term-card"><strong>검토 기록인 경우</strong><p>Action Plan을 승인했지만 서버를 바꾸지 않고 검토 결과만 저장한 상태이다. 성공 실행과 구분해야 한다.</p></div>
+            <div class="term-card"><strong>실제 변경인 경우</strong><p>Pod 생성처럼 서버 상태가 바뀐다. 승인 전 무변경, 승인 후 기록과 서버 결과가 함께 맞아야 한다.</p></div>
+            <div class="term-card"><strong>실패한 경우</strong><p>문구만 바꾸지 말고 어느 단계에서 막혔는지 적는다. Tool Plan, Evidence, RCA, Action Plan, 승인, 실행 기록 중 하나로 분리한다.</p></div>
+          </div>
+        </section>
+
+        <article class="scenario" id="scenario-1">
+          <div class="scenario-header">
+            <div>
+              <div class="scenario-num">Scenario 01</div>
+              <h2>에러 Pod 목록과 RCA 검증</h2>
+              <p>먼저 변경 없는 조회로 챗봇이 문제 목록을 제대로 정리하고, 원인 분석을 과하게 꾸미지 않는지 본다.</p>
+            </div>
+            <span class="tag green">조회 중심</span>
+          </div>
+          <div class="scenario-body">
+            <h3>챗봇에 입력할 문장</h3>
+            <div class="command">
+              <div class="command-head"><span>CHAT QUERY</span><button class="copy" data-copy-target="query-1">복사</button></div>
+              <pre><code id="query-1">현재 클러스터에서 에러 상태인 Pod 목록을 확인하고 원인 분석해줘</code></pre>
+            </div>
+
+            <div class="split">
+              <div class="panel">
+                <h3>예상 답변 골격</h3>
+                <ul>
+                  <li>현재 클러스터에서 문제 의심 Pod 목록을 확인했다.</li>
+                  <li>`ImagePullBackOff`, `Error`, 높은 restart count를 구분한다.</li>
+                  <li>즉시 장애 상태와 과거 종료 이력을 섞지 않는다.</li>
+                  <li>원인 후보는 단정하지 않고 추가 확인 필요 항목을 분리한다.</li>
+                </ul>
+              </div>
+              <div class="panel">
+                <h3>내가 이어갈 행동</h3>
+                <ol>
+                  <li>`근거 상세보기`를 연다.</li>
+                  <li>수집 Evidence와 누락 Evidence를 확인한다.</li>
+                  <li>진행 상세를 열어 오래 걸린 단계를 적는다.</li>
+                  <li>Action Plan 후보가 있으면 진단/원인 확인 플랜까지만 생성한다.</li>
+                </ol>
+              </div>
+            </div>
+
+            <h3>모범 결과</h3>
+            <table class="result-table">
+              <tbody>
+                <tr><td>Tool Plan</td><td>Pod inventory 또는 상태 조회 계획이 잡힌다. raw JSON은 기본 답변에 나오지 않는다.</td></tr>
+                <tr><td>Evidence</td><td>Pod 상태, snapshot, 이벤트, 재시작 정보가 수집/누락으로 나뉘어 보인다.</td></tr>
+                <tr><td>RCA</td><td>요약, 영향 범위, 확인한 근거, 원인 후보, 추가 확인 순서로 읽힌다.</td></tr>
+                <tr><td>Action Plan</td><td>있다면 진단/원인 확인 성격이어야 한다. 바로 변경하는 계획이면 FAIL로 적는다.</td></tr>
+              </tbody>
+            </table>
+
+            <ul class="failure-list">
+              <li>외부 문서 URL이 기본 답변에 길게 노출되면 FAIL.</li>
+              <li>raw JSON, 내부 event id, `post_answer` 같은 내부 용어가 기본 답변에 보이면 FAIL.</li>
+              <li>사용자가 목록을 물었는데 곧바로 해결했다고 말하면 FAIL.</li>
+            </ul>
+
+            <div class="decision-grid" data-scope="scenario-1">
+              <div class="decision"><label><input type="radio" name="scenario-1-result" data-key="scenario-1-pass" value="pass">PASS</label><span>조회, 근거, RCA 흐름이 이해 가능했다.</span></div>
+              <div class="decision"><label><input type="radio" name="scenario-1-result" data-key="scenario-1-partial" value="partial">PARTIAL</label><span>조회는 됐지만 답변 형식이나 잡음이 남았다.</span></div>
+              <div class="decision"><label><input type="radio" name="scenario-1-result" data-key="scenario-1-fail" value="fail">FAIL</label><span>목록, 근거, RCA 중 하나가 작동하지 않았다.</span></div>
+            </div>
+            <textarea data-key="scenario-1-notes" placeholder="Scenario 1 메모: 어떤 Pod가 나왔는지, 어떤 단계가 느렸는지, 기본 답변에 노출되면 안 되는 말이 있었는지 적는다."></textarea>
+          </div>
+        </article>
+
+        <article class="scenario" id="scenario-2">
+          <div class="scenario-header">
+            <div>
+              <div class="scenario-num">Scenario 02</div>
+              <h2>Namespace 정리 검토 Review-Only 풀체인</h2>
+              <p>서버를 바꾸지 않고도 Action Plan, 승인, 실행 기록까지 이어지는지 확인한다.</p>
+            </div>
+            <span class="tag amber">검토 기록</span>
+          </div>
+          <div class="scenario-body">
+            <h3>챗봇에 입력할 문장</h3>
+            <div class="command">
+              <div class="command-head"><span>CHAT QUERY</span><button class="copy" data-copy-target="query-2">복사</button></div>
+              <pre><code id="query-2">gpu-test-kugnus 네임스페이스가 정리 가능한지 확인하고 Action Plan 후보까지 만들어줘</code></pre>
+            </div>
+
+            <div class="callout">
+              <p><strong>이 시나리오의 핵심:</strong> 승인해도 namespace를 삭제하거나 바꾸지 않는다. 정상 결과는 “검토 기록이 남았다”이다.</p>
+            </div>
+
+            <div class="split">
+              <div class="panel">
+                <h3>예상 답변 골격</h3>
+                <ul>
+                  <li>`gpu-test-kugnus` namespace 존재를 먼저 확인한다.</li>
+                  <li>Pod, workload, 이벤트, 남은 리소스를 Evidence로 모은다.</li>
+                  <li>정리 가능 여부를 단정하지 않고 검토 계획으로 만든다.</li>
+                  <li>Action Plan 카드에 대상, 문제, 조치, 영향, 검증, 승인 조건이 보인다.</li>
+                </ul>
+              </div>
+              <div class="panel">
+                <h3>내가 이어갈 행동</h3>
+                <ol>
+                  <li>Action Plan 후보에서 `Namespace 정리 검토` 또는 유사한 검토 플랜을 생성한다.</li>
+                  <li>승인 화면에서 대상 namespace가 맞는지 확인한다.</li>
+                  <li>승인을 누른 뒤 결과가 검토 기록인지 확인한다.</li>
+                  <li>실행 기록 상세에서 서버 변경 없음이 보이는지 확인한다.</li>
+                </ol>
+              </div>
+            </div>
+
+            <h3>모범 결과</h3>
+            <table class="result-table">
+              <tbody>
+                <tr><td>Action Plan</td><td>대상은 `gpu-test-kugnus`, 조치는 정리 검토 또는 진단 기록이어야 한다.</td></tr>
+                <tr><td>승인</td><td>승인 대상과 plan digest 또는 최신 계획 확인 문구가 맞아야 한다.</td></tr>
+                <tr><td>실행 기록</td><td>`review_recorded` 성격의 결과로 남는다. 서버 변경이 없다는 설명이 함께 있어야 한다.</td></tr>
+                <tr><td>서버 효과</td><td>namespace, Pod, workload를 삭제하거나 변경하지 않는다.</td></tr>
+              </tbody>
+            </table>
+
+            <div class="command">
+              <div class="command-head"><span>승인 후 확인 명령</span><button class="copy" data-copy-target="cmd-s2-check">복사</button></div>
+              <pre><code id="cmd-s2-check">oc get namespace gpu-test-kugnus
+oc get pods -n gpu-test-kugnus</code></pre>
+            </div>
+
+            <ul class="failure-list">
+              <li>검토 기록을 실제 문제 해결처럼 표현하면 FAIL.</li>
+              <li>서버 변경이 없다는 설명이 없으면 FAIL.</li>
+              <li>대상 namespace가 흐려지거나 다른 namespace가 섞이면 FAIL.</li>
+            </ul>
+
+            <div class="decision-grid" data-scope="scenario-2">
+              <div class="decision"><label><input type="radio" name="scenario-2-result" data-key="scenario-2-pass" value="pass">PASS</label><span>검토용 풀체인이 서버 변경 없이 기록까지 이어졌다.</span></div>
+              <div class="decision"><label><input type="radio" name="scenario-2-result" data-key="scenario-2-partial" value="partial">PARTIAL</label><span>Action Plan은 만들어졌지만 승인/기록 문구가 헷갈렸다.</span></div>
+              <div class="decision"><label><input type="radio" name="scenario-2-result" data-key="scenario-2-fail" value="fail">FAIL</label><span>Action Plan, 승인, 기록 중 하나가 작동하지 않았다.</span></div>
+            </div>
+            <textarea data-key="scenario-2-notes" placeholder="Scenario 2 메모: 검토 기록이 어디에 보였는지, 서버 변경 없음이 명확했는지, 헷갈린 문구가 있었는지 적는다."></textarea>
+          </div>
+        </article>
+
+        <article class="scenario" id="scenario-3">
+          <div class="scenario-header">
+            <div>
+              <div class="scenario-num">Scenario 03</div>
+              <h2>gpu-test-kugnus 테스트 Pod 생성 실제 Mutation</h2>
+              <p>오늘 책에서 유일하게 서버 상태를 바꾸는 실습이다. 승인 전 무변경, 승인 후 Pod 2개 생성, 실행 기록까지 확인한다.</p>
+            </div>
+            <span class="tag red">실제 변경</span>
+          </div>
+          <div class="scenario-body">
+            <div class="callout danger">
+              <p><strong>안전 조건:</strong> 이 시나리오는 `gpu-test-kugnus` namespace에서만 한다. `실행 무제한`은 쓰지 않는다. 터미널에서 직접 생성 계열 명령을 실행하지 않는다.</p>
+            </div>
+
+            <h3>챗봇에 입력할 문장</h3>
+            <div class="command">
+              <div class="command-head"><span>CHAT QUERY</span><button class="copy" data-copy-target="query-3">복사</button></div>
+              <pre><code id="query-3">gpu-test-kugnus 네임스페이스에 CrashLoopBackOff 테스트 Pod 2개 생성해줘</code></pre>
+            </div>
+
+            <div class="split">
+              <div class="panel">
+                <h3>승인 전 확인</h3>
+                <ol>
+                  <li>Action Plan에 namespace가 `gpu-test-kugnus`인지 확인한다.</li>
+                  <li>생성 수량이 `2`인지 확인한다.</li>
+                  <li>예상 영향, 검증 방법, 실패 시 대응이 보이는지 확인한다.</li>
+                  <li>승인 전에는 새 Pod가 생기지 않아야 한다.</li>
+                </ol>
+              </div>
+              <div class="panel">
+                <h3>승인 후 확인</h3>
+                <ol>
+                  <li>승인 후 실행 버튼 또는 실행 흐름을 진행한다.</li>
+                  <li>실행 기록에서 생성된 Pod 수와 대상 namespace를 확인한다.</li>
+                  <li>터미널 확인 명령으로 새 Pod 2개가 보이는지 확인한다.</li>
+                  <li>정리는 자동으로 하지 않는다. 필요하면 별도 승인 시나리오로 분리한다.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="command">
+              <div class="command-head"><span>승인 전/후 확인 명령</span><button class="copy" data-copy-target="cmd-s3-check">복사</button></div>
+              <pre><code id="cmd-s3-check">oc get namespace gpu-test-kugnus
+oc get pods -n gpu-test-kugnus -l app=aiops-test-pods --sort-by=.metadata.creationTimestamp</code></pre>
+            </div>
+
+            <h3>모범 결과</h3>
+            <table class="result-table">
+              <tbody>
+                <tr><td>Tool Plan</td><td>테스트 Pod 2개 생성 계획이다. namespace와 수량이 명시된다.</td></tr>
+                <tr><td>Evidence</td><td>namespace 존재, 권한, 현재 Pod 목록 등 사전 확인 결과가 보인다.</td></tr>
+                <tr><td>Action Plan</td><td>대상, 문제, 조치, 예상 영향, 검증 방법, 실패 시 대응, 승인 조건이 보인다.</td></tr>
+                <tr><td>승인</td><td>승인 전에는 서버에 새 Pod가 없어야 한다.</td></tr>
+                <tr><td>실행 기록</td><td>승인 후 생성된 Pod 수, namespace, 승인자, plan digest 확인 결과가 남는다.</td></tr>
+                <tr><td>서버 효과</td><td>`gpu-test-kugnus`에 `app=aiops-test-pods` label을 가진 새 테스트 Pod 2개가 생긴다.</td></tr>
+              </tbody>
+            </table>
+
+            <ul class="failure-list">
+              <li>승인 전 새 Pod가 생기면 FAIL.</li>
+              <li>수량을 2개로 말했는데 1개 또는 3개 계획이 나오면 FAIL.</li>
+              <li>Action Plan 없이 바로 생성했다고 말하면 FAIL.</li>
+              <li>실행 기록에 실제 생성 수량이나 namespace가 없으면 FAIL.</li>
+            </ul>
+
+            <div class="decision-grid" data-scope="scenario-3">
+              <div class="decision"><label><input type="radio" name="scenario-3-result" data-key="scenario-3-pass" value="pass">PASS</label><span>승인 전 무변경, 승인 후 Pod 2개, 실행 기록까지 맞았다.</span></div>
+              <div class="decision"><label><input type="radio" name="scenario-3-result" data-key="scenario-3-partial" value="partial">PARTIAL</label><span>생성은 됐지만 기록이나 문구가 부족했다.</span></div>
+              <div class="decision"><label><input type="radio" name="scenario-3-result" data-key="scenario-3-fail" value="fail">FAIL</label><span>계획, 승인, 실행, 기록 중 하나가 깨졌다.</span></div>
+            </div>
+            <textarea data-key="scenario-3-notes" placeholder="Scenario 3 메모: 승인 전 Pod 수, 승인 후 Pod 수, 실행 기록 내용, 예상과 다른 점을 적는다."></textarea>
+          </div>
+        </article>
+
+        <section class="section" id="troubleshooting">
+          <div class="section-head">
+            <div>
+              <h2>실패하면 이렇게 분리해서 적는다</h2>
+              <p>막연히 “안 됨”으로 남기면 다음 조치가 다시 흐려진다. 반드시 어느 단계가 깨졌는지 적는다.</p>
+            </div>
+            <span class="tag red">트러블슈팅</span>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>깨진 단계</th>
+                <th>증상</th>
+                <th>다음 확인</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Tool Plan</td><td>질문 의도와 다른 계획을 만든다.</td><td>질문 문장, 실행 모드, 계획 상세의 task type을 적는다.</td></tr>
+              <tr><td>Evidence</td><td>실제 클러스터 상태가 답변에 반영되지 않는다.</td><td>근거 상세의 수집/누락 항목과 터미널 확인 결과를 비교한다.</td></tr>
+              <tr><td>RCA</td><td>원인을 단정하거나, 목록 질문에 보고서를 과하게 만든다.</td><td>답변 첫 문장과 원인 후보/추가 확인 분리를 적는다.</td></tr>
+              <tr><td>Action Plan</td><td>생성 버튼이 없거나, 대상/영향/검증이 빠진다.</td><td>카드 제목, 대상 namespace, 승인 조건 표시 여부를 적는다.</td></tr>
+              <tr><td>승인</td><td>승인 버튼이 먹지 않거나 최신 계획 확인에 실패한다.</td><td>오류 문구, plan digest, 같은 대상 중복 후보 여부를 적는다.</td></tr>
+              <tr><td>실행 기록</td><td>실행했다고 하는데 서버 결과나 기록이 맞지 않는다.</td><td>실행 기록의 mutation 상태와 터미널 확인 결과를 나란히 적는다.</td></tr>
+            </tbody>
+          </table>
+
+          <textarea data-key="global-troubleshooting-notes" placeholder="전체 트러블슈팅 메모: 오늘 가장 먼저 고쳐야 할 단계, 재현 질문, 실제 오류 문구를 적는다."></textarea>
+        </section>
+
+        <section class="section" id="final-check">
+          <div class="section-head">
+            <div>
+              <h2>최종 판정</h2>
+              <p>이 책을 따라 한 뒤, 오늘의 상태를 한 줄로 결정한다.</p>
+            </div>
+            <span class="tag green">퇴근 전</span>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-panel"><strong>학습 성공</strong><p>각 단계가 무슨 뜻인지 설명할 수 있고, 어디서 막혔는지 직접 적을 수 있다.</p></div>
+            <div class="summary-panel"><strong>제품 성공</strong><p>3개 시나리오가 모두 PASS이고, 실제 변경 시나리오는 승인 전/후 결과가 맞다.</p></div>
+            <div class="summary-panel"><strong>트러블슈팅 전환</strong><p>하나라도 FAIL이면 그 단계가 다음 작업의 시작점이다.</p></div>
+          </div>
+
+          <div class="decision-grid" data-scope="final">
+            <div class="decision"><label><input type="radio" name="final-result" data-key="final-pass" value="pass">오늘 PASS</label><span>실습과 기록이 모두 납득 가능하다.</span></div>
+            <div class="decision"><label><input type="radio" name="final-result" data-key="final-partial" value="partial">오늘 PARTIAL</label><span>일부는 되지만 제품 문구나 연결이 불안하다.</span></div>
+            <div class="decision"><label><input type="radio" name="final-result" data-key="final-fail" value="fail">오늘 FAIL</label><span>핵심 흐름이 아직 작동하지 않는다.</span></div>
+          </div>
+
+          <textarea data-key="final-notes" placeholder="최종 메모: 내일 바로 할 일 1개, 오늘 확인한 확실한 사실 1개, 아직 모르는 것 1개를 적는다."></textarea>
+
+          <div class="actions">
+            <button class="btn primary" id="copy-report">메모 요약 복사</button>
+            <button class="btn" id="print-book">인쇄/PDF 저장</button>
+            <button class="btn danger" id="clear-notes">체크/메모 초기화</button>
+          </div>
+          <p class="small">메모는 이 브라우저의 localStorage에 저장된다. 서버나 repo 파일에는 자동 저장되지 않는다.</p>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function () {
+      const storagePrefix = "aiops-testbook-260708:";
+
+      function keyFor(el) {
+        return storagePrefix + el.getAttribute("data-key");
+      }
+
+      function loadInputs() {
+        document.querySelectorAll("[data-key]").forEach((el) => {
+          const saved = localStorage.getItem(keyFor(el));
+          if (saved === null) return;
+          if (el.type === "checkbox") {
+            el.checked = saved === "true";
+          } else if (el.type === "radio") {
+            el.checked = saved === el.value;
+          } else {
+            el.value = saved;
+          }
+        });
+      }
+
+      function bindInputs() {
+        document.querySelectorAll("[data-key]").forEach((el) => {
+          const eventName = el.type === "checkbox" || el.type === "radio" ? "change" : "input";
+          el.addEventListener(eventName, () => {
+            if (el.type === "checkbox") {
+              localStorage.setItem(keyFor(el), String(el.checked));
+            } else if (el.type === "radio") {
+              if (el.checked) localStorage.setItem(keyFor(el), el.value);
+            } else {
+              localStorage.setItem(keyFor(el), el.value);
+            }
+          });
+        });
+      }
+
+      function bindCopyButtons() {
+        document.querySelectorAll("[data-copy-target]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const target = document.getElementById(button.getAttribute("data-copy-target"));
+            if (!target) return;
+            const text = target.innerText;
+            try {
+              await navigator.clipboard.writeText(text);
+              const original = button.textContent;
+              button.textContent = "복사됨";
+              setTimeout(() => { button.textContent = original; }, 1100);
+            } catch (error) {
+              button.textContent = "복사 실패";
+              setTimeout(() => { button.textContent = "복사"; }, 1300);
+            }
+          });
+        });
+      }
+
+      function currentRadio(name) {
+        const checked = document.querySelector(`input[name="${name}"]:checked`);
+        return checked ? checked.value : "not-run";
+      }
+
+      function buildReport() {
+        const lines = [];
+        lines.push("# TestBook_26.07.08 결과 메모");
+        lines.push("");
+        lines.push("- Scenario 1: " + currentRadio("scenario-1-result"));
+        lines.push("- Scenario 2: " + currentRadio("scenario-2-result"));
+        lines.push("- Scenario 3: " + currentRadio("scenario-3-result"));
+        lines.push("- Final: " + currentRadio("final-result"));
+        lines.push("");
+        document.querySelectorAll("textarea[data-key]").forEach((area) => {
+          const label = area.getAttribute("data-key");
+          const value = area.value.trim();
+          if (!value) return;
+          lines.push("## " + label);
+          lines.push(value);
+          lines.push("");
+        });
+        return lines.join("\n");
+      }
+
+      function bindActions() {
+        const copyReport = document.getElementById("copy-report");
+        const printBook = document.getElementById("print-book");
+        const clearNotes = document.getElementById("clear-notes");
+
+        if (copyReport) {
+          copyReport.addEventListener("click", async () => {
+            const report = buildReport();
+            try {
+              await navigator.clipboard.writeText(report);
+              copyReport.textContent = "메모 복사됨";
+              setTimeout(() => { copyReport.textContent = "메모 요약 복사"; }, 1200);
+            } catch (error) {
+              copyReport.textContent = "복사 실패";
+              setTimeout(() => { copyReport.textContent = "메모 요약 복사"; }, 1200);
+            }
+          });
+        }
+
+        if (printBook) {
+          printBook.addEventListener("click", () => window.print());
+        }
+
+        if (clearNotes) {
+          clearNotes.addEventListener("click", () => {
+            const ok = window.confirm("이 브라우저에 저장된 TestBook 체크와 메모를 지울까요?");
+            if (!ok) return;
+            Object.keys(localStorage)
+              .filter((key) => key.startsWith(storagePrefix))
+              .forEach((key) => localStorage.removeItem(key));
+            document.querySelectorAll("[data-key]").forEach((el) => {
+              if (el.type === "checkbox" || el.type === "radio") {
+                el.checked = false;
+              } else {
+                el.value = "";
+              }
+            });
+          });
+        }
+      }
+
+      loadInputs();
+      bindInputs();
+      bindCopyButtons();
+      bindActions();
+    })();
+  </script>
+</body>
+</html>

@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 try:
     import psycopg
@@ -62,6 +62,71 @@ from .security import (
     now_rfc3339,
     redact_sensitive,
     safe_subject,
+)
+from .gateway_state import (
+    ACTION_PROPOSALS,
+    APPROVAL_DECISIONS,
+    AUDIT_RECORDS,
+    BREAK_GLASS_REQUESTS,
+    CHAT_FEEDBACK,
+    CHAT_TRANSCRIPTS,
+    DIAGNOSTIC_REQUESTS,
+    EVIDENCE_RECORDS,
+    EXECUTION_RECORDS,
+    METRICS,
+    NAMESPACE_CLEANUP_CHAT_CANDIDATES,
+    OLS_STREAM_STATUS,
+    PREAPPROVED_PATCH_REQUESTS,
+    RATE_LIMIT_BUCKETS,
+    RUNBOOK_PLANS,
+    SEALED_ACTION_PLANS,
+    WORKFLOW_RECORDS,
+    _AUTO_EXECUTE_TARGET_LOCKS,
+    bounded_put,
+    increment_metric,
+)
+from .action_records import (
+    CANDIDATE_ACTION_DIGEST_FIELDS,
+    SEALED_ACTION_PLAN_DIGEST_FIELDS,
+    candidate_action_request_digest,
+    default_policy_binding,
+    expires_at_rfc3339,
+    normalized_parameters_digest,
+    parse_rfc3339,
+    policy_binding_digest,
+    same_observed_subject,
+    sealed_action_plan_digest,
+    subject_digest,
+)
+from .action_registry import (
+    ACTION_REGISTRY_DIGEST,
+    ACTION_REGISTRY_ENTRIES,
+    ACTION_REGISTRY_VERSION,
+    get_action_registry_entry,
+    validate_action_target,
+)
+from .schemas import (
+    ActionCandidatePlanCreate,
+    ActionCandidateTargetCreate,
+    ActionExecutionCreate,
+    ActionProposalCreate,
+    ActionRejectionCreate,
+    ActionTarget,
+    ApprovalDecisionCreate,
+    BreakGlassRequestCreate,
+    BreakGlassTargetNode,
+    DiagnosticEvidencePolicy,
+    DiagnosticLimits,
+    DiagnosticRequestCreate,
+    DiagnosticTargetNode,
+    DiagnosticTimeRange,
+    PatchPreapprovedFieldCreate,
+    RagSearchCreate,
+    RagSearchFilters,
+    RunbookPlanCreate,
+    SealedActionPlanCreate,
+    StrictBaseModel,
+    UnrestrictedCommandExecuteCreate,
 )
 
 
@@ -594,45 +659,6 @@ AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS = {
     "name",
     "namespace",
 }
-METRICS: dict[str, int] = {
-    "aiops_chat_requests_total": 0,
-    "aiops_chat_completed_total": 0,
-    "aiops_chat_failed_total": 0,
-    "aiops_audit_records_total": 0,
-    "aiops_evidence_records_total": 0,
-    "aiops_diagnostic_requests_total": 0,
-    "aiops_action_proposals_total": 0,
-    "aiops_action_plans_total": 0,
-    "aiops_approval_decisions_total": 0,
-    "aiops_execution_requests_total": 0,
-    "aiops_execution_dry_run_total": 0,
-    "aiops_execution_mutation_succeeded_total": 0,
-    "aiops_execution_mutation_failed_total": 0,
-    "aiops_evidence_freshness_failures_total": 0,
-    "aiops_runbook_plans_total": 0,
-    "aiops_rag_search_requests_total": 0,
-    "aiops_preapproved_patch_requests_total": 0,
-    "aiops_break_glass_requests_total": 0,
-    "aiops_product_access_reviews_total": 0,
-    "aiops_rate_limited_total": 0,
-    "aiops_record_store_loads_total": 0,
-    "aiops_record_store_writes_total": 0,
-    "aiops_record_store_failures_total": 0,
-    "aiops_chat_transcripts_total": 0,
-    "aiops_chat_transcript_jsonl_write_failures_total": 0,
-    "aiops_chat_feedback_total": 0,
-}
-AUDIT_RECORDS: dict[str, dict[str, Any]] = {}
-EVIDENCE_RECORDS: dict[str, dict[str, Any]] = {}
-WORKFLOW_RECORDS: dict[str, dict[str, Any]] = {}
-CHAT_TRANSCRIPTS: dict[str, dict[str, Any]] = {}
-CHAT_FEEDBACK: dict[str, dict[str, Any]] = {}
-DIAGNOSTIC_REQUESTS: dict[str, dict[str, Any]] = {}
-ACTION_PROPOSALS: dict[str, dict[str, Any]] = {}
-SEALED_ACTION_PLANS: dict[str, dict[str, Any]] = {}
-APPROVAL_DECISIONS: dict[str, dict[str, Any]] = {}
-EXECUTION_RECORDS: dict[str, dict[str, Any]] = {}
-NAMESPACE_CLEANUP_CHAT_CANDIDATES: dict[str, dict[str, Any]] = {}
 TEST_POD_CREATE_DEFAULT_NAMESPACE = "gpu-test-kugnus"
 TEST_POD_CREATE_DEFAULT_COUNT = 3
 TEST_POD_CREATE_DEFAULT_IMAGE = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
@@ -648,210 +674,8 @@ TEST_POD_CREATE_FAILURE_COMMAND = [
     "-c",
     "echo aiops intentional crashloop test pod; exit 1",
 ]
-# Serializes concurrent auto-execute attempts against the same target so two
-# near-simultaneous candidate-plan requests (e.g. a retried webhook) can't each
-# independently auto-approve+execute their own sealed plan for the same Pod.
-_AUTO_EXECUTE_TARGET_LOCKS: dict[str, asyncio.Lock] = {}
-RUNBOOK_PLANS: dict[str, dict[str, Any]] = {}
-PREAPPROVED_PATCH_REQUESTS: dict[str, dict[str, Any]] = {}
-BREAK_GLASS_REQUESTS: dict[str, dict[str, Any]] = {}
-RATE_LIMIT_BUCKETS: dict[str, list[float]] = {}
 LAST_RUNTIME_TOOL_PLAN: dict[str, Any] | None = None
 LAST_RCA_CONTEXT: dict[str, Any] | None = None
-OLS_STREAM_STATUS: dict[str, Any] = {
-    "streamProbe": "not_started",
-    "lastStatus": "not_started",
-    "lastContextDigest": "",
-    "lastStartedAt": "",
-    "lastCompletedAt": "",
-    "lastError": "",
-    "fallbackActive": False,
-}
-ACTION_REGISTRY_VERSION = "v1"
-ACTION_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
-    "rollout_restart_deployment": {
-        "toolName": "rollout_restart_deployment",
-        "toolVersion": "v1",
-        "targetKind": "Deployment",
-        "risk": "low",
-        "authorization": {
-            "apiGroup": "apps",
-            "resource": "deployments",
-            "subresource": "",
-            "verb": "patch",
-        },
-        "request": {
-            "method": "PATCH",
-            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
-        },
-    },
-    "set_replicas_within_bounds": {
-        "toolName": "set_replicas_within_bounds",
-        "toolVersion": "v1",
-        "targetKind": "Deployment",
-        "risk": "medium",
-        "authorization": {
-            "apiGroup": "apps",
-            "resource": "deployments",
-            "subresource": "scale",
-            "verb": "update",
-        },
-        "request": {
-            "method": "PATCH",
-            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale",
-        },
-    },
-    "evict_one_unhealthy_controller_owned_pod": {
-        "toolName": "evict_one_unhealthy_controller_owned_pod",
-        "toolVersion": "v1",
-        "targetKind": "Pod",
-        "risk": "medium",
-        "authorization": {
-            "apiGroup": "",
-            "resource": "pods",
-            "subresource": "eviction",
-            "verb": "create",
-        },
-        "request": {
-            "method": "POST",
-            "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}/eviction",
-        },
-    },
-    "rollback_deployment_to_revision": {
-        "toolName": "rollback_deployment_to_revision",
-        "toolVersion": "v1",
-        "targetKind": "Deployment",
-        "risk": "medium",
-        "authorization": {
-            "apiGroup": "apps",
-            "resource": "deployments",
-            "subresource": "",
-            "verb": "patch",
-        },
-        "request": {
-            "method": "PATCH",
-            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
-        },
-    },
-    "set_hpa_bounds": {
-        "toolName": "set_hpa_bounds",
-        "toolVersion": "v1",
-        "targetKind": "HorizontalPodAutoscaler",
-        "risk": "medium",
-        "authorization": {
-            "apiGroup": "autoscaling",
-            "resource": "horizontalpodautoscalers",
-            "subresource": "",
-            "verb": "patch",
-        },
-        "request": {
-            "method": "PATCH",
-            "pathTemplate": "/apis/autoscaling/v2/namespaces/{namespace}/horizontalpodautoscalers/{name}",
-        },
-    },
-    "set_deployment_container_command": {
-        "toolName": "set_deployment_container_command",
-        "toolVersion": "v1",
-        "targetKind": "Deployment",
-        "risk": "medium",
-        "authorization": {
-            "apiGroup": "apps",
-            "resource": "deployments",
-            "subresource": "",
-            "verb": "patch",
-        },
-        "request": {
-            "method": "PATCH",
-            "pathTemplate": "/apis/apps/v1/namespaces/{namespace}/deployments/{name}",
-        },
-    },
-    "namespace_cleanup_review": {
-        "toolName": "namespace_cleanup_review",
-        "toolVersion": "v1",
-        "targetKind": "Namespace",
-        "risk": "medium",
-        "authorization": {
-            "apiGroup": "",
-            "resource": "namespaces",
-            "subresource": "",
-            "verb": "get",
-        },
-        "request": {
-            "method": "GET",
-            "pathTemplate": "/api/v1/namespaces/{name}",
-        },
-    },
-    "test_pod_create_review": {
-        "toolName": "test_pod_create_review",
-        "toolVersion": "v1",
-        "targetKind": "Namespace",
-        "risk": "low",
-        "authorization": {
-            "apiGroup": "",
-            "resource": "namespaces",
-            "subresource": "",
-            "verb": "get",
-        },
-        "request": {
-            "method": "GET",
-            "pathTemplate": "/api/v1/namespaces/{name}",
-        },
-    },
-    "create_crashloop_test_pods": {
-        "toolName": "create_crashloop_test_pods",
-        "toolVersion": "v1",
-        "targetKind": "Namespace",
-        "risk": "low",
-        "authorization": {
-            "apiGroup": "",
-            "resource": "pods",
-            "subresource": "",
-            "verb": "create",
-        },
-        "request": {
-            "method": "POST",
-            "pathTemplate": "/api/v1/namespaces/{namespace}/pods",
-        },
-    },
-    "pod_diagnostic_review": {
-        "toolName": "pod_diagnostic_review",
-        "toolVersion": "v1",
-        "targetKind": "Pod",
-        "risk": "low",
-        "authorization": {
-            "apiGroup": "",
-            "resource": "pods",
-            "subresource": "",
-            "verb": "get",
-        },
-        "request": {
-            "method": "GET",
-            "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}",
-        },
-    },
-    "pod_fix_or_rollback_review": {
-        "toolName": "pod_fix_or_rollback_review",
-        "toolVersion": "v1",
-        "targetKind": "Pod",
-        "risk": "low",
-        "authorization": {
-            "apiGroup": "",
-            "resource": "pods",
-            "subresource": "",
-            "verb": "get",
-        },
-        "request": {
-            "method": "GET",
-            "pathTemplate": "/api/v1/namespaces/{namespace}/pods/{name}",
-        },
-    },
-}
-ACTION_REGISTRY_BUNDLE = {
-    "schemaVersion": "v1",
-    "version": ACTION_REGISTRY_VERSION,
-    "entries": ACTION_REGISTRY_ENTRIES,
-}
-ACTION_REGISTRY_DIGEST = canonical_digest(ACTION_REGISTRY_BUNDLE)
 RUNBOOK_REGISTRY_VERSION = "v1"
 RUNBOOK_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
     "deployment_rollout_restart_v1": {
@@ -1073,36 +897,6 @@ DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "evidencePolicy",
     "policy",
 )
-CANDIDATE_ACTION_DIGEST_FIELDS = (
-    "schemaVersion",
-    "clusterId",
-    "requester",
-    "target",
-    "action",
-    "policy",
-)
-SEALED_ACTION_PLAN_DIGEST_FIELDS = (
-    "schemaVersion",
-    "clusterId",
-    "metadata",
-    "target",
-    "action",
-    "safety",
-    "approvalPresentation",
-)
-
-
-def increment_metric(name: str, value: int = 1) -> None:
-    METRICS[name] = METRICS.get(name, 0) + value
-
-
-def bounded_put(store: dict[str, dict[str, Any]], key: str, value: dict[str, Any], limit: int) -> None:
-    store[key] = value
-    while len(store) > limit:
-        oldest_key = next(iter(store))
-        store.pop(oldest_key, None)
-
-
 def current_namespace() -> str:
     if RECORD_STORE_NAMESPACE:
         return RECORD_STORE_NAMESPACE
@@ -1648,17 +1442,6 @@ async def refresh_diagnostic_request_from_controller(record: dict[str, Any]) -> 
     return record
 
 
-def expires_at_rfc3339(delta: timedelta) -> str:
-    return (datetime.now(UTC) + delta).isoformat()
-
-
-def get_action_registry_entry(tool_name: str, tool_version: str) -> dict[str, Any]:
-    entry = ACTION_REGISTRY_ENTRIES.get(tool_name)
-    if not entry or entry.get("toolVersion") != tool_version:
-        raise HTTPException(status_code=400, detail="Action is not in the configured allow-list")
-    return entry
-
-
 def normalize_action_parameters(
     action: Mapping[str, Any],
     parameters: Mapping[str, Any],
@@ -1825,55 +1608,6 @@ def normalize_action_parameters(
         }
 
     raise HTTPException(status_code=400, detail="Unsupported action")
-
-
-def validate_action_target(action: Mapping[str, Any], target: "ActionTarget") -> None:
-    expected_kind = action.get("targetKind")
-    if expected_kind and target.kind != expected_kind:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Action target kind must be {expected_kind}",
-        )
-
-
-def default_policy_binding(policy: Mapping[str, Any]) -> dict[str, Any]:
-    policy_projection = redact_sensitive(dict(policy))
-    policy_digest = canonical_digest(policy_projection)
-    return {
-        "policyDecisionId": policy_projection.get("policyDecisionId") or "pd-local-foundation",
-        "policyBundleHash": policy_projection.get("policyBundleHash") or "sha256:local-foundation",
-        "policyInputDigest": policy_projection.get("policyInputDigest") or policy_digest,
-        "policyDecisionDigest": policy_projection.get("policyDecisionDigest") or policy_digest,
-    }
-
-
-def subject_digest(subject: Mapping[str, Any]) -> str:
-    return canonical_digest(
-        {
-            "groupsDigest": subject.get("groupsDigest"),
-            "uid": subject.get("uid"),
-            "username": subject.get("username"),
-        }
-    )
-
-
-def normalized_parameters_digest(candidate: Mapping[str, Any]) -> str:
-    action = candidate.get("action") if isinstance(candidate.get("action"), Mapping) else {}
-    return canonical_digest(action.get("normalizedParameters") or {})
-
-
-def policy_binding_digest(policy: Mapping[str, Any]) -> str:
-    return canonical_digest(default_policy_binding(policy))
-
-
-def candidate_action_request_digest(candidate: Mapping[str, Any]) -> str:
-    projection = {field: candidate.get(field) for field in CANDIDATE_ACTION_DIGEST_FIELDS}
-    return canonical_digest(redact_sensitive(projection))
-
-
-def sealed_action_plan_digest(plan: Mapping[str, Any]) -> str:
-    projection = {field: plan.get(field) for field in SEALED_ACTION_PLAN_DIGEST_FIELDS}
-    return canonical_digest(redact_sensitive(projection))
 
 
 def build_candidate_action_request(
@@ -2090,14 +1824,6 @@ def build_sealed_action_plan_record(
     }
 
 
-def same_observed_subject(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    return (
-        left.get("username") == right.get("username")
-        and left.get("uid") == right.get("uid")
-        and left.get("groupsDigest") == right.get("groupsDigest")
-    )
-
-
 def build_approval_decision_record(
     plan_record: Mapping[str, Any],
     request: "ApprovalDecisionCreate",
@@ -2237,21 +1963,6 @@ def build_action_rejection_record(
         },
         "subject": redact_sensitive(dict(rejecter)),
     }
-
-
-def parse_rfc3339(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    normalized = value.strip()
-    if normalized.endswith("Z"):
-        normalized = f"{normalized[:-1]}+00:00"
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
 
 
 def validate_execution_evidence_freshness(plan: Mapping[str, Any]) -> None:
@@ -2690,151 +2401,6 @@ class ChatFeedbackCreate(BaseModel):
     timestamp: str | None = Field(default=None, max_length=80)
 
 
-class StrictBaseModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-class DiagnosticTargetNode(StrictBaseModel):
-    name: str = Field(min_length=1, max_length=253)
-    uid: str = Field(min_length=1, max_length=128)
-
-
-class DiagnosticTimeRange(StrictBaseModel):
-    since: str = Field(min_length=1, max_length=80)
-    until: str = Field(min_length=1, max_length=80)
-
-
-class DiagnosticLimits(StrictBaseModel):
-    deadline: str = Field(default="30s", min_length=1, max_length=32)
-    maxBytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
-    maxLines: int = Field(default=50000, ge=1, le=500000)
-
-
-class DiagnosticEvidencePolicy(StrictBaseModel):
-    classification: str = Field(default="restricted", min_length=1, max_length=64)
-    rawStorageAllowed: bool = False
-    redactionPolicyDigest: str = Field(default="sha256:unspecified", min_length=1, max_length=128)
-
-
-class DiagnosticRequestCreate(StrictBaseModel):
-    incidentId: str | None = Field(default=None, max_length=120)
-    runId: str | None = Field(default=None, max_length=120)
-    targetNode: DiagnosticTargetNode
-    collector: str = Field(min_length=1, max_length=120)
-    collectorVersion: str = Field(default="v1", min_length=1, max_length=64)
-    collectorProfile: str = Field(default="passive-readonly", min_length=1, max_length=80)
-    timeRange: DiagnosticTimeRange
-    limits: DiagnosticLimits = Field(default_factory=DiagnosticLimits)
-    evidencePolicy: DiagnosticEvidencePolicy = Field(default_factory=DiagnosticEvidencePolicy)
-    policy: dict[str, Any] = Field(default_factory=dict)
-
-
-class ActionTarget(StrictBaseModel):
-    apiVersion: str = Field(min_length=1, max_length=80)
-    kind: str = Field(min_length=1, max_length=80)
-    namespace: str = Field(min_length=1, max_length=253)
-    name: str = Field(min_length=1, max_length=253)
-    uid: str = Field(min_length=1, max_length=128)
-
-
-class ActionProposalCreate(StrictBaseModel):
-    incidentId: str | None = Field(default=None, max_length=120)
-    runId: str | None = Field(default=None, max_length=120)
-    toolName: str = Field(min_length=1, max_length=120)
-    toolVersion: str = Field(default="v1", min_length=1, max_length=64)
-    target: ActionTarget
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    expectedImpact: str | None = Field(default=None, max_length=1000)
-    prerequisiteChecks: list[str] = Field(default_factory=list, max_length=12)
-    problemSummary: str | None = Field(default=None, max_length=1000)
-    recommendationSteps: list[str] = Field(default_factory=list, max_length=12)
-    runbookRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    verificationChecks: list[str] = Field(default_factory=list, max_length=12)
-    policy: dict[str, Any] = Field(default_factory=dict)
-
-
-class ActionCandidateTargetCreate(StrictBaseModel):
-    apiVersion: str | None = Field(default=None, max_length=80)
-    kind: str = Field(min_length=1, max_length=80)
-    namespace: str | None = Field(default=None, max_length=253)
-    name: str = Field(min_length=1, max_length=253)
-
-
-class ActionCandidatePlanCreate(StrictBaseModel):
-    candidateId: str = Field(min_length=1, max_length=160)
-    title: str = Field(min_length=1, max_length=240)
-    sourceFindingId: str | None = Field(default=None, max_length=160)
-    sourceType: str | None = Field(default=None, max_length=120)
-    incidentId: str | None = Field(default=None, max_length=120)
-    runId: str | None = Field(default=None, max_length=120)
-    target: ActionCandidateTargetCreate
-    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    expectedImpact: str | None = Field(default=None, max_length=1000)
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    policy: dict[str, Any] = Field(default_factory=dict)
-    prerequisiteChecks: list[str] = Field(default_factory=list, max_length=12)
-    problemSummary: str | None = Field(default=None, max_length=1000)
-    recommendationSteps: list[str] = Field(default_factory=list, max_length=12)
-    verificationChecks: list[str] = Field(default_factory=list, max_length=12)
-
-
-class SealedActionPlanCreate(StrictBaseModel):
-    proposalId: str = Field(min_length=1, max_length=120)
-
-
-class ApprovalDecisionCreate(StrictBaseModel):
-    planId: str = Field(min_length=1, max_length=120)
-    expectedPlanDigest: str = Field(min_length=1, max_length=128)
-    approvalScope: str = Field(default="single-target", min_length=1, max_length=80)
-
-
-class ActionRejectionCreate(StrictBaseModel):
-    planId: str = Field(min_length=1, max_length=120)
-    expectedPlanDigest: str = Field(min_length=1, max_length=128)
-    reason: str = Field(default="operator rejected the proposed action", min_length=1, max_length=500)
-
-
-class ActionExecutionCreate(StrictBaseModel):
-    approvalId: str = Field(min_length=1, max_length=120)
-    planId: str = Field(min_length=1, max_length=120)
-    expectedPlanDigest: str = Field(min_length=1, max_length=128)
-
-
-class UnrestrictedCommandExecuteCreate(StrictBaseModel):
-    command: str = Field(min_length=1, max_length=8000)
-    cwd: str | None = Field(default=None, max_length=1000)
-    timeoutSeconds: int | None = Field(default=None, ge=1, le=3600)
-
-
-class RunbookPlanCreate(StrictBaseModel):
-    runbookId: str = Field(min_length=1, max_length=160)
-    incidentId: str | None = Field(default=None, max_length=120)
-    runId: str | None = Field(default=None, max_length=120)
-    target: ActionTarget
-    parameters: dict[str, Any] = Field(default_factory=dict)
-    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    policy: dict[str, Any] = Field(default_factory=dict)
-
-
-class RagSearchFilters(StrictBaseModel):
-    sourceTypes: list[str] = Field(default_factory=list, max_length=20)
-    namespaces: list[str] = Field(default_factory=list, max_length=20)
-    customers: list[str] = Field(default_factory=list, max_length=20)
-    aclGroups: list[str] = Field(default_factory=list, max_length=40)
-    runbookIds: list[str] = Field(default_factory=list, max_length=40)
-    versions: list[str] = Field(default_factory=list, max_length=20)
-    labels: dict[str, str] = Field(default_factory=dict)
-
-
-class RagSearchCreate(StrictBaseModel):
-    query: str = Field(min_length=1, max_length=1000)
-    topK: int = Field(default=5, ge=1, le=20)
-    filters: RagSearchFilters = Field(default_factory=RagSearchFilters)
-    includeContent: bool = False
-    runId: str | None = Field(default=None, max_length=120)
-
-
 class RagDocumentUploadCreate(StrictBaseModel):
     name: str = Field(min_length=1, max_length=220)
     mimeType: str = Field(default="text/markdown", min_length=1, max_length=120)
@@ -2848,31 +2414,6 @@ class RagDocumentUploadCreate(StrictBaseModel):
     aclGroups: list[str] = Field(default_factory=list, max_length=40)
     labels: dict[str, str] = Field(default_factory=dict)
     runId: str | None = Field(default=None, max_length=120)
-
-
-class PatchPreapprovedFieldCreate(StrictBaseModel):
-    fieldSchemaId: str = Field(min_length=1, max_length=160)
-    incidentId: str | None = Field(default=None, max_length=120)
-    runId: str | None = Field(default=None, max_length=120)
-    target: ActionTarget
-    value: Any
-    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    policy: dict[str, Any] = Field(default_factory=dict)
-
-
-class BreakGlassTargetNode(StrictBaseModel):
-    name: str = Field(min_length=1, max_length=253)
-    uid: str = Field(min_length=1, max_length=128)
-
-
-class BreakGlassRequestCreate(StrictBaseModel):
-    profileId: str = Field(min_length=1, max_length=160)
-    incidentId: str | None = Field(default=None, max_length=120)
-    runId: str | None = Field(default=None, max_length=120)
-    targetNode: BreakGlassTargetNode
-    justification: str = Field(min_length=12, max_length=1000)
-    evidenceRefs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
-    policy: dict[str, Any] = Field(default_factory=dict)
 
 
 def page_context_namespace(req: ChatRequest) -> str:
@@ -7395,8 +6936,26 @@ def test_pod_create_count_from_message(message: str) -> int:
     digit = re.search(r"\b([1-5])\s*(?:개|pods?|파드)?\b", text)
     if digit:
         return int(digit.group(1))
-    if re.search(r"\bthree\b|세\s*개|셋|3개", text, re.IGNORECASE):
-        return 3
+    korean_numbers = (
+        (1, r"한\s*개|하나|일\s*개"),
+        (2, r"두\s*개|둘|두\s*대|이\s*개"),
+        (3, r"세\s*개|셋|삼\s*개"),
+        (4, r"네\s*개|넷|사\s*개"),
+        (5, r"다섯\s*개|다섯|오\s*개"),
+    )
+    for count, pattern in korean_numbers:
+        if re.search(pattern, text, re.IGNORECASE):
+            return count
+    english_numbers = (
+        (1, r"\bone\b"),
+        (2, r"\btwo\b"),
+        (3, r"\bthree\b"),
+        (4, r"\bfour\b"),
+        (5, r"\bfive\b"),
+    )
+    for count, pattern in english_numbers:
+        if re.search(pattern, text, re.IGNORECASE):
+            return count
     return TEST_POD_CREATE_DEFAULT_COUNT
 
 
@@ -7900,7 +7459,11 @@ def merge_recent_namespace_cleanup_candidates(action_candidates: Mapping[str, An
     candidates.extend(candidate for candidate in recent if str(candidate.get("id") or "") not in existing_ids)
     candidates = sorted(
         [candidate for candidate in candidates if isinstance(candidate, Mapping)],
-        key=lambda item: (int(item.get("priority") or 999), str(item.get("id") or "")),
+        key=lambda item: (
+            0 if item.get("chatRunId") else 1,
+            int(item.get("priority") or 999),
+            str(item.get("id") or ""),
+        ),
     )
     spec["candidates"] = candidates[:8]
     totals = dict(spec.get("totals", {})) if isinstance(spec.get("totals"), Mapping) else {}
@@ -12154,11 +11717,205 @@ def pod_row_priority(row: Mapping[str, str]) -> tuple[int, str, str]:
     return 5, "낮음", "현재 목록 기준 즉시 장애 신호 낮음"
 
 
+def pod_inventory_message_requests_restart_history(message: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)(재시작|리스타트|restart|restarts|restart\s*count|"
+            r"누적|횟수|많은|높은|빈번|반복|completed\s*/\s*0|이력)",
+            message,
+        )
+    )
+
+
+def pod_inventory_message_requests_problem_scope(message: str) -> bool:
+    return bool(
+        re.search(
+            r"(?i)(에러|error|failed|crashloop|imagepull|backoff|pending|"
+            r"비정상|문제|이상|원인)",
+            message,
+        )
+    )
+
+
+def pod_inventory_restart_observation_rows(rows: list[Mapping[str, str]]) -> list[Mapping[str, str]]:
+    return [
+        row
+        for row in rows
+        if not (pod_row_has_current_failure(row) or pod_row_has_error_exit(row))
+        and (
+            pod_row_has_completed_restart_loop(row)
+            or parse_restart_count(str(row.get("restarts") or "")) > 0
+        )
+    ]
+
+
+def pod_inventory_selected_rows(message: str, rows: list[Mapping[str, str]]) -> list[Mapping[str, str]]:
+    strict_rows = [
+        row
+        for row in rows
+        if pod_row_has_current_failure(row) or pod_row_has_error_exit(row)
+    ]
+    restart_rows = pod_inventory_restart_observation_rows(rows)
+    include_restart_history = pod_inventory_message_requests_restart_history(message)
+    problem_scope = pod_inventory_message_requests_problem_scope(message)
+
+    if problem_scope:
+        selected = strict_rows + (restart_rows if include_restart_history else [])
+    elif include_restart_history:
+        selected = strict_rows + restart_rows
+    else:
+        selected = list(rows)
+
+    return sorted(
+        selected,
+        key=lambda row: (pod_row_priority(row)[0], -parse_restart_count(str(row.get("restarts") or ""))),
+    )
+
+
 def pod_row_target(row: Mapping[str, str]) -> str:
     namespace = row.get("namespace") or "-"
     pod = row.get("pod") or "-"
     container = row.get("container") or "-"
     return f"{namespace}/{pod}/{container}"
+
+
+def pod_inventory_action_candidate_from_row(
+    row: Mapping[str, str],
+    *,
+    incident_id: str,
+    run_id: str,
+) -> dict[str, Any]:
+    namespace = str(row.get("namespace") or "")
+    pod = str(row.get("pod") or "")
+    container = str(row.get("container") or "")
+    priority_rank, priority_label, priority_reason = pod_row_priority(row)
+    target_digest = hashlib.sha256(f"{namespace}/{pod}/{container}".encode()).hexdigest()[:12]
+    current_state = str(row.get("currentState") or "-")
+    last_state = str(row.get("lastState") or "-")
+    restarts = str(row.get("restarts") or "0")
+    evidence = (
+        f"{namespace}/{pod}"
+        f"{f' container {container}' if container and container != '-' else ''}: "
+        f"{priority_reason}. 현재 상태 {current_state}, restart {restarts}, 마지막 종료 {last_state}."
+    )
+    return {
+        "approvalRequired": True,
+        "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+        "blockedReasons": ["diagnostic-review", "review-only-plan"],
+        "confidence": "medium",
+        "evidence": evidence,
+        "evidenceRefs": [
+            {
+                "evidenceType": "pod_status",
+                "findingId": f"pod-inventory-{target_digest}",
+                "sourceType": "pod_inventory",
+                "status": "collected",
+            }
+        ],
+        "executable": False,
+        "executionPolicy": {
+            "executionEnabled": False,
+            "mode": "review-only",
+            "mutationVerbsDisabled": True,
+            "proposalOnly": True,
+        },
+        "expectedImpact": (
+            "Pod 로그, 이전 로그, describe, Event 확인 결과를 검토 기록으로 남깁니다. "
+            "Pod 삭제, 재시작, patch, scale은 실행하지 않습니다."
+        ),
+        "id": f"action-candidate-pod-inventory-diagnostic-{target_digest}",
+        "mutationSubmitted": False,
+        "parameters": {
+            "containerName": container if container and container != "-" else "",
+            "includeEvents": True,
+            "includePreviousLogs": True,
+            "includePodDescribe": True,
+        },
+        "priority": 20 + priority_rank,
+        "prerequisiteChecks": [
+            "대상 Pod와 namespace 확인",
+            "이전 로그와 Event 조회 결과 확인",
+            "현재 상태와 마지막 종료 상태를 분리",
+        ],
+        "recommendationSteps": [
+            "Pod 로그/previous log/describe/Event 확인 계획 생성",
+            "OOMKilled, probe, API 연결, image pull, command/env/config 문제 분리",
+            "원인 확인 뒤 수정/롤백/재생성 여부를 별도 Action Plan으로 판단",
+        ],
+        "riskLevel": "low",
+        "riskLabel": "낮음",
+        "severity": priority_label,
+        "sourceFindingId": f"pod-inventory-{target_digest}",
+        "sourceType": "pod_diagnostic_review",
+        "statusLabel": "원인 확인 플랜",
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": pod,
+            "namespace": namespace,
+        },
+        "title": "Pod 원인 확인 플랜",
+        "verificationChecks": [
+            "로그/describe/Event 확인 결과가 기록되었는지 확인",
+            "승인 전후 모두 클러스터 변경 작업이 없는지 확인",
+        ],
+        "chatRunId": run_id,
+        "incidentId": incident_id,
+        "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+    }
+
+
+def pod_inventory_action_candidates_from_evidence(
+    req: ChatRequest,
+    gateway_evidence: str | None,
+    *,
+    incident_id: str,
+    run_id: str,
+    limit: int = 2,
+) -> list[dict[str, Any]]:
+    if not is_pod_list_request(req.message):
+        return []
+
+    rows, namespace_filter, _rows_shown = parse_gateway_current_pod_list_rows(gateway_evidence)
+    if not rows:
+        rows = parse_gateway_pod_evidence_rows(gateway_evidence)
+
+    namespace = pod_list_namespace(req) or namespace_filter or ""
+    if namespace and namespace != "all-accessible-namespaces":
+        rows = [row for row in rows if row.get("namespace") == namespace]
+
+    selected_rows = [
+        row
+        for row in pod_inventory_selected_rows(req.message, rows)
+        if row.get("namespace") and row.get("pod")
+    ]
+    return [
+        pod_inventory_action_candidate_from_row(row, incident_id=incident_id, run_id=run_id)
+        for row in selected_rows[:limit]
+    ]
+
+
+def remember_pod_inventory_action_candidates(
+    req: ChatRequest,
+    gateway_evidence: str | None,
+    *,
+    incident_id: str,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    candidates = pod_inventory_action_candidates_from_evidence(
+        req,
+        gateway_evidence,
+        incident_id=incident_id,
+        run_id=run_id,
+    )
+    now = datetime.now(UTC)
+    for key, candidate in list(NAMESPACE_CLEANUP_CHAT_CANDIDATES.items()):
+        expires_at = parse_k8s_timestamp(candidate.get("expiresAt"))
+        if expires_at and expires_at < now:
+            NAMESPACE_CLEANUP_CHAT_CANDIDATES.pop(key, None)
+    for candidate in candidates:
+        NAMESPACE_CLEANUP_CHAT_CANDIDATES[str(candidate["id"])] = candidate
+    return candidates
 
 
 def pod_inventory_check_commands(rows: list[Mapping[str, str]], namespace: str) -> list[str]:
@@ -12240,51 +11997,68 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
     current_failure_rows = [row for row in rows if pod_row_has_current_failure(row)]
     error_exit_rows = [row for row in rows if pod_row_has_error_exit(row)]
     completed_restart_rows = [row for row in rows if pod_row_has_completed_restart_loop(row)]
-    suspect_rows = [
-        row
-        for row in rows
-        if pod_row_has_current_failure(row)
-        or pod_row_has_error_exit(row)
-        or pod_row_has_completed_restart_loop(row)
-        or parse_restart_count(str(row.get("restarts") or "")) > 0
-    ]
-    display_rows = sorted(
-        rows,
-        key=lambda row: (pod_row_priority(row)[0], -parse_restart_count(row.get("restarts") or "")),
-    )
+    restart_observation_rows = pod_inventory_restart_observation_rows(rows)
+    selected_rows = pod_inventory_selected_rows(req.message, rows)
+    problem_scope = pod_inventory_message_requests_problem_scope(req.message)
+    display_limit = 10 if problem_scope else 20
+    display_rows = selected_rows[:display_limit]
+    hidden_count = max(len(selected_rows) - len(display_rows), 0)
     top_targets = ", ".join(pod_row_target(row) for row in display_rows[:2]) or "없음"
     commands = pod_inventory_check_commands(display_rows, namespace)
+    if problem_scope:
+        summary = (
+            f"현재 조회 범위에서 에러/비정상 Pod/Container {len(selected_rows)}건을 확인했습니다."
+            if selected_rows
+            else "현재 조회 범위에서 에러/비정상 Pod/Container는 확인되지 않았습니다."
+        )
+    else:
+        summary = f"현재 조회 범위에서 Pod/Container {total_rows}건을 확인했습니다."
 
     lines = [
         "## Pod 인벤토리",
         "",
         "### 요약",
-        f"현재 조회 범위에서 문제 의심 Pod/Container {len(suspect_rows)}건을 확인했습니다.",
+        summary,
         f"- 수집 row: {total_rows}" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
         f"- 즉시 장애 상태(CrashLoopBackOff/ImagePullBackOff/Pending/NotReady): {len(current_failure_rows)}건",
         f"- 최근 Error 종료 이력: {len(error_exit_rows)}건",
-        f"- Completed/0 반복 재시작 이력: {len(completed_restart_rows)}건",
+        f"- 재시작 관찰 항목(Completed/0 포함): {len(restart_observation_rows)}건",
         f"- 우선 확인 대상: {top_targets}",
+        *([f"- 표시는 우선순위 상위 {len(display_rows)}건으로 제한했습니다. 추가 {hidden_count}건은 상세 확인 대상입니다."] if hidden_count else []),
+        *(
+            [
+                "- 이번 질문은 에러 상태 기준이므로 단순 재시작 이력만 있는 항목은 기본 표에서 제외했습니다."
+            ]
+            if problem_scope and restart_observation_rows and not pod_inventory_message_requests_restart_history(req.message)
+            else []
+        ),
         "",
         "### 우선순위 표",
-        "| 우선순위 | Namespace | Pod | Container | 현재 상태 | Ready | Restart | Last State | 판단 |",
-        "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
     ]
-    for row in display_rows:
-        _, priority, reason = pod_row_priority(row)
-        lines.append(
-            "| {priority} | {namespace} | `{pod}` | `{container}` | {currentState} | {ready} | {restarts} | {lastState} | {reason} |".format(
-                priority=priority,
-                namespace=row.get("namespace") or "-",
-                pod=row.get("pod") or "-",
-                container=row.get("container") or "-",
-                currentState=row.get("currentState") or "-",
-                ready=row.get("ready") or "-",
-                restarts=row.get("restarts") or "0",
-                lastState=row.get("lastState") or "-",
-                reason=reason,
-            )
+    if display_rows:
+        lines.extend(
+            [
+                "| 우선순위 | Namespace | Pod | Container | 현재 상태 | Ready | Restart | Last State | 판단 |",
+                "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |",
+            ]
         )
+        for row in display_rows:
+            _, priority, reason = pod_row_priority(row)
+            lines.append(
+                "| {priority} | {namespace} | `{pod}` | `{container}` | {currentState} | {ready} | {restarts} | {lastState} | {reason} |".format(
+                    priority=priority,
+                    namespace=row.get("namespace") or "-",
+                    pod=row.get("pod") or "-",
+                    container=row.get("container") or "-",
+                    currentState=row.get("currentState") or "-",
+                    ready=row.get("ready") or "-",
+                    restarts=row.get("restarts") or "0",
+                    lastState=row.get("lastState") or "-",
+                    reason=reason,
+                )
+            )
+    else:
+        lines.append("- 표시할 에러/비정상 Pod가 없습니다.")
 
     lines.extend(
         [
@@ -12300,7 +12074,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
         lines.append(
             "- `Running` + `Completed/0` 항목은 장애 확정이 아닙니다. 정상 종료 후 재시작되는 작업성 컨테이너인지 확인해야 합니다."
         )
-    if not suspect_rows:
+    if not selected_rows:
         lines.append("- 현재 목록 기준 즉시 장애나 재시작 이력 신호는 낮습니다.")
     lines.extend(
         [
@@ -12439,6 +12213,8 @@ def build_grounded_aiops_answer(
     gateway_evidence: str | None,
 ) -> str | None:
     task_type = str(runtime_tool_plan.get("task_type") or "")
+    if task_type == "pod_inventory":
+        return build_pod_list_fallback(req, gateway_evidence)
     if task_type == "pod_screen_rca" and page_context_is_pod_workload(req):
         return build_pod_evidence_fallback(req, gateway_evidence)
     return None
@@ -18206,6 +17982,45 @@ async def chat_stream(
                 subject=subject,
             ):
                 yield sse(evidence_ref_event)
+
+            pod_inventory_candidates: list[dict[str, Any]] = []
+            if action_capable_execution_mode(page_context_aiops_execution_mode(req)):
+                pod_inventory_candidates = remember_pod_inventory_action_candidates(
+                    req,
+                    gateway_evidence,
+                    incident_id=incident_id,
+                    run_id=run_id,
+                )
+            if pod_inventory_candidates:
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(
+                            {
+                                "candidateCount": len(pod_inventory_candidates),
+                                "candidates": [
+                                    {
+                                        "id": candidate.get("id"),
+                                        "sourceType": candidate.get("sourceType"),
+                                        "target": candidate.get("target"),
+                                        "title": candidate.get("title"),
+                                    }
+                                    for candidate in pod_inventory_candidates
+                                ],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        "id": f"{request_id}-pod-inventory-action-candidates",
+                        "name": "pod_inventory_action_candidates",
+                        "result": {
+                            "candidateCount": len(pod_inventory_candidates),
+                            "status": "action_candidate_ready",
+                        },
+                        "status": "success",
+                        "summary": f"Pod 원인 확인 Action Plan 후보 {len(pod_inventory_candidates)}건 준비",
+                    }
+                )
 
             rca_context_event = current_rca_context_event("pre_answer")
             LAST_RCA_CONTEXT = rca_context_event["context"]

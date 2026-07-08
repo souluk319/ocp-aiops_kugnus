@@ -1,4 +1,4 @@
-import type { AiopsRecord, ImageAttachment } from '../services/aiGateway';
+import type { AiopsActionCandidate, AiopsRecord, ImageAttachment } from '../services/aiGateway';
 
 export type HistoryPanelView = 'chats' | 'uploads';
 
@@ -11,6 +11,7 @@ export type Message = {
     | 'gateway_fallback'
     | 'copilot_clarification'
     | 'copilot_reply';
+  actionCandidates?: AiopsActionCandidate[];
   attachments?: ImageAttachment[];
   content: string;
   evidenceFooter?: EvidenceFooter;

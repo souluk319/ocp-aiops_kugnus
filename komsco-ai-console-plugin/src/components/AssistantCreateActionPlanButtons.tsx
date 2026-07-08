@@ -1,9 +1,16 @@
 import * as React from 'react';
 import { Button } from '@patternfly/react-core';
 
+import { AssistantInlineActionRecords } from './AssistantActionRecords';
 import { CoolSettingsIcon } from './coolicons';
-import type { AiopsActionCandidate } from '../services/aiGateway';
-import type { UiLanguage } from './assistant.types';
+import type { AiopsActionCandidate, AiopsRuntimeStatus } from '../services/aiGateway';
+import type {
+  AiopsExecutionMode,
+  AiopsRecordAction,
+  AiopsRecordView,
+  ConversationActionRef,
+  UiLanguage,
+} from './assistant.types';
 
 type AssistantCreateActionPlanButtonsProps = {
   actionFeedback?: {
@@ -11,11 +18,22 @@ type AssistantCreateActionPlanButtonsProps = {
     message: string;
     tone: 'error' | 'pending' | 'success';
   } | null;
+  actionRecordsByCandidateId?: Record<string, AiopsRecordView[]>;
+  actionRefsByCandidateId?: Record<string, ConversationActionRef[]>;
+  aiopsStatus: AiopsRuntimeStatus | null;
+  busyActionId: string;
   busyCandidateId: string;
   candidates: AiopsActionCandidate[];
   createDisabledReason?: string;
+  executionMode: AiopsExecutionMode;
   language: UiLanguage;
+  onAction: (record: AiopsRecordView, action: AiopsRecordAction) => void;
   onCreatePlan: (candidate: AiopsActionCandidate) => void;
+  resolveAction: (
+    record: AiopsRecordView,
+    aiopsStatus: AiopsRuntimeStatus | null,
+    executionMode: AiopsExecutionMode,
+  ) => AiopsRecordAction | null;
 };
 
 const actionCandidateSummaryLabel = (candidate: AiopsActionCandidate): string => {
@@ -124,21 +142,48 @@ const actionCandidatePriorityLabel = (candidate: AiopsActionCandidate): string =
 
 const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButtonsProps> = ({
   actionFeedback,
+  actionRecordsByCandidateId = {},
+  actionRefsByCandidateId = {},
+  aiopsStatus,
+  busyActionId,
   busyCandidateId,
   candidates,
   createDisabledReason,
+  executionMode,
   language,
+  onAction,
   onCreatePlan,
+  resolveAction,
 }) => {
   const [expanded, setExpanded] = React.useState(candidates.length <= 1);
   const candidateKey = React.useMemo(
     () => candidates.map((candidate) => candidate.id).join('|'),
     [candidates],
   );
+  const candidateActivityKey = React.useMemo(
+    () =>
+      candidates
+        .map((candidate) => {
+          const recordCount = actionRecordsByCandidateId[candidate.id]?.length ?? 0;
+          const refCount = actionRefsByCandidateId[candidate.id]?.length ?? 0;
+          return `${candidate.id}:${recordCount}:${refCount}`;
+        })
+        .join('|'),
+    [actionRecordsByCandidateId, actionRefsByCandidateId, candidates],
+  );
+  const hasActionActivity = React.useMemo(
+    () =>
+      candidates.some(
+        (candidate) =>
+          (actionRecordsByCandidateId[candidate.id]?.length ?? 0) > 0 ||
+          (actionRefsByCandidateId[candidate.id]?.length ?? 0) > 0,
+      ),
+    [actionRecordsByCandidateId, actionRefsByCandidateId, candidates],
+  );
 
   React.useEffect(() => {
-    setExpanded(candidates.length <= 1);
-  }, [candidateKey, candidates.length]);
+    setExpanded(candidates.length <= 1 || hasActionActivity);
+  }, [candidateActivityKey, candidateKey, candidates.length, hasActionActivity]);
 
   if (candidates.length === 0) {
     return null;
@@ -200,9 +245,15 @@ const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButton
           const disabledByMode = Boolean(createDisabledReason) && !candidate.planDisabledReason;
           const feedback =
             actionFeedback?.candidateId === candidate.id ? actionFeedback : null;
+          const inlineRecords = actionRecordsByCandidateId[candidate.id] ?? [];
+          const inlineRefs = actionRefsByCandidateId[candidate.id] ?? [];
+          const hasInlineActivity = inlineRecords.length > 0 || inlineRefs.length > 0;
           return (
             <div
-              className="komsco-ai__create-action-plan-row"
+              className={`komsco-ai__create-action-plan-row${
+                hasInlineActivity ? ' has-action-activity' : ''
+              }`}
+              data-aiops-action-candidate-activity={hasInlineActivity ? 'true' : 'false'}
               data-aiops-action-candidate-feedback={feedback?.tone || 'none'}
               key={candidate.id}
             >
@@ -265,37 +316,51 @@ const AssistantCreateActionPlanButtons: React.FC<AssistantCreateActionPlanButton
                     {feedback.message}
                   </span>
                 )}
+                {hasInlineActivity && (
+                  <AssistantInlineActionRecords
+                    aiopsStatus={aiopsStatus}
+                    busyActionId={busyActionId}
+                    executionMode={executionMode}
+                    fallbackRefs={inlineRefs}
+                    language={language}
+                    onAction={onAction}
+                    records={inlineRecords}
+                    resolveAction={resolveAction}
+                  />
+                )}
               </span>
-              <Button
-                className="komsco-ai__action-button komsco-ai__create-action-plan-button"
-                data-aiops-action-candidate-locked={disabledByMode ? 'readonly' : disabledReason ? 'target' : 'none'}
-                isDisabled={busy || Boolean(disabledReason)}
-                isLoading={busy}
-                onClick={() => {
-                  if (!disabledReason) {
-                    onCreatePlan(candidate);
-                  }
-                }}
-                size="sm"
-                variant="secondary"
-                aria-label={disabledReason || 'Action Plan 생성'}
-              >
-                {busy
-                  ? isKo
-                    ? '생성 중'
-                    : 'Creating'
-                  : disabledReason
+              {!hasInlineActivity && (
+                <Button
+                  className="komsco-ai__action-button komsco-ai__create-action-plan-button"
+                  data-aiops-action-candidate-locked={disabledByMode ? 'readonly' : disabledReason ? 'target' : 'none'}
+                  isDisabled={busy || Boolean(disabledReason)}
+                  isLoading={busy}
+                  onClick={() => {
+                    if (!disabledReason) {
+                      onCreatePlan(candidate);
+                    }
+                  }}
+                  size="sm"
+                  variant="secondary"
+                  aria-label={disabledReason || 'Action Plan 생성'}
+                >
+                  {busy
                     ? isKo
-                      ? disabledByMode
-                        ? '생성 잠김'
-                        : '대상 확인 필요'
-                      : disabledByMode
-                        ? 'Locked'
-                        : 'Target required'
-                    : isKo
-                      ? 'Action Plan 생성'
-                      : 'Create Action Plan'}
-              </Button>
+                      ? '생성 중'
+                      : 'Creating'
+                    : disabledReason
+                      ? isKo
+                        ? disabledByMode
+                          ? '생성 잠김'
+                          : '대상 확인 필요'
+                        : disabledByMode
+                          ? 'Locked'
+                          : 'Target required'
+                      : isKo
+                        ? 'Action Plan 생성'
+                        : 'Create Action Plan'}
+                </Button>
+              )}
             </div>
           );
         })}
