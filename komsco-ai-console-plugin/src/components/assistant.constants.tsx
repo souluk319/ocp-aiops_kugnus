@@ -143,7 +143,7 @@ export const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024;
 export const MAX_RAG_DOCUMENT_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_RECENT_CONTEXT_MESSAGES = 8;
 export const CLUSTER_SUMMARY_REFRESH_MS = 10 * 1000;
-export const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'execute';
+export const DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only';
 export const HISTORY_DRAWER_WIDTH = 268;
 export const MIN_STOP_BUTTON_VISIBLE_MS = 2000;
 export const SCROLL_BOTTOM_THRESHOLD_PX = 80;
@@ -268,20 +268,20 @@ export const PREP_SUBTASKS = [
 
 export const RESPONSE_WAIT_PHASES = [
   {
-    activity: 'Gateway가 AIOps에 답변 생성을 요청했습니다.',
-    title: '답변 요청',
+    activity: 'Gateway가 질문을 모델 또는 내부 답변 생성기로 넘겼습니다.',
+    title: '모델 답변 생성',
   },
   {
-    activity: 'AIOps가 사용자 권한 범위 안에서 질문을 처리합니다.',
-    title: '질문 처리',
+    activity: '수집한 확인 결과를 답변에 사용할 형태로 정리합니다.',
+    title: '확인 결과 정리',
   },
   {
-    activity: '필요한 도구 조회와 답변 생성을 기다립니다.',
-    title: '답변 준비',
+    activity: '모델 또는 Gateway renderer가 답변 문장을 생성합니다.',
+    title: '답변 초안 생성',
   },
   {
-    activity: '생성된 답변을 화면에 표시할 준비를 합니다.',
-    title: '화면 표시 준비',
+    activity: '답변 스트림이 도착하기를 기다립니다.',
+    title: '답변 수신 대기',
   },
 ];
 

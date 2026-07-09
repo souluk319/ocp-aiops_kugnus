@@ -154,6 +154,28 @@ const matchActionCandidatesForMessage = (
   content: string,
   candidates: AiopsActionCandidate[],
 ): AiopsActionCandidate[] => {
+  const cleanupClarification = /정리 대상 범위 확인|범위가 아직 넓습니다|이 범위\(.+\)로 정리 검토를 진행할까요|범위를 확인하면/i.test(
+    content,
+  );
+  if (cleanupClarification) {
+    return [];
+  }
+
+  const cleanupReviewAnswer = /테스트 Pod 정리 검토|정리 검토 후보/.test(content);
+  if (cleanupReviewAnswer) {
+    const cleanupMatches = candidates.filter((candidate) => {
+      const sourceType = String(candidate.sourceType || '');
+      const targetName = candidate.target?.name;
+      const namespace = candidate.target?.namespace;
+      return Boolean(
+        /cleanup_review/i.test(sourceType) &&
+          ((targetName && content.includes(targetName)) ||
+            (namespace && content.includes(namespace))),
+      );
+    });
+    return dedupeActionCandidates(cleanupMatches);
+  }
+
   const matched = candidates.filter((candidate) => {
     const targetName = candidate.target?.name;
     const namespace = candidate.target?.namespace;
@@ -530,7 +552,7 @@ const getToolSummary = (event: ToolStreamEvent): string => {
   }
 
   if (event.type === 'tool_call') {
-    return event.serverName ? `${event.serverName} 도구 호출` : '도구 호출';
+    return `${formatToolTitle(event.name)} 시작`;
   }
 
   return event.status ? `상태: ${event.status}` : '도구 실행 완료';
@@ -2791,13 +2813,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           responseWaitStartedAt = now;
           responseWaitStepId = id;
           upsertProgressStep({
-            detail: 'AIOps가 답변 생성을 시작하기를 기다리는 중입니다.',
+            detail: 'Gateway 또는 모델이 다음 답변 조각을 준비하는 중입니다.',
             id,
             name: RESPONSE_WAIT_STEP_ID,
             startedAt: now,
             status: 'running',
-            summary: '모델 응답 대기',
-            title: 'AI 응답 대기',
+            summary: '모델 답변 생성 중',
+            title: '모델 답변 생성',
           });
         };
 
@@ -2816,7 +2838,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             startedAt: responseWaitStartedAt,
             status: 'completed',
             summary,
-            title: 'AI 응답 대기',
+            title: '모델 답변 생성',
           });
           responseWaitStartedAt = undefined;
           responseWaitStepId = undefined;
@@ -2830,13 +2852,13 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           const now = Date.now();
           answerStreamStartedAt = now;
           upsertProgressStep({
-            detail: '답변 본문을 받아 화면에 표시합니다.',
+            detail: '답변 본문을 스트리밍으로 받아 대화창에 작성합니다.',
             id: ANSWER_STREAM_STEP_ID,
             name: ANSWER_STREAM_STEP_ID,
             startedAt: now,
             status: 'running',
-            summary: '답변 표시 중',
-            title: '답변 표시',
+            summary: '답변 작성 중',
+            title: '답변 작성',
           });
         };
 
@@ -2854,8 +2876,8 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             name: ANSWER_STREAM_STEP_ID,
             startedAt: answerStreamStartedAt,
             status: 'completed',
-            summary: '답변 표시 완료',
-            title: '답변 표시',
+            summary: '답변 작성 완료',
+            title: '답변 작성',
           });
           answerStreamStartedAt = undefined;
         };
@@ -3125,7 +3147,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               );
             }
             if (event.content.trim()) {
-              finishResponseWaitStep('답변 표시 시작');
+              finishResponseWaitStep('답변 작성 시작');
               startAnswerStreamStep();
             }
             enqueueAssistantText(event.content);
@@ -3160,7 +3182,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
             finishResponseWaitStep(`${formatToolTitle(event.name)} 완료`);
             finishProgressStep(event);
-            startResponseWaitStep();
           }
 
           if (event.type === 'error') {

@@ -344,15 +344,15 @@ export const recordTarget = (record: AiopsRecord): string => {
 
 export const recordKindLabel = (kind?: string): string => {
   const labels: Record<string, string> = {
-    ActionProposal: '조치 제안',
-    ActionProposalRecord: '조치 제안',
+    ActionProposal: '조치 후보 생성',
+    ActionProposalRecord: '조치 후보 생성',
     ApprovalDecision: '승인 결정',
     ApprovalDecisionRecord: '승인 결정',
     AuditRecord: '감사',
     DiagnosticRequestRecord: '진단',
-    ExecutionRecord: '실행',
-    SealedActionPlan: '승인 필요 계획',
-    SealedActionPlanRecord: '승인 필요 계획',
+    ExecutionRecord: '실행/검토 기록',
+    SealedActionPlan: '승인용 계획 생성',
+    SealedActionPlanRecord: '승인용 계획 생성',
   };
   return kind ? labels[kind] ?? localizeTelemetryText(kind) : '기록';
 };
@@ -706,13 +706,13 @@ export const ledgerPhase = (entry: Pick<LedgerEntry, 'category'>, record: AiopsR
     return labels[entry.category];
   }
   const labels: Record<string, string> = {
-    ActionProposal: '조치 제안',
-    ActionProposalRecord: '조치 제안',
-    ApprovalDecision: '승인 완료',
-    ApprovalDecisionRecord: '승인 완료',
-    ExecutionRecord: '변경 실행',
-    SealedActionPlan: '승인 필요 계획',
-    SealedActionPlanRecord: '승인 필요 계획',
+    ActionProposal: '조치 후보 생성',
+    ActionProposalRecord: '조치 후보 생성',
+    ApprovalDecision: '승인 결정',
+    ApprovalDecisionRecord: '승인 결정',
+    ExecutionRecord: '실행/검토 기록',
+    SealedActionPlan: '승인용 계획 생성',
+    SealedActionPlanRecord: '승인용 계획 생성',
   };
   return labels[record.kind ?? ''] ?? recordKindLabel(record.kind);
 };
@@ -780,15 +780,17 @@ export const ledgerActionLabel = (value: string): string => {
     approve_mutation: '변경 승인',
     audit_record: '감사 기록',
     chat_request_accepted: '요청 접수',
+    chat_request_completed: '요청 처리 완료',
     evidence_collected: '증거 수집',
-    executed: '실행 기록',
+    executed: '승인 결정 처리',
     mutation_succeeded: '변경 성공',
-    proposed: '조치 제안',
-    recorded: '기록됨',
+    proposed: '조치 후보 생성',
+    recorded: '기록 저장',
+    review_recorded: '검토 기록 저장',
     restart_rollout: '롤아웃 재시작 제안',
     rollout_restart: '롤아웃 재시작 실행',
     rollout_restart_deployment: 'Deployment 롤아웃 재시작',
-    sealed: '계획 봉인',
+    sealed: '승인용 계획 생성',
     seal_mutation_plan: '변경 계획 봉인',
     sealed_pending_approval: '승인 대기 계획',
     'served local-only AIOps fixture': 'Gateway 검증 응답 기록',
@@ -862,13 +864,14 @@ export const ledgerResultLabel = (value: string): string => {
     approved: '승인됨',
     blocked: '차단됨',
     collected: '수집됨',
-    executed: '실행됨',
+    executed: '처리됨',
     failed: '실패',
     mutation_succeeded: '변경 성공',
     proposed: '제안됨',
     recorded: '기록됨',
+    review_recorded: '검토 기록 완료',
     rollout_restart_deployment: 'Deployment 롤아웃 재시작',
-    sealed: '봉인됨',
+    sealed: '승인 대기 계획',
     sealed_pending_approval: '승인 대기',
     succeeded: '성공',
     waiting_approval: '승인 대기',

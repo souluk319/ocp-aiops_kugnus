@@ -20,6 +20,7 @@ const messageContent = readFile('komsco-ai-console-plugin/src/components/Assista
 const actionPlanButtons = readFile('komsco-ai-console-plugin/src/components/AssistantCreateActionPlanButtons.tsx');
 const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
 const actionRecordHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.actionRecords.ts');
+const actionSessionHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.sessionActions.ts');
 const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
 const header = readFile('komsco-ai-console-plugin/src/components/AssistantHeader.tsx');
 const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
@@ -67,8 +68,8 @@ assert(messageContent.includes('AssistantMarkdown'), 'AssistantMessageContent mu
 assert(messageContent.includes("message.answerContract !== 'legacy_line_parser'"), 'Legacy parser must not remain the default renderer');
 assert(types.includes('streaming?: boolean;'), 'Message type must include streaming state');
 assert(
-  assistantConstantsSource.includes("DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'execute'"),
-  'Assistant must default to approval-gated execute mode, not read-only mode',
+  assistantConstantsSource.includes("DEFAULT_AIOPS_EXECUTION_MODE: AiopsExecutionMode = 'read-only'"),
+  'Assistant must default to read-only mode for the v1 Observability/RCA baseline',
 );
 assert(launcher.includes('streaming: true'), 'Assistant stream start must mark the assistant message as streaming');
 assert(launcher.includes('markLastAssistantStreaming(prev, false)'), 'Assistant stream completion must clear streaming state');
@@ -315,11 +316,16 @@ assert(
 );
 assert(launcher.includes('setActionCandidateFeedback'), 'Create-plan flow must set per-candidate feedback');
 assert(launcher.includes('pendingActionCandidatesForRefs'), 'Created Action Plan refs must hide only the created candidate, not every candidate on the same target');
-assert(launcher.includes('candidateId: ref.candidateId ?? existing.candidateId'), 'Action refs must preserve candidateId across plan/approval/execution lifecycle upgrades');
+assert(
+  launcher.includes('candidateId: ref.candidateId ?? existing.candidateId') ||
+    actionSessionHelpers.includes('candidateId: ref.candidateId ?? existing.candidateId'),
+  'Action refs must preserve candidateId across plan/approval/execution lifecycle upgrades',
+);
 assert(launcher.includes('candidateId: candidate.id'), 'Candidate-created Action Plan refs must carry the originating candidate id');
 assert(
-  launcher.includes('pendingActionCandidates.length > 0') &&
-    launcher.includes('candidates={pendingActionCandidates}'),
+  launcher.includes('pendingActionCandidatesForRefs') &&
+    launcher.includes('visibleActionCandidates') &&
+    launcher.includes('candidates={visibleActionCandidates}'),
   'Action Plan candidate buttons must keep remaining candidates visible after one candidate is created',
 );
 assert(

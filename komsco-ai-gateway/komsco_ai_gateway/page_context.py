@@ -186,11 +186,11 @@ def page_context_is_pod_workload(req: PageContextRequest) -> bool:
 
 def page_context_aiops_execution_mode(req: PageContextRequest) -> str:
     context = normalize_console_page_context(req.pageContext)
-    mode = str(context.get("aiopsExecutionMode") or "execute").strip().lower()
+    mode = str(context.get("aiopsExecutionMode") or "read-only").strip().lower()
     if mode in {"read-only", "read_only", "readonly", "evidence-check", "evidence_check", "점검", "조회"}:
         return "evidence-check"
     if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
         return "unrestricted"
     if mode in {"execute", "execution", "execution-enabled", "enabled"}:
         return "execute"
-    return "execute"
+    return "evidence-check"

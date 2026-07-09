@@ -595,11 +595,14 @@ const recordTarget = (record: AiopsRecord): string => {
 const recordKindLabel = (kind?: string): string => {
   const labels: Record<string, string> = {
     ActionProposal: '조치 제안',
+    ActionProposalRecord: '조치 후보 생성',
     ApprovalDecision: '승인 결정',
+    ApprovalDecisionRecord: '승인 결정',
     AuditRecord: '감사',
     DiagnosticRequestRecord: '진단',
-    ExecutionRecord: '실행',
+    ExecutionRecord: '실행/검토 기록',
     SealedActionPlan: '승인 필요 계획',
+    SealedActionPlanRecord: '승인용 계획 생성',
   };
   return kind ? labels[kind] ?? kind : '기록';
 };
@@ -704,10 +707,13 @@ const ledgerPhase = (entry: Pick<LedgerEntry, 'category'>, record: AiopsRecord, 
     return labels[entry.category];
   }
   const labels: Record<string, string> = {
-    ActionProposal: '조치 제안',
-    ApprovalDecision: '승인 완료',
-    ExecutionRecord: '변경 실행',
-    SealedActionPlan: '승인 필요 계획',
+    ActionProposal: '조치 후보 생성',
+    ActionProposalRecord: '조치 후보 생성',
+    ApprovalDecision: '승인 결정',
+    ApprovalDecisionRecord: '승인 결정',
+    ExecutionRecord: '실행/검토 기록',
+    SealedActionPlan: '승인용 계획 생성',
+    SealedActionPlanRecord: '승인용 계획 생성',
   };
   return labels[record.kind ?? ''] ?? recordKindLabel(record.kind);
 };
@@ -769,16 +775,34 @@ const runWindowLabel = (entries: LedgerEntry[]): string => {
   return first === last ? first : `${first} - ${last}`;
 };
 
+const ledgerNamespaceRangeLabel = (entries: LedgerEntry[]): string => {
+  const namespaces = Array.from(new Set(entries.map((entry) => entry.namespace).filter((namespace) => namespace && namespace !== '-')));
+  if (namespaces.length === 0) {
+    return '전체/미지정';
+  }
+  if (namespaces.length === 1) {
+    return namespaces[0];
+  }
+  return `혼합 ${namespaces.length}개 네임스페이스`;
+};
+
 const ledgerActionLabel = (value: string): string => {
   const labels: Record<string, string> = {
     approval_recorded: '승인 기록',
     approve_mutation: '변경 승인',
     audit_record: '감사 기록',
     chat_request_accepted: '요청 접수',
+    chat_request_completed: '요청 처리 완료',
     evidence_collected: '증거 수집',
+    executed: '승인 결정 처리',
+    proposed: '조치 후보 생성',
+    recorded: '기록 저장',
+    review_recorded: '검토 기록 저장',
     restart_rollout: '롤아웃 재시작 제안',
     rollout_restart: '롤아웃 재시작 실행',
+    sealed: '승인용 계획 생성',
     seal_mutation_plan: '변경 계획 봉인',
+    sealed_pending_approval: '승인 대기 계획',
   };
   return labels[value] ?? value;
 };
@@ -845,9 +869,13 @@ const ledgerResultLabel = (value: string): string => {
     approved: '승인됨',
     blocked: '차단됨',
     collected: '수집됨',
+    executed: '처리됨',
     failed: '실패',
     proposed: '제안됨',
     recorded: '기록됨',
+    review_recorded: '검토 기록 완료',
+    sealed: '승인 대기 계획',
+    sealed_pending_approval: '승인 대기',
     succeeded: '성공',
     waiting_approval: '승인 대기',
   };
@@ -3961,15 +3989,15 @@ const DataSourceStatusStrip: React.FC<{
       <span>
         {syntheticReplay
           ? '게이트웨이 실행/감사 스트림이 비어 있어 샘플 실행 흐름을 재생 중입니다. 실제 클러스터 변경 기록이 아닙니다.'
-          : '실시간 게이트웨이 런타임에서 수집한 실행/감사 기록을 표시합니다.'}
+          : '실시간 게이트웨이에서 현재 표시 범위의 실행/승인/감사 기록을 보여줍니다.'}
       </span>
       <small>
-        마지막 게이트웨이 확인 {formatTime(new Date().toISOString())} · 실제 기록 {realRecordCount}건 · 표시 이벤트 {entries.length}건
+        마지막 게이트웨이 확인 {formatTime(new Date().toISOString())} · 실제 기록 {realRecordCount}건 · 표시 이벤트 {entries.length}건 · 원장 JSON은 현재 표시 기록을 저장합니다.
       </small>
     </div>
     <div className="ledger-source-strip__actions">
-      <button onClick={onGatewayLogs} type="button">게이트웨이 이벤트</button>
-      <button onClick={onExport} type="button">감사 번들</button>
+      <button onClick={onGatewayLogs} type="button">알림 & 이벤트 보기</button>
+      <button onClick={onExport} type="button">원장 JSON 내보내기</button>
       {realRecordCount === 0 && (
         <button onClick={onToggleSynthetic} type="button">
           {showSyntheticReplay ? '샘플 숨기기' : '샘플 보기'}
@@ -3990,13 +4018,13 @@ const RunOverviewStrip: React.FC<{
   const mutations = entries.filter((entry) => entry.category === 'mutation').length;
   const failed = entries.filter((entry) => entry.tone === 'red').length;
   const runId = entries[0]?.runId ?? '-';
-  const namespace = entries.find((entry) => entry.namespace !== '-')?.namespace ?? '-';
+  const namespace = ledgerNamespaceRangeLabel(entries);
   const mutationStatus = mutations > 0 ? 'Executed' : approvals > 0 ? 'Waiting approval' : failed > 0 ? 'Blocked' : 'Not executed';
 
   return (
     <section className="ledger-run-overview">
       <div>
-        <span>{syntheticReplay ? '샘플 실행' : '활성 실행'}</span>
+        <span>{syntheticReplay ? '샘플 원장 요약' : '현재 원장 요약'}</span>
         <strong>{runId}</strong>
       </div>
       <div className="ledger-run-overview__facts">
@@ -4008,7 +4036,7 @@ const RunOverviewStrip: React.FC<{
         <b>감사 기록 {auditRecords.length}건</b>
       </div>
       <div className="ledger-run-overview__meta">
-        <span>대상 네임스페이스 <strong>{namespace}</strong></span>
+        <span>네임스페이스 범위 <strong>{namespace}</strong></span>
         <span>정책 모드 <strong>{approvals > 0 ? '승인 필요' : '읽기 전용 증거 수집'}</strong></span>
         <span>변경 상태 <strong>{mutationStatusLabel(mutationStatus)}</strong></span>
         <span>조치 기록 <strong>{records.length}건</strong></span>
@@ -4024,11 +4052,11 @@ const ExecutionTracePanel: React.FC<{
 }> = ({ entries, onSelectEntry, selectedEntryId }) => (
   <section className="portal-panel execution-trace-panel">
     <div className="portal-panel__head">
-      <div className="portal-panel__title">실행 추적</div>
+      <div className="portal-panel__title">조치 타임라인</div>
     </div>
     <div className="execution-trace">
       {entries.length === 0 ? (
-        <EmptyState label="표시할 실행 추적 기록이 없습니다." />
+        <EmptyState label="표시할 조치 타임라인 기록이 없습니다." />
       ) : (
         entries.map((entry, index) => (
           <button
@@ -4085,8 +4113,10 @@ const ControlGatesPanel: React.FC<{
       value: capabilities.diagnosticsEnabled ? '켜짐' : '꺼짐',
     },
     {
-      detail: capabilities.recordStoreEnabled ? capabilities.recordStoreConfigMap || '영구 감사 원장이 활성화되어 있습니다.' : '기록이 게이트웨이 영구 원장에 저장되지 않습니다.',
-      label: '기록 원장',
+      detail: capabilities.recordStoreEnabled
+        ? `${capabilities.recordStoreConfigMap || '서버 원장에 기록됩니다.'} · Gateway 재시작 후에도 보존 대상입니다.`
+        : '현재 화면에는 임시 기록이 표시됩니다. Gateway 재시작 후 사라질 수 있습니다.',
+      label: '영구 원장',
       tone: capabilities.recordStoreEnabled ? 'ok' : 'warn',
       value: capabilities.recordStoreEnabled ? '켜짐' : '꺼짐',
     },

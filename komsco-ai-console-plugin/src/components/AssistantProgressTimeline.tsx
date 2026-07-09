@@ -139,6 +139,8 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/사용자 권한과 요청 본문을 확인합니다\./g, 'Checking access and request body.')
     .replace(/접근 권한 확인/g, 'Access check')
     .replace(/이미지 첨부 확인/g, 'Attachment check')
+    .replace(/모델 답변 생성 중/g, 'Generating model answer')
+    .replace(/모델 답변 생성/g, 'Model answer generation')
     .replace(/모델 응답 대기/g, 'Waiting for model response')
     .replace(/네임스페이스 사용 여부 확인/g, 'Namespace usage check')
     .replace(/네임스페이스 사용 여부 조회/g, 'Namespace usage lookup')
@@ -150,16 +152,14 @@ const translateProductProgressText = (text: string, language: UiLanguage): strin
     .replace(/요청 해석 완료/g, 'Request interpreted')
     .replace(/요청 확인 중/g, 'Checking request')
     .replace(/첨부 확인 중/g, 'Checking attachments')
-    .replace(/AI 응답 대기/g, 'Waiting for AI response')
     .replace(/답변 요청 중/g, 'Requesting answer')
     .replace(/질문 처리 중/g, 'Processing question')
     .replace(/답변 준비 중/g, 'Preparing answer')
-    .replace(/화면 표시 준비 중/g, 'Preparing display')
-    .replace(/답변 표시 시작/g, 'Answer display started')
-    .replace(/답변 표시 중/g, 'Displaying answer')
-    .replace(/답변 표시 완료/g, 'Answer displayed')
-    .replace(/답변 표시/g, 'Answer display')
-    .replace(/답변을 화면에 표시하는 중입니다\./g, 'Displaying the answer.')
+    .replace(/답변 작성 시작/g, 'Answer writing started')
+    .replace(/답변 작성 중/g, 'Writing answer')
+    .replace(/답변 작성 완료/g, 'Answer written')
+    .replace(/답변 작성/g, 'Answer writing')
+    .replace(/답변 본문을 작성하는 중입니다\./g, 'Writing the answer.')
     .replace(/Evidence plan 검증 Complete/g, 'Evidence plan validation complete')
     .replace(/증거 수집 계획 검증 완료/g, 'Evidence plan validation complete')
     .replace(/증거 수집 계획 생성/g, 'Evidence plan created')
@@ -218,6 +218,9 @@ const productProgressText = (value?: string, language: UiLanguage = 'ko'): strin
   }
   if (text === 'RCA 문맥 연결 실패') {
     return translateProductProgressText('확인 결과 정리 실패', language);
+  }
+  if (/^실제\s+.+로 요청 전달$/.test(text)) {
+    return translateProductProgressText('모델에 확인 결과 전달', language);
   }
   const legacyRcaDigestText = ['RCA Context', 'digest와', ['evidence', 'refs'].join(' ')].join(' ');
   if (text.includes(legacyRcaDigestText)) {
@@ -356,8 +359,8 @@ const getStepActivity = (step: ProgressStep, language: UiLanguage): string => {
 
   if (isAnswerStreamStep(step)) {
     return step.status === 'running'
-      ? productProgressText('답변을 화면에 표시하는 중입니다.', language)
-      : productProgressText('답변 표시 완료', language);
+      ? productProgressText('답변이 도착하는 대로 작성하고 있습니다.', language)
+      : productProgressText('답변 작성 완료', language);
   }
 
   if (step.status === 'running') {

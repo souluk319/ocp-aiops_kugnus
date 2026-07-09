@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import AssistantMarkdown from './AssistantMarkdown';
+import { AssistantTableWrap } from './AssistantTableWrap';
 import { normalizeAssistantDisplayText } from './assistant.display';
 import { isPublicWebReferenceHref, prepareMarkdownContent } from './assistant.markdownPrepare';
 import { formatFileSize, getAttachmentPreviewUrl } from './assistant.attachments';
@@ -363,7 +364,10 @@ const renderMarkdownTable = (
   keyPrefix: string,
   uiLanguage: UiLanguage = 'ko',
 ): React.ReactNode => (
-  <div className="komsco-ai__table-wrap" key={`${keyPrefix}-table`}>
+  <AssistantTableWrap
+    key={`${keyPrefix}-table`}
+    scrollKey={`${keyPrefix}:${headers.join('|')}:${rows.length}:${rows[rows.length - 1]?.join('|') ?? ''}`}
+  >
     <table className="komsco-ai__table">
       <thead>
         <tr>
@@ -390,8 +394,42 @@ const renderMarkdownTable = (
         ))}
       </tbody>
     </table>
-  </div>
+  </AssistantTableWrap>
 );
+
+const normalizeFollowupLine = (line: string): string | null => {
+  const trimmed = line.trim();
+  if (!trimmed || /^```/.test(trimmed) || /^-{3,}$/.test(trimmed)) {
+    return null;
+  }
+  return trimmed.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '');
+};
+
+const renderFollowupLines = (
+  lines: string[],
+  sectionKey: string,
+  language: UiLanguage,
+): React.ReactNode => {
+  const items = lines
+    .map(normalizeFollowupLine)
+    .filter((item): item is string => Boolean(item));
+
+  if (items.length === 0) {
+    return <p>{language === 'en' ? 'No follow-up items.' : '추가 확인 항목이 없습니다.'}</p>;
+  }
+
+  return (
+    <ul className="komsco-ai__runbook-followup-list">
+      {items.slice(0, 6).map((item, index) => (
+        <li key={`${sectionKey}-followup-${index}`}>
+          {isCommandLikeLine(item)
+            ? renderCodeBlock([item], `${sectionKey}-followup-${index}-command`, undefined, language)
+            : renderInlineText(item, `${sectionKey}-followup-${index}`, language)}
+        </li>
+      ))}
+    </ul>
+  );
+};
 
 const renderRunbookLines = (
   lines: string[],
@@ -399,6 +437,10 @@ const renderRunbookLines = (
   sectionId: RunbookSectionId,
   language: UiLanguage,
 ): React.ReactNode => {
+  if (sectionId === 'followup') {
+    return renderFollowupLines(lines, sectionKey, language);
+  }
+
   const markdown = lines.join('\n').trim();
   if (markdown) {
     return (

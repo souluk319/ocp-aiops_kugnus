@@ -75,6 +75,7 @@ from komsco_ai_gateway.main import (
     build_ols_context_handoff,
     build_ols_payload,
     build_ols_query,
+    build_conversation_cleanup_review_candidate,
     build_node_status_rca_evidence,
     build_product_access_review_request,
     build_pod_count_investigation,
@@ -91,6 +92,8 @@ from komsco_ai_gateway.main import (
     can_subject_read_record,
     compact_controller_submission,
     build_pod_status_evidence,
+    cleanup_scope_clarification_response,
+    conversation_focus_from_request,
     DiagnosticEvidencePolicy,
     DiagnosticLimits,
     DiagnosticRequestCreate,
@@ -100,11 +103,13 @@ from komsco_ai_gateway.main import (
     RunbookPlanCreate,
     diagnostic_request_digest,
     is_followup_execution_request,
+    is_ambiguous_cleanup_review_request,
     is_pod_count_query,
     is_pod_list_request,
     page_context_aiops_execution_mode,
     parse_bool,
     parse_natural_action_intent,
+    pod_inventory_action_candidates_from_evidence,
     parse_pod_count_query,
     recent_natural_action_request,
     parse_ols_verify,
@@ -119,6 +124,8 @@ from komsco_ai_gateway.main import (
     unresolved_natural_action_response,
     validate_execution_evidence_freshness,
     should_collect_cronjob_activity_evidence,
+    should_clarify_cleanup_scope,
+    should_create_cleanup_review_candidate,
     should_collect_pod_status_evidence,
     should_collect_rca_signal_evidence,
     should_filter_gateway_api_references,
@@ -2844,7 +2851,7 @@ def test_build_attachment_context_without_vision_uses_metadata_only_language() -
     assert "이미지 원본 판독은 수행하지 않았습니다" not in context
 
 
-def test_build_ols_payload_does_not_forward_image_attachments_by_default() -> None:
+def test_build_ols_payload_forwards_image_attachments_by_default() -> None:
     attachment = ImageAttachment(
         data="iVBORw0KGgo=",
         id="image-1",
@@ -2854,6 +2861,34 @@ def test_build_ols_payload_does_not_forward_image_attachments_by_default() -> No
     )
 
     payload = build_ols_payload("이미지 분석해줘", "conversation-1", [attachment])
+
+    assert payload == {
+        "query": "이미지 분석해줘",
+        "attachments": [
+            {
+                "attachment_type": "image",
+                "content_type": "image/png",
+                "content": "iVBORw0KGgo=",
+            }
+        ],
+    }
+
+
+def test_build_ols_payload_can_disable_image_attachment_forwarding() -> None:
+    attachment = ImageAttachment(
+        data="iVBORw0KGgo=",
+        id="image-1",
+        mimeType="image/png",
+        name="cluster.png",
+        size=8,
+    )
+
+    payload = build_ols_payload(
+        "이미지 분석해줘",
+        "conversation-1",
+        [attachment],
+        forward_image_attachments=False,
+    )
 
     assert payload == {
         "query": "이미지 분석해줘",
@@ -3176,6 +3211,454 @@ def test_build_ols_query_context_profile_includes_gateway_evidence(monkeypatch) 
     monkeypatch.setattr(gateway_main, "OLS_QUERY_PROFILE", "minimal")
 
 
+def test_build_ols_query_includes_sanitized_recent_conversation_context() -> None:
+    query = build_ols_query(
+        ChatRequest(
+            message="안에 있는 파드들이 별 의미없는 테스트용이면 정리좀 할까해서",
+            recentMessages=[
+                {"role": "user", "content": "테스트 파드가있는 네임스페이스가 뭐가있어?"},
+                {
+                    "role": "assistant",
+                    "content": (
+                        "gpu-test-kugnus 네임스페이스에 aiops-test-pod-* 테스트 파드가 있습니다.\n"
+                        "<|channel|>thought <channel>\n"
+                        "thought The user wants internal reasoning.\n"
+                    ),
+                },
+            ],
+        )
+    )
+
+    assert "Recent conversation context:" in query
+    assert "테스트 파드가있는 네임스페이스" in query
+    assert "gpu-test-kugnus" in query
+    assert "aiops-test-pod" in query
+    assert "안에 있는 파드" in query
+    assert "<|channel|>" not in query
+    assert "thought The user" not in query
+
+
+def test_cleanup_followup_clarifies_recent_test_pod_scope() -> None:
+    req = ChatRequest(
+        message="안에 있는 파드들이 별 의미없는 테스트용이면 정리좀 할까해서",
+        recentMessages=[
+            {"role": "user", "content": "테스트 파드가있는 네임스페이스가 뭐가있어?"},
+            {
+                "role": "assistant",
+                "content": "`gpu-test-kugnus` namespace에 `aiops-test-pod-*` 테스트 Pod가 있습니다.",
+            },
+        ],
+    )
+
+    focus = conversation_focus_from_request(req)
+    response = cleanup_scope_clarification_response(req, focus)
+
+    assert is_ambiguous_cleanup_review_request(req) is True
+    assert should_clarify_cleanup_scope(req, focus) is True
+    assert should_create_cleanup_review_candidate(req, focus) is False
+    assert focus["namespace"] == "gpu-test-kugnus"
+    assert focus["podPattern"] == "aiops-test-pod-*"
+    assert "`gpu-test-kugnus`" in response
+    assert "`aiops-test-pod-*`" in response
+    assert "전체 클러스터" not in response
+    assert "Pod 삭제" in response
+    assert "직전 대화 기준" not in response
+    assert "말하는 것으로 보입니다" not in response
+    assert "이 범위로 진행할까요" not in response
+
+
+def test_resource_summary_rca_prompt_does_not_route_to_namespace_cleanup() -> None:
+    req = ChatRequest(
+        message=(
+            "다음 AIOps for OCP 운영 신호를 RCA 관점으로 분석하고 필요한 경우 "
+            "Action Plan 판단 조건까지 제시해줘.\n"
+            "대상: 파드 리소스 전체 요약\n"
+            "범위: 접근 가능한 전체 namespace\n"
+            "신호 성격: 특정 Pod 또는 Deployment 하나가 아니라 클러스터 리소스 집계 결과\n"
+            "요청 작업: resource_summary_rca\n"
+            "확인 결과:\n"
+            "- 리소스 종류: Pod\n"
+            "- 전체 수: 309\n"
+            "- Ready 수: 208\n"
+            "- 이슈 수: 11"
+        )
+    )
+
+    assert gateway_main.is_resource_summary_rca_request(req) is True
+    assert gateway_main.is_namespace_cleanup_request(req) is False
+    assert should_clarify_cleanup_scope(req) is False
+
+    plan = build_runtime_tool_plan(req.message)
+    assert plan["task_type"] == "resource_summary_rca"
+    assert "pod_restart_rca" not in json.dumps(plan, ensure_ascii=False)
+
+    rca_context = build_rca_context(
+        message=req.message,
+        tool_plan=plan,
+        evidence_refs=[
+            {
+                "contentDigest": "sha256:pod-summary",
+                "evidenceId": "ev-pod-summary",
+                "eventStatus": "success",
+                "evidenceType": "pod_status",
+            }
+        ],
+        run_id="run-resource-summary",
+        incident_id="inc-resource-summary",
+    )
+    contract_text = build_aiops_answer_contract_text(
+        policy={"decision": "action_proposal_only"},
+        rca_context=rca_context,
+        runtime_tool_plan=plan,
+    )
+    assert "## 조치 판단 조건" in contract_text
+    assert "승인 대기 조치" not in contract_text
+    assert "[승인 필요]" not in contract_text
+    assert "Action Plan 후보를 생성" in contract_text
+
+    ols_query = build_ols_query(req)
+    assert "Resource summary RCA contract" in ols_query
+    assert "Do not use the heading `승인 대기 조치`" in ols_query
+    assert "Do not write `[승인 필요]`" in ols_query
+
+
+def test_cleanup_scope_confirmation_creates_single_review_candidate() -> None:
+    req = ChatRequest(
+        message="응, 그 범위로 정리 검토해줘",
+        recentMessages=[
+            {
+                "role": "assistant",
+                "content": (
+                    "`gpu-test-kugnus`의 `aiops-test-pod-*` 정리 가능 여부를 확인합니다."
+                ),
+            },
+        ],
+    )
+
+    focus = conversation_focus_from_request(req)
+    candidate = build_conversation_cleanup_review_candidate(
+        focus,
+        incident_id="incident-test",
+        run_id="run-test",
+    )
+
+    assert should_create_cleanup_review_candidate(req, focus) is True
+    assert candidate["sourceType"] == "test_pod_cleanup_review"
+    assert candidate["title"] == "테스트 Pod 정리 검토"
+    assert candidate["executable"] is False
+    assert candidate["target"]["namespace"] == "gpu-test-kugnus"
+    assert candidate["target"]["name"] == "aiops-test-pod-*"
+    assert "Pod 재생성 유도" not in json.dumps(candidate, ensure_ascii=False)
+    assert "수정/롤백 검토" not in json.dumps(candidate, ensure_ascii=False)
+
+
+def test_cleanup_followup_latest_delete_uses_common_pod_pattern() -> None:
+    req = ChatRequest(
+        message="제일 나중에 만들어진 순서대로 2개만 삭제해도 될까",
+        recentMessages=[
+            {
+                "role": "assistant",
+                "content": (
+                    "`gpu-test-kugnus` 네임스페이스에 테스트 Pod가 있습니다.\n"
+                    "- `aiops-test-pod-mr8vpb3y-1`\n"
+                    "- `aiops-test-pod-mr8vpb3y-2`\n"
+                    "- `aiops-test-pod-mr8vpb3y-3`"
+                ),
+            },
+        ],
+    )
+
+    focus = conversation_focus_from_request(req)
+
+    assert focus["intent"] == "cleanup_delete_review"
+    assert focus["namespace"] == "gpu-test-kugnus"
+    assert focus["podPattern"] == "aiops-test-pod-*"
+    assert gateway_main.cleanup_delete_count_from_message(req.message) == 2
+    assert gateway_main.should_create_latest_cleanup_delete_review_candidate(req, focus) is True
+
+
+def test_cleanup_latest_delete_review_candidate_renders_table_and_single_candidate() -> None:
+    req = ChatRequest(
+        message="제일 나중에 만들어진 순서대로 2개만 삭제해도 될까",
+        recentMessages=[
+            {
+                "role": "assistant",
+                "content": (
+                    "`gpu-test-kugnus` 네임스페이스에 `aiops-test-pod-*` 테스트 Pod가 있습니다."
+                ),
+            },
+        ],
+    )
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: all-accessible-namespaces
+Rows shown: 4 / 4
+| Namespace | Pod | Container | Current state | Pod start | Ready | Restarts | Last state | Owner |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| gpu-test-kugnus | aiops-test-pod-old-1 | sleeper | Completed | 2026-07-09T08:30:00Z | 0/1 | 0 | Completed/0 | Job/old |
+| gpu-test-kugnus | aiops-test-pod-new-1 | sleeper | Completed | 2026-07-09T09:30:00Z | 0/1 | 0 | Completed/0 | Job/new |
+| gpu-test-kugnus | aiops-test-pod-new-2 | sleeper | Completed | 2026-07-09T09:35:00Z | 0/1 | 0 | Completed/0 | Job/new |
+| other | aiops-test-pod-new-3 | sleeper | Completed | 2026-07-09T09:40:00Z | 0/1 | 0 | Completed/0 | Job/other |
+Spec evidence for currently non-healthy or waiting containers:
+"""
+
+    focus = conversation_focus_from_request(req)
+    selected_rows = gateway_main.select_latest_cleanup_pod_rows(focus, gateway_evidence, 2)
+    candidate = build_conversation_cleanup_review_candidate(
+        focus,
+        incident_id="incident-test",
+        run_id="run-test",
+        selected_rows=selected_rows,
+        requested_count=2,
+    )
+    answer = gateway_main.cleanup_review_candidate_response(candidate)
+
+    assert [row["pod"] for row in selected_rows] == [
+        "aiops-test-pod-new-2",
+        "aiops-test-pod-new-1",
+    ]
+    assert candidate["sourceType"] == "test_pod_latest_delete_review"
+    assert candidate["title"] == "최신 테스트 Pod 2개 삭제 검토"
+    assert candidate["mutationSubmitted"] is False
+    assert candidate["executable"] is False
+    assert len(candidate["parameters"]["selectedPods"]) == 2
+    assert "| 순서 | Namespace | Pod 이름 | 생성/시작 시간 | 현재 상태 | 삭제 판단 |" in answer
+    assert "`aiops-test-pod-new-2`" in answer
+    assert "`aiops-test-pod-new-1`" in answer
+    assert "직전 대화 기준" not in answer
+    assert "말하는 것으로 보입니다" not in answer
+    assert "이 범위로 진행할까요" not in answer
+    assert "승인 전에는 Pod 삭제" in answer
+
+
+def test_ambiguous_cleanup_does_not_create_pod_inventory_candidates() -> None:
+    req = ChatRequest(
+        message="안에 있는 파드들이 별 의미없는 테스트용이면 정리좀 할까해서",
+        recentMessages=[
+            {
+                "role": "assistant",
+                "content": "`gpu-test-kugnus` namespace에 `aiops-test-pod-*` 테스트 Pod가 있습니다.",
+            },
+        ],
+    )
+    evidence = """
+## Pod 인벤토리
+| 우선순위 | Namespace | Pod | Container | 현재 상태 | Ready | Restart | Last State | 판단 |
+| 높음 | gpu-test-kugnus | `aiops-test-pod-a` | `main` | Running / running | 1/1 | 0 | - | 현재 목록 기준 즉시 장애 신호 낮음 |
+"""
+
+    candidates = pod_inventory_action_candidates_from_evidence(
+        req,
+        evidence,
+        incident_id="incident-test",
+        run_id="run-test",
+    )
+
+    assert candidates == []
+
+
+def test_text_reference_filter_strips_private_reasoning_before_display() -> None:
+    text_filter = gateway_main.TextReferenceFilter(
+        filter_gateway_api_references=False,
+        filter_low_signal_references=False,
+        normalize_restart_language=False,
+    )
+
+    visible = text_filter.filter(
+        "현재 확인한 내용입니다.\n"
+        "<|channel|>thought <channel>\n"
+        "thought The user wants to clean up meaningless test pods.\n"
+        "Let's search for these patterns.\n"
+        "<|channel|>final <channel>\n"
+        "## 현재 판단\n"
+        "gpu-test-kugnus 테스트 파드 정리 여부를 확인합니다.\n",
+        final=True,
+    )
+
+    assert "현재 확인한 내용입니다." in visible
+    assert "## 현재 판단" in visible
+    assert "gpu-test-kugnus" in visible
+    assert "<|channel|>" not in visible
+    assert "thought The user" not in visible
+    assert "Let's search" not in visible
+
+
+def test_text_reference_filter_strips_angle_bracket_thought_before_display() -> None:
+    text_filter = gateway_main.TextReferenceFilter(
+        filter_gateway_api_references=False,
+        filter_low_signal_references=False,
+        normalize_restart_language=False,
+    )
+
+    visible = text_filter.filter(
+        "현재 확인한 내용입니다.\n"
+        "<thought>\n"
+        "I have already executed `pods_list` and need to scan the output.\n"
+        "Looking at the pods_list output:\n"
+        "</thought>\n"
+        "## 확인 결과\n"
+        "`gpu-test-kugnus` 네임스페이스에 테스트 Pod가 있습니다.\n",
+        final=True,
+    )
+
+    assert "현재 확인한 내용입니다." in visible
+    assert "## 확인 결과" in visible
+    assert "gpu-test-kugnus" in visible
+    assert "<thought>" not in visible
+    assert "I have already executed" not in visible
+    assert "Looking at the pods_list output" not in visible
+
+
+def test_text_reference_filter_drops_unclosed_private_reasoning() -> None:
+    text_filter = gateway_main.TextReferenceFilter(
+        filter_gateway_api_references=False,
+        filter_low_signal_references=False,
+        normalize_restart_language=False,
+    )
+
+    visible = text_filter.filter(
+        "<|channel|>thought <channel>\n"
+        "thought The user wants to inspect cluster state.\n"
+        "Patterns to search: test, demo, scenario.\n",
+        final=True,
+    )
+
+    assert visible == ""
+    assert text_filter.flush() == ""
+
+
+def test_pod_namespace_pattern_lookup_renders_grouped_table() -> None:
+    req = ChatRequest(message='이름에 "test"가 포함된 파드가 있는 네임스페이스 알려줄래?')
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 4 / 4
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-2` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+| aiops-demo | `aiops-demo-web-75b5bc6bc7-pmkzh` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+| komsco-ai-dev | `normal-app-pod` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+"""
+
+    answer = gateway_main.build_pod_namespace_pattern_lookup_answer(req, gateway_evidence)
+
+    assert answer is not None
+    assert "## 테스트 Pod 네임스페이스" in answer
+    assert "- 매칭 Pod 총합: 2개" in answer
+    assert "| Namespace | Pod 이름 | 현재 상태 | Ready |" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | Running / running | 1/1 |" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-2` | Running / running | 1/1 |" in answer
+    assert "예시 Pod" not in answer
+    assert "aiops-test-pod-mr8vpb3y-1" in answer
+    assert "aiops-demo-web" not in answer
+    assert "모델 추론이 아니라 Gateway" in answer
+
+
+def test_pod_namespace_pattern_lookup_accepts_compact_korean_query() -> None:
+    req = ChatRequest(message="테스트파드가 있는 네임스페이스를 조회할 수있어?")
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 3 / 3
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-2` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+| cyntra | `cyntra-1-build` | `docker-build` | Failed / terminated:Error/1 | 2026-07-09T01:00:00Z | 0/1 | 0 | - | - |
+"""
+
+    answer = gateway_main.build_pod_namespace_pattern_lookup_answer(req, gateway_evidence)
+    candidates = gateway_main.pod_inventory_action_candidates_from_evidence(
+        req,
+        gateway_evidence,
+        incident_id="incident-test",
+        run_id="run-test",
+    )
+
+    assert answer is not None
+    assert "- 매칭 Pod 총합: 2개" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | Running / running | 1/1 |" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-2` | Running / running | 1/1 |" in answer
+    assert "예시 Pod" not in answer
+    assert "cyntra-1-build" not in answer
+    assert candidates == []
+
+
+def test_pod_namespace_pattern_lookup_uses_gateway_answer_even_for_generic_tool_plan() -> None:
+    req = ChatRequest(message="테스트파드가있는 네임스페이스가있었나?")
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 10 / 10
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-2` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-3` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vv98e-1` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vv98e-2` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vv98e-3` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr9w4ffx-1` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr9w4ffx-2` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr9w4ffx-3` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| default | `normal-app` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+"""
+
+    answer = build_grounded_aiops_answer(
+        req,
+        {"task_type": "openshift_operational_question"},
+        gateway_evidence,
+    )
+    candidates = gateway_main.pod_inventory_action_candidates_from_evidence(
+        req,
+        gateway_evidence,
+        incident_id="incident-test",
+        run_id="run-test",
+    )
+
+    assert answer is not None
+    assert "## 테스트 Pod 네임스페이스" in answer
+    assert "Pod 이름에 `test`가 포함된 Pod는 1개 namespace에서 9개 확인했습니다." in answer
+    assert "- 매칭 Pod 총합: 9개" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr9w4ffx-3` | Completed / terminated:Completed/0 | 0/1 |" in answer
+    assert "우선순위 표" not in answer
+    assert "normal-app" not in answer
+    assert candidates == []
+
+
+def test_pod_namespace_pattern_lookup_handles_past_tense_question_as_table() -> None:
+    req = ChatRequest(message="테스트파드가 있는 네임스페이스가 있었나?")
+    gateway_evidence = """
+Current Pod list evidence:
+Namespace filter: `all-accessible-namespaces`
+Rows shown: 4 / 4
+| Namespace | Pod | Container | Current State | Pod Start | Ready | Restarts | Last State/Exit | Owner |
+| :--- | :--- | :--- | :--- | :--- | :---: | ---: | :--- | :--- |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-2` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-3` | `main` | Completed / terminated:Completed/0 | 2026-07-09T01:00:00Z | 0/1 | 0 | Completed/0 | - |
+| default | `normal-app` | `main` | Running / running | 2026-07-09T01:00:00Z | 1/1 | 0 | - | - |
+"""
+
+    answer = gateway_main.build_pod_namespace_pattern_lookup_answer(req, gateway_evidence)
+
+    assert gateway_main.is_pod_namespace_pattern_lookup_request(req.message) is True
+    assert answer is not None
+    assert "- 매칭 Pod 총합: 3개" in answer
+    assert "| Namespace | Pod 이름 | 현재 상태 | Ready |" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-1` | Completed / terminated:Completed/0 | 0/1 |" in answer
+    assert "| gpu-test-kugnus | `aiops-test-pod-mr8vpb3y-3` | Completed / terminated:Completed/0 | 0/1 |" in answer
+    assert "normal-app" not in answer
+
+
+def test_runtime_tool_plan_treats_pod_namespace_lookup_as_inventory() -> None:
+    plan = build_runtime_tool_plan('이름에 "test"가 포함된 파드가 있는 네임스페이스 알려줄래?')
+
+    assert plan["task_type"] == "pod_inventory"
+    assert any(step["tool"] == "openshift_pod_list" for step in plan["tool_plan"])
+
+
 def test_action_proposal_fallback_is_non_empty_and_requests_target() -> None:
     policy = classify_request_policy("Pod 하나 재시작해줘")
     fallback = build_action_proposal_fallback(ChatRequest(message="Pod 하나 재시작해줘"), policy)
@@ -3233,13 +3716,75 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
         ),
     )
 
-    assert "lightspeed_stream" in fallback
+    assert "lightspeed_stream" not in fallback
+    assert "OpenShift Lightspeed stream failed" not in fallback
     assert "startTime" in fallback
     assert "ClusterOperator" in fallback
     assert "## RCA 보고서" in fallback
     assert "### 원인 후보" in fallback
-    assert "### 추가 확인" in fallback
-    assert "Gateway 조회 결과 기준" in fallback
+
+
+def test_image_empty_answer_fallback_hides_internal_diagnostics_and_reports_forwarding() -> None:
+    attachment = ImageAttachment(
+        data="iVBORw0KGgo=",
+        id="image-1",
+        mimeType="image/png",
+        name="alerts.png",
+        size=8,
+    )
+    policy = classify_request_policy("이거 무슨 상황이야")
+
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="이거 무슨 상황이야", attachments=[attachment]),
+        policy,
+        [
+            {
+                "name": "lightspeed_stream",
+                "status": "error",
+                "summary": "OpenShift Lightspeed request failed; Gateway fallback will answer from collected evidence",
+            }
+        ],
+        (
+            "RAG evidence unavailable: pgvector search failed: expected 768 dimensions, not 1024\n"
+            "Gateway-collected Pod status evidence from Kubernetes API."
+        ),
+        image_forwarded_to_ols=True,
+    )
+
+    assert "첨부 화면 분석 답변을 완성하지 못했습니다" in fallback
+    assert "이미지 수신: 1건" in fallback
+    assert "Lightspeed attachments로 전달 시도" in fallback
+    assert "Gateway-collected Pod status evidence" in fallback
+    assert "pgvector" not in fallback
+    assert "expected 768 dimensions" not in fallback
+    assert "lightspeed_stream" not in fallback
+    assert "Gateway fallback" not in fallback
+
+
+def test_image_empty_answer_fallback_uses_gateway_vision_analysis_when_available() -> None:
+    attachment = ImageAttachment(
+        data="iVBORw0KGgo=",
+        id="image-1",
+        mimeType="image/png",
+        name="alerts.png",
+        size=8,
+    )
+    policy = classify_request_policy("이거 무슨 상황이야")
+
+    fallback = build_empty_answer_fallback(
+        ChatRequest(message="이거 무슨 상황이야", attachments=[attachment]),
+        policy,
+        [],
+        "",
+        image_analysis="화면에는 BackOff 반복 감지 알림과 Pod 상태 이상 알림이 보입니다.",
+        image_forwarded_to_ols=True,
+    )
+
+    assert "첨부 화면에서 확인한 내용을 기준으로 정리합니다" in fallback
+    assert "BackOff 반복 감지" in fallback
+    assert "첨부 화면 분석 답변을 완성하지 못했습니다" not in fallback
+    assert "## 다음 확인" in fallback
+    assert "Gateway 조회 결과 기준" not in fallback
     assert "모델의 최종 요약" not in fallback
     assert "Live 조회" not in fallback
 
@@ -3832,7 +4377,7 @@ def test_pod_list_request_fallback_returns_list_instead_of_single_pod_analysis()
         gateway_evidence,
     )
 
-    assert "## Pod 인벤토리" in fallback
+    assert "## Pod 상태 목록" in fallback
     assert "### 요약" in fallback
     assert "### 우선순위 표" in fallback
     assert "### 판단" in fallback
@@ -3870,8 +4415,9 @@ def test_parse_natural_action_intent_scales_named_deployment() -> None:
     assert intent["parameters"]["replicas"] == 3
 
 
-def test_page_context_aiops_execution_mode_defaults_execute_and_accepts_read_only() -> None:
-    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "execute"
+def test_page_context_aiops_execution_mode_defaults_read_only_and_accepts_read_only() -> None:
+    assert page_context_aiops_execution_mode(ChatRequest(message="재시작해줘")) == "evidence-check"
+    assert not gateway_main.execution_mode_allows_actions(ChatRequest(message="재시작해줘"))
 
     read_only_req = ChatRequest(
         message="재시작해줘",
@@ -5197,6 +5743,90 @@ def test_chat_stream_pod_count_question_directly_investigates_cluster(monkeypatc
         assert "`komsco-ai-dev/aiops-two-pod-exec` 기준 현재 Pod는 총 3개" in response.text
         assert "natural_action_unresolved" not in response.text
         assert "lightspeed_stream" not in response.text
+
+    asyncio.run(run())
+
+
+def test_chat_stream_top_pod_namespace_question_stays_brief_and_skips_ols(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    def pod_item(namespace: str, index: int) -> dict:
+        return {
+            "metadata": {"name": f"{namespace}-pod-{index}", "namespace": namespace},
+            "status": {"phase": "Running"},
+        }
+
+    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, **_kwargs):
+        if path == "/api/v1/pods":
+            return {
+                "items": [
+                    *[pod_item("openshift-marketplace", index) for index in range(24)],
+                    *[pod_item("cywell-aiops", index) for index in range(16)],
+                    *[pod_item("cyntra", index) for index in range(15)],
+                    *[pod_item("komsco-ai-dev", index) for index in range(14)],
+                    *[pod_item("openshift-monitoring", index) for index in range(13)],
+                    *[pod_item("nginx-gateway", index) for index in range(1)],
+                ]
+            }
+        raise AssertionError(f"unexpected OpenShift path: {path}")
+
+    async def fail_call_ols_stream(*_args, **_kwargs):
+        raise AssertionError("OLS must not be called for top pod namespace count questions")
+
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", fail_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "파드 수가 제일 많은 네임스페이스는 뭐야",
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        lookup_results = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "tool_result"
+            and event.get("name") == "top_pod_namespace_count_lookup"
+        ]
+        text = "".join(
+            event.get("content", "")
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        )
+
+        assert lookup_results
+        assert lookup_results[0]["status"] == "success"
+        assert "`openshift-marketplace`입니다." in text
+        assert "| 1 | `openshift-marketplace` | 24 |" in text
+        assert "| 5 | `openshift-monitoring` | 13 |" in text
+        assert "nginx-gateway" not in text
+        assert "Gathering data about your cluster" not in text
+        assert not any(
+            event.get("name") == "lightspeed_stream"
+            for event in events
+            if isinstance(event, dict)
+        )
 
     asyncio.run(run())
 
@@ -7716,7 +8346,7 @@ Rows shown: 2
 
     answer = build_grounded_aiops_answer(req, {"task_type": "pod_inventory"}, gateway_evidence)
     assert answer is not None
-    assert "## Pod 인벤토리" in answer
+    assert "## Pod 상태 목록" in answer
     assert "nginx-gateway-fabric-controller-manager-85458465f9-4njg9" in answer
     assert "appscan-nfs-provisioner-nfs-subdir-external-provisioner-74b6rsb" in answer
     assert "aiops-two-pod-exec-0" not in answer

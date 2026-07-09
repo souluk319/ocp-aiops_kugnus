@@ -28,7 +28,7 @@ class OlsPayloadInput:
     query: str
     conversation_id: str | None
     attachments: list[ImageAttachmentPayload]
-    forward_image_attachments: bool = False
+    forward_image_attachments: bool = True
     forward_conversation_id: bool = False
     gateway_context: Mapping[str, Any] | None = None
 

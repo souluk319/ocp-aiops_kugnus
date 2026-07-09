@@ -973,6 +973,17 @@ def _namespace_from_message(message: str, page_context: Mapping[str, Any] | None
     return None
 
 
+def _is_resource_summary_rca_message(message: str) -> bool:
+    normalized = re.sub(r"\s+", " ", message or "").strip().lower()
+    if not normalized:
+        return False
+    return (
+        "resource_summary_rca" in normalized
+        or "리소스 전체 요약" in normalized
+        or "클러스터 리소스 집계 결과" in normalized
+    )
+
+
 def build_runtime_tool_plan(
     message: str,
     *,
@@ -1052,6 +1063,11 @@ def build_runtime_tool_plan(
             "인벤토리",
             "가져와",
             "보여",
+            "알려",
+            "찾아",
+            "있는",
+            "있나",
+            "포함",
         ),
     )
     asks_action_followup = message.strip().lower() in {
@@ -1088,7 +1104,49 @@ def build_runtime_tool_plan(
         ),
     )
 
-    if context_is_pod_workload and asks_screen_context and not asks_action_followup:
+    if _is_resource_summary_rca_message(message):
+        task_type = "resource_summary_rca"
+        tool_steps = [
+            {
+                "step": 1,
+                "tool": "openshift_pod_status_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "pod_status",
+                "reason": "클러스터 전체 Pod 집계의 phase, Ready, issue count, restart count를 확인",
+            },
+            {
+                "step": 2,
+                "tool": "openshift_clusteroperator_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "clusteroperator",
+                "reason": "집계 신호가 platform component 상태와 연결되는지 확인",
+            },
+            {
+                "step": 3,
+                "tool": "openshift_node_status_lookup",
+                "adapter": "OpenShift",
+                "verb": "list",
+                "evidence_type": "node",
+                "reason": "Node Ready/Pressure 신호가 Pod 집계 이상에 영향을 주는지 확인",
+            },
+            {
+                "step": 4,
+                "tool": "lightspeed_streaming_query",
+                "adapter": "OpenShift Lightspeed",
+                "verb": "get",
+                "evidence_type": "openshift",
+                "reason": "Gateway가 수집한 집계 신호와 확인 결과를 Lightspeed RCA 답변에 전달",
+            },
+        ]
+        missing = [
+            {
+                "type": "concrete_action_target",
+                "reason": "집계 신호만으로는 승인 가능한 조치 대상(namespace/kind/name/action)이 확정되지 않음",
+            }
+        ]
+    elif context_is_pod_workload and asks_screen_context and not asks_action_followup:
         task_type = "pod_screen_rca"
         tool_steps = [
             {

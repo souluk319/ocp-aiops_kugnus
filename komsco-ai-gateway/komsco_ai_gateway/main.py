@@ -487,11 +487,48 @@ POD_STATUS_ANALYSIS_RE = re.compile(
 )
 POD_LIST_REQUEST_RE = re.compile(
     r"(?i)((pod|pods|파드).*(list|리스트|목록|전체|조회)|"
-    r"(list|리스트|목록|전체|조회).*(pod|pods|파드))"
+    r"(list|리스트|목록|전체|조회).*(pod|pods|파드)|"
+    r"(pod|pods|파드).*(네임스페이스|namespace).*(알려|찾아|있는|있나|있냐|있었|포함)|"
+    r"(네임스페이스|namespace).*(pod|pods|파드).*(알려|찾아|있는|있나|있냐|있었|포함))"
+)
+POD_NAMESPACE_PATTERN_LOOKUP_RE = re.compile(
+    r"(?i)((pod|pods|파드).*(네임스페이스|namespace).*(알려|찾아|있는|있나|있냐|있었|포함)|"
+    r"(pod|pods|파드).*(네임스페이스|namespace).*(조회|확인)|"
+    r"(네임스페이스|namespace).*(pod|pods|파드).*(알려|찾아|있는|있나|있냐|있었|포함|조회|확인))"
+)
+AMBIGUOUS_CLEANUP_REQUEST_RE = re.compile(
+    r"(?i)(정리(?:를|을)?\s*(?:좀|할까|해도|해야|하면|해볼|할지)|"
+    r"없애도|지워도|삭제해도|별\s*의미\s*없|테스트용(?:이면|이라면)|"
+    r"cleanup\s*(?:maybe|review)?|should\s+.*cleanup)"
+)
+CLEANUP_SCOPE_CONFIRMATION_RE = re.compile(
+    r"(?i)^\s*(응|그래|좋아|ㅇㅋ|오케이|그\s*범위|그걸로|그대로|yes|ok|proceed)\b|"
+    r"(그\s*범위로|그걸로).*(정리|검토|진행|확인)|"
+    r"정리\s*검토\s*(해|해줘|진행)"
+)
+CLEANUP_DELETE_REVIEW_RE = re.compile(
+    r"(?i)((최근|최신|나중|마지막|만들어진|생성|created|latest|newest).{0,80}"
+    r"(삭제|지워|없애|정리|delete|remove|cleanup)|"
+    r"(삭제|지워|없애|정리|delete|remove|cleanup).{0,80}"
+    r"(최근|최신|나중|마지막|만들어진|생성|created|latest|newest))"
+)
+POD_PATTERN_CONTEXT_RE = re.compile(
+    r"`(?P<quoted>[a-z0-9][a-z0-9.*-]*(?:pod|pods)[a-z0-9.*-]*)`|"
+    r"\b(?P<plain>[a-z0-9][a-z0-9.*-]*(?:pod|pods)[a-z0-9.*-]*)\b",
+    re.IGNORECASE,
 )
 POD_COUNT_QUERY_RE = re.compile(
     r"(?i)((pod|pods|파드).*(몇\s*개|몇개|개수|count|떠\s*있|떠있|띄|running|ready)|"
     r"(몇\s*개|몇개|개수|count|떠\s*있|떠있|띄|running|ready).*(pod|pods|파드))"
+)
+TOP_POD_NAMESPACE_QUERY_RE = re.compile(
+    r"(?i)("
+    r"(파드|pod|pods).{0,24}(수|개수|count).{0,24}(제일|가장|최다|많은|많아|top|highest|largest).{0,24}(네임스페이스|namespace)"
+    r"|"
+    r"(네임스페이스|namespace).{0,24}(파드|pod|pods).{0,24}(수|개수|count).{0,24}(제일|가장|최다|많은|많아|top|highest|largest)"
+    r"|"
+    r"(제일|가장|최다|많은|많아|top|highest|largest).{0,24}(파드|pod|pods).{0,24}(네임스페이스|namespace)"
+    r")"
 )
 CLUSTER_OPERATOR_ANALYSIS_RE = re.compile(
     r"(?i)(clusteroperator|cluster\s*operator|클러스터\s*오퍼레이터|operator\s+status|오퍼레이터\s*상태)"
@@ -1875,8 +1912,35 @@ def is_general_concept_request(req: ChatRequest) -> bool:
     return True
 
 
+def is_resource_summary_rca_request(req: ChatRequest) -> bool:
+    text = re.sub(r"\s+", " ", req.message or "").strip().lower()
+    if not text:
+        return False
+    return (
+        "resource_summary_rca" in text
+        or "리소스 전체 요약" in text
+        or "클러스터 리소스 집계 결과" in text
+    )
+
+
+def resource_summary_rca_answer_contract(req: ChatRequest) -> str:
+    if not is_resource_summary_rca_request(req):
+        return ""
+    return """
+Resource summary RCA contract:
+- This request is an aggregate cluster resource signal, not one concrete mutation target.
+- Do not use the heading `승인 대기 조치` unless the Gateway provides a structured action candidate with namespace, kind, name, action, expected impact, verification, and rollback.
+- Do not write `[승인 필요]` for broad recommendations such as Job/CronJob conversion, NFS ACL review, operator reinstall, patch, delete, restart, or scale unless a concrete target and approval-ready Action Plan exists.
+- Use `조치 판단 조건` or `상세 확인 플랜` for this answer.
+- Explain that Action Plan candidates are created only after failing/waiting Pods, restart-count leaders, owners, affected namespaces, and verification commands are narrowed down.
+- Do not include external documentation URLs unless the user explicitly asks for references or the reference is directly tied to the verified signal.
+"""
+
+
 def is_namespace_cleanup_request(req: ChatRequest) -> bool:
     text = re.sub(r"\s+", " ", req.message or "").strip()
+    if is_resource_summary_rca_request(req):
+        return False
     return bool(text and NAMESPACE_CLEANUP_REQUEST_RE.search(text))
 
 
@@ -1916,6 +1980,456 @@ def namespace_names_from_message(message: str) -> list[str]:
         seen.add(token)
         names.append(token)
     return names[:12]
+
+
+def pod_patterns_from_text(text: str) -> list[str]:
+    seen: set[str] = set()
+    patterns: list[str] = []
+    for match in POD_PATTERN_CONTEXT_RE.finditer(text.lower()):
+        value = (match.group("quoted") or match.group("plain") or "").strip("`.,;:()[]{}")
+        if not value or value in {"pod", "pods"} or value in seen:
+            continue
+        seen.add(value)
+        patterns.append(value)
+    return patterns[:8]
+
+
+def normalized_pod_pattern_from_texts(texts: Sequence[str]) -> str:
+    seen: set[str] = set()
+    patterns: list[str] = []
+    for text in texts:
+        for pattern in pod_patterns_from_text(text):
+            if pattern in seen:
+                continue
+            seen.add(pattern)
+            patterns.append(pattern)
+
+    if not patterns:
+        return ""
+
+    for pattern in patterns:
+        if "*" in pattern:
+            return pattern
+
+    test_pod_patterns = [pattern for pattern in patterns if pattern.startswith("aiops-test-pod-")]
+    if test_pod_patterns:
+        return "aiops-test-pod-*"
+
+    return patterns[0]
+
+
+def focus_namespace_from_text(text: str) -> str:
+    for name in namespace_names_from_message(text):
+        if "pod" in name:
+            continue
+        return name
+    return ""
+
+
+def recent_context_texts(req: ChatRequest) -> list[str]:
+    return [
+        str(message.content or "")
+        for message in reversed(req.recentMessages[-6:])
+        if str(message.role or "").strip().lower() in {"user", "assistant"}
+        and str(message.content or "").strip()
+    ]
+
+
+def conversation_focus_from_request(req: ChatRequest) -> dict[str, str]:
+    current = req.message or ""
+    texts = [current, *recent_context_texts(req)]
+    namespace = focus_namespace_from_text(current) or page_context_namespace(req)
+    pod_pattern = normalized_pod_pattern_from_texts(texts)
+    for text in texts:
+        if not namespace:
+            namespace = focus_namespace_from_text(text)
+        if namespace and pod_pattern:
+            break
+
+    combined = " ".join(texts).lower()
+    intent = ""
+    if CLEANUP_DELETE_REVIEW_RE.search(current):
+        intent = "cleanup_delete_review"
+    elif AMBIGUOUS_CLEANUP_REQUEST_RE.search(current) or (
+        CLEANUP_SCOPE_CONFIRMATION_RE.search(current)
+        and re.search(r"정리|cleanup|테스트\s*pod|테스트\s*파드|test\s*pod", combined, re.IGNORECASE)
+    ):
+        intent = "cleanup_review"
+
+    focus = {
+        "intent": intent,
+        "namespace": namespace,
+        "podPattern": pod_pattern,
+        "resourceKind": "Pod" if re.search(r"(?i)(pod|pods|파드)", combined) else "",
+    }
+    return {key: value for key, value in focus.items() if value}
+
+
+def is_ambiguous_cleanup_review_request(req: ChatRequest) -> bool:
+    text = re.sub(r"\s+", " ", req.message or "").strip()
+    if not text:
+        return False
+    if is_namespace_cleanup_request(req):
+        return False
+    return bool(AMBIGUOUS_CLEANUP_REQUEST_RE.search(text))
+
+
+def should_clarify_cleanup_scope(req: ChatRequest, focus: Mapping[str, str] | None = None) -> bool:
+    if not is_ambiguous_cleanup_review_request(req):
+        return False
+    active_focus = dict(focus or conversation_focus_from_request(req))
+    if active_focus.get("namespace") or active_focus.get("podPattern"):
+        return True
+    return bool(re.search(r"(?i)(안에|그\s*파드|그\s*namespace|그\s*네임스페이스|테스트|test)", req.message))
+
+
+def should_create_cleanup_review_candidate(req: ChatRequest, focus: Mapping[str, str] | None = None) -> bool:
+    active_focus = dict(focus or conversation_focus_from_request(req))
+    if active_focus.get("intent") != "cleanup_review":
+        return False
+    if not active_focus.get("namespace") or not active_focus.get("podPattern"):
+        return False
+    if is_ambiguous_cleanup_review_request(req):
+        return False
+    return bool(CLEANUP_SCOPE_CONFIRMATION_RE.search(req.message or ""))
+
+
+def cleanup_delete_count_from_message(message: str) -> int:
+    text = message.lower()
+    digit = re.search(r"([1-9])\s*(?:개|pods?|파드)(?:만)?", text)
+    if digit:
+        return int(digit.group(1))
+    korean_numbers = (
+        (1, r"한\s*개|하나|일\s*개"),
+        (2, r"두\s*개|둘|두\s*대|이\s*개"),
+        (3, r"세\s*개|셋|삼\s*개"),
+        (4, r"네\s*개|넷|사\s*개"),
+        (5, r"다섯\s*개|다섯|오\s*개"),
+    )
+    for count, pattern in korean_numbers:
+        if re.search(pattern, text, re.IGNORECASE):
+            return count
+    return 0
+
+
+def should_create_latest_cleanup_delete_review_candidate(
+    req: ChatRequest,
+    focus: Mapping[str, str] | None = None,
+) -> bool:
+    active_focus = dict(focus or conversation_focus_from_request(req))
+    if active_focus.get("intent") != "cleanup_delete_review":
+        return False
+    if not active_focus.get("namespace") or not active_focus.get("podPattern"):
+        return False
+    if cleanup_delete_count_from_message(req.message or "") <= 0:
+        return False
+    return bool(CLEANUP_DELETE_REVIEW_RE.search(req.message or ""))
+
+
+def cleanup_scope_clarification_response(req: ChatRequest, focus: Mapping[str, str] | None = None) -> str:
+    active_focus = dict(focus or conversation_focus_from_request(req))
+    namespace = active_focus.get("namespace")
+    pod_pattern = active_focus.get("podPattern")
+    if namespace and pod_pattern:
+        return "\n".join(
+            [
+                "## 현재 판단",
+                f"`{namespace}`의 `{pod_pattern}` 정리 가능 여부를 확인합니다.",
+                "",
+                "## 확인 필요",
+                "- 정리 검토 전에는 현재 Pod 수, owner, label, 최근 사용 흔적을 먼저 확인해야 합니다.",
+                "- 아직 Pod 삭제나 재시작 같은 서버 변경은 실행하지 않습니다.",
+                "",
+                "## 다음 선택",
+                f"`{namespace}` / `{pod_pattern}` 범위로 정리 검토를 이어갈 수 있습니다.",
+            ]
+        )
+    if namespace:
+        return "\n".join(
+            [
+                "## 현재 판단",
+                f"`{namespace}` 네임스페이스 안의 테스트성 Pod 정리 검토 요청입니다.",
+                "",
+                "## 확인 필요",
+                "- 어떤 Pod 이름 패턴이나 label을 기준으로 볼지 먼저 정해야 합니다.",
+                "- 범위가 정해지기 전에는 전체 클러스터 Pod를 정리 후보로 만들지 않습니다.",
+                "",
+                "## 다음 선택",
+                f"`{namespace}`에서 확인할 Pod 이름 패턴이나 label을 알려주세요.",
+            ]
+        )
+    return "\n".join(
+        [
+            "## 현재 판단",
+            "테스트성 Pod 정리 검토 요청이지만 대상 범위가 아직 넓습니다.",
+            "",
+            "## 확인 필요",
+            "- 정리 대상 namespace",
+            "- Pod 이름 패턴 또는 label",
+            "- 삭제가 아니라 검토만 할지 여부",
+            "",
+            "범위를 확인하면 그 대상만 기준으로 정리 검토를 진행하겠습니다.",
+        ]
+    )
+
+
+def pod_name_matches_pattern(pod_name: str, pattern: str) -> bool:
+    if not pod_name or not pattern:
+        return False
+    if pattern.endswith("*"):
+        return pod_name.startswith(pattern[:-1])
+    return pod_name == pattern
+
+
+def cleanup_candidate_pod_rows(
+    focus: Mapping[str, str],
+    gateway_evidence: str | None,
+) -> list[dict[str, str]]:
+    namespace = str(focus.get("namespace") or "")
+    pod_pattern = str(focus.get("podPattern") or "")
+    parsed_rows, _, _ = parse_gateway_current_pod_list_rows(gateway_evidence)
+    if not parsed_rows:
+        parsed_rows = parse_gateway_pod_evidence_rows(gateway_evidence)
+
+    rows_by_pod: dict[tuple[str, str], dict[str, str]] = {}
+    for row in parsed_rows:
+        row_namespace = str(row.get("namespace") or "")
+        pod_name = str(row.get("pod") or "")
+        if namespace and row_namespace != namespace:
+            continue
+        if not pod_name_matches_pattern(pod_name, pod_pattern):
+            continue
+        key = (row_namespace, pod_name)
+        previous = rows_by_pod.get(key)
+        if previous is None:
+            rows_by_pod[key] = dict(row)
+            continue
+        previous_ts = parse_k8s_timestamp(previous.get("podStart"))
+        row_ts = parse_k8s_timestamp(row.get("podStart"))
+        if row_ts and (previous_ts is None or row_ts > previous_ts):
+            rows_by_pod[key] = dict(row)
+    return list(rows_by_pod.values())
+
+
+def select_latest_cleanup_pod_rows(
+    focus: Mapping[str, str],
+    gateway_evidence: str | None,
+    count: int,
+) -> list[dict[str, str]]:
+    rows = cleanup_candidate_pod_rows(focus, gateway_evidence)
+
+    def sort_key(row: Mapping[str, str]) -> tuple[int, datetime, str]:
+        timestamp = parse_k8s_timestamp(row.get("podStart"))
+        return (
+            1 if timestamp else 0,
+            timestamp or datetime.min.replace(tzinfo=UTC),
+            str(row.get("pod") or ""),
+        )
+
+    return sorted(rows, key=sort_key, reverse=True)[: max(0, count)]
+
+
+def build_conversation_cleanup_review_candidate(
+    focus: Mapping[str, str],
+    *,
+    incident_id: str,
+    run_id: str,
+    selected_rows: Sequence[Mapping[str, str]] | None = None,
+    requested_count: int = 0,
+) -> dict[str, Any]:
+    namespace = str(focus.get("namespace") or "")
+    pod_pattern = str(focus.get("podPattern") or "")
+    selected_pods = [
+        {
+            "currentState": str(row.get("currentState") or ""),
+            "name": str(row.get("pod") or ""),
+            "namespace": str(row.get("namespace") or namespace),
+            "owner": str(row.get("owner") or ""),
+            "podStart": str(row.get("podStart") or ""),
+            "ready": str(row.get("ready") or ""),
+        }
+        for row in (selected_rows or [])
+        if str(row.get("pod") or "")
+    ]
+    latest_delete_review = bool(selected_pods) or requested_count > 0
+    effective_count = requested_count or len(selected_pods)
+    selected_names = [pod["name"] for pod in selected_pods]
+    target_digest_source = f"{namespace}/{pod_pattern}/{'/'.join(selected_names)}/{effective_count}"
+    target_digest = hashlib.sha256(target_digest_source.encode()).hexdigest()[:12]
+    title = (
+        f"최신 테스트 Pod {effective_count}개 삭제 검토"
+        if latest_delete_review and effective_count
+        else "테스트 Pod 정리 검토"
+    )
+    source_type = "test_pod_latest_delete_review" if latest_delete_review else "test_pod_cleanup_review"
+    evidence = (
+        f"{namespace}/{pod_pattern} 범위의 최신 테스트 Pod {effective_count}개 삭제 검토 요청"
+        if latest_delete_review and effective_count
+        else f"{namespace}/{pod_pattern} 범위의 테스트성 Pod 정리 검토 요청"
+    )
+    expected_impact = (
+        "선택된 테스트 Pod 삭제 가능성을 검토합니다. 승인 전에는 서버 변경이 없습니다."
+        if latest_delete_review
+        else "정리 대상 Pod 목록과 사용 흔적을 검토 기록으로 남깁니다. Pod 삭제는 실행하지 않습니다."
+    )
+    return {
+        "approvalRequired": True,
+        "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
+        "blockedReasons": ["cleanup-review", "approval-required", "review-only-plan"],
+        "chatRunId": run_id,
+        "confidence": "medium",
+        "evidence": evidence,
+        "evidenceRefs": [
+            {
+                "evidenceType": "pod_status",
+                "findingId": f"test-pod-cleanup-{target_digest}",
+                "sourceType": source_type,
+                "status": "pending",
+            }
+        ],
+        "executable": False,
+        "executionPolicy": {
+            "executionEnabled": False,
+            "mode": "review-only",
+            "mutationVerbsDisabled": True,
+            "proposalOnly": True,
+        },
+        "expectedImpact": expected_impact,
+        "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
+        "id": f"action-candidate-test-pod-cleanup-{target_digest}",
+        "incidentId": incident_id,
+        "mutationSubmitted": False,
+        "parameters": {
+            "podNamePattern": pod_pattern,
+            "requestedCount": effective_count,
+            "reviewOnly": True,
+            "selectedPods": selected_pods,
+            "sortBy": "podStart desc",
+        },
+        "priority": 5,
+        "prerequisiteChecks": [
+            "대상 namespace 확인",
+            "Pod 이름 패턴 또는 label 기준 확인",
+            "ownerReferences, labels, 현재 상태 확인",
+            "생성/시작 시간 확인",
+        ],
+        "recommendationSteps": [
+            "현재 대상 Pod 목록 조회",
+            "최신순 삭제 검토 대상 산정",
+            "테스트/시나리오 리소스 여부 확인",
+            "승인 후에만 삭제 실행 가능",
+        ],
+        "riskLevel": "low",
+        "riskLabel": "낮음",
+        "severity": "확인 필요",
+        "sourceFindingId": f"test-pod-cleanup-{target_digest}",
+        "sourceType": source_type,
+        "statusLabel": "삭제 검토 후보" if latest_delete_review else "정리 검토 후보",
+        "target": {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "name": pod_pattern if not selected_names else ", ".join(selected_names[:2]),
+            "namespace": namespace,
+        },
+        "title": title,
+        "verificationChecks": [
+            "Action Plan 생성 후에도 Pod 삭제가 실행되지 않았는지 확인",
+            "owner/label/현재 상태 확인 실패 시 실행 차단",
+            "승인 후 대상 Pod만 삭제되는지 확인",
+        ],
+    }
+
+
+def remember_conversation_cleanup_review_candidate(
+    focus: Mapping[str, str],
+    *,
+    incident_id: str,
+    run_id: str,
+    selected_rows: Sequence[Mapping[str, str]] | None = None,
+    requested_count: int = 0,
+) -> dict[str, Any]:
+    candidate = build_conversation_cleanup_review_candidate(
+        focus,
+        incident_id=incident_id,
+        run_id=run_id,
+        selected_rows=selected_rows,
+        requested_count=requested_count,
+    )
+    now = datetime.now(UTC)
+    for key, cached in list(NAMESPACE_CLEANUP_CHAT_CANDIDATES.items()):
+        expires_at = parse_k8s_timestamp(cached.get("expiresAt"))
+        if expires_at and expires_at < now:
+            NAMESPACE_CLEANUP_CHAT_CANDIDATES.pop(key, None)
+    NAMESPACE_CLEANUP_CHAT_CANDIDATES[str(candidate["id"])] = candidate
+    return candidate
+
+
+def cleanup_latest_delete_review_response(candidate: Mapping[str, Any]) -> str:
+    target = candidate.get("target") if isinstance(candidate.get("target"), Mapping) else {}
+    parameters = candidate.get("parameters") if isinstance(candidate.get("parameters"), Mapping) else {}
+    namespace = str(target.get("namespace") or "-")
+    pod_pattern = str(parameters.get("podNamePattern") or target.get("name") or "-")
+    requested_count = int(parameters.get("requestedCount") or 0)
+    selected_pods = parameters.get("selectedPods")
+    pod_items = selected_pods if isinstance(selected_pods, list) else []
+    lines = [
+        "## 현재 판단",
+        f"`{namespace}`의 `{pod_pattern}` 중 최신 {requested_count}개를 삭제 검토 대상으로 확인합니다.",
+        "",
+        "## 확인 결과",
+        "| 순서 | Namespace | Pod 이름 | 생성/시작 시간 | 현재 상태 | 삭제 판단 |",
+        "| :---: | :--- | :--- | :--- | :--- | :--- |",
+    ]
+    if pod_items:
+        for index, pod in enumerate(pod_items, start=1):
+            if not isinstance(pod, Mapping):
+                continue
+            pod_name = str(pod.get("name") or "-")
+            pod_namespace = str(pod.get("namespace") or namespace)
+            pod_start = str(pod.get("podStart") or "생성 시간 확인 필요")
+            state = str(pod.get("currentState") or "현재 상태 확인 필요")
+            decision = "삭제 검토 가능" if pod_start != "생성 시간 확인 필요" else "추가 조회 후 판단"
+            lines.append(
+                f"| {index} | `{pod_namespace}` | `{pod_name}` | `{pod_start}` | {state} | {decision} |"
+            )
+    else:
+        lines.append(
+            f"| - | `{namespace}` | `{pod_pattern}` | 생성 시간 확인 필요 | 현재 상태 확인 필요 | 추가 조회 후 판단 |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Action Plan",
+            f"- 후보: `{candidate.get('title') or '최신 테스트 Pod 삭제 검토'}`",
+            "- 승인 전에는 Pod 삭제, 재시작, patch, scale을 실행하지 않습니다.",
+            "- owner, label, 현재 상태 확인이 실패하면 실행을 차단합니다.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def cleanup_review_candidate_response(candidate: Mapping[str, Any]) -> str:
+    if candidate.get("sourceType") == "test_pod_latest_delete_review":
+        return cleanup_latest_delete_review_response(candidate)
+
+    target = candidate.get("target") if isinstance(candidate.get("target"), Mapping) else {}
+    namespace = str(target.get("namespace") or "-")
+    pod_pattern = str(target.get("name") or "-")
+    return "\n".join(
+        [
+            "## 현재 판단",
+            f"`{namespace}` 네임스페이스의 `{pod_pattern}` 범위로 정리 검토 후보를 준비했습니다.",
+            "",
+            "## Action Plan",
+            "- 후보: `테스트 Pod 정리 검토`",
+            "- 승인 전에는 Pod 삭제, 재시작, patch, scale을 실행하지 않습니다.",
+            "- 먼저 현재 Pod 수, owner, label, 최근 사용 흔적을 확인하는 검토 계획만 만듭니다.",
+            "",
+            "## 다음 행동",
+            "Action Plan 생성 버튼으로 검토 계획을 만든 뒤 결과를 확인하세요.",
+        ]
+    )
 
 
 def execution_mode_allows_actions(req: ChatRequest) -> bool:
@@ -1973,6 +2487,10 @@ def first_backtick_name(message: str) -> str:
 
 def is_pod_count_query(message: str) -> bool:
     return bool(POD_COUNT_QUERY_RE.search(message))
+
+
+def is_top_pod_namespace_query(message: str) -> bool:
+    return bool(TOP_POD_NAMESPACE_QUERY_RE.search(message))
 
 
 def pod_count_query_namespace(req: ChatRequest) -> str:
@@ -3900,7 +4418,7 @@ def build_ols_payload(
     conversation_id: str | None,
     attachments: list[ImageAttachment],
     *,
-    forward_image_attachments: bool = False,
+    forward_image_attachments: bool = True,
     gateway_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return build_ols_payload_for_context(
@@ -3951,6 +4469,7 @@ def get_vision_config() -> dict[str, str] | None:
 def should_collect_pod_status_evidence(message: str) -> bool:
     return bool(
         POD_STATUS_ANALYSIS_RE.search(message)
+        or POD_LIST_REQUEST_RE.search(message)
         or POD_COUNT_QUERY_RE.search(message)
         or CLUSTER_OPERATOR_ANALYSIS_RE.search(message)
     )
@@ -5190,6 +5709,99 @@ def summarize_counted_pods(pods: list[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
+def build_top_pod_namespace_count_result(pods_payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not pods_payload:
+        return {
+            "reason": "Kubernetes API pod list was not returned",
+            "rows": [],
+            "status": "unavailable",
+        }
+
+    counts: dict[str, int] = {}
+    for pod in resource_items(pods_payload):
+        namespace = metadata_namespace(pod)
+        if not namespace:
+            continue
+        counts[namespace] = counts.get(namespace, 0) + 1
+
+    rows = [
+        {"namespace": namespace, "podCount": count}
+        for namespace, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    if not rows:
+        return {
+            "reason": "No pod namespace metadata was found",
+            "rows": [],
+            "status": "not_found",
+        }
+
+    return {
+        "rows": rows,
+        "status": "found",
+        "topNamespace": rows[0]["namespace"],
+        "topPodCount": rows[0]["podCount"],
+        "totalNamespaces": len(rows),
+        "totalPods": sum(row["podCount"] for row in rows),
+    }
+
+
+def top_pod_namespace_count_response(result: Mapping[str, Any], *, display_limit: int = 5) -> str:
+    status = str(result.get("status") or "unknown")
+    if status == "unavailable":
+        return "\n".join(
+            [
+                "namespace별 Pod 수를 직접 조회하지 못했습니다.",
+                "",
+                f"- 사유: {result.get('reason')}",
+                "- 서버 변경은 실행하지 않았습니다.",
+            ]
+        )
+    if status != "found":
+        return "\n".join(
+            [
+                "현재 조회 범위에서 Pod namespace 정보를 확인하지 못했습니다.",
+                "",
+                "- 서버 변경은 실행하지 않았습니다.",
+            ]
+        )
+
+    rows = result.get("rows")
+    result_rows = [row for row in rows if isinstance(row, Mapping)] if isinstance(rows, list) else []
+    top_namespace = str(result.get("topNamespace") or result_rows[0].get("namespace") or "")
+    top_pod_count = int(result.get("topPodCount") or result_rows[0].get("podCount") or 0)
+    visible_rows = result_rows[: max(display_limit, 1)]
+
+    lines = [
+        f"`{top_namespace}`입니다. 현재 조회 범위에서 Pod {top_pod_count}개로 가장 많습니다.",
+        "",
+        f"상위 {len(visible_rows)}개 namespace만 보면:",
+        "",
+        "| 순위 | Namespace | Pod 수 |",
+        "| ---: | :--- | ---: |",
+    ]
+    for index, row in enumerate(visible_rows, start=1):
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(index),
+                    markdown_table_cell(f"`{row.get('namespace')}`"),
+                    markdown_table_cell(row.get("podCount")),
+                ]
+            )
+            + " |"
+        )
+    if len(result_rows) > len(visible_rows):
+        lines.extend(
+            [
+                "",
+                f"전체 namespace는 {len(result_rows)}개입니다. 전체 목록이 필요하면 `전체 namespace별 Pod 수 보여줘`라고 이어서 물어보세요.",
+            ]
+        )
+    lines.extend(["", "서버 변경은 실행하지 않았습니다."])
+    return "\n".join(lines)
+
+
 def build_pod_count_investigation(
     query: Mapping[str, str],
     deployments_payload: Mapping[str, Any] | None,
@@ -6096,6 +6708,90 @@ def build_cronjob_activity_evidence(
     return "\n".join(lines)
 
 
+PRIVATE_REASONING_START_RE = re.compile(
+    r"(<\|channel\|>\s*(?:thought|analysis)\s*<channel>|"
+    r"<\|start_header_id\|>\s*(?:thought|analysis)\s*<\|end_header_id\|>|"
+    r"<think>|"
+    r"<(?:thought|analysis)>)",
+    re.IGNORECASE,
+)
+PRIVATE_REASONING_END_RE = re.compile(
+    r"(<\|channel\|>\s*(?:final|assistant)\s*<channel>|"
+    r"<\|start_header_id\|>\s*(?:final|assistant)\s*<\|end_header_id\|>|"
+    r"</think>|"
+    r"</(?:thought|analysis)>|"
+    r"<(?:final|assistant)>)",
+    re.IGNORECASE,
+)
+PRIVATE_REASONING_TOKEN_RE = re.compile(
+    r"<\|[^>\n]*\|>|</?channel>|</?(?:thought|analysis|final|assistant)>",
+    re.IGNORECASE,
+)
+PRIVATE_REASONING_LEAK_LINE_RE = re.compile(
+    r"^\s*(?:(?:thought|analysis)\b.*\b(?:user|I\s+(?:need|should|have|will)|tool|called|already)\b|"
+    r"(?:I\s+(?:need|should|have|will)|I\s+have\s+already|Let's\s+search|Looking\s+at\s+the\s+.*output|Patterns\s+to\s+search)\b)",
+    re.IGNORECASE,
+)
+
+
+def strip_private_reasoning_tokens(text: str) -> str:
+    return PRIVATE_REASONING_TOKEN_RE.sub("", text)
+
+
+def strip_private_reasoning_sections(text: str) -> str:
+    private_reasoning_active = False
+    filtered_lines: list[str] = []
+
+    for line in text.replace("\r\n", "\n").splitlines(keepends=True):
+        remaining = line
+        while remaining:
+            if private_reasoning_active:
+                end_match = PRIVATE_REASONING_END_RE.search(remaining)
+                if not end_match:
+                    remaining = ""
+                    break
+                private_reasoning_active = False
+                remaining = remaining[end_match.end() :]
+                continue
+
+            start_match = PRIVATE_REASONING_START_RE.search(remaining)
+            if not start_match:
+                cleaned = strip_private_reasoning_tokens(remaining)
+                if not PRIVATE_REASONING_LEAK_LINE_RE.search(cleaned):
+                    filtered_lines.append(cleaned)
+                remaining = ""
+                break
+
+            before = strip_private_reasoning_tokens(remaining[: start_match.start()])
+            if before:
+                filtered_lines.append(before)
+            private_reasoning_active = True
+            remaining = remaining[start_match.end() :]
+
+    return "".join(filtered_lines)
+
+
+def trim_context_content(content: str, limit: int = 700) -> str:
+    normalized = re.sub(r"\s+", " ", strip_private_reasoning_sections(content)).strip()
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: limit - 1]}…"
+
+
+def build_recent_conversation_context(req: ChatRequest) -> str:
+    lines: list[str] = []
+    for message in req.recentMessages[-6:]:
+        role = message.role.strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = trim_context_content(redact_sensitive(message.content or ""))
+        if not content:
+            continue
+        label = "사용자" if role == "user" else "AIOps"
+        lines.append(f"- {label}: {content}")
+    return "\n".join(lines)
+
+
 def build_ols_query(
     req: ChatRequest,
     image_analysis: str | None = None,
@@ -6108,6 +6804,7 @@ def build_ols_query(
     page_context = normalize_console_page_context(req.pageContext)
     language_contract = answer_language_contract(req)
     section_contract = answer_section_contract(req)
+    resource_summary_contract = resource_summary_rca_answer_contract(req)
     forwarded_to_ols = should_forward_image_attachments_to_ols()
     effective_policy = policy or classify_request_policy(req.message)
     subject_metadata = subject or safe_subject(None)
@@ -6118,6 +6815,14 @@ def build_ols_query(
     context_handoff_block = (
         f"\nVerified operational context:\n{context_handoff}\n"
         if context_handoff
+        else ""
+    )
+    recent_context = build_recent_conversation_context(req)
+    recent_context_block = (
+        f"\nRecent conversation context:\n{recent_context}\n"
+        "Use this only to resolve follow-up references such as 그 namespace, 그 파드, 안에 있는 파드, 정리. "
+        "Cluster facts still require verified Gateway/OpenShift evidence.\n"
+        if recent_context
         else ""
     )
 
@@ -6131,6 +6836,7 @@ Do not invent alert, pod, node, namespace, resource names, causes, or actions.
 Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
 Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
 {section_contract}
+{resource_summary_contract}
 조회 계획은 필요한 경우 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
 If no screenshot/image is attached, do not claim you inspected a screenshot.
@@ -6140,6 +6846,7 @@ Console context:
 {json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
 Attachment context:
 {build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
+{recent_context_block}
 {context_handoff_block}
 {section_contract}
 """
@@ -6167,6 +6874,9 @@ Subject:
 User question:
 {redact_sensitive(req.message)}
 
+Recent conversation context:
+{recent_context if recent_context else "No recent conversation context was provided."}
+
 Console context:
 {json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
 
@@ -6179,6 +6889,7 @@ Verified operational context:
 Answer format:
 {language_contract}
 {section_contract}
+{resource_summary_contract}
 """
         return redact_sensitive(query)
 
@@ -6195,6 +6906,9 @@ Answer format:
 [사용자 질문]
 {redact_sensitive(req.message)}
 
+[최근 대화 맥락]
+{recent_context if recent_context else "최근 대화 맥락 없음"}
+
 [현재 콘솔 컨텍스트]
 {json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
 
@@ -6208,6 +6922,7 @@ Answer format:
 - Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
 - {language_contract}
 - {section_contract}
+{resource_summary_contract}
 - 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
 - 사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 Gateway 선조회 자료에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
 
@@ -6778,8 +7493,12 @@ class TextReferenceFilter:
         self.normalize_restart_language = normalize_restart_language
         self.pending = ""
         self.held_lines: list[str] = []
+        self.private_reasoning_active = False
 
     def filter(self, content: str, *, final: bool = False) -> str:
+        content = self.filter_private_reasoning(content, final=final)
+        if not content:
+            return ""
         if (
             not self.filter_gateway_api_references
             and not self.filter_low_signal_references
@@ -6823,6 +7542,41 @@ class TextReferenceFilter:
                 continue
 
             filtered_lines.append(line)
+
+        return "".join(filtered_lines)
+
+    def filter_private_reasoning(self, content: str, *, final: bool = False) -> str:
+        lines = content.replace("\r\n", "\n").splitlines(keepends=True)
+        filtered_lines: list[str] = []
+
+        for line in lines:
+            remaining = line
+            while remaining:
+                if self.private_reasoning_active:
+                    end_match = PRIVATE_REASONING_END_RE.search(remaining)
+                    if not end_match:
+                        remaining = ""
+                        break
+                    self.private_reasoning_active = False
+                    remaining = remaining[end_match.end() :]
+                    continue
+
+                start_match = PRIVATE_REASONING_START_RE.search(remaining)
+                if not start_match:
+                    cleaned = strip_private_reasoning_tokens(remaining)
+                    if not PRIVATE_REASONING_LEAK_LINE_RE.search(cleaned):
+                        filtered_lines.append(cleaned)
+                    remaining = ""
+                    break
+
+                before = strip_private_reasoning_tokens(remaining[: start_match.start()])
+                if before:
+                    filtered_lines.append(before)
+                self.private_reasoning_active = True
+                remaining = remaining[start_match.end() :]
+
+        if final:
+            self.private_reasoning_active = False
 
         return "".join(filtered_lines)
 
@@ -9196,6 +9950,148 @@ def pod_inventory_selected_rows(message: str, rows: list[Mapping[str, str]]) -> 
     )
 
 
+def is_pod_namespace_pattern_lookup_request(message: str) -> bool:
+    return bool(POD_NAMESPACE_PATTERN_LOOKUP_RE.search(message))
+
+
+def pod_namespace_lookup_pattern(message: str) -> str:
+    quoted_match = re.search(r"[`'\"](?P<pattern>[A-Za-z0-9._-]{2,})[`'\"]", message)
+    if quoted_match:
+        return quoted_match.group("pattern").lower()
+    if re.search(r"(?i)(테스트|test)", message):
+        return "test"
+    before_contains = re.search(
+        r"(?i)(?P<pattern>[A-Za-z0-9._-]{2,})\s*(?:가|이)?\s*(?:포함|들어)",
+        message,
+    )
+    if before_contains:
+        return before_contains.group("pattern").lower()
+    after_contains = re.search(
+        r"(?i)(?:포함|들어).{0,12}(?P<pattern>[A-Za-z0-9._-]{2,})",
+        message,
+    )
+    if after_contains:
+        return after_contains.group("pattern").lower()
+    return ""
+
+
+def build_pod_namespace_pattern_lookup_answer(
+    req: ChatRequest,
+    gateway_evidence: str | None,
+) -> str | None:
+    if not is_pod_namespace_pattern_lookup_request(req.message):
+        return None
+
+    rows, namespace_filter, rows_shown = parse_gateway_current_pod_list_rows(gateway_evidence)
+    evidence_scope = "Current Pod list evidence"
+    if not rows:
+        rows = parse_gateway_pod_evidence_rows(gateway_evidence)
+        evidence_scope = "Pod status evidence 상위 항목"
+    if not rows:
+        return None
+
+    pattern = pod_namespace_lookup_pattern(req.message)
+    grouped: dict[str, set[str]] = {}
+    matched_rows_by_key: dict[tuple[str, str], Mapping[str, str]] = {}
+    for row in rows:
+        namespace = str(row.get("namespace") or "").strip()
+        pod = str(row.get("pod") or "").strip()
+        if not namespace or not pod or namespace == "-" or pod == "-":
+            continue
+        if pattern and pattern not in pod.lower():
+            continue
+        grouped.setdefault(namespace, set()).add(pod)
+        matched_rows_by_key.setdefault((namespace, pod), row)
+
+    title_pattern = pattern or "Pod"
+    sorted_groups = sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))
+    displayed_groups = sorted_groups[:10]
+    hidden_count = max(len(sorted_groups) - len(displayed_groups), 0)
+    total_pods = sum(len(pods) for _, pods in sorted_groups)
+    displayed_pod_rows: list[Mapping[str, str]] = []
+    display_pod_limit = 30
+    for namespace, pods in displayed_groups:
+        for pod in sorted(pods):
+            if len(displayed_pod_rows) >= display_pod_limit:
+                break
+            row = matched_rows_by_key.get((namespace, pod))
+            if row:
+                displayed_pod_rows.append(row)
+        if len(displayed_pod_rows) >= display_pod_limit:
+            break
+    hidden_pod_count = max(total_pods - len(displayed_pod_rows), 0)
+
+    lines = [
+        "## 테스트 Pod 네임스페이스",
+        "",
+        "### 요약",
+        (
+            f"Pod 이름에 `{title_pattern}`가 포함된 Pod는 {len(sorted_groups)}개 namespace에서 {total_pods}개 확인했습니다."
+            if pattern
+            else f"현재 조회 범위에서 Pod가 있는 namespace {len(sorted_groups)}개를 확인했습니다."
+        ),
+        f"- 매칭 Pod 총합: {total_pods}개",
+        f"- 수집 row: {len(rows)}" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
+        f"- Evidence 범위: `{evidence_scope}`",
+        f"- Namespace filter: `{namespace_filter or 'all-accessible-namespaces'}`",
+        *(
+            [f"- 표시는 상위 {len(displayed_groups)}개 namespace로 제한했습니다. 추가 {hidden_count}개 namespace는 상세 확인 대상입니다."]
+            if hidden_count
+            else []
+        ),
+        "",
+        "### 확인 결과",
+    ]
+
+    if displayed_groups:
+        lines.extend(
+            [
+                "| Namespace | Pod 이름 | 현재 상태 | Ready |",
+                "| :--- | :--- | :--- | :---: |",
+            ]
+        )
+        for row in displayed_pod_rows:
+            namespace = str(row.get("namespace") or "-")
+            pod = str(row.get("pod") or "-")
+            current_state = str(row.get("currentState") or "-")
+            ready = str(row.get("ready") or "-")
+            lines.append(f"| {namespace} | `{pod}` | {current_state} | {ready} |")
+        if hidden_pod_count:
+            lines.append("")
+            lines.append(f"- 표시는 매칭 Pod {len(displayed_pod_rows)}개로 제한했습니다. 추가 {hidden_pod_count}개는 대상 namespace에서 확인할 수 있습니다.")
+    else:
+        lines.append(
+            f"- Pod 이름에 `{title_pattern}`가 포함된 Pod가 있는 namespace는 현재 조회 범위에서 확인되지 않았습니다."
+            if pattern
+            else "- 현재 조회 범위에서 Pod가 있는 namespace를 확인하지 못했습니다."
+        )
+
+    lines.extend(
+        [
+            "",
+            "### 판단",
+            "- 이 답변은 모델 추론이 아니라 Gateway가 Kubernetes API로 수집한 Pod 목록을 기준으로 정리한 결과입니다.",
+            "- namespace 이름이 아니라 Pod 이름 기준으로 매칭했습니다.",
+            "- 정리나 삭제는 실행하지 않았습니다.",
+            "",
+            "### 다음 확인 명령",
+            "필요하면 대상 namespace만 좁혀서 확인합니다.",
+            "",
+            "```bash",
+        ]
+    )
+    if displayed_groups:
+        for namespace, _pods in displayed_groups[:3]:
+            lines.append(
+                f"oc get pods -n {namespace}"
+                + (f" | grep {pattern}" if pattern else "")
+            )
+    else:
+        lines.append("oc get pods -A")
+    lines.extend(["```", "", "### 사용한 확인 결과", "- Pod 이름", "- Namespace", "- 현재 Pod 목록"])
+    return "\n".join(lines)
+
+
 def pod_row_target(row: Mapping[str, str]) -> str:
     namespace = row.get("namespace") or "-"
     pod = row.get("pod") or "-"
@@ -9297,6 +10193,10 @@ def pod_inventory_action_candidates_from_evidence(
     run_id: str,
     limit: int = 2,
 ) -> list[dict[str, Any]]:
+    if is_ambiguous_cleanup_review_request(req):
+        return []
+    if is_pod_namespace_pattern_lookup_request(req.message):
+        return []
     if not is_pod_list_request(req.message):
         return []
 
@@ -9383,6 +10283,10 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
     if not is_pod_list_request(req.message):
         return None
 
+    namespace_lookup_answer = build_pod_namespace_pattern_lookup_answer(req, gateway_evidence)
+    if namespace_lookup_answer:
+        return namespace_lookup_answer
+
     rows, namespace_filter, rows_shown = parse_gateway_current_pod_list_rows(gateway_evidence)
     evidence_scope = "Current Pod list evidence"
     if not rows:
@@ -9396,7 +10300,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
     if not rows:
         return "\n".join(
             [
-                "## Pod 인벤토리",
+                "## Pod 상태 목록",
                 "",
                 "### 요약",
                 "현재 조회 범위에서 Pod 목록을 확인했지만 표시할 Pod가 없습니다.",
@@ -9439,7 +10343,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
         summary = f"현재 조회 범위에서 Pod/Container {total_rows}건을 확인했습니다."
 
     lines = [
-        "## Pod 인벤토리",
+        "## Pod 상태 목록",
         "",
         "### 요약",
         summary,
@@ -9636,6 +10540,10 @@ def build_grounded_aiops_answer(
     runtime_tool_plan: Mapping[str, Any],
     gateway_evidence: str | None,
 ) -> str | None:
+    namespace_lookup_answer = build_pod_namespace_pattern_lookup_answer(req, gateway_evidence)
+    if namespace_lookup_answer:
+        return namespace_lookup_answer
+
     task_type = str(runtime_tool_plan.get("task_type") or "")
     if task_type == "pod_inventory":
         return build_pod_list_fallback(req, gateway_evidence)
@@ -9644,14 +10552,123 @@ def build_grounded_aiops_answer(
     return None
 
 
+INTERNAL_FALLBACK_DIAGNOSTIC_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\bGateway fallback\b", re.IGNORECASE),
+    re.compile(r"\blightspeed_stream\b", re.IGNORECASE),
+    re.compile(r"OpenShift Lightspeed request failed", re.IGNORECASE),
+    re.compile(r"ended without answer text", re.IGNORECASE),
+    re.compile(r"RAG evidence unavailable", re.IGNORECASE),
+    re.compile(r"pgvector .*failed", re.IGNORECASE),
+    re.compile(r"expected \d+ dimensions", re.IGNORECASE),
+    re.compile(r"streamProbe|gatewayContextDigest", re.IGNORECASE),
+)
+
+
+def is_internal_fallback_diagnostic(value: object) -> bool:
+    text = str(value or "")
+    return bool(text) and any(pattern.search(text) for pattern in INTERNAL_FALLBACK_DIAGNOSTIC_PATTERNS)
+
+
+def public_gateway_evidence_excerpt(gateway_evidence: str | None, *, max_lines: int = 8) -> str:
+    if not gateway_evidence:
+        return ""
+    public_lines: list[str] = []
+    for raw_line in str(redact_sensitive(gateway_evidence)).splitlines():
+        line = raw_line.strip()
+        if not line or is_internal_fallback_diagnostic(line):
+            continue
+        public_lines.append(line)
+        if len(public_lines) >= max_lines:
+            break
+    return "\n".join(public_lines)
+
+
+def build_image_answer_fallback(
+    req: ChatRequest,
+    tool_results: list[Mapping[str, Any]],
+    gateway_evidence: str | None,
+    *,
+    image_analysis: str | None = None,
+    image_forwarded_to_ols: bool = False,
+) -> str:
+    image_count = len(req.attachments)
+    evidence_excerpt = public_gateway_evidence_excerpt(gateway_evidence, max_lines=6)
+    failed_tools = [
+        str(item.get("name") or item.get("evidenceType") or "확인 단계")
+        for item in tool_results
+        if str(item.get("status") or "").lower() in {"error", "failed", "timeout"}
+        and not is_internal_fallback_diagnostic(item.get("name"))
+        and not is_internal_fallback_diagnostic(item.get("summary"))
+        and not is_internal_fallback_diagnostic(item.get("detail"))
+    ]
+
+    lines: list[str] = [
+        "## 현재 판단",
+    ]
+    if image_analysis:
+        lines.extend(
+            [
+                "첨부 화면에서 확인한 내용을 기준으로 정리합니다. 서버 변경은 실행하지 않았습니다.",
+                "",
+                "## 화면에서 확인한 내용",
+                redact_sensitive(image_analysis).strip(),
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "첨부 화면 분석 답변을 완성하지 못했습니다. 서버 변경은 실행하지 않았습니다.",
+                "",
+                "## 확인 상태",
+                f"- 이미지 수신: {image_count}건",
+                f"- 모델 전달: {'Lightspeed attachments로 전달 시도' if image_forwarded_to_ols else '전달 비활성'}",
+                "- 화면 판독 결과: 아직 확보하지 못함",
+            ]
+        )
+
+    if evidence_excerpt:
+        lines.extend(
+            [
+                "",
+                "## 함께 확인된 정보",
+                evidence_excerpt,
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "## 다음 확인",
+            "- 알림 또는 리소스 상세 화면에서 대상 namespace, kind, name을 확인합니다.",
+            "- 같은 화면으로 다시 질문해 이미지 전달과 모델 응답 단계를 진행 상세에서 확인합니다.",
+        ]
+    )
+    if failed_tools:
+        lines.append(f"- 실패한 확인 단계: {', '.join(dict.fromkeys(failed_tools))}")
+
+    return "\n".join(lines)
+
+
 def build_empty_answer_fallback(
     req: ChatRequest,
     policy: Mapping[str, Any],
     tool_results: list[Mapping[str, Any]],
     gateway_evidence: str | None = None,
+    *,
+    image_analysis: str | None = None,
+    image_forwarded_to_ols: bool = False,
 ) -> str:
     if policy.get("decision") == "action_proposal_only" and not crashloop_demo_target_from_request(req):
         return build_action_proposal_fallback(req, policy)
+
+    if req.attachments:
+        return build_image_answer_fallback(
+            req,
+            tool_results,
+            gateway_evidence,
+            image_analysis=image_analysis,
+            image_forwarded_to_ols=image_forwarded_to_ols,
+        )
 
     answer_plan = build_gateway_fallback_answer_plan(
         GatewayFallbackPlanInput(
@@ -9684,6 +10701,14 @@ def build_empty_answer_fallback(
             continue
         status = str(ev.get("status") or "")
         detail = str(ev.get("detail") or "")
+        summary = str(ev.get("summary") or "")
+        name = str(ev.get("name") or ev.get("evidenceType") or "")
+        if (
+            is_internal_fallback_diagnostic(name)
+            or is_internal_fallback_diagnostic(summary)
+            or is_internal_fallback_diagnostic(detail)
+        ):
+            continue
         if status in _OK:
             # detect already-formatted markdown tables in detail
             if "\n|" in detail and ("EvidenceType:" in detail or "Summary:" in detail):
@@ -9717,21 +10742,17 @@ def build_empty_answer_fallback(
     )
     lines: list[str] = [
         *crashloop_intro,
-        "> ⚠️ **AI 최종 답변 미수신** — OpenShift Lightspeed가 최종 답변 텍스트를 반환하지 않아 Gateway 조회 결과만으로 요약합니다.",
-        "> OLS 연결 자체가 아니라 최종 텍스트 생성 단계의 문제일 수 있습니다. 아래 내용은 Gateway가 확인한 조회 결과 기준입니다.",
-        "",
         "## RCA 보고서",
         "",
         "### 현재 판단",
-        "- Gateway 조회 결과 기준으로 임시 요약합니다. 원인은 후보로만 봅니다.",
+        "- 현재 확인된 조회 결과 기준으로 정리합니다. 원인은 후보로만 봅니다.",
         "",
         "### 원인 후보",
-        "- 현재 fallback은 수집된 조회 결과를 보여주는 단계입니다. 원인은 Event, Pod 상태, metric, log-pattern 확인 결과가 함께 맞을 때만 확정합니다.",
+        "- Event, Pod 상태, metric, log-pattern 확인 결과가 함께 맞을 때만 원인으로 확정합니다.",
         "",
         "### 확인 결과",
         f"- 질문: {redact_sensitive(req.message)}",
-        "- Gateway가 수집한 조회 결과 기준으로만 임시 요약합니다.",
-        "- Lightspeed 최종 분석이 아니므로 원인은 후보로만 봅니다.",
+        "- 확인된 운영 정보만 답변에 사용했습니다.",
         "",
     ]
 
@@ -9750,11 +10771,12 @@ def build_empty_answer_fallback(
                 desc = truncate_detail(summary, 160)
             lines.append(f"| `{ev_type}` | {desc} |")
         lines.append("")
-    elif gateway_evidence:
-        lines.append(truncate_detail(str(redact_sensitive(gateway_evidence)), 800))
-        lines.append("")
     else:
-        lines.append("- 수집 완료로 표시된 증거가 없습니다.")
+        evidence_excerpt = public_gateway_evidence_excerpt(gateway_evidence, max_lines=8)
+        if evidence_excerpt:
+            lines.append(truncate_detail(evidence_excerpt, 800))
+        else:
+            lines.append("- 수집 완료로 표시된 증거가 없습니다.")
         lines.append("")
 
     # inline formatted blocks (node table, alert table etc.)
@@ -9774,10 +10796,12 @@ def build_empty_answer_fallback(
         for ev in miss_events:
             ev_type = str(ev.get("evidenceType") or ev.get("name") or "-")
             reason = str(ev.get("missingReason") or ev.get("summary") or "-")
+            if is_internal_fallback_diagnostic(ev_type) or is_internal_fallback_diagnostic(reason):
+                continue
             lines.append(f"- `{ev_type}` — {truncate_detail(reason, 120)}")
         lines.append("")
     else:
-        lines.append("- 추가 실패 도구는 보고되지 않았습니다.")
+        lines.append("- 추가 확인이 필요한 항목은 상세 상태에서 확인합니다.")
         lines.append("")
 
     lines.extend([
@@ -9788,7 +10812,7 @@ def build_empty_answer_fallback(
         "```",
         "",
         "### 재발 방지",
-        "- fallback 답변이 반복되면 Lightspeed 최종 텍스트 생성 단계와 Gateway 조회 결과 digest를 함께 기록해 같은 질문을 재검증합니다.",
+        "- 같은 유형의 미완성 답변이 반복되면 모델 응답 상태와 수집 증거 digest를 운영 기록에 남겨 재검증합니다.",
     ])
 
     return "\n".join(lines)
@@ -14295,6 +15319,76 @@ async def chat_stream(
                 yield sse("[DONE]")
                 return
 
+            if is_top_pod_namespace_query(req.message or "") and policy.get("decision") != "action_proposal_only":
+                yield sse(
+                    {
+                        "type": "tool_call",
+                        "id": f"{request_id}-top-pod-namespace-count",
+                        "name": "top_pod_namespace_count_lookup",
+                        "summary": "namespace별 Pod 수 집계",
+                    }
+                )
+                pods_payload: Mapping[str, Any] | None = None
+                top_namespace_result: dict[str, Any]
+                if not OPENSHIFT_API_URL:
+                    top_namespace_result = {
+                        "reason": "OPENSHIFT_API_URL is not configured",
+                        "rows": [],
+                        "status": "unavailable",
+                    }
+                else:
+                    async with httpx.AsyncClient(
+                        verify=OPENSHIFT_API_CA_FILE,
+                        timeout=httpx.Timeout(20.0, connect=5.0),
+                    ) as client:
+                        pods_payload = await fetch_ocp_json(client, "/api/v1/pods", authorization)
+                    top_namespace_result = build_top_pod_namespace_count_result(pods_payload)
+
+                top_namespace_text = top_pod_namespace_count_response(top_namespace_result)
+                top_namespace_event = {
+                    "type": "tool_result",
+                    "detail": top_namespace_text,
+                    "id": f"{request_id}-top-pod-namespace-count",
+                    "name": "top_pod_namespace_count_lookup",
+                    "result": top_namespace_result,
+                    "status": "success" if top_namespace_result.get("status") == "found" else "skipped",
+                    "summary": (
+                        f"{top_namespace_result.get('topNamespace')} namespace가 Pod {top_namespace_result.get('topPodCount')}개로 최다"
+                        if top_namespace_result.get("status") == "found"
+                        else "namespace별 Pod 수 집계 실패"
+                    ),
+                }
+                yield sse(top_namespace_event)
+                for evidence_event in build_evidence_reference_events(
+                    event=top_namespace_event,
+                    incident_id=incident_id,
+                    run_id=run_id,
+                    source_type="gateway-direct-evidence",
+                    subject=subject,
+                ):
+                    yield sse(evidence_event)
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": top_namespace_text,
+                        "source": "gateway_direct_lookup",
+                        "answerContract": "top-pod-namespace-count-v0.2.9",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway namespace별 Pod 수 집계 완료",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
             pod_count_query = parse_pod_count_query(req)
             if (
                 pod_count_query
@@ -14549,6 +15643,172 @@ async def chat_stream(
                         "runId": run_id,
                         "stage": "completed",
                         "message": "Gateway Pod 개수 직접 조회 완료",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
+            cleanup_focus = conversation_focus_from_request(req)
+            if should_create_latest_cleanup_delete_review_candidate(req, cleanup_focus):
+                requested_count = cleanup_delete_count_from_message(req.message or "")
+                selected_rows = select_latest_cleanup_pod_rows(
+                    cleanup_focus,
+                    gateway_evidence,
+                    requested_count,
+                )
+                cleanup_candidate = remember_conversation_cleanup_review_candidate(
+                    cleanup_focus,
+                    incident_id=incident_id,
+                    run_id=run_id,
+                    selected_rows=selected_rows,
+                    requested_count=requested_count,
+                )
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(
+                            redact_sensitive(
+                                {
+                                    "candidate": {
+                                        "id": cleanup_candidate.get("id"),
+                                        "parameters": cleanup_candidate.get("parameters"),
+                                        "sourceType": cleanup_candidate.get("sourceType"),
+                                        "target": cleanup_candidate.get("target"),
+                                        "title": cleanup_candidate.get("title"),
+                                    },
+                                    "status": "action_candidate_ready",
+                                }
+                            ),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        "id": f"{request_id}-conversation-cleanup-latest-delete-review-candidate",
+                        "name": "conversation_cleanup_latest_delete_review_candidate",
+                        "result": {
+                            "candidateCount": 1,
+                            "selectedPodCount": len(selected_rows),
+                            "status": "action_candidate_ready",
+                        },
+                        "status": "success",
+                        "summary": "최신 테스트 Pod 삭제 검토 Action Plan 후보 1건 준비",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": cleanup_review_candidate_response(cleanup_candidate),
+                        "source": "copilot_clarification",
+                        "answerContract": "cleanup-latest-delete-review-candidate-v0.2.9",
+                    }
+                )
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway 최신 테스트 Pod 삭제 검토 후보 준비 완료",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
+            if should_create_cleanup_review_candidate(req, cleanup_focus):
+                cleanup_candidate = remember_conversation_cleanup_review_candidate(
+                    cleanup_focus,
+                    incident_id=incident_id,
+                    run_id=run_id,
+                )
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(
+                            redact_sensitive(
+                                {
+                                    "candidate": {
+                                        "id": cleanup_candidate.get("id"),
+                                        "sourceType": cleanup_candidate.get("sourceType"),
+                                        "target": cleanup_candidate.get("target"),
+                                        "title": cleanup_candidate.get("title"),
+                                    },
+                                    "status": "action_candidate_ready",
+                                }
+                            ),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        "id": f"{request_id}-conversation-cleanup-review-candidate",
+                        "name": "conversation_cleanup_review_candidate",
+                        "result": {
+                            "candidateCount": 1,
+                            "status": "action_candidate_ready",
+                        },
+                        "status": "success",
+                        "summary": "테스트 Pod 정리 검토 Action Plan 후보 1건 준비",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": cleanup_review_candidate_response(cleanup_candidate),
+                        "source": "copilot_clarification",
+                        "answerContract": "cleanup-review-candidate-v0.2.9",
+                    }
+                )
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway 테스트 Pod 정리 검토 후보 준비 완료",
+                    }
+                )
+                yield sse("[DONE]")
+                return
+
+            if should_clarify_cleanup_scope(req, cleanup_focus):
+                clarification_result = {
+                    "conversationFocus": cleanup_focus,
+                    "reason": "ambiguous_cleanup_scope",
+                    "status": "clarification_required",
+                }
+                yield sse(
+                    {
+                        "type": "tool_result",
+                        "detail": json.dumps(
+                            redact_sensitive(clarification_result),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        "id": f"{request_id}-cleanup-scope-clarification",
+                        "name": "cleanup_scope_clarification",
+                        "result": clarification_result,
+                        "status": "skipped",
+                        "summary": "정리 대상 범위 확인 필요",
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "text",
+                        "content": cleanup_scope_clarification_response(req, cleanup_focus),
+                        "source": "copilot_clarification",
+                        "answerContract": "cleanup-scope-clarification-v0.2.9",
+                    }
+                )
+                rca_context_event = current_rca_context_event("post_answer")
+                LAST_RCA_CONTEXT = rca_context_event["context"]
+                yield sse(rca_context_event)
+                yield sse(
+                    {
+                        "type": "run_status",
+                        "runId": run_id,
+                        "stage": "completed",
+                        "message": "Gateway 정리 대상 범위 확인 요청 완료",
                     }
                 )
                 yield sse("[DONE]")
@@ -14929,6 +16189,7 @@ async def chat_stream(
                     return
 
             if req.attachments:
+                image_forwarded_to_ols = should_forward_image_attachments_to_ols()
                 yield sse({"type": "tool_call", "name": "attachment_check"})
                 yield sse(
                     {
@@ -14937,7 +16198,13 @@ async def chat_stream(
                         "result": {
                             "images": len(req.attachments),
                             "totalBytes": sum(item.size for item in req.attachments),
+                            "forwardedToLightspeed": image_forwarded_to_ols,
                         },
+                        "summary": (
+                            "첨부 이미지를 Lightspeed attachments로 전달합니다"
+                            if image_forwarded_to_ols
+                            else "첨부 이미지 수신 완료, Lightspeed attachment 전달은 비활성입니다"
+                        ),
                     }
                 )
 
@@ -15420,7 +16687,10 @@ async def chat_stream(
                 yield sse(evidence_ref_event)
 
             pod_inventory_candidates: list[dict[str, Any]] = []
-            if action_capable_execution_mode(page_context_aiops_execution_mode(req)):
+            if (
+                action_capable_execution_mode(page_context_aiops_execution_mode(req))
+                and not is_pod_namespace_pattern_lookup_request(req.message)
+            ):
                 pod_inventory_candidates = remember_pod_inventory_action_candidates(
                     req,
                     gateway_evidence,
@@ -15710,6 +16980,8 @@ async def chat_stream(
                     policy,
                     ols_tool_results,
                     gateway_evidence,
+                    image_analysis=image_analysis,
+                    image_forwarded_to_ols=should_forward_image_attachments_to_ols(),
                 )
                 transcript_answer_chunks.append(fallback_answer)
                 yield sse(

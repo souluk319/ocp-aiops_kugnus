@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 
+import { AssistantTableWrap } from './AssistantTableWrap';
 import { CoolCopyIcon, CoolWrapTextIcon } from './coolicons';
 import {
   isCommandBlock,
@@ -200,9 +201,9 @@ const markdownComponents = (uiLanguage: UiLanguage): Components => ({
   },
   table({ children }) {
     return (
-      <div className="komsco-ai__table-wrap">
+      <AssistantTableWrap>
         <table className="komsco-ai__table">{children}</table>
-      </div>
+      </AssistantTableWrap>
     );
   },
   ul({ children }) {

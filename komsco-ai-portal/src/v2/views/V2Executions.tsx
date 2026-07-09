@@ -30,6 +30,17 @@ const ledgerFilters: Array<{ id: 'all' | LedgerEntry['category']; label: string 
   { id: 'evidence', label: '증거' },
 ];
 
+const ledgerNamespaceRangeLabel = (entries: LedgerEntry[]): string => {
+  const namespaces = Array.from(new Set(entries.map((entry) => entry.namespace).filter((namespace) => namespace && namespace !== '-')));
+  if (namespaces.length === 0) {
+    return '전체/미지정';
+  }
+  if (namespaces.length === 1) {
+    return namespaces[0];
+  }
+  return `혼합 ${namespaces.length}개 네임스페이스`;
+};
+
 const entryServerChangeLabel = (entry: LedgerEntry): string => {
   const signal = `${entry.phase} ${entry.result} ${entry.action}`.toLowerCase();
   if (entry.category !== 'mutation') {
@@ -205,7 +216,7 @@ export const V2Executions: React.FC<{
   const mutations = entries.filter((entry) => entry.category === 'mutation').length;
   const failed = entries.filter((entry) => entry.tone === 'red').length;
   const runId = entries[0]?.runId ?? '-';
-  const namespace = entries.find((entry) => entry.namespace !== '-')?.namespace ?? '-';
+  const namespace = ledgerNamespaceRangeLabel(entries);
   const mutationStatus =
     mutations > 0 ? 'Executed' : approvals > 0 ? 'Waiting approval' : failed > 0 ? 'Blocked' : 'Not executed';
 
@@ -245,9 +256,9 @@ export const V2Executions: React.FC<{
     },
     {
       detail: capabilities.recordStoreEnabled
-        ? localizeTelemetryText(capabilities.recordStoreConfigMap || '영구 감사 원장이 활성화되어 있습니다.')
-        : '기록이 게이트웨이 영구 원장에 저장되지 않습니다.',
-      label: '기록 원장',
+        ? `${localizeTelemetryText(capabilities.recordStoreConfigMap || '서버 원장에 기록됩니다.')} · Gateway 재시작 후에도 보존 대상입니다.`
+        : '현재 화면에는 임시 기록이 표시됩니다. Gateway 재시작 후 사라질 수 있습니다.',
+      label: '영구 원장',
       tone: capabilities.recordStoreEnabled ? 'ok' : 'warn',
       value: capabilities.recordStoreEnabled ? '켜짐' : '꺼짐',
     },
@@ -262,19 +273,19 @@ export const V2Executions: React.FC<{
           <span>
             {syntheticReplay
               ? '게이트웨이 실행/감사 스트림이 비어 있어 샘플 실행 흐름을 재생 중입니다. 실제 클러스터 변경 기록이 아닙니다.'
-              : '실시간 게이트웨이 런타임에서 수집한 실행/감사 기록을 표시합니다.'}
+              : '실시간 게이트웨이에서 현재 표시 범위의 실행/승인/감사 기록을 보여줍니다.'}
           </span>
           <small>
             마지막 게이트웨이 확인 {formatTime(new Date().toISOString())} · 실제 기록 {realRecordCount}건 · 표시
-            이벤트 {entries.length}건
+            이벤트 {entries.length}건 · 원장 JSON은 현재 표시 기록을 저장합니다.
           </small>
         </div>
         <div className="v2-source-strip__actions">
           <Button icon={<Siren size={13} />} onClick={() => onNavigate('alerts')} size="sm">
-            게이트웨이 이벤트
+            알림 & 이벤트 보기
           </Button>
           <Button icon={<Download size={13} />} onClick={exportAuditBundle} size="sm">
-            감사 번들
+            원장 JSON 내보내기
           </Button>
           {realRecordCount === 0 && (
             <Button icon={<Radio size={13} />} onClick={() => setShowSyntheticReplay((current) => !current)} size="sm">
@@ -286,7 +297,7 @@ export const V2Executions: React.FC<{
 
       <section className="v2-run-overview">
         <div className="v2-run-overview__id">
-          <span>{syntheticReplay ? '샘플 실행' : '활성 실행'}</span>
+          <span>{syntheticReplay ? '샘플 원장 요약' : '현재 원장 요약'}</span>
           <strong>{runId}</strong>
           <small>{runWindowLabel(entries)}</small>
         </div>
@@ -314,7 +325,7 @@ export const V2Executions: React.FC<{
         </div>
         <div className="v2-run-overview__meta">
           <span>
-            대상 네임스페이스 <strong>{namespace}</strong>
+            네임스페이스 범위 <strong>{namespace}</strong>
           </span>
           <span>
             정책 모드 <strong>{approvals > 0 ? '승인 필요' : '읽기 전용 증거 수집'}</strong>
@@ -331,10 +342,10 @@ export const V2Executions: React.FC<{
       <OperationSummaryPanel summaries={visibleOperationSummaries} />
 
       <section className="v2-grid v2-grid--executions">
-        <Card className="v2-trace-card" flush title="실행 추적">
+        <Card className="v2-trace-card" flush title="조치 타임라인">
           <div className="v2-trace">
             {entries.length === 0 ? (
-              <Empty label="표시할 실행 추적 기록이 없습니다." />
+              <Empty label="표시할 조치 타임라인 기록이 없습니다." />
             ) : (
               entries.map((entry, index) => (
                 <button
@@ -416,7 +427,7 @@ export const V2Executions: React.FC<{
         title="감사 원장"
       >
         <div className="v2-table-wrap">
-          <table className="v2-table">
+          <table className="v2-table v2-ledger-table">
             <thead>
               <tr>
                 <th>시간</th>

@@ -1515,6 +1515,12 @@
   color: var(--v2-text-3);
 }
 
+.v2-ledger-table th:nth-child(2),
+.v2-ledger-table td:nth-child(2) {
+  width: 124px;
+  text-align: center;
+}
+
 .v2-endpoint-name strong {
   display: block;
   color: var(--v2-text);
@@ -2568,6 +2574,10 @@
 
 .v2-phase-chip {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  margin-inline: auto;
   padding: 2px 9px;
   border-radius: 999px;
   font-size: 11px;

@@ -133,6 +133,18 @@ def build_aiops_answer_contract_text(
     missing = evidence_summary.get("missingCount", 0) if isinstance(evidence_summary, Mapping) else 0
     task_type = str(runtime_tool_plan.get("task_type") or "unknown")
     decision = str(policy.get("decision") or "unknown")
+    if task_type == "resource_summary_rca":
+        return "\n".join(
+            [
+                "",
+                "## 조치 판단 조건",
+                "- 현재 신호는 클러스터 전체 Pod 집계라서 바로 실행할 단일 조치 대상이 아닙니다.",
+                f"- 확인 결과: 수집 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
+                "- 실패/대기 Pod, restart count 상위 Pod, owner, 영향 namespace를 먼저 좁혀야 합니다.",
+                "- namespace, kind, name, 조치 종류, 검증 방법이 확정되면 그때 Action Plan 후보를 생성합니다.",
+            ]
+        )
+
     if decision != "action_proposal_only" and task_type not in {"pod_restart_rca"}:
         return ""
 
