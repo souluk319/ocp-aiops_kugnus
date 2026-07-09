@@ -8890,3 +8890,21 @@
   flex: 1 1 auto !important;
   min-height: 0 !important;
 }
+
+/* Fullscreen control-room lock: the right insight rail must fill its grid column. */
+.komsco-ai__surface.komsco-ai__surface--fullscreen .komsco-ai__workspace {
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 20vw, 392px) !important;
+}
+
+.komsco-ai__surface.komsco-ai__surface--fullscreen .komsco-ai__insight-rail {
+  box-sizing: border-box !important;
+  justify-self: stretch !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+.komsco-ai__surface.komsco-ai__surface--fullscreen .komsco-ai__insight-rail > * {
+  width: 100%;
+  max-width: none;
+}

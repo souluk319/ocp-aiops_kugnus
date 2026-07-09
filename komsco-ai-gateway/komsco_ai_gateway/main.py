@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -51,7 +51,53 @@ from .aiops_core import (
     target_from_plan,
 )
 from .aiops_contracts import build_rca_context, build_runtime_safety_contract, build_runtime_tool_plan
-from .answer_planning import build_gateway_fallback_answer_plan, render_answer_plan
+from .answer_planning import (
+    GatewayFallbackPlanInput,
+    answer_language,
+    answer_language_contract,
+    answer_section_contract,
+    build_aiops_answer_contract_text,
+    build_gateway_fallback_answer_plan,
+    casual_identity_answer,
+    general_concept_answer,
+    render_answer_plan,
+)
+from .answer_streaming import (
+    normalize_ols_event,
+    parse_tool_text_line,
+    split_plain_text_events,
+    sse,
+    truncate_detail,
+)
+from .app_factory import create_app
+from .cluster_anomalies import (
+    ClusterSafety,
+    build_aiops_anomaly_summary as build_aiops_anomaly_summary_read_model,
+)
+from .cluster_evidence import (
+    _prometheus_probe_reason,
+    build_active_alerts_rca_evidence,
+    build_node_status_rca_evidence,
+    build_restart_metric_rca_evidence,
+    rca_probe_event_status,
+)
+from .cluster_summary import build_cluster_summary as build_cluster_summary_read_model
+from .ols_payloads import (
+    OlsContextHandoffInput,
+    OlsGatewayContextInput,
+    OlsPayloadInput,
+    build_attachment_context,
+    build_ols_gateway_context as build_ols_gateway_context_for_input,
+    build_ols_payload as build_ols_payload_for_context,
+    build_ols_context_handoff as build_ols_context_handoff_for_limits,
+)
+from .page_context import (
+    page_context_aiops_execution_mode,
+    page_context_is_pod_workload,
+    page_context_namespace,
+    page_context_resource_name,
+    normalize_console_page_context,
+)
 from .rca_result_parser import parse_rca_result
 from .security import (
     build_evidence_reference,
@@ -85,18 +131,31 @@ from .gateway_state import (
     bounded_put,
     increment_metric,
 )
+from .action_parameters import (
+    ActionRecordContext,
+    normalize_action_parameters as normalize_action_parameters_for_context,
+)
+from .action_approvals import (
+    ApprovalDecisionRecordInput,
+    ExecutionGrantInput,
+    approval_already_executed,
+    build_action_rejection_record as build_action_rejection_record_for_context,
+    build_approval_decision_record as build_approval_decision_record_for_context,
+    build_execution_grant_reference as build_execution_grant_reference_for_context,
+    find_approval_by_plan_status,
+    parse_rfc3339,
+    plan_has_approval_status,
+    record_created_at,
+    validate_approval_is_active,
+    validate_execution_evidence_freshness,
+)
 from .action_records import (
-    CANDIDATE_ACTION_DIGEST_FIELDS,
-    SEALED_ACTION_PLAN_DIGEST_FIELDS,
+    build_action_proposal_record as build_action_proposal_record_for_context,
+    build_candidate_action_request as build_candidate_action_request_for_context,
+    build_sealed_action_plan_record as build_sealed_action_plan_record_for_context,
     candidate_action_request_digest,
     default_policy_binding,
-    expires_at_rfc3339,
-    normalized_parameters_digest,
-    parse_rfc3339,
-    policy_binding_digest,
-    same_observed_subject,
     sealed_action_plan_digest,
-    subject_digest,
 )
 from .action_registry import (
     ACTION_REGISTRY_DIGEST,
@@ -128,6 +187,28 @@ from .schemas import (
     StrictBaseModel,
     UnrestrictedCommandExecuteCreate,
 )
+from .settings import (
+    first_env_value,
+    infer_embedding_api_style,
+    infer_llm_api_style,
+    parse_bool,
+    parse_float_env,
+    parse_int,
+    parse_millis_env_as_seconds,
+    parse_ols_verify,
+)
+
+PUBLIC_MAIN_REEXPORTS = (
+    ActionCandidateTargetCreate,
+    BreakGlassTargetNode,
+    DiagnosticEvidencePolicy,
+    DiagnosticLimits,
+    DiagnosticTargetNode,
+    DiagnosticTimeRange,
+    get_action_registry_entry,
+    sealed_action_plan_digest,
+    validate_action_target,
+)
 
 
 @asynccontextmanager
@@ -143,97 +224,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="KOMSCO AI Gateway", version="0.1.5", lifespan=lifespan)
-
-
-def parse_bool(value: str | None, *, default: bool = False) -> bool:
-    if value is None or value.strip() == "":
-        return default
-
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def parse_int(value: str | None, *, default: int, minimum: int = 0, maximum: int | None = None) -> int:
-    try:
-        parsed = int(value) if value is not None and value.strip() != "" else default
-    except ValueError:
-        parsed = default
-
-    parsed = max(minimum, parsed)
-    if maximum is not None:
-        parsed = min(maximum, parsed)
-    return parsed
-
-
-def parse_ols_verify(value: str | None) -> bool | str:
-    if value is None or value.strip() == "":
-        return True
-
-    normalized = value.strip().lower()
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-
-    return value
-
-
-def first_env_value(*names: str) -> str:
-    for name in names:
-        value = os.getenv(name)
-        if value is not None and value.strip() != "":
-            return value.strip()
-    return ""
-
-
-def parse_float_env(*names: str, default: float) -> float:
-    value = first_env_value(*names)
-    if not value:
-        return default
-    try:
-        return float(value)
-    except ValueError:
-        return default
-
-
-def parse_millis_env_as_seconds(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return float(value) / 1000.0
-    except ValueError:
-        return default
-
-
-def infer_llm_api_style(provider: str, base_url: str, legacy_home_url: str) -> str:
-    normalized_provider = provider.strip().lower()
-    if normalized_provider in {"ollama", "ollama-native"}:
-        return "ollama"
-    if normalized_provider in {"lightspeed", "ols", "openshift-lightspeed"}:
-        return "lightspeed"
-    if legacy_home_url:
-        return "ollama"
-    if ":11434" in base_url:
-        return "ollama"
-    return "lightspeed"
-
-
-def infer_embedding_api_style(provider: str, base_url: str, legacy_home_url: str) -> str:
-    normalized_provider = provider.strip().lower()
-    if normalized_provider in {"ollama", "ollama-native"}:
-        return "ollama"
-    if normalized_provider in {"openai", "openai-compatible", "tei-openai"}:
-        return "openai"
-    if normalized_provider == "tei":
-        return "tei"
-    if legacy_home_url:
-        return "ollama"
-    if ":11435" in base_url or base_url.rstrip("/").endswith("/api/embed"):
-        return "ollama"
-    if re.search(r"/v\d+(?:/|$)", base_url):
-        return "openai"
-    return ""
+app = create_app(lifespan=lifespan)
 
 
 LEGACY_HOME_LLM_URL = first_env_value("KUGNUS_HOME_LLM_URL")
@@ -458,11 +449,6 @@ UNRESTRICTED_COMMAND_TIMEOUT_SECONDS = int(
 UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES = int(
     os.getenv("KOMSCO_AI_UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES", "20000")
 )
-TOOL_LINE_PREFIXES: tuple[tuple[str, str], ...] = (
-    ("Tool call:", "tool_call"),
-    ("Tool result:", "tool_result"),
-)
-MAX_TOOL_DETAIL_CHARS = 4000
 RUN_HEARTBEAT_SECONDS = 5.0
 MAX_IMAGE_ATTACHMENTS = 4
 MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024
@@ -472,6 +458,7 @@ DISALLOWED_GATEWAY_API_REFERENCE_RE = re.compile(
     r"^\s*(Gateway|GatewayClass)\s+\[gateway\.networking\.k8s\.io/v1\]:\s+https?://",
     re.IGNORECASE,
 )
+AIOPS_ANSWER_QUERY_PLAN_LABEL = "조회 계획:"
 EXPLICIT_KUBERNETES_GATEWAY_API_RE = re.compile(
     r"(?i)(gatewayclass|gateway\.networking\.k8s\.io|kubernetes gateway api|openshift gateway api|gateway api)"
 )
@@ -603,62 +590,12 @@ VISION_SYSTEM_PROMPT = (
     "and operational signals from the attached image. Be concise and do not invent "
     "details that are not visible."
 )
-K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT = {
-    "buildconfigs": "BuildConfig",
-    "configmaps": "ConfigMap",
-    "cronjobs": "CronJob",
-    "daemonsets": "DaemonSet",
-    "deployments": "Deployment",
-    "deploymentconfigs": "DeploymentConfig",
-    "events": "Event",
-    "horizontalpodautoscalers": "HorizontalPodAutoscaler",
-    "hpas": "HorizontalPodAutoscaler",
-    "ingresses": "Ingress",
-    "jobs": "Job",
-    "namespaces": "Namespace",
-    "nodes": "Node",
-    "pods": "Pod",
-    "projects": "Project",
-    "replicasets": "ReplicaSet",
-    "replicationcontrollers": "ReplicationController",
-    "routes": "Route",
-    "secrets": "Secret",
-    "services": "Service",
-    "statefulsets": "StatefulSet",
-}
 AIOPS_WORKLOAD_RE = re.compile(
     r"(aiops|komsco[-_.]?ai|cywell[-_.]?aiops|openshift[-_.]?lightspeed|"
     r"lightspeed|trustyai|rhoai|open[-_.]?data[-_.]?hub|\bodh\b|model[-_.]?registry|"
     r"nvidia|gpu|dcgm|\bmig\b|device[-_.]?plugin)",
     re.IGNORECASE,
 )
-PAGE_CONTEXT_ALLOWED_KEYS = {
-    "aiopsDemoCycle",
-    "aiopsExecutionMode",
-    "clusterScope",
-    "href",
-    "namespace",
-    "pathname",
-    "perspective",
-    "resourceKind",
-    "resourceList",
-    "resourceName",
-    "route",
-}
-AIOPS_DEMO_CYCLE_ALLOWED_KEYS = {
-    "candidateId",
-    "candidateStatusLabel",
-    "findingId",
-    "findingTitle",
-    "scenarioId",
-    "selectedAt",
-    "source",
-}
-AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS = {
-    "kind",
-    "name",
-    "namespace",
-}
 TEST_POD_CREATE_DEFAULT_NAMESPACE = "gpu-test-kugnus"
 TEST_POD_CREATE_DEFAULT_COUNT = 3
 TEST_POD_CREATE_DEFAULT_IMAGE = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
@@ -1442,386 +1379,44 @@ async def refresh_diagnostic_request_from_controller(record: dict[str, Any]) -> 
     return record
 
 
+
+def action_record_context() -> ActionRecordContext:
+    return ActionRecordContext(
+        cluster_id=CLUSTER_ID,
+        mutations_enabled=MUTATIONS_ENABLED,
+        test_pod_create_default_count=TEST_POD_CREATE_DEFAULT_COUNT,
+        test_pod_create_default_image=TEST_POD_CREATE_DEFAULT_IMAGE,
+        test_pod_create_name_prefix=TEST_POD_CREATE_NAME_PREFIX,
+        test_pod_create_app_label=TEST_POD_CREATE_APP_LABEL,
+        test_pod_create_failure_command=tuple(TEST_POD_CREATE_FAILURE_COMMAND),
+    )
+
+
 def normalize_action_parameters(
     action: Mapping[str, Any],
     parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    tool_name = action.get("toolName")
-    if tool_name == "rollout_restart_deployment":
-        restarted_at = parameters.get("restartedAt")
-        return {
-            "restartedAt": restarted_at if isinstance(restarted_at, str) else now_rfc3339(),
-        }
-
-    if tool_name == "set_replicas_within_bounds":
-        replicas = parameters.get("replicas")
-        min_replicas = parameters.get("minReplicas", 0)
-        max_replicas = parameters.get("maxReplicas", 20)
-        hpa_reviewed = parameters.get("hpaReviewed", False)
-        if (
-            isinstance(replicas, bool)
-            or isinstance(min_replicas, bool)
-            or isinstance(max_replicas, bool)
-            or not isinstance(hpa_reviewed, bool)
-            or not isinstance(replicas, int)
-            or not isinstance(min_replicas, int)
-            or not isinstance(max_replicas, int)
-        ):
-            raise HTTPException(status_code=400, detail="replicas bounds must be integer values")
-        if min_replicas < 0 or max_replicas < min_replicas or not (min_replicas <= replicas <= max_replicas):
-            raise HTTPException(status_code=400, detail="replicas must be within minReplicas/maxReplicas")
-        return {
-            "maxReplicas": max_replicas,
-            "minReplicas": min_replicas,
-            "replicas": replicas,
-            "hpaReviewed": hpa_reviewed,
-        }
-
-    if tool_name == "evict_one_unhealthy_controller_owned_pod":
-        reason = parameters.get("reason")
-        return {"reason": reason if isinstance(reason, str) else "approved_unhealthy_pod_eviction"}
-
-    if tool_name == "rollback_deployment_to_revision":
-        revision = parameters.get("revision")
-        if revision is None:
-            return {"revision": None}
-        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
-            raise HTTPException(status_code=400, detail="rollback revision must be a positive integer")
-        return {"revision": revision}
-
-    if tool_name == "set_hpa_bounds":
-        min_replicas = parameters.get("minReplicas")
-        max_replicas = parameters.get("maxReplicas")
-        allow_max_increase = parameters.get("allowMaxIncrease", False)
-        if (
-            isinstance(min_replicas, bool)
-            or isinstance(max_replicas, bool)
-            or not isinstance(min_replicas, int)
-            or not isinstance(max_replicas, int)
-            or not isinstance(allow_max_increase, bool)
-        ):
-            raise HTTPException(status_code=400, detail="HPA replica bounds must be integer values")
-        if min_replicas < 1 or max_replicas < min_replicas:
-            raise HTTPException(status_code=400, detail="HPA maxReplicas must be >= minReplicas")
-        return {
-            "allowMaxIncrease": allow_max_increase,
-            "maxReplicas": max_replicas,
-            "minReplicas": min_replicas,
-        }
-
-    if tool_name == "set_deployment_container_command":
-        container_name = parameters.get("containerName")
-        command = parameters.get("command")
-        expected_previous_digest = parameters.get("expectedPreviousCommandDigest")
-        reason = parameters.get("reason")
-        if not isinstance(container_name, str) or not container_name.strip():
-            raise HTTPException(status_code=400, detail="containerName must be a non-empty string")
-        if not isinstance(command, list) or not command or len(command) > 8:
-            raise HTTPException(status_code=400, detail="command must be a list of 1 to 8 strings")
-        normalized_command = []
-        for item in command:
-            if not isinstance(item, str) or not item.strip() or len(item.strip()) > 256:
-                raise HTTPException(status_code=400, detail="command entries must be non-empty strings up to 256 chars")
-            normalized_command.append(item.strip())
-        if expected_previous_digest is not None and not isinstance(expected_previous_digest, str):
-            raise HTTPException(status_code=400, detail="expectedPreviousCommandDigest must be a string")
-        if reason is not None and not isinstance(reason, str):
-            raise HTTPException(status_code=400, detail="reason must be a string")
-        return {
-            "command": normalized_command,
-            "containerName": container_name.strip(),
-            "expectedPreviousCommandDigest": str(expected_previous_digest or ""),
-            "reason": str(reason or "approved deployment container command fix")[:240],
-        }
-
-    if tool_name == "namespace_cleanup_review":
-        owner_confirmed = parameters.get("ownerConfirmed", False)
-        pvc_route_reviewed = parameters.get("pvcRouteReviewed", False)
-        backup_reviewed = parameters.get("backupReviewed", False)
-        if not all(isinstance(value, bool) for value in (owner_confirmed, pvc_route_reviewed, backup_reviewed)):
-            raise HTTPException(status_code=400, detail="namespace cleanup review flags must be boolean values")
-        return {
-            "backupReviewed": backup_reviewed,
-            "ownerConfirmed": owner_confirmed,
-            "pvcRouteReviewed": pvc_route_reviewed,
-            "reviewOnly": True,
-        }
-
-    if tool_name == "test_pod_create_review":
-        count = parameters.get("count", TEST_POD_CREATE_DEFAULT_COUNT)
-        image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
-            raise HTTPException(status_code=400, detail="test pod count must be an integer between 1 and 5")
-        return {
-            "count": count,
-            "image": image[:240],
-            "namePrefix": str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX)[:63],
-            "reviewOnly": True,
-        }
-
-    if tool_name == "create_crashloop_test_pods":
-        count = parameters.get("count", TEST_POD_CREATE_DEFAULT_COUNT)
-        image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
-        name_prefix = str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX).strip()
-        if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
-            raise HTTPException(status_code=400, detail="test pod count must be an integer between 1 and 5")
-        if image != TEST_POD_CREATE_DEFAULT_IMAGE:
-            raise HTTPException(status_code=400, detail="test pod image is fixed by policy")
-        if not re.fullmatch(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?", name_prefix):
-            raise HTTPException(status_code=400, detail="test pod namePrefix must be a Kubernetes-safe name")
-        return {
-            "appLabel": TEST_POD_CREATE_APP_LABEL,
-            "count": count,
-            "failureMode": "crashloop",
-            "fixedCommand": list(TEST_POD_CREATE_FAILURE_COMMAND),
-            "image": image,
-            "namePrefix": name_prefix[:48],
-        }
-
-    if tool_name == "pod_diagnostic_review":
-        include_describe = parameters.get("includeDescribe", True)
-        include_events = parameters.get("includeEvents", True)
-        include_previous_logs = parameters.get("includePreviousLogs", True)
-        if not all(isinstance(value, bool) for value in (include_describe, include_events, include_previous_logs)):
-            raise HTTPException(status_code=400, detail="pod diagnostic review flags must be boolean values")
-        return {
-            "includeDescribe": include_describe,
-            "includeEvents": include_events,
-            "includePreviousLogs": include_previous_logs,
-            "reviewOnly": True,
-        }
-
-    if tool_name == "pod_fix_or_rollback_review":
-        include_owner_chain = parameters.get("includeOwnerChain", True)
-        include_rollout_history = parameters.get("includeRolloutHistory", True)
-        include_template_review = parameters.get("includeTemplateReview", True)
-        if not all(
-            isinstance(value, bool)
-            for value in (include_owner_chain, include_rollout_history, include_template_review)
-        ):
-            raise HTTPException(status_code=400, detail="pod fix review flags must be boolean values")
-        return {
-            "includeOwnerChain": include_owner_chain,
-            "includeRolloutHistory": include_rollout_history,
-            "includeTemplateReview": include_template_review,
-            "reviewOnly": True,
-        }
-
-    raise HTTPException(status_code=400, detail="Unsupported action")
+    return normalize_action_parameters_for_context(action, parameters, action_record_context())
 
 
 def build_candidate_action_request(
     request: "ActionProposalCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    registry_entry = get_action_registry_entry(request.toolName, request.toolVersion)
-    validate_action_target(registry_entry, request.target)
-    normalized_parameters = normalize_action_parameters(registry_entry, request.parameters)
-    return {
-        "schemaVersion": "v1",
-        "clusterId": CLUSTER_ID,
-        "requester": redact_sensitive(dict(subject)),
-        "target": request.target.model_dump(),
-        "action": {
-            "toolName": request.toolName,
-            "toolVersion": request.toolVersion,
-            "actionRegistry": {
-                "version": ACTION_REGISTRY_VERSION,
-                "digest": ACTION_REGISTRY_DIGEST,
-            },
-            "authorization": registry_entry["authorization"],
-            "request": registry_entry["request"],
-            "normalizedParameters": normalized_parameters,
-        },
-        "policy": default_policy_binding(request.policy),
-    }
+    return build_candidate_action_request_for_context(request, subject, action_record_context())
 
 
 def build_action_proposal_record(
     request: "ActionProposalCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    candidate = build_candidate_action_request(request, subject)
-    candidate_digest = candidate_action_request_digest(candidate)
-    proposal_id = f"proposal-{candidate_digest.removeprefix('sha256:')[:16]}"
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ActionProposalRecord",
-        "metadata": {
-            "name": proposal_id,
-            "createdAt": now_rfc3339(),
-        },
-        "spec": {
-            "candidateActionRequest": candidate,
-            "candidateRequestDigest": candidate_digest,
-            "digestSchema": {
-                "name": "candidate-action-request-digest-v1",
-                "canonicalization": "stable-json-sort-keys",
-                "includedFields": list(CANDIDATE_ACTION_DIGEST_FIELDS),
-            },
-            "evidenceRefs": redact_sensitive(request.evidenceRefs),
-            "incidentId": request.incidentId,
-            "operatorPresentation": {
-                "expectedImpact": request.expectedImpact,
-                "prerequisiteChecks": request.prerequisiteChecks,
-                "problemSummary": request.problemSummary,
-                "recommendationSteps": request.recommendationSteps,
-                "verificationChecks": request.verificationChecks,
-            },
-            "runId": request.runId,
-            "runbookRefs": redact_sensitive(request.runbookRefs),
-            "sourceType": request.policy.get("sourceType"),
-            "status": {"phase": "proposed"},
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
+    return build_action_proposal_record_for_context(request, subject, action_record_context())
 
 
 def build_sealed_action_plan_record(
     proposal: Mapping[str, Any],
 ) -> dict[str, Any]:
-    spec = proposal.get("spec") if isinstance(proposal.get("spec"), Mapping) else {}
-    candidate = spec.get("candidateActionRequest") if isinstance(spec.get("candidateActionRequest"), Mapping) else {}
-    action = candidate.get("action") if isinstance(candidate.get("action"), Mapping) else {}
-    target = candidate.get("target") if isinstance(candidate.get("target"), Mapping) else {}
-    requester = candidate.get("requester") if isinstance(candidate.get("requester"), Mapping) else safe_subject(None)
-    policy = candidate.get("policy") if isinstance(candidate.get("policy"), Mapping) else {}
-    operator_presentation = (
-        spec.get("operatorPresentation")
-        if isinstance(spec.get("operatorPresentation"), Mapping)
-        else {}
-    )
-    registry_digest = action.get("actionRegistry", {}).get("digest") if isinstance(action.get("actionRegistry"), Mapping) else ""
-    plan_id = f"plan-{uuid.uuid4()}"
-    incident_id = spec.get("incidentId") or f"inc-{uuid.uuid4()}"
-    created_at = now_rfc3339()
-    expires_at = expires_at_rfc3339(timedelta(minutes=5))
-    dry_run_projection = {
-        "candidateRequestDigest": spec.get("candidateRequestDigest"),
-        "decision": "not_executed_foundation",
-        "mutationsEnabled": MUTATIONS_ENABLED,
-    }
-    impact_projection = {
-        "action": action.get("toolName"),
-        "target": target,
-    }
-    plan_validation_claims = {
-        "schemaVersion": "v1",
-        "issuer": "aiops-approval-api",
-        "audience": "aiops-action-executor",
-        "grantId": f"validation-{uuid.uuid4()}",
-        "issuedAt": created_at,
-        "notBefore": created_at,
-        "expiresAt": expires_at_rfc3339(timedelta(seconds=30)),
-        "maxUses": 1,
-        "clusterId": CLUSTER_ID,
-        "candidateRequestDigest": spec.get("candidateRequestDigest"),
-        "normalizedParametersDigest": normalized_parameters_digest(candidate),
-        "actionRegistryDigest": registry_digest,
-        "requesterSubjectDigest": subject_digest(requester),
-        "policyDecisionDigest": policy.get("policyDecisionDigest"),
-        "policyBindingDigest": policy_binding_digest(policy),
-        "action": {
-            "toolName": action.get("toolName"),
-            "toolVersion": action.get("toolVersion"),
-        },
-        "target": target,
-        "allowedOperation": "server_side_dry_run_only",
-    }
-    plan_validation_grant_ref = {
-        "grantId": plan_validation_claims["grantId"],
-        "grantDigest": canonical_digest(plan_validation_claims),
-        "bearerGrantStored": False,
-        "claimsDigest": canonical_digest(
-            {
-                "candidateRequestDigest": plan_validation_claims["candidateRequestDigest"],
-                "normalizedParametersDigest": plan_validation_claims["normalizedParametersDigest"],
-                "actionRegistryDigest": plan_validation_claims["actionRegistryDigest"],
-                "requesterSubjectDigest": plan_validation_claims["requesterSubjectDigest"],
-                "policyDecisionDigest": plan_validation_claims["policyDecisionDigest"],
-                "policyBindingDigest": plan_validation_claims["policyBindingDigest"],
-            }
-        ),
-    }
-    plan = {
-        "schemaVersion": "v1",
-        "clusterId": CLUSTER_ID,
-        "metadata": {
-            "planId": plan_id,
-            "incidentId": incident_id,
-            "requester": requester,
-            "idempotencyKey": f"idem-{uuid.uuid4()}",
-            "createdAt": created_at,
-            "apiCallTimeout": "30s",
-            "verificationDeadline": "10m",
-            "maxMutationAttempts": 1,
-            "maxVerificationAttempts": 3,
-        },
-        "target": target,
-        "action": action,
-        "safety": {
-            "risk": get_action_registry_entry(str(action.get("toolName")), str(action.get("toolVersion")))[
-                "risk"
-            ],
-            "policy": default_policy_binding(policy),
-            "planValidationGrantRef": plan_validation_grant_ref,
-            "dryRun": {
-                "requestDigest": canonical_digest(dry_run_projection),
-                "normalizedDiffDigest": canonical_digest(dry_run_projection),
-                "decision": "not_executed_foundation",
-            },
-            "preconditions": [
-                {"type": "UIDEquals", "value": target.get("uid")},
-                {"type": "ActionRegistryDigestEquals", "value": registry_digest},
-                {"type": "RequiresFreshDryRun", "value": True},
-            ],
-            "hardPostconditions": [
-                {"type": "ExecutionRecordTerminalState", "value": True},
-            ],
-            "observationalPostconditions": [],
-            "rollbackDescription": "No automatic rollback is generated by this foundation API.",
-            "typedRollbackAction": None,
-            "rollbackRequiresApproval": False,
-            "rollbackPossible": False,
-            "expiresAt": expires_at,
-        },
-        "approvalPresentation": {
-            "impact": {
-                "affectedWorkloads": 1,
-                "affectedPods": None,
-                "availabilityRisk": "unknown",
-                "summaryDigest": canonical_digest(impact_projection),
-            },
-            "dryRun": {
-                "normalizedDiffDigest": canonical_digest(dry_run_projection),
-                "decision": "not_executed_foundation",
-            },
-            "evidenceRefs": spec.get("evidenceRefs") or [],
-            "expectedImpact": operator_presentation.get("expectedImpact"),
-            "prerequisiteChecks": operator_presentation.get("prerequisiteChecks") or [],
-            "problemSummary": operator_presentation.get("problemSummary"),
-            "recommendationSteps": operator_presentation.get("recommendationSteps") or [],
-            "runbookRefs": spec.get("runbookRefs") or [],
-            "verificationChecks": operator_presentation.get("verificationChecks") or [],
-        },
-    }
-    plan_digest = sealed_action_plan_digest(plan)
-    plan["digest"] = {
-        "planDigest": plan_digest,
-        "canonicalization": "stable-json-sort-keys",
-        "digestSchema": "sealed-action-plan-digest-v1",
-        "includedFields": list(SEALED_ACTION_PLAN_DIGEST_FIELDS),
-        "excludedFields": ["/digest"],
-    }
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "SealedActionPlanRecord",
-        "metadata": {"name": plan_id, "createdAt": created_at},
-        "spec": {"sealedActionPlan": plan, "status": {"phase": "sealed"}},
-        "subject": redact_sensitive(dict(requester)),
-    }
+    return build_sealed_action_plan_record_for_context(proposal, action_record_context())
 
 
 def build_approval_decision_record(
@@ -1833,97 +1428,17 @@ def build_approval_decision_record(
     allow_self_approval: bool = False,
     auto_policy: bool = False,
 ) -> dict[str, Any]:
-    plan = plan_record["spec"]["sealedActionPlan"]
-    plan_digest = plan["digest"]["planDigest"]
-    if request.expectedPlanDigest != plan_digest:
-        raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
-    risk = plan["safety"]["risk"]
-    requester = plan["metadata"]["requester"]
-    if risk in {"medium", "high"} and same_observed_subject(requester, approver) and not allow_self_approval:
-        raise HTTPException(status_code=409, detail="separation of duties requires requester and approver to differ")
-
-    approval_id = f"approval-{uuid.uuid4()}"
-    approved_at = now_rfc3339()
-    expires_at = expires_at_rfc3339(timedelta(minutes=5))
-    action = plan["action"]
-    tool_name = action.get("toolName")
-    target = plan["target"]
-    authorization = action.get("authorization") if isinstance(action.get("authorization"), Mapping) else {}
-    attestation_claims = {
-        "schemaVersion": "v1",
-        "issuer": "aiops-tool-broker",
-        "audience": "aiops-approval-api",
-        "attestationId": f"authz-{uuid.uuid4()}",
-        "issuedAt": approved_at,
-        "notBefore": approved_at,
-        "expiresAt": expires_at_rfc3339(timedelta(seconds=30)),
-        "clusterId": CLUSTER_ID,
-        "approver": redact_sensitive(dict(approver)),
-        "planDigest": plan_digest,
-        "action": {
-            "toolName": action.get("toolName"),
-            "toolVersion": action.get("toolVersion"),
-            "actionRegistry": action.get("actionRegistry"),
-        },
-        "target": target,
-        "kubernetesAuthorization": {
-            "apiGroup": authorization.get("apiGroup", ""),
-            "resource": authorization.get("resource", ""),
-            "subresource": authorization.get("subresource", ""),
-            "verb": authorization.get("verb", ""),
-        },
-    }
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ApprovalDecisionRecord",
-        "metadata": {"name": approval_id, "createdAt": approved_at},
-        "spec": {
-            "approvalDecision": {
-                "approvalId": approval_id,
-                "planDigest": plan_digest,
-                "status": "approved",
-                "approver": redact_sensitive(dict(approver)),
-                "approvedAt": approved_at,
-                "expiresAt": expires_at,
-                "approvalScope": request.approvalScope,
-                "target": target,
-                "authorizationAttestationRef": {
-                    "attestationId": attestation_claims["attestationId"],
-                    "attestationDigest": canonical_digest(attestation_claims),
-                    "bearerAttestationStored": False,
-                    "issuer": attestation_claims["issuer"],
-                    "audience": attestation_claims["audience"],
-                },
-                "kubernetesAuthorization": {
-                    "apiGroup": authorization.get("apiGroup", ""),
-                    "resource": authorization.get("resource", ""),
-                    "subresource": authorization.get("subresource", ""),
-                    "verb": authorization.get("verb", ""),
-                    "ssarDecision": "allowed" if action_access_review.get("allowed") is True else "denied",
-                    "evaluatedAt": approved_at,
-                    "review": redact_sensitive(dict(action_access_review)),
-                },
-                "action": {
-                    "toolName": action.get("toolName"),
-                    "toolVersion": action.get("toolVersion"),
-                    "actionRegistry": action.get("actionRegistry"),
-                },
-                **(
-                    {
-                        "decidedBy": "auto-policy",
-                        "decisionPolicy": {
-                            "toolName": tool_name,
-                            "triggeredBy": "sealed-plan-creation",
-                        },
-                    }
-                    if auto_policy
-                    else {}
-                ),
-            }
-        },
-        "subject": redact_sensitive(dict(approver)),
-    }
+    return build_approval_decision_record_for_context(
+        ApprovalDecisionRecordInput(
+            plan_record=plan_record,
+            request=request,
+            approver=approver,
+            action_access_review=action_access_review,
+            context=action_record_context(),
+            allow_self_approval=allow_self_approval,
+            auto_policy=auto_policy,
+        )
+    )
 
 
 def build_action_rejection_record(
@@ -1931,111 +1446,7 @@ def build_action_rejection_record(
     request: "ActionRejectionCreate",
     rejecter: Mapping[str, Any],
 ) -> dict[str, Any]:
-    plan = plan_record["spec"]["sealedActionPlan"]
-    plan_digest = plan["digest"]["planDigest"]
-    if request.expectedPlanDigest != plan_digest:
-        raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
-
-    rejected_at = now_rfc3339()
-    rejection_id = f"rejection-{uuid.uuid4()}"
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ApprovalDecisionRecord",
-        "metadata": {"name": rejection_id, "createdAt": rejected_at},
-        "spec": {
-            "approvalDecision": {
-                "approvalId": rejection_id,
-                "planDigest": plan_digest,
-                "status": "rejected",
-                "approver": redact_sensitive(dict(rejecter)),
-                "approvedAt": None,
-                "rejectedAt": rejected_at,
-                "reason": request.reason,
-                "approvalScope": "single-target",
-                "target": plan["target"],
-                "action": {
-                    "toolName": plan["action"].get("toolName"),
-                    "toolVersion": plan["action"].get("toolVersion"),
-                    "actionRegistry": plan["action"].get("actionRegistry"),
-                },
-            }
-        },
-        "subject": redact_sensitive(dict(rejecter)),
-    }
-
-
-def validate_execution_evidence_freshness(plan: Mapping[str, Any]) -> None:
-    presentation = plan.get("approvalPresentation")
-    if not isinstance(presentation, Mapping):
-        return
-    evidence_refs = presentation.get("evidenceRefs")
-    if not isinstance(evidence_refs, list):
-        return
-    now = datetime.now(UTC)
-    for evidence_ref in evidence_refs:
-        if not isinstance(evidence_ref, Mapping):
-            continue
-        required_until = parse_rfc3339(evidence_ref.get("requiredFreshUntil"))
-        if required_until and required_until < now:
-            increment_metric("aiops_evidence_freshness_failures_total")
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Sealed action plan evidence is no longer fresh; "
-                    "create a new plan and approval"
-                ),
-            )
-
-
-def validate_approval_is_active(approval_decision: Mapping[str, Any]) -> None:
-    expires_at = parse_rfc3339(approval_decision.get("expiresAt"))
-    if expires_at and expires_at < datetime.now(UTC):
-        raise HTTPException(status_code=409, detail="Approval decision is expired")
-
-
-def approval_already_executed(approval_id: str) -> bool:
-    return any(
-        record.get("spec", {}).get("approvalId") == approval_id
-        for record in EXECUTION_RECORDS.values()
-        if isinstance(record.get("spec"), Mapping)
-    )
-
-
-def record_created_at(record: Mapping[str, Any]) -> datetime | None:
-    metadata = record.get("metadata")
-    if not isinstance(metadata, Mapping):
-        return None
-    return parse_rfc3339(metadata.get("createdAt"))
-
-
-def plan_has_approval_status(
-    plan_digest: str,
-    statuses: set[str],
-    *,
-    not_before: datetime | None = None,
-) -> bool:
-    return find_approval_by_plan_status(plan_digest, statuses, not_before=not_before) is not None
-
-
-def find_approval_by_plan_status(
-    plan_digest: str,
-    statuses: set[str],
-    *,
-    not_before: datetime | None = None,
-) -> dict[str, Any] | None:
-    for record in APPROVAL_DECISIONS.values():
-        if not_before is not None:
-            created_at = record_created_at(record)
-            if created_at is not None and created_at < not_before:
-                continue
-        spec = record.get("spec")
-        decision = spec.get("approvalDecision") if isinstance(spec, Mapping) else None
-        if not isinstance(decision, Mapping):
-            continue
-        if decision.get("planDigest") == plan_digest and decision.get("status") in statuses:
-            return record
-    return None
+    return build_action_rejection_record_for_context(plan_record, request, rejecter)
 
 
 def build_execution_grant_reference(
@@ -2043,35 +1454,14 @@ def build_execution_grant_reference(
     plan: Mapping[str, Any],
     approver: Mapping[str, Any],
 ) -> dict[str, Any]:
-    decision = approval["spec"]["approvalDecision"]
-    sealed_plan = plan["spec"]["sealedActionPlan"]
-    grant_id = f"exec-grant-{uuid.uuid4()}"
-    issued_at = now_rfc3339()
-    expires_at = expires_at_rfc3339(timedelta(seconds=30))
-    grant_claims = {
-        "schemaVersion": "v1",
-        "issuer": "aiops-approval-api",
-        "audience": "aiops-action-executor",
-        "grantId": grant_id,
-        "issuedAt": issued_at,
-        "notBefore": issued_at,
-        "expiresAt": expires_at,
-        "clusterId": CLUSTER_ID,
-        "planDigest": decision["planDigest"],
-        "approvalId": decision["approvalId"],
-        "approver": redact_sensitive(dict(approver)),
-        "action": decision["action"],
-        "target": decision["target"],
-        "kubernetesAuthorization": decision["kubernetesAuthorization"],
-        "policyBundleHash": sealed_plan["safety"]["policy"]["policyBundleHash"],
-    }
-    return {
-        "grantId": grant_id,
-        "grantDigest": canonical_digest(grant_claims),
-        "bearerGrantStored": False,
-        "claims": grant_claims,
-    }
-
+    return build_execution_grant_reference_for_context(
+        ExecutionGrantInput(
+            approval=approval,
+            plan=plan,
+            approver=approver,
+            context=action_record_context(),
+        )
+    )
 
 def get_runbook_entry(runbook_id: str) -> dict[str, Any]:
     entry = RUNBOOK_REGISTRY_ENTRIES.get(runbook_id)
@@ -2416,110 +1806,6 @@ class RagDocumentUploadCreate(StrictBaseModel):
     runId: str | None = Field(default=None, max_length=120)
 
 
-def page_context_namespace(req: ChatRequest) -> str:
-    context = normalize_console_page_context(req.pageContext)
-    namespace = context.get("namespace")
-    return str(namespace) if namespace else ""
-
-
-def page_context_resource_name(req: ChatRequest, expected_kind: str = "Deployment") -> str:
-    context = normalize_console_page_context(req.pageContext)
-    kind = str(context.get("resourceKind") or "")
-    name = context.get("resourceName")
-    if kind == expected_kind and name:
-        return str(name)
-    return ""
-
-
-def page_context_resource_kind(req: ChatRequest) -> str:
-    context = normalize_console_page_context(req.pageContext)
-    return str(context.get("resourceKind") or "").strip()
-
-
-def page_context_is_pod_workload(req: ChatRequest) -> bool:
-    return page_context_resource_kind(req).lower() in {
-        "pod",
-        "deployment",
-        "replicaset",
-        "statefulset",
-        "daemonset",
-        "deploymentconfig",
-    }
-
-
-def page_context_aiops_execution_mode(req: ChatRequest) -> str:
-    context = normalize_console_page_context(req.pageContext)
-    mode = str(context.get("aiopsExecutionMode") or "execute").strip().lower()
-    if mode in {"read-only", "read_only", "readonly", "evidence-check", "evidence_check", "점검", "조회"}:
-        return "evidence-check"
-    if mode in {"unrestricted", "dev-unrestricted", "experimental", "실험", "무제한"}:
-        return "unrestricted"
-    if mode in {"execute", "execution", "execution-enabled", "enabled"}:
-        return "execute"
-    return "execute"
-
-
-def page_context_aiops_ui_language(req: ChatRequest) -> str:
-    context = normalize_console_page_context(req.pageContext)
-    value = str(
-        context.get("aiopsUiLanguage")
-        or context.get("uiLanguage")
-        or context.get("language")
-        or req.language
-        or ""
-    ).strip().lower()
-    if value.startswith("en"):
-        return "en"
-    if value.startswith("ko") or value.startswith("kr"):
-        return "ko"
-    return ""
-
-
-def message_looks_english(text: str) -> bool:
-    stripped = text.strip()
-    if not stripped:
-        return False
-    if re.search(r"[가-힣]", stripped):
-        return False
-    return bool(re.search(r"[A-Za-z]", stripped))
-
-
-def answer_language(req: ChatRequest) -> str:
-    ui_language = page_context_aiops_ui_language(req)
-    if ui_language == "en":
-        return "en"
-    if message_looks_english(req.message):
-        return "en"
-    return "ko"
-
-
-def answer_language_contract(req: ChatRequest) -> str:
-    if answer_language(req) == "en":
-        return (
-            "Answer language: English.\n"
-            "The console UI or user message is English, so every user-facing sentence, section heading, "
-            "status explanation, example, and action note in the final answer must be English.\n"
-            "Do not output Korean in the final answer unless you are quoting a Korean resource name or the user explicitly asks for Korean."
-        )
-    return (
-        "답변 언어: 한국어.\n"
-        "최종 답변의 사용자-facing 문장, 섹션 제목, 상태 설명, 예시, 조치 안내는 한국어로 작성하세요.\n"
-        "사용자가 영어 답변을 명시적으로 요청했거나 영어로만 질문한 경우에는 영어로 답하세요."
-    )
-
-
-def answer_section_contract(req: ChatRequest) -> str:
-    if answer_language(req) == "en":
-        return (
-            "Use this structure when RCA or operations status is requested: "
-            "Current Assessment, Root Cause Candidates, Verified Evidence, Action Method, Additional Checks."
-        )
-    return (
-        "RCA 또는 운영 상태 질문에는 가능한 경우 아래 순서를 사용하세요: "
-        "현재 판단, 원인 후보, 확인 결과, 조치 방법, 추가 확인."
-    )
-
-
 CASUAL_IDENTITY_RE = re.compile(
     r"^\s*(hi|hello|hey|yo|ok|okay|thanks|thank you|who are you|what can you do|"
     r"help|안녕|야|ㅇㅋ|고마워|너\s*뭐야|뭐야|누구야)\s*[.!?。！？]*\s*$",
@@ -2630,58 +1916,6 @@ def namespace_names_from_message(message: str) -> list[str]:
         seen.add(token)
         names.append(token)
     return names[:12]
-
-
-def casual_identity_answer(req: ChatRequest) -> str:
-    if answer_language(req) == "en":
-        return "\n\n".join(
-            [
-                "I'm AIOps for OCP.",
-                (
-                    "I am an AIOps model specialized for OCP/OpenShift operations. "
-                    "I help operators check cluster state with evidence, separate verified facts "
-                    "from follow-up checks, prepare Action Plans, pass approval gates, and verify execution."
-                ),
-                "Send a namespace, pod, deployment, node, operator, or alert when you want me to inspect something.",
-            ]
-        )
-    return "\n\n".join(
-        [
-            "저는 AIOps for OCP입니다.",
-            (
-                "OCP(OpenShift Container Platform)를 위한 전문 AIOps 모델로, 운영 상태를 조회 결과 기반으로 확인하고 "
-                "원인 후보 정리, Action Plan 작성, 승인 후 실행 검증까지 도와드립니다."
-            ),
-            "네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, 경고 메시지 중 확인할 대상을 알려주시면 바로 이어서 보겠습니다.",
-        ]
-    )
-
-
-def general_concept_answer(req: ChatRequest) -> str:
-    if answer_language(req) == "en":
-        return "\n\n".join(
-            [
-                "OpenShift is Red Hat's Kubernetes-based container platform.",
-                (
-                    "It helps teams deploy applications, connect networking and storage, apply security policy, "
-                    "and operate clusters from a single console and API."
-                ),
-                (
-                    "In AIOps for OCP, I use OpenShift signals such as namespaces, pods, deployments, nodes, "
-                    "operators, and alerts to check evidence, prepare Action Plans, and verify approved changes."
-                ),
-            ]
-        )
-    return "\n\n".join(
-        [
-            "OpenShift는 Red Hat의 Kubernetes 기반 컨테이너 플랫폼입니다.",
-            "애플리케이션 배포, 네트워크/스토리지 연결, 보안 정책, 운영 자동화를 콘솔과 API에서 관리할 수 있게 해줍니다.",
-            (
-                "AIOps for OCP에서는 OpenShift의 네임스페이스, 파드, 디플로이먼트, 노드, 오퍼레이터, "
-                "경고 상태를 조회 결과 기반으로 확인하고 Action Plan과 승인 후 검증까지 연결합니다."
-            ),
-        ]
-    )
 
 
 def execution_mode_allows_actions(req: ChatRequest) -> bool:
@@ -3638,12 +2872,15 @@ async def execute_natural_action_plan_result(
         expectedPlanDigest=plan_digest,
         planId=plan_id,
     )
-    approval_record = build_approval_decision_record(
-        plan_record,
-        approval_request,
-        subject,
-        action_access_review,
-        allow_self_approval=True,
+    approval_record = build_approval_decision_record_for_context(
+        ApprovalDecisionRecordInput(
+            plan_record=plan_record,
+            request=approval_request,
+            approver=subject,
+            action_access_review=action_access_review,
+            context=action_record_context(),
+            allow_self_approval=True,
+        )
     )
     approval_id = str(approval_record["metadata"]["name"])
     await bounded_put_record("approvalDecisions", approval_id, approval_record)
@@ -3652,7 +2889,14 @@ async def execute_natural_action_plan_result(
     approval_decision = approval_record["spec"]["approvalDecision"]
     validate_approval_is_active(approval_decision)
     validate_execution_evidence_freshness(sealed_plan)
-    grant_reference = build_execution_grant_reference(approval_record, plan_record, subject)
+    grant_reference = build_execution_grant_reference_for_context(
+        ExecutionGrantInput(
+            approval=approval_record,
+            plan=plan_record,
+            approver=subject,
+            context=action_record_context(),
+        )
+    )
     execution_id = f"execution-{uuid.uuid4()}"
     if MUTATIONS_ENABLED:
         executor_result = await execute_action_with_executor(
@@ -3794,106 +3038,6 @@ def natural_action_evidence_check_response(intent: Mapping[str, Any]) -> str:
     )
 
 
-def decode_path_segment(segment: str | None) -> str | None:
-    if not segment:
-        return None
-
-    try:
-        return unquote(segment)
-    except Exception:
-        return segment
-
-
-def normalize_aiops_demo_cycle_context(value: Any) -> dict[str, Any]:
-    if not isinstance(value, Mapping):
-        return {}
-
-    normalized = {
-        key: value.get(key)
-        for key in AIOPS_DEMO_CYCLE_ALLOWED_KEYS
-        if value.get(key) is not None and value.get(key) != ""
-    }
-    target = value.get("target")
-    if isinstance(target, Mapping):
-        normalized_target = {
-            key: target.get(key)
-            for key in AIOPS_DEMO_CYCLE_TARGET_ALLOWED_KEYS
-            if target.get(key) is not None and target.get(key) != ""
-        }
-        if normalized_target:
-            normalized["target"] = normalized_target
-
-    return normalized
-
-
-def normalize_console_page_context(page_context: Mapping[str, Any] | None) -> dict[str, Any]:
-    raw_context = page_context or {}
-    normalized: dict[str, Any] = {}
-    for key, value in raw_context.items():
-        if key == "aiopsDemoCycle":
-            demo_cycle = normalize_aiops_demo_cycle_context(value)
-            if demo_cycle:
-                normalized[key] = demo_cycle
-            continue
-        if key in PAGE_CONTEXT_ALLOWED_KEYS and value is not None and value != "":
-            normalized[key] = value
-    pathname = str(normalized.get("pathname") or "")
-    segments = [segment for segment in pathname.split("/") if segment]
-
-    route = decode_path_segment(segments[0] if segments else None)
-    if route and "route" not in normalized:
-        normalized["route"] = route
-
-    if "namespace" not in normalized and "ns" in segments:
-        ns_index = segments.index("ns")
-        namespace = decode_path_segment(segments[ns_index + 1] if len(segments) > ns_index + 1 else None)
-        if namespace:
-            normalized["namespace"] = namespace
-
-    if segments[:2] == ["k8s", "cluster"]:
-        normalized.setdefault("clusterScope", True)
-
-    ns_index = segments.index("ns") if "ns" in segments else -1
-    resource_segment_index = -1
-    if ns_index >= 0:
-        resource_segment_index = ns_index + 2
-    elif segments[:2] == ["k8s", "cluster"]:
-        resource_segment_index = 2
-
-    resource_list = decode_path_segment(
-        segments[resource_segment_index] if len(segments) > resource_segment_index >= 0 else None
-    )
-    if resource_list:
-        normalized.setdefault("resourceList", resource_list)
-        resource_kind = K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT.get(resource_list.lower())
-        if resource_kind:
-            normalized.setdefault("resourceKind", resource_kind)
-            resource_name = decode_path_segment(
-                segments[resource_segment_index + 1]
-                if len(segments) > resource_segment_index + 1
-                else None
-            )
-            if resource_name:
-                normalized.setdefault("resourceName", resource_name)
-
-    if route == "catalog":
-        normalized.setdefault("perspective", "developer")
-        normalized.setdefault("resourceKind", "Catalog")
-    elif route == "topology":
-        normalized.setdefault("perspective", "developer")
-    elif route == "monitoring":
-        normalized.setdefault("perspective", "administrator")
-
-    return redact_sensitive(normalized)
-
-
-def sse(data: Mapping[str, Any] | str) -> str:
-    if isinstance(data, str):
-        return f"data: {data}\n\n"
-
-    return f"data: {json.dumps(redact_sensitive(data), ensure_ascii=False)}\n\n"
-
-
 def safe_error_text(value: Any, *, limit: int = 500) -> str:
     redacted = redact_sensitive(value)
     if isinstance(redacted, str):
@@ -3967,544 +3111,6 @@ def validate_image_attachments(attachments: list[ImageAttachment]) -> None:
         raise HTTPException(status_code=400, detail="Image attachments are too large")
 
 
-def format_bytes(size: int) -> str:
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-
-    return f"{size / (1024 * 1024):.1f} MB"
-
-
-def find_condition(resource: Mapping[str, Any], condition_type: str) -> Mapping[str, Any] | None:
-    conditions = resource.get("status", {}).get("conditions", [])
-    if not isinstance(conditions, list):
-        return None
-
-    for condition in conditions:
-        if isinstance(condition, Mapping) and condition.get("type") == condition_type:
-            return condition
-
-    return None
-
-
-def condition_status(resource: Mapping[str, Any], condition_type: str) -> str | None:
-    condition = find_condition(resource, condition_type)
-    if not condition:
-        return None
-
-    status = condition.get("status")
-    return str(status) if status is not None else None
-
-
-def node_roles(node: Mapping[str, Any]) -> list[str]:
-    labels = node.get("metadata", {}).get("labels", {})
-    if not isinstance(labels, Mapping):
-        return []
-
-    roles = []
-    for key in labels:
-        prefix = "node-role.kubernetes.io/"
-        if key.startswith(prefix):
-            role = key[len(prefix) :] or "worker"
-            roles.append(role)
-
-    return sorted(roles) or ["worker"]
-
-
-def node_metric_map(node_metrics_payload: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
-    if not node_metrics_payload:
-        return {}
-
-    items = node_metrics_payload.get("items")
-    if not isinstance(items, list):
-        return {}
-
-    metrics = {}
-    for item in items:
-        if not isinstance(item, Mapping):
-            continue
-
-        name = item.get("metadata", {}).get("name")
-        if isinstance(name, str):
-            metrics[name] = item
-
-    return metrics
-
-
-def summarize_node(node: Mapping[str, Any], metrics: Mapping[str, Any] | None) -> dict[str, Any]:
-    metadata = node.get("metadata", {}) if isinstance(node.get("metadata"), Mapping) else {}
-    status = node.get("status", {}) if isinstance(node.get("status"), Mapping) else {}
-    node_info = status.get("nodeInfo", {}) if isinstance(status.get("nodeInfo"), Mapping) else {}
-    name = str(metadata.get("name") or "unknown-node")
-    ready = condition_status(node, "Ready") == "True"
-    pressures = {
-        "disk": condition_status(node, "DiskPressure") == "True",
-        "memory": condition_status(node, "MemoryPressure") == "True",
-        "pid": condition_status(node, "PIDPressure") == "True",
-    }
-    usage = metrics.get("usage", {}) if isinstance(metrics, Mapping) else {}
-
-    return {
-        "name": name,
-        "roles": node_roles(node),
-        "ready": ready,
-        "pressures": pressures,
-        "kubeletVersion": node_info.get("kubeletVersion"),
-        "osImage": node_info.get("osImage"),
-        "usage": {
-            "cpu": usage.get("cpu") if isinstance(usage, Mapping) else None,
-            "memory": usage.get("memory") if isinstance(usage, Mapping) else None,
-        },
-    }
-
-
-def summarize_operator(operator: Mapping[str, Any]) -> dict[str, Any]:
-    metadata = operator.get("metadata", {}) if isinstance(operator.get("metadata"), Mapping) else {}
-    name = str(metadata.get("name") or "unknown-operator")
-    available = condition_status(operator, "Available") == "True"
-    degraded = condition_status(operator, "Degraded") == "True"
-    progressing = condition_status(operator, "Progressing") == "True"
-    upgradeable = condition_status(operator, "Upgradeable")
-    issue_condition = (
-        find_condition(operator, "Degraded")
-        if degraded
-        else find_condition(operator, "Available")
-        if not available
-        else find_condition(operator, "Progressing")
-        if progressing
-        else find_condition(operator, "Upgradeable")
-        if upgradeable == "False"
-        else None
-    )
-
-    return {
-        "name": name,
-        "available": available,
-        "degraded": degraded,
-        "progressing": progressing,
-        "upgradeable": upgradeable,
-        "reason": issue_condition.get("reason") if issue_condition else None,
-        "message": issue_condition.get("message") if issue_condition else None,
-    }
-
-
-def resource_summary_item(
-    *,
-    detail: str,
-    id: str,
-    issues: int,
-    kind: str,
-    name: str,
-    ready: int | str,
-    severity: str,
-    total: int,
-) -> dict[str, Any]:
-    score = f"{ready}/{total}" if isinstance(ready, int) else str(ready)
-    return {
-        "id": id,
-        "name": name,
-        "kind": kind,
-        "total": total,
-        "ready": ready,
-        "issues": issues,
-        "score": score,
-        "detail": detail,
-        "severity": severity,
-    }
-
-
-def workload_severity(issues: int, total: int) -> str:
-    if issues <= 0:
-        return "ok"
-    if total > 0 and issues == total:
-        return "risk"
-    return "warn"
-
-
-def summarize_pod_resources(pods_payload: Mapping[str, Any] | None) -> dict[str, Any]:
-    pods = resource_items(pods_payload)
-    phase_counts: dict[str, int] = {}
-    running = 0
-    ready = 0
-    succeeded = 0
-    failed = 0
-    terminating = 0
-    restarts = 0
-    issues = 0
-
-    for pod in pods:
-        status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
-        phase = str(status.get("phase") or "Unknown")
-        phase_counts[phase] = phase_counts.get(phase, 0) + 1
-        running += 1 if phase == "Running" else 0
-        succeeded += 1 if phase == "Succeeded" else 0
-        failed += 1 if phase == "Failed" else 0
-        terminating += 1 if pod_is_terminating(pod) else 0
-        restarts += pod_restart_total(pod)
-
-        pod_ready = pod_is_fully_ready(pod)
-        ready += 1 if pod_ready else 0
-        if phase not in {"Running", "Succeeded"} or (phase == "Running" and not pod_ready):
-            issues += 1
-
-    return resource_summary_item(
-        id="pods",
-        name="Pods",
-        kind="Pod",
-        total=len(pods),
-        ready=ready,
-        issues=issues + terminating,
-        severity="risk" if failed else workload_severity(issues + terminating, len(pods)),
-        detail=(
-            f"Running {running} · Ready {ready} · Pending {phase_counts.get('Pending', 0)} · "
-            f"Failed {failed} · Succeeded {succeeded} · Restarts {restarts}"
-        ),
-    )
-
-
-def summarize_replicated_resources(
-    payload: Mapping[str, Any] | None,
-    *,
-    id: str,
-    kind: str,
-    name: str,
-) -> dict[str, Any]:
-    resources = resource_items(payload)
-    desired = 0
-    ready = 0
-    available = 0
-    updated = 0
-    healthy = 0
-    issues = 0
-
-    for resource in resources:
-        spec = resource.get("spec", {}) if isinstance(resource.get("spec"), Mapping) else {}
-        status = resource.get("status", {}) if isinstance(resource.get("status"), Mapping) else {}
-        resource_desired = int(spec.get("replicas") or status.get("replicas") or 0)
-        resource_ready = int(status.get("readyReplicas") or 0)
-        resource_available = int(status.get("availableReplicas") or 0)
-        desired += resource_desired
-        ready += resource_ready
-        available += resource_available
-        updated += int(status.get("updatedReplicas") or 0)
-        unavailable = int(status.get("unavailableReplicas") or 0)
-        metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
-        generation = int(metadata.get("generation") or 0)
-        observed_generation = int(status.get("observedGeneration") or generation or 0)
-        if unavailable > 0 or resource_ready < resource_desired or observed_generation < generation:
-            issues += 1
-        else:
-            healthy += 1
-
-    return resource_summary_item(
-        id=id,
-        name=name,
-        kind=kind,
-        total=len(resources),
-        ready=healthy,
-        issues=issues,
-        severity=workload_severity(issues, len(resources)),
-        detail=f"Ready replicas {ready}/{desired} · Available {available} · Updated {updated} · Issues {issues}",
-    )
-
-
-def summarize_daemonset_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
-    daemonsets = resource_items(payload)
-    desired = 0
-    ready = 0
-    available = 0
-    healthy = 0
-    issues = 0
-
-    for daemonset in daemonsets:
-        status = daemonset.get("status", {}) if isinstance(daemonset.get("status"), Mapping) else {}
-        resource_desired = int(status.get("desiredNumberScheduled") or 0)
-        resource_ready = int(status.get("numberReady") or 0)
-        desired += resource_desired
-        ready += resource_ready
-        available += int(status.get("numberAvailable") or 0)
-        unavailable = int(status.get("numberUnavailable") or 0)
-        if unavailable > 0 or resource_ready < resource_desired:
-            issues += 1
-        else:
-            healthy += 1
-
-    return resource_summary_item(
-        id="daemonsets",
-        name="DaemonSets",
-        kind="DaemonSet",
-        total=len(daemonsets),
-        ready=healthy,
-        issues=issues,
-        severity=workload_severity(issues, len(daemonsets)),
-        detail=f"Ready pods {ready}/{desired} · Available {available} · Issues {issues}",
-    )
-
-
-def aiops_workload_match_text(resource: Mapping[str, Any]) -> str:
-    metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
-    spec = resource.get("spec", {}) if isinstance(resource.get("spec"), Mapping) else {}
-    template = spec.get("template", {}) if isinstance(spec.get("template"), Mapping) else {}
-    template_metadata = (
-        template.get("metadata", {}) if isinstance(template.get("metadata"), Mapping) else {}
-    )
-    labels = metadata.get("labels", {}) if isinstance(metadata.get("labels"), Mapping) else {}
-    template_labels = (
-        template_metadata.get("labels", {})
-        if isinstance(template_metadata.get("labels"), Mapping)
-        else {}
-    )
-    return " ".join(
-        [
-            str(metadata.get("namespace") or ""),
-            str(metadata.get("name") or ""),
-            " ".join(f"{key}={value}" for key, value in labels.items()),
-            " ".join(f"{key}={value}" for key, value in template_labels.items()),
-        ]
-    )
-
-
-def is_aiops_workload(resource: Mapping[str, Any]) -> bool:
-    return bool(AIOPS_WORKLOAD_RE.search(aiops_workload_match_text(resource)))
-
-
-def summarize_aiops_workload(resource: Mapping[str, Any], *, kind: str) -> dict[str, Any]:
-    metadata = resource.get("metadata", {}) if isinstance(resource.get("metadata"), Mapping) else {}
-    spec = resource.get("spec", {}) if isinstance(resource.get("spec"), Mapping) else {}
-    status = resource.get("status", {}) if isinstance(resource.get("status"), Mapping) else {}
-
-    if kind == "DaemonSet":
-        desired = int(status.get("desiredNumberScheduled") or 0)
-        ready = int(status.get("numberReady") or 0)
-        available = int(status.get("numberAvailable") or 0)
-        updated = int(status.get("updatedNumberScheduled") or 0)
-        unavailable = int(status.get("numberUnavailable") or max(desired - ready, 0))
-    else:
-        desired = int(spec.get("replicas") or status.get("replicas") or 0)
-        ready = int(status.get("readyReplicas") or 0)
-        available = int(status.get("availableReplicas") or 0)
-        updated = int(status.get("updatedReplicas") or 0)
-        unavailable = int(status.get("unavailableReplicas") or max(desired - ready, 0))
-
-    generation = int(metadata.get("generation") or 0)
-    observed_generation = int(status.get("observedGeneration") or generation or 0)
-    rollout_lagging = bool(generation and observed_generation < generation)
-    has_issue = unavailable > 0 or ready < desired or rollout_lagging
-    severity = "risk" if desired > 0 and ready == 0 else "warn" if has_issue else "ok"
-
-    return {
-        "available": available,
-        "createdAt": metadata.get("creationTimestamp"),
-        "desired": desired,
-        "detail": (
-            f"Ready {ready}/{desired} · Available {available} · Updated {updated}"
-            + (" · Rollout lagging" if rollout_lagging else "")
-        ),
-        "kind": kind,
-        "name": str(metadata.get("name") or f"unknown-{kind.lower()}"),
-        "namespace": str(metadata.get("namespace") or "default"),
-        "ready": ready,
-        "severity": severity,
-        "updated": updated,
-    }
-
-
-def build_aiops_workload_summary(
-    *,
-    daemonsets_payload: Mapping[str, Any] | None,
-    deployments_payload: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    deployments = [
-        summarize_aiops_workload(deployment, kind="Deployment")
-        for deployment in resource_items(deployments_payload)
-        if is_aiops_workload(deployment)
-    ]
-    daemonsets = [
-        summarize_aiops_workload(daemonset, kind="DaemonSet")
-        for daemonset in resource_items(daemonsets_payload)
-        if is_aiops_workload(daemonset)
-    ]
-    workloads = deployments + daemonsets
-    namespaces = sorted({str(workload.get("namespace")) for workload in workloads})
-
-    return {
-        "daemonsets": daemonsets,
-        "deployments": deployments,
-        "issues": len([workload for workload in workloads if workload.get("severity") != "ok"]),
-        "namespaces": namespaces[:12],
-        "total": len(workloads),
-    }
-
-
-def summarize_route_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
-    routes = resource_items(payload)
-    admitted = 0
-    issues = 0
-    for route in routes:
-        status = route.get("status", {}) if isinstance(route.get("status"), Mapping) else {}
-        ingresses = status.get("ingress")
-        route_admitted = False
-        if isinstance(ingresses, list):
-            for ingress in ingresses:
-                if not isinstance(ingress, Mapping):
-                    continue
-                conditions = ingress.get("conditions")
-                if isinstance(conditions, list) and any(
-                    isinstance(condition, Mapping)
-                    and condition.get("type") == "Admitted"
-                    and condition.get("status") == "True"
-                    for condition in conditions
-                ):
-                    route_admitted = True
-                    break
-        admitted += 1 if route_admitted else 0
-        issues += 0 if route_admitted else 1
-
-    return resource_summary_item(
-        id="routes",
-        name="Routes",
-        kind="Route",
-        total=len(routes),
-        ready=admitted,
-        issues=issues,
-        severity=workload_severity(issues, len(routes)),
-        detail=f"Admitted {admitted}/{len(routes)} · Issues {issues}",
-    )
-
-
-def summarize_pvc_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
-    pvcs = resource_items(payload)
-    bound = 0
-    issues = 0
-    for pvc in pvcs:
-        status = pvc.get("status", {}) if isinstance(pvc.get("status"), Mapping) else {}
-        phase = str(status.get("phase") or "Unknown")
-        bound += 1 if phase == "Bound" else 0
-        issues += 0 if phase == "Bound" else 1
-
-    return resource_summary_item(
-        id="persistentvolumeclaims",
-        name="PVCs",
-        kind="PersistentVolumeClaim",
-        total=len(pvcs),
-        ready=bound,
-        issues=issues,
-        severity=workload_severity(issues, len(pvcs)),
-        detail=f"Bound {bound}/{len(pvcs)} · Issues {issues}",
-    )
-
-
-def summarize_namespace_resources(payload: Mapping[str, Any] | None) -> dict[str, Any]:
-    namespaces = resource_items(payload)
-    active = 0
-    terminating = 0
-    for namespace in namespaces:
-        status = namespace.get("status", {}) if isinstance(namespace.get("status"), Mapping) else {}
-        phase = str(status.get("phase") or "Unknown")
-        active += 1 if phase == "Active" else 0
-        terminating += 1 if phase == "Terminating" else 0
-
-    return resource_summary_item(
-        id="namespaces",
-        name="Namespaces",
-        kind="Namespace",
-        total=len(namespaces),
-        ready=active,
-        issues=len(namespaces) - active,
-        severity=workload_severity(len(namespaces) - active, len(namespaces)),
-        detail=f"Active {active}/{len(namespaces)} · Terminating {terminating}",
-    )
-
-
-def summarize_simple_resource_count(
-    payload: Mapping[str, Any] | None,
-    *,
-    id: str,
-    kind: str,
-    name: str,
-) -> dict[str, Any]:
-    resources = resource_items(payload)
-    total = len(resources)
-    return resource_summary_item(
-        id=id,
-        name=name,
-        kind=kind,
-        total=total,
-        ready=total,
-        issues=0,
-        severity="ok",
-        detail=f"Total {total}",
-    )
-
-
-def build_resource_summary(
-    *,
-    daemonsets_payload: Mapping[str, Any] | None,
-    deployments_payload: Mapping[str, Any] | None,
-    namespaces_payload: Mapping[str, Any] | None,
-    pods_payload: Mapping[str, Any] | None,
-    pvcs_payload: Mapping[str, Any] | None,
-    replicasets_payload: Mapping[str, Any] | None,
-    routes_payload: Mapping[str, Any] | None,
-    services_payload: Mapping[str, Any] | None,
-    statefulsets_payload: Mapping[str, Any] | None,
-) -> dict[str, Any]:
-    items = [
-        summarize_pod_resources(pods_payload),
-        summarize_replicated_resources(
-            deployments_payload,
-            id="deployments",
-            kind="Deployment",
-            name="Deployments",
-        ),
-        summarize_replicated_resources(
-            replicasets_payload,
-            id="replicasets",
-            kind="ReplicaSet",
-            name="ReplicaSets",
-        ),
-        summarize_daemonset_resources(daemonsets_payload),
-        summarize_replicated_resources(
-            statefulsets_payload,
-            id="statefulsets",
-            kind="StatefulSet",
-            name="StatefulSets",
-        ),
-        summarize_simple_resource_count(
-            services_payload,
-            id="services",
-            kind="Service",
-            name="Services",
-        ),
-        summarize_route_resources(routes_payload),
-        summarize_pvc_resources(pvcs_payload),
-        summarize_namespace_resources(namespaces_payload),
-    ]
-    return {
-        "total": sum(int(item.get("total") or 0) for item in items),
-        "issues": sum(int(item.get("issues") or 0) for item in items),
-        "items": items,
-    }
-
-
-def compute_health_score(
-    nodes_summary: Mapping[str, Any],
-    operators_summary: Mapping[str, Any],
-    version_summary: Mapping[str, Any],
-) -> int:
-    score = 100
-    score -= min(40, int(nodes_summary.get("notReady", 0)) * 25)
-    score -= min(30, int(nodes_summary.get("pressureCount", 0)) * 10)
-    score -= min(35, int(operators_summary.get("degraded", 0)) * 12)
-    score -= min(35, int(operators_summary.get("unavailable", 0)) * 15)
-    score -= min(15, int(operators_summary.get("progressing", 0)) * 5)
-    if version_summary.get("upgradeable") is False:
-        score -= 8
-
-    return max(0, min(100, score))
-
-
 def build_cluster_summary(
     nodes_payload: Mapping[str, Any],
     node_metrics_payload: Mapping[str, Any] | None,
@@ -4520,126 +3126,22 @@ def build_cluster_summary(
     pvcs_payload: Mapping[str, Any] | None = None,
     namespaces_payload: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    node_items = nodes_payload.get("items", [])
-    if not isinstance(node_items, list):
-        node_items = []
-
-    metrics_by_name = node_metric_map(node_metrics_payload)
-    nodes = []
-    for node in node_items:
-        if not isinstance(node, Mapping):
-            continue
-
-        metadata = node.get("metadata", {}) if isinstance(node.get("metadata"), Mapping) else {}
-        nodes.append(summarize_node(node, metrics_by_name.get(str(metadata.get("name")))))
-    ready_nodes = [node for node in nodes if node["ready"]]
-    pressure_nodes = [
-        node for node in nodes if any(bool(value) for value in node.get("pressures", {}).values())
-    ]
-    nodes_summary = {
-        "total": len(nodes),
-        "ready": len(ready_nodes),
-        "notReady": len(nodes) - len(ready_nodes),
-        "pressureCount": len(pressure_nodes),
-        "items": nodes,
-        "metricsAvailable": bool(metrics_by_name),
-    }
-
-    operator_items = (
-        cluster_operators_payload.get("items", [])
-        if isinstance(cluster_operators_payload, Mapping)
-        else []
+    return build_cluster_summary_read_model(
+        nodes_payload,
+        node_metrics_payload,
+        cluster_version_payload,
+        cluster_operators_payload,
+        pods_payload,
+        deployments_payload,
+        replicasets_payload,
+        daemonsets_payload,
+        statefulsets_payload,
+        services_payload,
+        routes_payload,
+        pvcs_payload,
+        namespaces_payload,
+        api_url=OPENSHIFT_API_URL,
     )
-    if not isinstance(operator_items, list):
-        operator_items = []
-
-    operators = [
-        summarize_operator(operator) for operator in operator_items if isinstance(operator, Mapping)
-    ]
-    operator_issues = [
-        operator
-        for operator in operators
-        if not operator["available"]
-        or operator["degraded"]
-        or operator["progressing"]
-        or operator.get("upgradeable") == "False"
-    ]
-    operators_summary = {
-        "total": len(operators),
-        "available": len([operator for operator in operators if operator["available"]]),
-        "degraded": len([operator for operator in operators if operator["degraded"]]),
-        "progressing": len([operator for operator in operators if operator["progressing"]]),
-        "unavailable": len([operator for operator in operators if not operator["available"]]),
-        "issues": operator_issues[:8],
-    }
-
-    cluster_version_status = (
-        cluster_version_payload.get("status", {})
-        if isinstance(cluster_version_payload, Mapping)
-        else {}
-    )
-    desired = (
-        cluster_version_status.get("desired", {})
-        if isinstance(cluster_version_status.get("desired"), Mapping)
-        else {}
-    )
-    available_updates = cluster_version_status.get("availableUpdates")
-    available_update_versions = [
-        str(update.get("version"))
-        for update in available_updates
-        if isinstance(update, Mapping) and update.get("version")
-    ] if isinstance(available_updates, list) else []
-    conditional_updates = cluster_version_status.get("conditionalUpdates")
-    conditional_update_versions = [
-        str(update.get("release", {}).get("version"))
-        for update in conditional_updates
-        if isinstance(update, Mapping)
-        and isinstance(update.get("release"), Mapping)
-        and update.get("release", {}).get("version")
-    ] if isinstance(conditional_updates, list) else []
-    upgradeable_condition = (
-        find_condition(cluster_version_payload or {}, "Upgradeable")
-        if isinstance(cluster_version_payload, Mapping)
-        else None
-    )
-    version_summary = {
-        "version": desired.get("version"),
-        "channel": cluster_version_status.get("channel"),
-        "updateAvailable": isinstance(available_updates, list) and len(available_updates) > 0,
-        "availableUpdates": available_update_versions[:5],
-        "conditionalUpdates": conditional_update_versions[:5],
-        "upgradeable": upgradeable_condition.get("status") != "False"
-        if upgradeable_condition
-        else None,
-        "upgradeableReason": upgradeable_condition.get("reason") if upgradeable_condition else None,
-        "upgradeableMessage": upgradeable_condition.get("message") if upgradeable_condition else None,
-    }
-    resources_summary = build_resource_summary(
-        daemonsets_payload=daemonsets_payload,
-        deployments_payload=deployments_payload,
-        namespaces_payload=namespaces_payload,
-        pods_payload=pods_payload,
-        pvcs_payload=pvcs_payload,
-        replicasets_payload=replicasets_payload,
-        routes_payload=routes_payload,
-        services_payload=services_payload,
-        statefulsets_payload=statefulsets_payload,
-    )
-    aiops_workloads_summary = build_aiops_workload_summary(
-        daemonsets_payload=daemonsets_payload,
-        deployments_payload=deployments_payload,
-    )
-
-    return {
-        "updatedAt": datetime.now(UTC).isoformat(),
-        "apiUrl": OPENSHIFT_API_URL,
-        "healthScore": compute_health_score(nodes_summary, operators_summary, version_summary),
-        "nodes": nodes_summary,
-        "operators": operators_summary,
-        "resources": resources_summary,
-        "aiopsWorkloads": aiops_workloads_summary,
-        "version": version_summary,
-    }
 
 
 def data_source_status(
@@ -4818,571 +3320,6 @@ async def probe_thanos_query(thanos_url: str, authorization: str) -> dict[str, A
     return await query_thanos_instant(thanos_url, authorization, "up")
 
 
-def anomaly_resource(
-    *,
-    kind: str,
-    name: str,
-    namespace: str = "",
-) -> dict[str, str]:
-    resource = {"kind": kind, "name": name}
-    if namespace:
-        resource["namespace"] = namespace
-    return resource
-
-
-def anomaly_finding(
-    *,
-    candidate_cause: str,
-    evidence: str,
-    finding_type: str,
-    priority: int,
-    resource: Mapping[str, Any],
-    severity: str,
-    source: str,
-    title: str,
-    next_check: str = "",
-    namespace: str = "",
-    reason: str = "",
-) -> dict[str, Any]:
-    identity = json.dumps(
-        {
-            "namespace": namespace or resource.get("namespace"),
-            "priority": priority,
-            "resource": dict(resource),
-            "source": source,
-            "title": title,
-            "type": finding_type,
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-    )
-    severity_rank = {"위험": "danger", "확인 필요": "attention", "주의": "warning"}
-    finding = {
-        "candidateCause": candidate_cause,
-        "category": finding_type.split("_", 1)[0],
-        "evidence": evidence,
-        "id": hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16],
-        "impact": (
-            "서비스 영향 또는 운영 안정성 저하 가능성이 높습니다."
-            if severity == "위험"
-            else "운영자가 원인 확인과 후속 관찰을 해야 합니다."
-            if severity == "확인 필요"
-            else "즉시 장애로 단정하지 않고 추세를 확인해야 합니다."
-        ),
-        "lastObservedAt": now_rfc3339(),
-        "message": evidence,
-        "priority": priority,
-        "resource": dict(resource),
-        "severity": severity,
-        "source": source,
-        "statusLabel": severity,
-        "status": severity_rank.get(severity, "info"),
-        "title": title,
-        "type": finding_type,
-    }
-    if namespace or resource.get("namespace"):
-        finding["namespace"] = namespace or str(resource.get("namespace") or "")
-    if next_check:
-        finding["nextCheck"] = next_check
-    if reason:
-        finding["reason"] = reason
-    return finding
-
-
-def pod_anomaly_findings(pods_payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    for pod in resource_items(pods_payload):
-        namespace = metadata_namespace(pod)
-        pod_name = metadata_name(pod)
-        status = pod.get("status", {}) if isinstance(pod.get("status"), Mapping) else {}
-        phase = str(status.get("phase") or "Unknown")
-        resource = anomaly_resource(kind="Pod", namespace=namespace, name=pod_name)
-        owner = pod_owner_summary(pod)
-        ready = pod_ready_summary(pod)
-
-        if phase == "Pending":
-            findings.append(
-                anomaly_finding(
-                    candidate_cause="스케줄링, PVC, 이미지 pull, node resource 중 하나가 막혔을 가능성이 있습니다. Events 확인이 우선입니다.",
-                    evidence=f"Pod phase=`Pending`, ready={ready}, owner={owner}",
-                    finding_type="pod_pending",
-                    namespace=namespace,
-                    next_check=f"oc get events -n {namespace} --field-selector involvedObject.name={pod_name}",
-                    priority=25,
-                    reason=phase,
-                    resource=resource,
-                    severity="확인 필요",
-                    source="pods",
-                    title=f"Pending Pod: {namespace}/{pod_name}",
-                )
-            )
-
-        statuses = status.get("containerStatuses", [])
-        if not isinstance(statuses, list):
-            statuses = []
-        for container in statuses:
-            if not isinstance(container, Mapping):
-                continue
-
-            container_name = str(container.get("name") or "unknown-container")
-            state = container.get("state", {}) if isinstance(container.get("state"), Mapping) else {}
-            waiting = state.get("waiting") if isinstance(state.get("waiting"), Mapping) else {}
-            waiting_reason = str(waiting.get("reason") or "")
-            waiting_message = str(waiting.get("message") or "")
-            restart_count = int(container.get("restartCount") or 0)
-            last_state = container.get("lastState", {}) if isinstance(container.get("lastState"), Mapping) else {}
-            last_terminated = (
-                last_state.get("terminated")
-                if isinstance(last_state.get("terminated"), Mapping)
-                else {}
-            )
-            last_reason = str(last_terminated.get("reason") or "")
-
-            if waiting_reason in {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"}:
-                is_pull = waiting_reason in {"ImagePullBackOff", "ErrImagePull"}
-                findings.append(
-                    anomaly_finding(
-                        candidate_cause=(
-                            "이미지 이름, registry 접근, pull secret, tag 존재 여부 확인이 우선입니다."
-                            if is_pull
-                            else "컨테이너 프로세스 종료, 설정/env/command 오류, 의존 서비스 연결 실패 가능성이 큽니다."
-                        ),
-                        evidence=(
-                            f"container={container_name}, waiting.reason={waiting_reason}, "
-                            f"restartCount={restart_count}, message={waiting_message[:180]}"
-                        ),
-                        finding_type="pod_image_pull" if is_pull else "pod_crashloop",
-                        namespace=namespace,
-                        next_check=(
-                            f"oc describe pod {pod_name} -n {namespace}"
-                            if is_pull
-                            else f"oc logs {pod_name} -n {namespace} -c {container_name} --previous"
-                        ),
-                        priority=5 if not is_pull else 8,
-                        reason=waiting_reason,
-                        resource=resource,
-                        severity="위험",
-                        source="pods",
-                        title=f"{waiting_reason}: {namespace}/{pod_name}",
-                    )
-                )
-            elif waiting_reason and waiting_reason not in {"ContainerCreating", "PodInitializing"}:
-                findings.append(
-                    anomaly_finding(
-                        candidate_cause="컨테이너가 정상 실행 상태로 진입하지 못했습니다. waiting reason과 Events를 같이 확인해야 합니다.",
-                        evidence=f"container={container_name}, waiting.reason={waiting_reason}, message={waiting_message[:180]}",
-                        finding_type="pod_waiting",
-                        namespace=namespace,
-                        next_check=f"oc describe pod {pod_name} -n {namespace}",
-                        priority=18,
-                        reason=waiting_reason,
-                        resource=resource,
-                        severity="확인 필요",
-                        source="pods",
-                        title=f"Waiting container: {namespace}/{pod_name}",
-                    )
-                )
-
-            if restart_count >= 5:
-                findings.append(
-                    anomaly_finding(
-                        candidate_cause="누적 재시작 이력이 있습니다. 현재 장애인지 최근 복구 이력인지는 lastState와 metrics 증가량 확인이 필요합니다.",
-                        evidence=(
-                            f"container={container_name}, restartCount={restart_count}, "
-                            f"lastState.reason={last_reason or '-'}"
-                        ),
-                        finding_type="pod_restart_history",
-                        namespace=namespace,
-                        next_check=f"oc get pod {pod_name} -n {namespace} -o jsonpath='{{.status.containerStatuses}}'",
-                        priority=35 if restart_count < 20 else 16,
-                        reason=last_reason or "RestartCountHigh",
-                        resource=resource,
-                        severity="주의" if restart_count < 20 else "확인 필요",
-                        source="pods",
-                        title=f"Container restart history: {namespace}/{pod_name}",
-                    )
-                )
-
-    return findings
-
-
-def event_anomaly_findings(events_payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    for event in resource_items(events_payload):
-        event_type = str(event.get("type") or "")
-        if event_type != "Warning":
-            continue
-        namespace = metadata_namespace(event)
-        reason = str(event.get("reason") or "Warning")
-        message = str(event.get("message") or "")
-        involved = event.get("involvedObject", {}) if isinstance(event.get("involvedObject"), Mapping) else {}
-        resource = anomaly_resource(
-            kind=str(involved.get("kind") or "Event"),
-            namespace=str(involved.get("namespace") or namespace),
-            name=str(involved.get("name") or metadata_name(event)),
-        )
-        priority = 12 if reason in {"FailedScheduling", "FailedMount", "FailedAttachVolume"} else 28
-        findings.append(
-            anomaly_finding(
-                candidate_cause="Kubernetes Warning Event가 발생했습니다. 해당 리소스 describe와 같은 namespace의 후속 이벤트 확인이 필요합니다.",
-                evidence=f"event.reason={reason}, message={message[:220]}",
-                finding_type="warning_event",
-                namespace=str(resource.get("namespace") or namespace),
-                next_check=f"oc describe {resource.get('kind')} {resource.get('name')} -n {resource.get('namespace')}",
-                priority=priority,
-                reason=reason,
-                resource=resource,
-                severity="확인 필요" if priority <= 20 else "주의",
-                source="events",
-                title=f"Warning Event: {reason}",
-            )
-        )
-    return findings[:12]
-
-
-def operator_anomaly_findings(cluster_summary_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    operators = cluster_summary_payload.get("operators", {}) if isinstance(cluster_summary_payload.get("operators"), Mapping) else {}
-    issues = operators.get("issues") if isinstance(operators.get("issues"), list) else []
-    findings: list[dict[str, Any]] = []
-    for issue in issues:
-        if not isinstance(issue, Mapping):
-            continue
-        name = str(issue.get("name") or "unknown-operator")
-        unavailable = not bool(issue.get("available"))
-        degraded = bool(issue.get("degraded"))
-        progressing = bool(issue.get("progressing"))
-        upgradeable = str(issue.get("upgradeable") or "")
-        reason = str(issue.get("reason") or "")
-        message = str(issue.get("message") or "")
-        severity = "위험" if unavailable or degraded else "확인 필요"
-        priority = 3 if unavailable else 6 if degraded else 22
-        if upgradeable == "False":
-            priority = min(priority, 14)
-        findings.append(
-            anomaly_finding(
-                candidate_cause="ClusterOperator condition이 정상 조건을 벗어났습니다. reason/message를 기준으로 관련 operand와 namespace를 확인해야 합니다.",
-                evidence=(
-                    f"available={issue.get('available')}, degraded={degraded}, progressing={progressing}, "
-                    f"upgradeable={upgradeable or '-'}, reason={reason}, message={message[:180]}"
-                ),
-                finding_type="clusteroperator_condition",
-                next_check=f"oc get clusteroperator {name} -o yaml",
-                priority=priority,
-                reason=reason or "ClusterOperatorCondition",
-                resource=anomaly_resource(kind="ClusterOperator", name=name),
-                severity=severity,
-                source="clusteroperators",
-                title=f"ClusterOperator 확인 필요: {name}",
-            )
-        )
-    return findings
-
-
-def version_anomaly_findings(cluster_summary_payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    version = cluster_summary_payload.get("version", {}) if isinstance(cluster_summary_payload.get("version"), Mapping) else {}
-    if version.get("upgradeable") is not False:
-        return []
-    return [
-        anomaly_finding(
-            candidate_cause="ClusterVersion Upgradeable=False 상태입니다. 업그레이드 전 차단 조건을 해소해야 합니다.",
-            evidence=(
-                f"version={version.get('version')}, channel={version.get('channel')}, "
-                f"reason={version.get('upgradeableReason')}, message={str(version.get('upgradeableMessage') or '')[:220]}"
-            ),
-            finding_type="upgrade_blocked",
-            next_check="oc get clusterversion version -o yaml",
-            priority=20,
-            reason=str(version.get("upgradeableReason") or "UpgradeableFalse"),
-            resource=anomaly_resource(kind="ClusterVersion", name="version"),
-            severity="확인 필요",
-            source="clusterversion",
-            title="Cluster upgrade blocked",
-        )
-    ]
-
-
-def prometheus_vector_results(probe: Mapping[str, Any] | None) -> list[Mapping[str, Any]]:
-    if not isinstance(probe, Mapping):
-        return []
-    result = probe.get("result")
-    if not isinstance(result, list):
-        return []
-    return [item for item in result if isinstance(item, Mapping)]
-
-
-def alert_anomaly_findings(alerts_probe: Mapping[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    findings: list[dict[str, Any]] = []
-    excluded: list[dict[str, Any]] = []
-    for item in prometheus_vector_results(alerts_probe):
-        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
-        alertname = str(metric.get("alertname") or "unknown-alert")
-        severity_label = str(metric.get("severity") or metric.get("alert_severity") or "").lower()
-        namespace = str(metric.get("namespace") or "")
-        pod_name = str(metric.get("pod") or metric.get("pod_name") or "")
-        if alertname == "Watchdog":
-            excluded.append({"alertname": alertname, "reason": "Watchdog is an always-firing pipeline health alert."})
-            continue
-        severity = "위험" if severity_label in {"critical", "error"} else "확인 필요" if severity_label in {"warning", "warn"} else "주의"
-        priority = 4 if severity == "위험" else 13 if severity == "확인 필요" else 32
-        findings.append(
-            anomaly_finding(
-                candidate_cause="Alert labels/annotations 기준의 활성 경고입니다. 관련 리소스 상세 조회로 원인을 확정해야 합니다.",
-                evidence=(
-                    f"alertname={alertname}, severity={severity_label or '-'}, "
-                    f"namespace={namespace or '-'}, pod={pod_name or '-'}"
-                ),
-                finding_type="active_alert",
-                namespace=namespace,
-                next_check=(
-                    f"oc describe pod {pod_name} -n {namespace}"
-                    if pod_name and namespace
-                    else "Alert labels에서 namespace/pod/resource를 확인한 뒤 관련 리소스를 describe"
-                ),
-                priority=priority,
-                reason=alertname,
-                resource=anomaly_resource(kind="Alert", namespace=namespace, name=alertname if not pod_name else pod_name),
-                severity=severity,
-                source="alerts",
-                title=f"Active alert: {alertname}",
-            )
-        )
-    return findings, excluded
-
-
-def restart_metric_findings(restart_probe: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    findings: list[dict[str, Any]] = []
-    for item in prometheus_vector_results(restart_probe):
-        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
-        value = item.get("value")
-        restart_delta = 0.0
-        if isinstance(value, list) and len(value) >= 2:
-            try:
-                restart_delta = float(value[1])
-            except (TypeError, ValueError):
-                restart_delta = 0.0
-        if restart_delta <= 0:
-            continue
-        namespace = str(metric.get("namespace") or "")
-        pod_name = str(metric.get("pod") or "")
-        container = str(metric.get("container") or "")
-        findings.append(
-            anomaly_finding(
-                candidate_cause="최근 1시간 restart 증가가 관측되었습니다. 현재 CrashLoop인지 복구된 이력인지는 Pod 상태와 lastState로 확정해야 합니다.",
-                evidence=f"increase(kube_pod_container_status_restarts_total[1h])={restart_delta:g}, container={container or '-'}",
-                finding_type="pod_restart_spike",
-                namespace=namespace,
-                next_check=f"oc get pod {pod_name} -n {namespace} -o jsonpath='{{.status.containerStatuses}}'",
-                priority=10,
-                reason="RestartIncrease1h",
-                resource=anomaly_resource(kind="Pod", namespace=namespace, name=pod_name or "unknown-pod"),
-                severity="확인 필요",
-                source="metrics",
-                title=f"Recent restart increase: {namespace}/{pod_name or 'unknown-pod'}",
-            )
-        )
-    return findings
-
-
-def _prometheus_probe_reason(probe: Mapping[str, Any] | None) -> str:
-    if not isinstance(probe, Mapping):
-        return "probe payload was empty or invalid"
-    return safe_error_text(probe.get("reason") or probe.get("error") or "", limit=240)
-
-
-def rca_probe_event_status(probe: Mapping[str, Any] | None) -> str:
-    status = str((probe or {}).get("status") or "unavailable").lower()
-    if status == "available":
-        return "success"
-    if status == "partial":
-        return "partial"
-    if status == "error":
-        return "error"
-    return "skipped"
-
-
-def build_node_status_rca_evidence(
-    nodes_payload: Mapping[str, Any] | None,
-    node_metrics_payload: Mapping[str, Any] | None,
-    *,
-    metrics_status: Mapping[str, Any] | None = None,
-) -> str:
-    node_items = resource_items(nodes_payload)
-    if not node_items:
-        return "Node status evidence unavailable: Kubernetes API `/api/v1/nodes` returned no node items."
-
-    metrics_by_name = node_metric_map(node_metrics_payload)
-    rows = []
-    for node in node_items:
-        metadata = node.get("metadata", {}) if isinstance(node.get("metadata"), Mapping) else {}
-        summary = summarize_node(node, metrics_by_name.get(str(metadata.get("name"))))
-        pressure_labels = [
-            label
-            for label, active in summary.get("pressures", {}).items()
-            if active
-        ]
-        rows.append(
-            {
-                "cpu": summary.get("usage", {}).get("cpu") or "-",
-                "memory": summary.get("usage", {}).get("memory") or "-",
-                "name": summary.get("name") or "unknown-node",
-                "pressures": ", ".join(pressure_labels) if pressure_labels else "-",
-                "ready": "Ready" if summary.get("ready") else "NotReady",
-                "roles": ",".join(summary.get("roles") or ["worker"]),
-            }
-        )
-
-    ready_count = len([row for row in rows if row["ready"] == "Ready"])
-    pressure_count = len([row for row in rows if row["pressures"] != "-"])
-    metrics_state = str((metrics_status or {}).get("status") or "")
-    metrics_reason = safe_error_text((metrics_status or {}).get("reason") or "", limit=240)
-    lines = [
-        "Gateway-collected Node status evidence from Kubernetes API `/api/v1/nodes` and metrics.k8s.io.",
-        "EvidenceType: node",
-        (
-            f"Summary: total={len(rows)}, ready={ready_count}, "
-            f"notReady={len(rows) - ready_count}, pressureNodes={pressure_count}, "
-            f"metricsAvailable={bool(metrics_by_name)}"
-        ),
-    ]
-    if metrics_state and metrics_state != "available":
-        lines.append(
-            f"Node metrics are partial/unavailable: status=`{metrics_state}`, reason={metrics_reason or '-'}"
-        )
-    lines.extend(
-        [
-            "",
-            "| Node | Roles | Ready | Pressures | CPU | Memory |",
-            "| :--- | :--- | :---: | :--- | :--- | :--- |",
-        ]
-    )
-    for row in rows[:20]:
-        lines.append(
-            "| `{name}` | {roles} | {ready} | {pressures} | {cpu} | {memory} |".format(
-                **{
-                    key: markdown_table_cell(value)
-                    for key, value in row.items()
-                }
-            )
-        )
-    if len(rows) > 20:
-        lines.append("| ... | ... | ... | ... | ... | ... |")
-        lines.append(f"Rows capped at 20 of {len(rows)} nodes for RCA prompt compactness.")
-    return "\n".join(lines)
-
-
-def build_active_alerts_rca_evidence(alerts_probe: Mapping[str, Any] | None) -> str:
-    status = str((alerts_probe or {}).get("status") or "unavailable").lower()
-    if status not in {"available", "partial"}:
-        return (
-            "Active alert evidence unavailable: "
-            f"status={status}, reason={_prometheus_probe_reason(alerts_probe) or '-'}"
-        )
-
-    results = prometheus_vector_results(alerts_probe)
-    active_rows: list[dict[str, str]] = []
-    excluded_watchdog = 0
-    for item in results:
-        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
-        alertname = str(metric.get("alertname") or "unknown-alert")
-        if alertname == "Watchdog":
-            excluded_watchdog += 1
-            continue
-        active_rows.append(
-            {
-                "alert": alertname,
-                "severity": str(metric.get("severity") or metric.get("alert_severity") or "-"),
-                "namespace": str(metric.get("namespace") or "-"),
-                "pod": str(metric.get("pod") or metric.get("pod_name") or "-"),
-                "instance": str(metric.get("instance") or "-"),
-            }
-        )
-
-    reason = _prometheus_probe_reason(alerts_probe)
-    lines = [
-        'Gateway-collected Active alert evidence from Thanos query `ALERTS{alertstate="firing"}`.',
-        "EvidenceType: alert",
-        (
-            f"Query status: `{status}`. resultCount={alerts_probe.get('resultCount', len(results))}, "
-            f"nonWatchdogActiveAlerts={len(active_rows)}, excludedWatchdog={excluded_watchdog}"
-        ),
-    ]
-    if status == "partial" or reason:
-        lines.append(f"Probe note: {reason or 'partial vector result'}")
-    lines.extend(
-        [
-            "",
-            "| Alert | Severity | Namespace | Pod | Instance |",
-            "| :--- | :--- | :--- | :--- | :--- |",
-        ]
-    )
-    if active_rows:
-        for row in active_rows[:20]:
-            lines.append(
-                "| `{alert}` | {severity} | {namespace} | {pod} | {instance} |".format(
-                    **{key: markdown_table_cell(value) for key, value in row.items()}
-                )
-            )
-    else:
-        lines.append("| - | - | - | - | 관련 active alert 없음. Watchdog은 pipeline health alert로 제외. |")
-    if len(active_rows) > 20:
-        lines.append(f"Rows capped at 20 of {len(active_rows)} non-Watchdog active alerts.")
-    return "\n".join(lines)
-
-
-def build_restart_metric_rca_evidence(restart_probe: Mapping[str, Any] | None) -> str:
-    status = str((restart_probe or {}).get("status") or "unavailable").lower()
-    query = "increase(kube_pod_container_status_restarts_total[1h]) > 0"
-    if status not in {"available", "partial"}:
-        return (
-            "Metric RCA evidence unavailable: "
-            f"status={status}, query=`{query}`, reason={_prometheus_probe_reason(restart_probe) or '-'}"
-        )
-
-    results = prometheus_vector_results(restart_probe)
-    rows = []
-    for item in results:
-        metric = item.get("metric", {}) if isinstance(item.get("metric"), Mapping) else {}
-        value = item.get("value")
-        restart_delta = "-"
-        if isinstance(value, list) and len(value) >= 2:
-            restart_delta = str(value[1])
-        rows.append(
-            {
-                "container": str(metric.get("container") or "-"),
-                "namespace": str(metric.get("namespace") or "-"),
-                "pod": str(metric.get("pod") or "-"),
-                "restartDelta": restart_delta,
-            }
-        )
-
-    reason = _prometheus_probe_reason(restart_probe)
-    lines = [
-        f"Gateway-collected Metric RCA evidence from Thanos query `{query}`.",
-        "EvidenceType: metric",
-        f"Query status: `{status}`. resultCount={restart_probe.get('resultCount', len(results))}, window=1h",
-    ]
-    if status == "partial" or reason:
-        lines.append(f"Probe note: {reason or 'partial vector result'}")
-    lines.extend(
-        [
-            "",
-            "| Namespace | Pod | Container | Restart increase 1h |",
-            "| :--- | :--- | :--- | ---: |",
-        ]
-    )
-    if rows:
-        for row in rows[:20]:
-            lines.append(
-                "| {namespace} | `{pod}` | `{container}` | {restartDelta} |".format(
-                    **{key: markdown_table_cell(value) for key, value in row.items()}
-                )
-            )
-    else:
-        lines.append("| - | - | - | 0 |")
-    if len(rows) > 20:
-        lines.append(f"Rows capped at 20 of {len(rows)} restart metric series.")
-    return "\n".join(lines)
-
 
 def build_aiops_anomaly_summary(
     cluster_summary_payload: Mapping[str, Any],
@@ -5392,97 +3329,18 @@ def build_aiops_anomaly_summary(
     restart_probe: Mapping[str, Any] | None,
     data_sources: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    alert_findings, excluded_alerts = alert_anomaly_findings(alerts_probe)
-    source_status_by_name = {str(item.get("name") or ""): str(item.get("status") or "") for item in data_sources}
-    findings = (
-        operator_anomaly_findings(cluster_summary_payload)
-        + version_anomaly_findings(cluster_summary_payload)
-        + pod_anomaly_findings(pods_payload)
-        + event_anomaly_findings(events_payload)
-        + alert_findings
-        + restart_metric_findings(restart_probe)
-    )
-    unique: dict[str, dict[str, Any]] = {}
-    for finding in findings:
-        unique[str(finding.get("id"))] = finding
-    ordered = sorted(
-        unique.values(),
-        key=lambda item: (
-            int(item.get("priority") or 999),
-            str(item.get("source") or ""),
-            str(item.get("namespace") or ""),
-            str(item.get("title") or ""),
+    return build_aiops_anomaly_summary_read_model(
+        cluster_summary_payload,
+        pods_payload,
+        events_payload,
+        alerts_probe,
+        restart_probe,
+        data_sources,
+        safety=ClusterSafety(
+            mutations_enabled=MUTATIONS_ENABLED,
+            unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
         ),
     )
-    danger = sum(1 for item in ordered if item.get("severity") == "위험")
-    attention = sum(1 for item in ordered if item.get("severity") == "확인 필요")
-    warning = sum(1 for item in ordered if item.get("severity") == "주의")
-    unavailable_sources = [item for item in data_sources if item.get("status") != "available"]
-    source_errors = [
-        item for item in data_sources if item.get("status") == "error" and item.get("required")
-    ]
-
-    if source_errors:
-        status = "error"
-        label = "필수 이상 징후 데이터 소스 확인 실패"
-    elif danger:
-        status = "risk"
-        label = f"위험 이상 징후 {danger}건"
-    elif attention:
-        status = "attention"
-        label = f"확인 필요 이상 징후 {attention}건"
-    elif warning:
-        status = "warning"
-        label = f"주의 이상 징후 {warning}건"
-    elif unavailable_sources:
-        status = "unknown"
-        label = "일부 이상 징후 데이터 소스 미확인"
-    else:
-        status = "normal"
-        label = "현재 수집 범위에서 주요 이상 징후 없음"
-
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "AIOpsAnomalySummary",
-        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-anomaly-summary"},
-        "spec": {
-            "dataSources": list(data_sources),
-            "excludedAlerts": excluded_alerts,
-            "findings": ordered[:24],
-            "normalSignals": [
-                signal
-                for signal in [
-                    "ClusterOperator issues 없음"
-                    if source_status_by_name.get("clusteroperators") == "available"
-                    and not operator_anomaly_findings(cluster_summary_payload)
-                    else "",
-                    "Pod 비정상 상태 없음"
-                    if source_status_by_name.get("pods") == "available"
-                    and not pod_anomaly_findings(pods_payload)
-                    else "",
-                    "Warning Event 없음"
-                    if source_status_by_name.get("events") == "available"
-                    and not event_anomaly_findings(events_payload)
-                    else "",
-                ]
-                if signal
-            ],
-            "status": status,
-            "statusLabel": label,
-            "safety": {
-                "methodsUsed": ["GET"],
-                "mode": "execute",
-                "mutationsEnabled": MUTATIONS_ENABLED,
-                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
-            },
-            "totals": {
-                "attention": attention,
-                "danger": danger,
-                "total": len(ordered),
-                "warning": warning,
-            },
-        },
-    }
 
 
 ACTION_CANDIDATE_FORBIDDEN_VERBS = [
@@ -6001,107 +3859,6 @@ def build_aiops_overview(
     }
 
 
-def build_attachment_context(
-    attachments: list[ImageAttachment],
-    image_analysis: str | None = None,
-    *,
-    forwarded_to_ols: bool = False,
-) -> str:
-    if not attachments:
-        return "첨부 이미지 없음"
-
-    lines = [
-        "첨부 이미지는 Gateway에서 수신 및 검증했습니다.",
-    ]
-    if image_analysis:
-        lines.append("Gateway 비전 분석 결과:")
-        lines.append(image_analysis)
-    elif forwarded_to_ols:
-        lines.append("이미지 원본은 Lightspeed attachments로 전달했습니다.")
-    else:
-        lines.append(
-            "현재 Gateway 비전 분석과 OLS image attachment 전달이 비활성화되어 있습니다. "
-            "답변에는 첨부 파일 메타데이터, 사용자 설명, 도구 조회 결과만 기준으로 사용하세요."
-        )
-
-    lines.append("첨부 파일 메타데이터:")
-
-    for index, attachment in enumerate(attachments, start=1):
-        lines.append(
-            f"{index}. {attachment.name} ({attachment.mimeType}, {format_bytes(attachment.size)})"
-        )
-
-    return "\n".join(lines)
-
-
-def build_ols_attachments(attachments: list[ImageAttachment]) -> list[dict[str, str]]:
-    return [
-        {
-            "attachment_type": "image",
-            "content_type": attachment.mimeType,
-            "content": attachment.data,
-        }
-        for attachment in attachments
-    ]
-
-
-def build_ols_gateway_context(
-    *,
-    tool_plan: Mapping[str, Any],
-    rca_context: Mapping[str, Any],
-    safety_contract: Mapping[str, Any],
-    policy: Mapping[str, Any],
-    gateway_evidence: str | None = None,
-) -> dict[str, Any]:
-    rca_evidence = rca_context.get("evidence", {}) if isinstance(rca_context.get("evidence"), Mapping) else {}
-    missing_evidence = rca_evidence.get("missing", []) if isinstance(rca_evidence, Mapping) else []
-    context = {
-        "apiVersion": "aiops.komsco/v1alpha1",
-        "kind": "GatewayContext",
-        "metadata": {
-            "generatedAt": now_rfc3339(),
-            "source": "komsco-ai-gateway",
-            "version": "0.1.3",
-            "rcaContextDigest": rca_context.get("metadata", {}).get("digest")
-            if isinstance(rca_context.get("metadata"), Mapping)
-            else "",
-        },
-        "toolPlan": redact_sensitive(dict(tool_plan)),
-        "evidenceSummary": redact_sensitive(rca_evidence.get("summary", {}) if isinstance(rca_evidence, Mapping) else {}),
-        "missingEvidence": redact_sensitive(missing_evidence if isinstance(missing_evidence, list) else []),
-        "rcaContext": redact_sensitive(dict(rca_context)),
-        "safetyContract": redact_sensitive(dict(safety_contract)),
-        "policy": redact_sensitive(dict(policy)),
-        "gatewayEvidenceDigest": canonical_digest(redact_sensitive(gateway_evidence or "")) if gateway_evidence else "",
-    }
-    context["metadata"]["digest"] = canonical_digest(redact_sensitive(context))
-    return context
-
-
-def build_ols_payload(
-    query: str,
-    conversation_id: str | None,
-    attachments: list[ImageAttachment],
-    *,
-    forward_image_attachments: bool = False,
-    gateway_context: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {"query": query}
-    if OLS_FORWARD_CONVERSATION_ID and conversation_id:
-        payload["conversation_id"] = conversation_id
-
-    # OLS 1.1.x rejects unknown request-body fields with 422 extra_forbidden.
-    # Keep gateway_context in the local Gateway status/events and put the
-    # evidence handoff inside the query text instead of adding a non-OLS field.
-    _ = gateway_context
-
-    ols_attachments = build_ols_attachments(attachments) if forward_image_attachments else []
-    if ols_attachments:
-        payload["attachments"] = ols_attachments
-
-    return payload
-
-
 def read_secret_value(value: str | None, file_path: str | None) -> str | None:
     if value:
         return value
@@ -6117,6 +3874,60 @@ def read_secret_value(value: str | None, file_path: str | None) -> str | None:
 
 def should_forward_image_attachments_to_ols() -> bool:
     return parse_bool(os.getenv("KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS"), default=True)
+
+
+def build_ols_gateway_context(
+    *,
+    tool_plan: Mapping[str, Any],
+    rca_context: Mapping[str, Any],
+    safety_contract: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    gateway_evidence: str | None = None,
+) -> dict[str, Any]:
+    return build_ols_gateway_context_for_input(
+        OlsGatewayContextInput(
+            tool_plan=tool_plan,
+            rca_context=rca_context,
+            safety_contract=safety_contract,
+            policy=policy,
+            gateway_evidence=gateway_evidence,
+        )
+    )
+
+
+def build_ols_payload(
+    query: str,
+    conversation_id: str | None,
+    attachments: list[ImageAttachment],
+    *,
+    forward_image_attachments: bool = False,
+    gateway_context: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    return build_ols_payload_for_context(
+        OlsPayloadInput(
+            query=query,
+            conversation_id=conversation_id,
+            attachments=attachments,
+            forward_image_attachments=forward_image_attachments,
+            forward_conversation_id=OLS_FORWARD_CONVERSATION_ID,
+            gateway_context=gateway_context,
+        )
+    )
+
+
+def build_ols_context_handoff(
+    *,
+    gateway_context: Mapping[str, Any] | None = None,
+    gateway_evidence: str | None = None,
+) -> str:
+    return build_ols_context_handoff_for_limits(
+        OlsContextHandoffInput(
+            gateway_context=gateway_context,
+            gateway_evidence=gateway_evidence,
+            max_chars=OLS_CONTEXT_HANDOFF_MAX_CHARS,
+            max_lines=OLS_CONTEXT_HANDOFF_MAX_LINES,
+        )
+    )
 
 
 def get_vision_config() -> dict[str, str] | None:
@@ -6135,271 +3946,6 @@ def get_vision_config() -> dict[str, str] | None:
         config["api_key"] = api_key
 
     return config
-
-
-def truncate_detail(value: str, limit: int = MAX_TOOL_DETAIL_CHARS) -> str:
-    if len(value) <= limit:
-        return value
-
-    return f"{value[:limit]}\n... truncated ..."
-
-
-def dump_tool_detail(value: Any) -> str:
-    if isinstance(value, str):
-        return truncate_detail(value)
-
-    try:
-        return truncate_detail(json.dumps(value, ensure_ascii=False, indent=2))
-    except TypeError:
-        return truncate_detail(str(value))
-
-
-def summarize_resource_args(args: Any) -> str | None:
-    if not isinstance(args, Mapping):
-        return None
-
-    kind = args.get("kind")
-    name = args.get("name")
-    namespace = args.get("namespace")
-    if not kind or not name:
-        return None
-
-    resource_name = f"{namespace}/{name}" if namespace else str(name)
-    return f"{kind} {resource_name}"
-
-
-def summarize_resource_content(content: str) -> str | None:
-    kind_match = re.search(r"(?m)^kind:\s*([A-Za-z0-9_.-]+)\s*$", content)
-    name_match = re.search(r"(?m)^\s{2}name:\s*([A-Za-z0-9_.-]+)\s*$", content)
-    namespace_match = re.search(r"(?m)^\s{2}namespace:\s*([A-Za-z0-9_.-]+)\s*$", content)
-    if not kind_match or not name_match:
-        return None
-
-    resource_name = (
-        f"{namespace_match.group(1)}/{name_match.group(1)}"
-        if namespace_match
-        else name_match.group(1)
-    )
-    return f"{kind_match.group(1)} {resource_name}"
-
-
-def summarize_tool_payload(event_type: str, payload: Mapping[str, Any]) -> str:
-    tool_name = payload.get("name") or payload.get("tool_name")
-    if event_type == "tool_call":
-        if tool_name == "resources_get":
-            resource_ref = summarize_resource_args(payload.get("args"))
-            if resource_ref:
-                return f"{resource_ref} 상세 조회"
-
-        server_name = payload.get("server_name") or payload.get("serverName")
-        if server_name:
-            return f"{server_name} 도구 호출"
-
-        return "도구 호출"
-
-    status = payload.get("status")
-    content = payload.get("content")
-    if status and str(status).lower() in {"error", "failed", "failure"}:
-        if isinstance(content, str) and content.strip():
-            first_line = content.strip().splitlines()[0]
-            return f"조회 실패: {truncate_detail(first_line, 80)}"
-
-        return f"상태: {status}"
-
-    if isinstance(content, str):
-        if tool_name == "resources_get":
-            resource_ref = summarize_resource_content(content)
-            if resource_ref:
-                return f"{resource_ref} 조회 완료"
-
-        try:
-            parsed_content = json.loads(content)
-        except json.JSONDecodeError:
-            parsed_content = None
-
-        if isinstance(parsed_content, Mapping):
-            alerts = parsed_content.get("alerts")
-            if isinstance(alerts, list):
-                return f"경고 {len(alerts)}건 조회"
-
-    if status:
-        return f"상태: {status}"
-
-    return "도구 실행 완료"
-
-
-def summarize_alerts_detail(alerts: list[Any]) -> str:
-    lines = [f"조회 경고: {len(alerts)}건"]
-    for alert in alerts[:10]:
-        if not isinstance(alert, Mapping):
-            continue
-
-        labels = alert.get("labels") if isinstance(alert.get("labels"), Mapping) else {}
-        annotations = (
-            alert.get("annotations") if isinstance(alert.get("annotations"), Mapping) else {}
-        )
-        parts = [
-            str(labels.get("severity") or "unknown"),
-            str(labels.get("alertname") or "unknown-alert"),
-        ]
-        namespace = labels.get("namespace")
-        pod = labels.get("pod")
-        if namespace:
-            parts.append(f"namespace={namespace}")
-        if pod:
-            parts.append(f"pod={pod}")
-
-        lines.append(f"- {' / '.join(parts)}")
-        summary = annotations.get("summary")
-        if summary:
-            lines.append(f"  {summary}")
-
-    if len(alerts) > 10:
-        lines.append(f"... {len(alerts) - 10}건 더 있음")
-
-    return "\n".join(lines)
-
-
-def build_tool_detail(event_type: str, payload: Mapping[str, Any]) -> str:
-    if event_type == "tool_call":
-        lines = []
-        server_name = payload.get("server_name") or payload.get("serverName")
-        args = payload.get("args")
-        if server_name:
-            lines.append(f"도구 서버: {server_name}")
-        if args is not None:
-            lines.append(f"요청 인자:\n{dump_tool_detail(args)}")
-
-        return "\n".join(lines) or dump_tool_detail(payload)
-
-    lines = []
-    status = payload.get("status")
-    if status:
-        lines.append(f"상태: {status}")
-
-    content = payload.get("content")
-    if isinstance(content, str):
-        try:
-            parsed_content = json.loads(content)
-        except json.JSONDecodeError:
-            parsed_content = None
-
-        if isinstance(parsed_content, Mapping):
-            alerts = parsed_content.get("alerts")
-            if isinstance(alerts, list):
-                lines.append(summarize_alerts_detail(alerts))
-                return truncate_detail("\n".join(lines))
-
-            lines.append(dump_tool_detail(parsed_content))
-            return truncate_detail("\n".join(lines))
-
-        lines.append(truncate_detail(content))
-        return truncate_detail("\n".join(lines))
-
-    result = payload.get("result")
-    if result is not None:
-        lines.append(dump_tool_detail(result))
-        return truncate_detail("\n".join(lines))
-
-    return dump_tool_detail(payload)
-
-
-def normalize_tool_event(event_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {
-        "type": event_type,
-        "name": payload.get("name") or payload.get("tool_name") or "unknown_tool",
-        "summary": summarize_tool_payload(event_type, payload),
-        "detail": build_tool_detail(event_type, payload),
-    }
-
-    for source_key, target_key in (
-        ("id", "id"),
-        ("args", "args"),
-        ("status", "status"),
-        ("server_name", "serverName"),
-        ("serverName", "serverName"),
-        ("round", "round"),
-    ):
-        value = payload.get(source_key)
-        if value is not None:
-            normalized[target_key] = value
-
-    return normalized
-
-
-def parse_tool_text_line(line: str) -> dict[str, Any] | None:
-    stripped = line.strip()
-    for prefix, event_type in TOOL_LINE_PREFIXES:
-        if not stripped.startswith(prefix):
-            continue
-
-        raw_payload = stripped[len(prefix) :].strip()
-        try:
-            payload = json.loads(raw_payload)
-        except json.JSONDecodeError:
-            return {
-                "type": event_type,
-                "name": "unknown_tool",
-                "summary": "도구 이벤트 수신",
-                "detail": truncate_detail(raw_payload),
-            }
-
-        if isinstance(payload, Mapping):
-            return normalize_tool_event(event_type, payload)
-
-        return {
-            "type": event_type,
-            "name": "unknown_tool",
-            "summary": "도구 이벤트 수신",
-            "detail": dump_tool_detail(payload),
-        }
-
-    return None
-
-
-async def split_plain_text_events(chunks: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
-    pending = ""
-
-    async for chunk in chunks:
-        if not chunk:
-            continue
-
-        pending += chunk
-        while pending:
-            if any(prefix.startswith(pending) for prefix, _ in TOOL_LINE_PREFIXES):
-                break
-
-            matched_prefix = next(
-                (prefix for prefix, _ in TOOL_LINE_PREFIXES if pending.startswith(prefix)),
-                None,
-            )
-            if matched_prefix:
-                line_end = pending.find("\n")
-                if line_end == -1:
-                    break
-
-                line = pending[:line_end]
-                pending = pending[line_end + 1 :]
-                tool_event = parse_tool_text_line(line)
-                if tool_event:
-                    yield tool_event
-                continue
-
-            line_end = pending.find("\n")
-            if line_end == -1:
-                yield {"type": "text", "content": pending}
-                pending = ""
-                continue
-
-            yield {"type": "text", "content": pending[: line_end + 1]}
-            pending = pending[line_end + 1 :]
-
-    if pending:
-        tool_event = parse_tool_text_line(pending)
-        if tool_event:
-            yield tool_event
-        else:
-            yield {"type": "text", "content": pending}
 
 
 def should_collect_pod_status_evidence(message: str) -> bool:
@@ -6443,71 +3989,6 @@ def append_gateway_evidence(current: str | None, new_evidence: str) -> str:
         return new_evidence
 
     return f"{current}\n\n{new_evidence}"
-
-
-def build_ols_context_handoff(
-    *,
-    gateway_context: Mapping[str, Any] | None = None,
-    gateway_evidence: str | None = None,
-) -> str:
-    if OLS_CONTEXT_HANDOFF_MAX_CHARS <= 0:
-        return ""
-
-    lines: list[str] = []
-    if isinstance(gateway_context, Mapping):
-        tool_plan = gateway_context.get("toolPlan")
-        rca_context = gateway_context.get("rcaContext")
-        if isinstance(tool_plan, Mapping):
-            task_type = str(tool_plan.get("task_type") or "generic_openshift_question")
-            policy = tool_plan.get("execution_policy")
-            execution_mode = (
-                str(policy.get("mode"))
-                if isinstance(policy, Mapping) and policy.get("mode")
-                else "evidence_check"
-            )
-            lines.append(f"- Tool plan: {task_type}; execution policy: {execution_mode}")
-
-        if isinstance(rca_context, Mapping):
-            evidence = rca_context.get("evidence")
-            if isinstance(evidence, Mapping):
-                summary = evidence.get("summary")
-                if isinstance(summary, Mapping):
-                    lines.append(
-                        "- Evidence refs: "
-                        f"collected={summary.get('collectedCount', 0)}, "
-                        f"partial={summary.get('partialCount', 0)}, "
-                        f"failed={summary.get('failedCount', 0)}, "
-                        f"missing={summary.get('missingCount', 0)}"
-                    )
-                missing = evidence.get("missing")
-                if isinstance(missing, list) and missing:
-                    missing_types = [
-                        str(item.get("type") or "unknown")
-                        for item in missing
-                        if isinstance(item, Mapping)
-                    ]
-                    if missing_types:
-                        lines.append(f"- Missing evidence types: {', '.join(missing_types[:6])}")
-
-    if gateway_evidence:
-        lines.append("- Verified facts collected before final answer:")
-        for raw_line in str(redact_sensitive(gateway_evidence)).splitlines():
-            line = " ".join(raw_line.strip().split())
-            if not line:
-                continue
-            if not line.startswith(("-", "*")):
-                line = f"- {line}"
-            lines.append(line)
-            if len(lines) >= OLS_CONTEXT_HANDOFF_MAX_LINES:
-                break
-
-    handoff = "\n".join(lines).strip()
-    if len(handoff) > OLS_CONTEXT_HANDOFF_MAX_CHARS:
-        handoff = (
-            handoff[:OLS_CONTEXT_HANDOFF_MAX_CHARS].rstrip()
-            + "\n- ... truncated; full RCA context is available in the local event stream."
-        )
-    return handoff
 
 
 def normalize_pod_restart_language(text: str) -> str:
@@ -7110,7 +4591,7 @@ def test_pod_create_answer(
             "",
             "## Target",
             f"- namespace: `{namespace}`",
-            f"- object group: `aiops-test-pods`",
+            "- object group: `aiops-test-pods`",
             f"- requested count: `{count}`",
             "- failure mode: `CrashLoopBackOff`",
             "",
@@ -9268,31 +6749,6 @@ async def call_ols_stream(
         raise
 
 
-def normalize_ols_event(event: dict[str, Any]) -> dict[str, Any]:
-    event_type = event.get("event") or event.get("type")
-
-    if event_type == "text":
-        normalized = {
-            "type": "text",
-            "content": event.get("data") or event.get("content") or "",
-        }
-        for key in ("fallbackAnswer", "gatewayContextDigest", "source", "streamProbe"):
-            if key in event:
-                normalized[key] = event[key]
-        return normalized
-
-    if event_type == "end":
-        return {"type": "end", "conversationId": event.get("conversation_id")}
-
-    if event_type in {"tool_call", "tool_result"}:
-        if event.get("detail") is not None and event.get("summary") is not None:
-            return event
-
-        return normalize_tool_event(event_type, event)
-
-    return event
-
-
 def should_filter_gateway_api_references(message: str) -> bool:
     return not bool(EXPLICIT_KUBERNETES_GATEWAY_API_RE.search(message))
 
@@ -10939,38 +8395,6 @@ def build_crashloop_demo_answer_contract_text(req: ChatRequest, run_id: str) -> 
     )
 
 
-def build_aiops_answer_contract_text(
-    *,
-    policy: Mapping[str, Any],
-    rca_context: Mapping[str, Any],
-    runtime_tool_plan: Mapping[str, Any],
-) -> str:
-    steps = runtime_tool_plan.get("tool_plan")
-    if not isinstance(steps, list) or not steps:
-        return ""
-
-    evidence = rca_context.get("evidence")
-    evidence_summary = evidence.get("summary") if isinstance(evidence, Mapping) else {}
-    collected = evidence_summary.get("collectedCount", 0) if isinstance(evidence_summary, Mapping) else 0
-    missing = evidence_summary.get("missingCount", 0) if isinstance(evidence_summary, Mapping) else 0
-    task_type = str(runtime_tool_plan.get("task_type") or "unknown")
-    decision = str(policy.get("decision") or "unknown")
-    if decision != "action_proposal_only" and task_type not in {"pod_restart_rca"}:
-        return ""
-
-    return "\n".join(
-        [
-            "",
-            "## 승인 대기 조치",
-            f"- 조회 계획: `{task_type}` 유형으로 필요한 확인 결과를 정리했습니다.",
-            f"- 확인 결과: 수집 {collected}건, 추가 확인 필요 {missing}건을 분리했습니다.",
-            "- 조치 흐름: Action Plan을 만든 뒤 운영자 승인/거절을 거쳐 실행 결과와 감사 기록을 남깁니다.",
-            "- 승인 전에는 변경 작업을 실행하지 않습니다.",
-            "- 거절하면 실행은 차단되고 거절 기록만 남습니다.",
-        ]
-    )
-
-
 def build_rca_context_stream_event(
     *,
     req: "ChatRequest",
@@ -12230,10 +9654,12 @@ def build_empty_answer_fallback(
         return build_action_proposal_fallback(req, policy)
 
     answer_plan = build_gateway_fallback_answer_plan(
-        req.message,
-        policy,
-        tool_results,
-        gateway_evidence,
+        GatewayFallbackPlanInput(
+            message=req.message,
+            policy=policy,
+            tool_results=tool_results,
+            gateway_evidence=gateway_evidence,
+        )
     )
     if answer_plan:
         return render_answer_plan(answer_plan)
@@ -15504,13 +12930,16 @@ async def _create_approval_decision_impl(
             "pod_fix_or_rollback_review",
         }
     )
-    record = build_approval_decision_record(
-        plan,
-        req,
-        subject,
-        action_access_review,
-        allow_self_approval=auto_policy or review_only_action,
-        auto_policy=auto_policy,
+    record = build_approval_decision_record_for_context(
+        ApprovalDecisionRecordInput(
+            plan_record=plan,
+            request=req,
+            approver=subject,
+            action_access_review=action_access_review,
+            context=action_record_context(),
+            allow_self_approval=auto_policy or review_only_action,
+            auto_policy=auto_policy,
+        )
     )
     approval_id = str(record["metadata"]["name"])
     await bounded_put_record("approvalDecisions", approval_id, record)
@@ -15609,7 +13038,14 @@ async def _execute_action_impl(
     enforce_action_access_review(execution_access_review)
     validate_execution_evidence_freshness(sealed_plan)
 
-    grant_reference = build_execution_grant_reference(approval, plan, subject)
+    grant_reference = build_execution_grant_reference_for_context(
+        ExecutionGrantInput(
+            approval=approval,
+            plan=plan,
+            approver=subject,
+            context=action_record_context(),
+        )
+    )
     execution_id = f"execution-{uuid.uuid4()}"
     if MUTATIONS_ENABLED:
         executor_result = await execute_action_with_executor(

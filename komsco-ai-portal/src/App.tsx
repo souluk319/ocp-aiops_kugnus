@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Activity,
   AlertTriangle,
-  Bell,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -10,21 +9,19 @@ import {
   FileText,
   GitBranch,
   Network,
-  RefreshCw,
   Search,
   ShieldCheck,
   Upload,
   X,
 } from 'lucide-react';
-import { fetchAiopsEvents, fetchAiopsStatus, fetchClusterSummary } from './api';
-import aiopsIconUrl from './assets/aiops_icon.svg';
 import {
-  navGroupLabel,
-  navItems,
   standaloneRouteByView,
   viewFromLocation,
 } from './portalNavigation';
 import { severityClass, severityLabel, StatusBadge } from './portalBadges';
+import { aiopsAlarmCount, formatTime, isOpenShiftAuthError } from './portalModel';
+import { useLiveClock, usePortalRuntime } from './portalRuntime';
+import { ClusterSignalStrip, Sidebar, Topbar } from './portalShell';
 import type {
   ActivityItem,
   AiopsEventFeed,
@@ -41,84 +38,6 @@ import type {
 } from './types';
 
 const V2App = React.lazy(() => import('./v2/V2App'));
-
-type RuntimeState = {
-  error: string;
-  events: AiopsEventFeed;
-  isLive: boolean;
-  loading: boolean;
-  refresh: (options?: { silent?: boolean }) => Promise<void>;
-  status: AiopsRuntimeStatus;
-  summary: ClusterSummary;
-};
-
-const emptySummary: ClusterSummary = {
-  aiopsWorkloads: {
-    daemonsets: [],
-    deployments: [],
-    issues: 0,
-    namespaces: [],
-    total: 0,
-  },
-  healthScore: 0,
-  nodes: {
-    total: 0,
-    ready: 0,
-    notReady: 0,
-    pressureCount: 0,
-    metricsAvailable: false,
-    items: [],
-  },
-  operators: {
-    available: 0,
-    degraded: 0,
-    progressing: 0,
-    total: 0,
-    unavailable: 0,
-    issues: [],
-  },
-  resources: {
-    issues: 0,
-    items: [],
-    total: 0,
-  },
-  updatedAt: '',
-  version: {
-    updateAvailable: false,
-  },
-};
-
-const emptyStatus: AiopsRuntimeStatus = {
-  spec: {
-    capabilities: {
-      actionExecutorConfigured: false,
-      diagnosticsControllerConfigured: false,
-      diagnosticsEnabled: false,
-      mutationsEnabled: false,
-      recordStoreEnabled: false,
-      unrestrictedCommandsEnabled: false,
-    },
-    records: {
-      actionProposals: [],
-      auditRecords: [],
-      approvalDecisions: [],
-      diagnosticRequests: [],
-      executionRecords: [],
-      sealedActionPlans: [],
-    },
-  },
-};
-
-const emptyEventFeed: AiopsEventFeed = {
-  metadata: {
-    name: 'activity-feed',
-  },
-  spec: {
-    items: [],
-    pollIntervalSeconds: 30,
-    sources: [],
-  },
-};
 
 const mockExecutionRecords: AiopsRecord[] = [
   {
@@ -554,29 +473,6 @@ const reportSecondarySignal = (
 
 const endpointPageSizeOptions = [10, 25, 50];
 const eventInboxPageSizeOptions = [10, 25, 50];
-
-const aiopsAlarmCount = (events: AiopsEventFeed): number =>
-  events.spec.items.filter((item) => item.severity === 'risk' || item.severity === 'warn').length;
-
-const compactCount = (value: number): string => (value > 99 ? '99+' : String(value));
-
-const formatTime = (value?: string): string => {
-  if (!value) {
-    return '-';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString('ko-KR', {
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: '2-digit',
-  });
-};
 
 const asObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
@@ -2560,225 +2456,6 @@ const buildRcaTimeline = (
     { detail: findings[0]?.title ?? '판단 생성 대기', title: 'RCA judgment generated' },
   ];
 };
-
-const useLiveClock = (): string => {
-  const [clock, setClock] = React.useState(() =>
-    new Date().toLocaleTimeString('ko-KR', { hour12: false }),
-  );
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => {
-      setClock(new Date().toLocaleTimeString('ko-KR', { hour12: false }));
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  return clock;
-};
-
-const isOpenShiftAuthError = (error: string): boolean =>
-  /Unauthorized|Missing OpenShift bearer token|openshift_user_auth_failed|사용자 인증|인증이 만료/.test(
-    error,
-  );
-
-const portalConnectionLabel = (isLive: boolean, error: string): string => {
-  if (isLive) {
-    return '게이트웨이 연결됨';
-  }
-  if (isOpenShiftAuthError(error)) {
-    return 'OpenShift 인증 필요';
-  }
-  return '게이트웨이 연결 확인 필요';
-};
-
-const usePortalRuntime = (): RuntimeState => {
-  const [summary, setSummary] = React.useState<ClusterSummary>(emptySummary);
-  const [status, setStatus] = React.useState<AiopsRuntimeStatus>(emptyStatus);
-  const [events, setEvents] = React.useState<AiopsEventFeed>(emptyEventFeed);
-  const [loading, setLoading] = React.useState(true);
-  const [isLive, setIsLive] = React.useState(false);
-  const [error, setError] = React.useState('');
-
-  const refresh = React.useCallback(async (options?: { silent?: boolean }) => {
-    const silent = options?.silent ?? false;
-    if (!silent) {
-      setLoading(true);
-    }
-
-    const [summaryResult, statusResult, eventResult] = await Promise.allSettled([
-      fetchClusterSummary(),
-      fetchAiopsStatus(),
-      fetchAiopsEvents(),
-    ]);
-
-    if (summaryResult.status === 'fulfilled') {
-      setSummary(summaryResult.value);
-    }
-
-    if (statusResult.status === 'fulfilled') {
-      setStatus(statusResult.value);
-    }
-
-    if (eventResult.status === 'fulfilled') {
-      setEvents(eventResult.value);
-    }
-
-    const errors = [summaryResult, statusResult, eventResult]
-      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map((result) => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
-
-    setIsLive(errors.length === 0);
-    setError(errors.join('\n'));
-    if (!silent) {
-      setLoading(false);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => {
-      void refresh({ silent: true });
-    }, 30000);
-
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  return { error, events, isLive, loading, refresh, status, summary };
-};
-
-const Sidebar: React.FC<{
-  activeView: NavView;
-  clock: string;
-  setActiveView: (view: NavView) => void;
-  summary: ClusterSummary;
-}> = ({ activeView, clock, setActiveView, summary }) => (
-  <aside className="portal-sidebar">
-    <div className="portal-brand">
-      <img alt="" aria-hidden="true" className="portal-brand__mark" src={aiopsIconUrl} />
-      <div>
-        <h1>AIOps for OCP</h1>
-        <p>AI 운영 포털</p>
-      </div>
-    </div>
-
-    <div className="portal-health">
-      <div className="portal-health__label">시스템 건강도</div>
-      <div className="portal-health__value">{summary.healthScore}%</div>
-      <div className="portal-health__note">최근 업데이트 {formatTime(summary.updatedAt)}</div>
-      <Sparkline color="#5df2ad" />
-    </div>
-
-    <nav className="portal-nav">
-      {(['MONITORING', 'OPERATIONS'] as const).map((group) => (
-        <React.Fragment key={group}>
-          <div className="portal-nav__title">{navGroupLabel[group]}</div>
-          {navItems
-            .filter((item) => item.group === group)
-            .map((item) => (
-              <button
-                className={`portal-nav__item ${activeView === item.id ? 'is-active' : ''}`}
-                key={item.id}
-                onClick={() => setActiveView(item.id)}
-                type="button"
-              >
-                <span className="portal-nav__icon">{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            ))}
-        </React.Fragment>
-      ))}
-    </nav>
-
-    <div className="portal-sidebar__bottom">
-      시스템 상태
-      <div className="portal-sidebar__status">
-        <span className="portal-sidebar__dot" />
-        {summary.healthScore >= 90 ? '정상 상태' : '확인 필요'}
-      </div>
-      <div className="portal-sidebar__time">{clock} KST</div>
-    </div>
-  </aside>
-);
-
-const Topbar: React.FC<{
-  activeView: NavView;
-  alarmCount: number;
-  error: string;
-  isLive: boolean;
-  loading: boolean;
-  onNavigate: (view: NavView) => void;
-  onRefresh: () => void;
-  summary: ClusterSummary;
-}> = ({ activeView, alarmCount, error, isLive, loading, onNavigate, onRefresh, summary }) => {
-  const activeItem = navItems.find((item) => item.id === activeView);
-  const connectionLabel = portalConnectionLabel(isLive, error);
-
-  return (
-    <header className="portal-topbar">
-      <div>
-        <div className="portal-crumb">AIOps for OCP / {activeItem?.label ?? '대시보드'}</div>
-        <div className="portal-title">{activeItem?.label ?? '대시보드'}</div>
-      </div>
-      <div className="portal-topbar__controls">
-        <select aria-label="클러스터 선택" className="portal-select">
-          <option>{clusterLabel(summary, error)}</option>
-        </select>
-        <select aria-label="조회 시간 선택" className="portal-select">
-          <option>현재 상태</option>
-          <option>최근 게이트웨이 응답</option>
-        </select>
-        <span className={`portal-mode ${isLive ? 'is-live' : 'is-demo'}`}>
-          {connectionLabel}
-        </span>
-        <button
-          aria-label="새로고침"
-          className="portal-icon-btn"
-          disabled={loading}
-          onClick={onRefresh}
-          title="새로고침"
-          type="button"
-        >
-          <RefreshCw />
-        </button>
-        <button
-          aria-label={`AIOps 위험/주의 이벤트 ${alarmCount}건`}
-          className="portal-icon-btn portal-alarm"
-          onClick={() => onNavigate('alerts')}
-          title={`AIOps 위험/주의 이벤트 ${alarmCount}건`}
-          type="button"
-        >
-          <Bell />
-          {alarmCount > 0 && <span className="portal-alarm__badge">{compactCount(alarmCount)}</span>}
-        </button>
-        <div className="portal-user">
-          <span>OC</span>
-          OpenShift
-        </div>
-      </div>
-    </header>
-  );
-};
-
-const Sparkline: React.FC<{ color: string }> = ({ color }) => (
-  <svg aria-hidden="true" className="sparkline" viewBox="0 0 190 44">
-    <path
-      d="M0 32 L18 27 L30 29 L42 36 L54 22 L66 31 L78 18 L90 25 L104 13 L118 19 L132 12 L146 15 L160 8 L174 12 L190 4 L190 44 L0 44Z"
-      fill={color}
-      opacity=".16"
-    />
-    <path
-      d="M0 32 L18 27 L30 29 L42 36 L54 22 L66 31 L78 18 L90 25 L104 13 L118 19 L132 12 L146 15 L160 8 L174 12 L190 4"
-      fill="none"
-      stroke={color}
-      strokeLinecap="round"
-      strokeWidth="2"
-    />
-  </svg>
-);
 
 const MiniTrend: React.FC<{ color: string }> = ({ color }) => (
   <svg aria-hidden="true" className="mini-trend" viewBox="0 0 160 32">
@@ -7212,38 +6889,6 @@ const AppContent: React.FC<{
   return <SettingsView status={status} summary={summary} />;
 };
 
-const ClusterSignalStrip: React.FC<{
-  error: string;
-  lastSnapshot: string;
-  onNavigate: (view: NavView) => void;
-  onRefresh: () => Promise<void>;
-}> = ({ error, lastSnapshot, onNavigate, onRefresh }) => {
-  const errorLine = error.split('\n').find(Boolean) ?? '게이트웨이 연결 실패';
-  const authRequired = isOpenShiftAuthError(error);
-
-  return (
-    <div className="cluster-signal-strip">
-      <span className="cluster-signal-strip__dot" aria-hidden="true" />
-      <div>
-        <strong>{authRequired ? 'OpenShift 인증 필요' : '게이트웨이 신호 확인 필요'}</strong>
-        <span>
-          {authRequired
-            ? '독립 포털은 OKD 콘솔 토큰을 자동으로 받지 못해 클러스터 조회가 제한됩니다.'
-            : '실시간 클러스터 텔레메트리를 사용할 수 없어 마지막 수집 스냅샷을 표시합니다.'}{' '}
-          · {lastSnapshot}
-        </span>
-        <small>{errorLine}</small>
-      </div>
-      <button onClick={() => void onRefresh()} type="button">
-        연결 재시도
-      </button>
-      <button onClick={() => onNavigate('alerts')} type="button">
-        게이트웨이 이벤트
-      </button>
-    </div>
-  );
-};
-
 export const App: React.FC = () => {
   const clock = useLiveClock();
   const runtime = usePortalRuntime();
@@ -7297,12 +6942,12 @@ export const App: React.FC = () => {
         <Topbar
           activeView={activeView}
           alarmCount={aiopsAlarmCount(runtime.events)}
+          clusterName={clusterLabel(runtime.summary, runtime.error)}
           error={runtime.error}
           isLive={runtime.isLive}
           loading={runtime.loading}
           onNavigate={navigateToView}
           onRefresh={runtime.refresh}
-          summary={runtime.summary}
         />
         <section className="portal-content">
           {runtime.error && (

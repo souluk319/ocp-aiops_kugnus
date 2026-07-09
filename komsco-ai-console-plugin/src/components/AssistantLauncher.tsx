@@ -27,9 +27,6 @@ import {
   CoolThumbsUpIcon,
 } from './coolicons';
 import {
-  ACCEPTED_IMAGE_MIME_TYPES,
-  ACCEPTED_RAG_DOCUMENT_EXTENSIONS,
-  ACCEPTED_RAG_DOCUMENT_MIME_TYPES,
   ANSWER_STREAM_STEP_ID,
   ASSISTANT_TASK_MODES,
   ASSISTANT_TYPEWRITER_CHARS,
@@ -40,15 +37,8 @@ import {
   GATEWAY_PREP_STEP_ID,
   GATEWAY_PREP_TOOLS,
   HISTORY_DRAWER_WIDTH,
-  MAX_IMAGE_ATTACHMENT_BYTES,
-  MAX_IMAGE_ATTACHMENT_TOTAL_BYTES,
-  MAX_IMAGE_ATTACHMENTS,
-  MAX_RAG_DOCUMENT_UPLOAD_BYTES,
   MAX_RECENT_CONTEXT_MESSAGES,
-  MAX_STORED_CONVERSATIONS,
   MIN_STOP_BUTTON_VISIBLE_MS,
-  MULTIPART_RAG_DOCUMENT_EXTENSIONS,
-  MULTIPART_RAG_DOCUMENT_MIME_TYPES,
   RCA_CONTEXT_STEP_ID,
   RCA_PLAN_STEP_ID,
   RESPONSE_WAIT_STEP_ID,
@@ -56,25 +46,26 @@ import {
   SCROLL_BOTTOM_THRESHOLD_PX,
   STORED_MESSAGE_FEEDBACK_KEY,
 } from './assistant.constants';
-import { formatFileSize } from './assistant.attachments';
+import {
+  actionRecordInlineKey,
+  actionRecordsForMatchedCandidates,
+  groupActionRecordsByCandidateId,
+  highestLifecycleRecordForPlanDigest,
+  latestAnswerActionRecords,
+} from './assistant.actionDisplay';
 import { dedupeActionCandidates } from './assistant.actionCandidates';
 import { TASK_MODE_EMPTY_COPY, UI_COPY } from './assistant.copy';
+import { useAssistantConversations } from './assistant.conversations';
 import {
   buildEvidenceCopyText,
   buildEvidenceFooter,
 } from './assistant.evidence';
 import {
-  ACTION_STAGE_RANK,
   actionAnchorForMessageIndex,
-  actionRecordCreatedAt,
-  actionRecordDedupeKey,
   conversationActionRefFromRecord,
   findPlanByDigest,
-  getActionRecordStage,
-  getActionRecordToolName,
   getApprovalId,
   getApprovalPlanDigest,
-  getExecutionOutcomeSummary,
   getPlanDigest,
   getRecordName,
   getRecordSpecMap,
@@ -92,18 +83,21 @@ import { getClusterHost } from './assistant.insightRailHelpers';
 import {
   createRunId,
   formatHistoryTime,
-  getConversationTitle,
   languageLocale,
-  readStoredActiveConversation,
-  readStoredConversationHistory,
-  readStoredUiLanguage,
-  writeStoredActiveConversation,
-  writeStoredConversationHistory,
-  writeStoredUiLanguage,
 } from './assistant.storage';
+import {
+  conversationActionRefFromCandidate,
+  groupActionRefsByCandidateId,
+  mergeConversationActionRefs,
+  pendingActionCandidatesForRefs,
+  sortConversationActionRefsForDisplay,
+  targetKeyFromParts,
+} from './assistant.sessionActions';
 import {
   buildToolPlanFooter,
 } from './assistant.toolPlan';
+import { filesFromClipboardData, isAcceptedImageFile } from './assistant.uploadFiles';
+import { useAssistantUploads } from './assistant.uploads';
 import {
   stripDefaultEvidenceAppendix,
 } from './assistant.render';
@@ -123,7 +117,6 @@ import type {
   ProgressStatus,
   ProgressStep,
   RunStatusEvent,
-  StoredActiveConversation,
   ToolPlanFooter,
   ToolStreamEvent,
   UiLanguage,
@@ -137,7 +130,6 @@ import {
   type ChatFeedbackPayload,
   type ClusterSummary,
   type ImageAttachment,
-  type RagUploadedDocument,
   approveActionPlan,
   createActionCandidatePlan,
   createActionPlan,
@@ -146,16 +138,32 @@ import {
   fetchAiopsStatus,
   fetchClusterSummary,
   fetchConsoleUserSubject,
-  fetchUploadedRagDocuments,
   rejectActionPlan,
   submitChatFeedback,
   streamChat,
-  uploadRagDocument,
-  uploadRagDocumentFile,
 } from '../services/aiGateway';
 import { redactSensitiveText } from '../utils/evidenceDisplay';
 import aiopsIcon from '../assets/aiops_icon.svg';
 import './assistant.css';
+
+const conversationHistoryMergeFns = {
+  actionRefs: mergeConversationActionRefs,
+} as const;
+
+const matchActionCandidatesForMessage = (
+  content: string,
+  candidates: AiopsActionCandidate[],
+): AiopsActionCandidate[] => {
+  const matched = candidates.filter((candidate) => {
+    const targetName = candidate.target?.name;
+    const namespace = candidate.target?.namespace;
+    return Boolean(
+      (targetName && content.includes(targetName)) ||
+        (namespace && content.includes(namespace)),
+    );
+  });
+  return dedupeActionCandidates(matched);
+};
 
 const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecutionMode | null => {
   const value = String(pageContext?.aiopsExecutionMode ?? '')
@@ -488,113 +496,6 @@ const buildConsolePageContext = (): Record<string, unknown> => {
   return context;
 };
 
-const isRagDocumentFile = (file: File): boolean => {
-  const loweredName = file.name.toLowerCase();
-  return (
-    ACCEPTED_RAG_DOCUMENT_MIME_TYPES.has(file.type) ||
-    file.type.startsWith('text/') ||
-    ACCEPTED_RAG_DOCUMENT_EXTENSIONS.some((extension) => loweredName.endsWith(extension))
-  );
-};
-
-const shouldUploadRagDocumentAsFile = (file: File): boolean => {
-  const loweredName = file.name.toLowerCase();
-  return (
-    MULTIPART_RAG_DOCUMENT_MIME_TYPES.has(file.type) ||
-    MULTIPART_RAG_DOCUMENT_EXTENSIONS.some((extension) => loweredName.endsWith(extension))
-  );
-};
-
-const IMAGE_EXTENSION_MIME_TYPES: Record<string, string> = {
-  '.gif': 'image/gif',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-};
-
-const inferImageMimeType = (file: File): string => {
-  if (ACCEPTED_IMAGE_MIME_TYPES.has(file.type)) {
-    return file.type;
-  }
-
-  const loweredName = file.name.toLowerCase();
-  const extension = Object.keys(IMAGE_EXTENSION_MIME_TYPES).find((item) =>
-    loweredName.endsWith(item),
-  );
-  return extension ? IMAGE_EXTENSION_MIME_TYPES[extension] : '';
-};
-
-const isAcceptedImageFile = (file: File): boolean => Boolean(inferImageMimeType(file));
-
-const fallbackImageName = (file: File, mimeType: string): string => {
-  const name = file.name.trim();
-  if (name) {
-    return name;
-  }
-
-  const extension =
-    Object.entries(IMAGE_EXTENSION_MIME_TYPES).find(([, value]) => value === mimeType)?.[0] ||
-    '.png';
-  return `clipboard-image-${Date.now().toString(36)}${extension}`;
-};
-
-const uniqueFiles = (files: File[]): File[] => {
-  const seen = new Set<string>();
-  return files.filter((file) => {
-    const key = [file.name, file.type, file.size, file.lastModified].join('|');
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-};
-
-const filesFromClipboardData = (data: DataTransfer): File[] => {
-  const files = Array.from(data.files ?? []);
-  const itemFiles = Array.from(data.items ?? [])
-    .filter((item) => item.kind === 'file')
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => Boolean(file));
-  return uniqueFiles([...files, ...itemFiles]);
-};
-
-const readRagDocumentContent = async (file: File): Promise<string> => {
-  try {
-    return await file.text();
-  } catch {
-    throw new Error(`${file.name} 문서를 읽을 수 없습니다.`);
-  }
-};
-
-const readImageAttachment = (file: File): Promise<ImageAttachment> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    const mimeType = inferImageMimeType(file);
-    const displayName = fallbackImageName(file, mimeType);
-
-    reader.onerror = () => reject(new Error(`${displayName} 파일을 읽을 수 없습니다.`));
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      const [, data = ''] = result.split(',');
-
-      if (!data) {
-        reject(new Error(`${file.name} 파일 데이터가 비어 있습니다.`));
-        return;
-      }
-
-      resolve({
-        data,
-        id: `img-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        mimeType,
-        name: displayName,
-        size: file.size,
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-
 const stringifyDetail = (value: unknown): string => {
   if (value === undefined || value === null) {
     return '';
@@ -838,67 +739,6 @@ const getAssistantConnectionState = (
   };
 };
 
-const mergeUploadedDocuments = (
-  preferred: RagUploadedDocument[],
-  fallback: RagUploadedDocument[],
-): RagUploadedDocument[] => {
-  const merged = new Map<string, RagUploadedDocument>();
-
-  [...preferred, ...fallback].forEach((document) => {
-    if (!merged.has(document.documentId)) {
-      merged.set(document.documentId, document);
-    }
-  });
-
-  return Array.from(merged.values());
-};
-
-const matchActionCandidatesForMessage = (
-  content: string,
-  candidates: AiopsActionCandidate[],
-): AiopsActionCandidate[] => {
-  const matched = candidates.filter((candidate) => {
-    const targetName = candidate.target?.name;
-    const namespace = candidate.target?.namespace;
-    return Boolean(
-      (targetName && content.includes(targetName)) ||
-        (namespace && content.includes(namespace)),
-    );
-  });
-  return dedupeActionCandidates(matched);
-};
-
-// Matches the "namespace/name" shape getRecordTargetLabel derives from a
-// record's target, so a candidate's target and a record's target can be
-// compared as the same session-tracked key.
-const targetKeyFromParts = (namespace?: string, name?: string): string =>
-  namespace ? `${namespace}/${name ?? ''}` : (name ?? '');
-
-const getAnyPlanDigest = (record: AiopsRecordView): string => {
-  const spec = getRecordSpecMap(record);
-  return (
-    getPlanDigest(record) ||
-    getApprovalPlanDigest(record) ||
-    (typeof spec.planDigest === 'string' ? spec.planDigest : '')
-  );
-};
-
-const highestLifecycleRecordForPlanDigest = (
-  status: AiopsRuntimeStatus | null,
-  planDigest: string,
-): AiopsRecordView | undefined => {
-  if (!status || !planDigest) {
-    return undefined;
-  }
-  const records = status.spec.records;
-  return (
-    records.executionRecords.find((record) => getAnyPlanDigest(record) === planDigest) ??
-    records.approvalDecisions.find((record) => getAnyPlanDigest(record) === planDigest) ??
-    records.sealedActionPlans.find((record) => getAnyPlanDigest(record) === planDigest) ??
-    records.actionProposals.find((record) => getAnyPlanDigest(record) === planDigest)
-  );
-};
-
 const approvalRecordWithExecutedStatus = (
   approval: AiopsRecordView,
   execution: AiopsRecordView,
@@ -924,286 +764,6 @@ const approvalRecordWithExecutedStatus = (
       },
     },
   };
-};
-
-const conversationActionRefFromCandidate = (
-  candidate: AiopsActionCandidate,
-  messageAnchor?: string,
-): ConversationActionRef => {
-  const targetKey = targetKeyFromParts(candidate.target?.namespace, candidate.target?.name);
-  const toolName = candidate.title;
-
-  return {
-    candidateId: candidate.id,
-    id: `candidate|${candidate.id}|${targetKey}|${toolName}`.toLowerCase(),
-    label: '1단계 · 조치 계획 생성',
-    messageAnchor,
-    stage: 'proposal',
-    targetKey: targetKey || candidate.title,
-    toolName,
-    updatedAt: Date.now(),
-  };
-};
-
-const pendingActionCandidatesForRefs = (
-  candidates: AiopsActionCandidate[],
-  refs: ConversationActionRef[],
-): AiopsActionCandidate[] => {
-  const createdCandidateIds = new Set(
-    refs
-      .map((ref) => ref.candidateId)
-      .filter((candidateId): candidateId is string => Boolean(candidateId)),
-  );
-  if (createdCandidateIds.size === 0) {
-    return candidates;
-  }
-  return candidates.filter((candidate) => !createdCandidateIds.has(candidate.id));
-};
-
-const groupActionRefsByCandidateId = (
-  refs: ConversationActionRef[],
-): Record<string, ConversationActionRef[]> =>
-  refs.reduce<Record<string, ConversationActionRef[]>>((groups, ref) => {
-    if (!ref.candidateId) {
-      return groups;
-    }
-    groups[ref.candidateId] = [...(groups[ref.candidateId] ?? []), ref];
-    return groups;
-  }, {});
-
-const actionRecordMatchesRef = (
-  record: AiopsRecordView,
-  ref: ConversationActionRef,
-): boolean => {
-  if (ref.recordName && getRecordName(record) === ref.recordName) {
-    return true;
-  }
-  if (ref.planDigest && getAnyPlanDigest(record) === ref.planDigest) {
-    return true;
-  }
-  return (
-    ref.targetKey === getRecordTargetLabel(record) &&
-    (!ref.toolName || ref.toolName === getActionRecordToolName(record))
-  );
-};
-
-const actionRecordInlineKey = (record: AiopsRecordView): string =>
-  [
-    getRecordName(record) || 'record',
-    getAnyPlanDigest(record) || 'digest',
-    getRecordTargetLabel(record),
-    getActionRecordToolName(record),
-    getActionRecordStage(record),
-  ].join('|');
-
-const groupActionRecordsByCandidateId = (
-  records: AiopsRecordView[],
-  refs: ConversationActionRef[],
-): Record<string, AiopsRecordView[]> => {
-  const refsByCandidateId = groupActionRefsByCandidateId(refs);
-
-  return Object.entries(refsByCandidateId).reduce<Record<string, AiopsRecordView[]>>(
-    (groups, [candidateId, candidateRefs]) => {
-      const seen = new Set<string>();
-      const matched = records.filter((record) => {
-        if (!candidateRefs.some((ref) => actionRecordMatchesRef(record, ref))) {
-          return false;
-        }
-        const key = actionRecordInlineKey(record);
-        if (seen.has(key)) {
-          return false;
-        }
-        seen.add(key);
-        return true;
-      });
-      if (matched.length > 0) {
-        groups[candidateId] = matched;
-      }
-      return groups;
-    },
-    {},
-  );
-};
-
-const mergeConversationActionRefs = (
-  refs: ConversationActionRef[],
-  ref: ConversationActionRef,
-): ConversationActionRef[] => {
-  const next = [...refs];
-  const existingIndex = next.findIndex(
-    (item) =>
-      item.id === ref.id ||
-      (item.targetKey === ref.targetKey &&
-        item.toolName === ref.toolName &&
-        item.messageAnchor === ref.messageAnchor &&
-        (item.planDigest === ref.planDigest || !item.planDigest || !ref.planDigest)),
-  );
-
-  if (existingIndex >= 0) {
-    const existing = next[existingIndex];
-    const existingRank = ACTION_STAGE_RANK[existing.stage] ?? 0;
-    const incomingRank = ACTION_STAGE_RANK[ref.stage] ?? 0;
-    if (existingRank > incomingRank) {
-      next[existingIndex] = {
-        ...existing,
-        messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
-        updatedAt: Date.now(),
-      };
-      return next;
-    }
-    next[existingIndex] = {
-      ...existing,
-      ...ref,
-      candidateId: ref.candidateId ?? existing.candidateId,
-      messageAnchor: ref.messageAnchor ?? existing.messageAnchor,
-      updatedAt: Date.now(),
-    };
-    return next;
-  }
-
-  return [{ ...ref, updatedAt: Date.now() }, ...next].slice(0, 12);
-};
-
-const actionRefTimestamp = (ref: ConversationActionRef): number =>
-  ref.updatedAt || new Date(String(ref.createdAt ?? 0)).getTime() || 0;
-
-const sortConversationActionRefsForDisplay = (
-  refs: ConversationActionRef[],
-): ConversationActionRef[] =>
-  [...refs].sort((a, b) => {
-    const stageDelta = (ACTION_STAGE_RANK[b.stage] ?? 0) - (ACTION_STAGE_RANK[a.stage] ?? 0);
-    if (stageDelta !== 0) {
-      return stageDelta;
-    }
-    return actionRefTimestamp(b) - actionRefTimestamp(a);
-  });
-
-const actionRecordDisplayRank = (
-  record: AiopsRecordView,
-  aiopsStatus: AiopsRuntimeStatus | null,
-): number => {
-  if (getExecutionOutcomeSummary(record, aiopsStatus)) {
-    return 5;
-  }
-  return ACTION_STAGE_RANK[getActionRecordStage(record)];
-};
-
-const collapseActionRecordsForDisplay = (
-  records: AiopsRecordView[],
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-): AiopsRecordView[] => {
-  const eligible = records
-    .filter(
-      (record) =>
-        Boolean(getAiopsRecordAction(record, aiopsStatus, executionMode)) ||
-        Boolean(getExecutionOutcomeSummary(record, aiopsStatus)),
-    )
-    .sort((a, b) => {
-      const rankDelta =
-        actionRecordDisplayRank(b, aiopsStatus) - actionRecordDisplayRank(a, aiopsStatus);
-      if (rankDelta !== 0) {
-        return rankDelta;
-      }
-      return actionRecordCreatedAt(b) - actionRecordCreatedAt(a);
-    });
-  const seen = new Set<string>();
-
-  return eligible.filter((record) => {
-    const key = actionRecordDedupeKey(record);
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-};
-
-const latestAnswerActionRecords = (
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-  messageContent: string,
-  messageAnchor: string | undefined,
-  actionRefs: ConversationActionRef[],
-): AiopsRecordView[] => {
-  const records = aiopsStatus?.spec.records;
-  if (!records) {
-    return [];
-  }
-
-  const anchorRefs = messageAnchor
-    ? actionRefs.filter((ref) => ref.messageAnchor === messageAnchor)
-    : [];
-  const scopedActionRefs =
-    anchorRefs.length > 0 ? anchorRefs : actionRefs.length === 1 ? actionRefs : [];
-  const mentionedRecordNames = new Set(
-    Array.from(messageContent.matchAll(/\b(?:proposal|plan|approval|execution)-[a-z0-9-]+/gi))
-      .map((match) => match[0].toLowerCase()),
-  );
-
-  if (scopedActionRefs.length === 0 && mentionedRecordNames.size === 0) {
-    return [];
-  }
-
-  const matchedRecords = [
-    ...records.executionRecords,
-    ...records.approvalDecisions,
-    ...records.sealedActionPlans,
-    ...records.actionProposals,
-  ].filter((record) => {
-      const recordName = getRecordName(record).toLowerCase();
-      if (mentionedRecordNames.has(recordName)) {
-        return true;
-      }
-
-      const matchesAnchorRef = scopedActionRefs.some((ref) => {
-        const refCreatedAt = ref.createdAt ? new Date(ref.createdAt).getTime() || 0 : 0;
-        const recordCreatedAt = actionRecordCreatedAt(record);
-        if (ref.recordName && getRecordName(record) === ref.recordName) {
-          return true;
-        }
-        if (refCreatedAt > 0 && recordCreatedAt > 0 && recordCreatedAt < refCreatedAt) {
-          return false;
-        }
-        if (
-          ref.planDigest &&
-          getAnyPlanDigest(record) === ref.planDigest
-        ) {
-          return true;
-        }
-        if (
-          (ACTION_STAGE_RANK[getActionRecordStage(record)] ?? 0) <
-          (ACTION_STAGE_RANK[ref.stage] ?? 0)
-        ) {
-          return false;
-        }
-        return (
-          ref.targetKey === getRecordTargetLabel(record) &&
-          (!ref.toolName || ref.toolName === getActionRecordToolName(record))
-        );
-      });
-      if (matchesAnchorRef) {
-        return true;
-      }
-
-      return false;
-    });
-
-  return collapseActionRecordsForDisplay(matchedRecords, aiopsStatus, executionMode).slice(0, 3);
-};
-
-const actionRecordsForMatchedCandidates = (
-  aiopsStatus: AiopsRuntimeStatus | null,
-  executionMode: AiopsExecutionMode,
-  candidates: AiopsActionCandidate[],
-): AiopsRecordView[] => {
-  // Do not attach old global action records to a new answer just because the
-  // target name matches. The lifecycle should appear only after this answer's
-  // CTA creates a session action ref.
-  void aiopsStatus;
-  void executionMode;
-  void candidates;
-  return [];
 };
 
 type MessageFeedbackChoice = 'up' | 'down';
@@ -1525,33 +1085,6 @@ const writeClipboardText = async (text: string): Promise<boolean> => {
   }
 };
 
-const mergeStoredActiveConversationIntoHistory = (
-  history: ConversationHistoryItem[],
-  activeConversation: StoredActiveConversation | undefined,
-  language: UiLanguage,
-): ConversationHistoryItem[] => {
-  if (!activeConversation?.messages.length) {
-    return history;
-  }
-
-  const existing = history.find((conversation) => conversation.id === activeConversation.activeSessionId);
-  const activeHistoryItem: ConversationHistoryItem = {
-    id: activeConversation.activeSessionId,
-    title: existing?.title || getConversationTitle(activeConversation.messages, language),
-    updatedAt: Date.now(),
-    conversationId: activeConversation.conversationId,
-    messages: activeConversation.messages,
-    pinned: existing?.pinned,
-    actionRefs: activeConversation.actionRefs,
-    actionTargetKeys: activeConversation.actionTargetKeys,
-  };
-
-  return [
-    activeHistoryItem,
-    ...history.filter((conversation) => conversation.id !== activeConversation.activeSessionId),
-  ].slice(0, MAX_STORED_CONVERSATIONS);
-};
-
 const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   defaultOpen = false,
   draftPrompt,
@@ -1565,8 +1098,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [draftPageContext, setDraftPageContext] = React.useState<
     Record<string, unknown> | undefined
   >();
-  const [pendingAttachments, setPendingAttachments] = React.useState<ImageAttachment[]>([]);
-  const [attachmentError, setAttachmentError] = React.useState('');
   const [clusterSummary, setClusterSummary] = React.useState<ClusterSummary | null>(null);
   const [clusterSummaryError, setClusterSummaryError] = React.useState('');
   const [clusterSummaryLoading, setClusterSummaryLoading] = React.useState(false);
@@ -1603,34 +1134,53 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   React.useEffect(() => {
     autoProposeActionsAllowedRef.current = executionMode === 'execute' && autoProposeActions;
   }, [executionMode, autoProposeActions]);
-  const [dragActive, setDragActive] = React.useState(false);
-  const initialActiveConversation = React.useMemo(readStoredActiveConversation, []);
-  const initialUiLanguage = React.useMemo(readStoredUiLanguage, []);
-  const initialConversationHistory = React.useMemo(
-    () =>
-      mergeStoredActiveConversationIntoHistory(
-        readStoredConversationHistory(),
-        initialActiveConversation,
-        initialUiLanguage,
-      ),
-    [initialActiveConversation, initialUiLanguage],
-  );
-  const [messages, setMessages] = React.useState<Message[]>([]);
-  const [conversationId, setConversationId] = React.useState<string | undefined>(undefined);
-  const [activeSessionId, setActiveSessionId] = React.useState(createRunId);
-  const [conversationHistory, setConversationHistory] = React.useState<ConversationHistoryItem[]>(
-    initialConversationHistory,
-  );
-  const suppressNextHistoryAutosaveRef = React.useRef(false);
+  const [loading, setLoading] = React.useState(false);
+  const {
+    activeSessionId,
+    conversationHistory,
+    conversationId,
+    messages,
+    messagesRef,
+    saveCurrentConversation,
+    sessionActionRefs,
+    setActiveSessionId,
+    setConversationHistory,
+    setConversationId,
+    setMessages,
+    setSessionActionRefs,
+    setSessionActionTargetKeys,
+    setUiLanguage,
+    suppressNextHistoryAutosaveRef,
+    uiLanguage,
+    upsertSessionActionRef,
+  } = useAssistantConversations({
+    loading,
+    mergeActionRefs: conversationHistoryMergeFns.actionRefs,
+  });
   const [historySidebarOpen, setHistorySidebarOpen] = React.useState(false);
   const [historyPanelView, setHistoryPanelView] = React.useState<HistoryPanelView>('chats');
-  const [sessionActionTargetKeys, setSessionActionTargetKeys] = React.useState<Set<string>>(
-    () => new Set(),
-  );
-  const [sessionActionRefs, setSessionActionRefs] = React.useState<ConversationActionRef[]>([]);
-  const [uploadedDocuments, setUploadedDocuments] = React.useState<RagUploadedDocument[]>([]);
-  const [uploadedDocumentsError, setUploadedDocumentsError] = React.useState('');
-  const [uploadedDocumentsLoading, setUploadedDocumentsLoading] = React.useState(false);
+  const copy = UI_COPY[uiLanguage];
+  const {
+    addImageFiles,
+    attachmentError,
+    dragActive,
+    pendingAttachments,
+    removeAttachment,
+    setAttachmentError,
+    setDragActive,
+    setPendingAttachments,
+    uploadedDocuments,
+    uploadedDocumentsError,
+    uploadedDocumentsLoading,
+  } = useAssistantUploads({
+    activeSessionId,
+    historyPanelView,
+    historySidebarOpen,
+    open,
+    setHistoryPanelView,
+    setHistorySidebarOpen,
+    uploadedDocsErrorLabel: copy.uploadedDocsError,
+  });
   const [quickPromptMenuOpen, setQuickPromptMenuOpen] = React.useState(false);
   const [taskModeMenuOpen, setTaskModeMenuOpen] = React.useState(false);
   const [openHistoryMenuId, setOpenHistoryMenuId] = React.useState<string | null>(null);
@@ -1652,8 +1202,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   }>({});
   const [stickToBottom, setStickToBottom] = React.useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
-  const [uiLanguage, setUiLanguage] = React.useState<UiLanguage>(initialUiLanguage);
-  const [loading, setLoading] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
   const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
   const [, setProgressTick] = React.useState(0);
@@ -1668,7 +1216,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const historyMenuRef = React.useRef<HTMLDivElement | null>(null);
   const historyMenuPanelRef = React.useRef<HTMLDivElement | null>(null);
   const assistantTextQueueRef = React.useRef('');
-  const messagesRef = React.useRef<Message[]>(messages);
   const assistantTypewriterTimerRef = React.useRef<number | undefined>();
   const assistantTextDrainResolversRef = React.useRef<Array<() => void>>([]);
   const chatAbortControllerRef = React.useRef<AbortController | null>(null);
@@ -1684,7 +1231,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     aiopsStatus,
     aiopsStatusError,
   );
-  const copy = UI_COPY[uiLanguage];
   const selectedTaskMode =
     ASSISTANT_TASK_MODES.find((item) => item.value === assistantTaskMode) ||
     ASSISTANT_TASK_MODES[0];
@@ -1708,20 +1254,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     };
   }, [embedded, openAssistant]);
 
-  React.useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  React.useEffect(() => {
-    writeStoredActiveConversation({
-      activeSessionId,
-      actionRefs: sessionActionRefs,
-      actionTargetKeys: Array.from(sessionActionTargetKeys),
-      conversationId,
-      messages,
-    });
-  }, [activeSessionId, conversationId, messages, sessionActionRefs, sessionActionTargetKeys]);
-
   React.useEffect(
     () => () => {
       if (panelDragFrameRef.current !== undefined) {
@@ -1732,14 +1264,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     },
     [],
   );
-
-  React.useEffect(() => {
-    writeStoredConversationHistory(conversationHistory);
-  }, [conversationHistory]);
-
-  React.useEffect(() => {
-    writeStoredUiLanguage(uiLanguage);
-  }, [uiLanguage]);
 
   React.useEffect(() => {
     if (!draftPrompt || consumedDraftPromptIdRef.current === draftPrompt.id) {
@@ -2144,105 +1668,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     return index >= 0 ? actionAnchorForMessageIndex(index) : undefined;
   }, []);
 
-  const upsertSessionActionRef = React.useCallback((ref: ConversationActionRef) => {
-    setSessionActionRefs((prev) => mergeConversationActionRefs(prev, ref));
-
-    const snapshotMessages = messagesRef.current;
-    if (snapshotMessages.length === 0) {
-      return;
-    }
-
-    setConversationHistory((prev) => {
-      const existing = prev.find((conversation) => conversation.id === activeSessionId);
-      const actionTargetKeys = Array.from(
-        new Set(
-          [
-            ...(existing?.actionTargetKeys ?? []),
-            ref.targetKey,
-          ].filter((targetKey): targetKey is string => Boolean(targetKey)),
-        ),
-      );
-      const item: ConversationHistoryItem = {
-        id: activeSessionId,
-        title: existing?.title || getConversationTitle(snapshotMessages, uiLanguage),
-        updatedAt: Date.now(),
-        conversationId,
-        messages: snapshotMessages,
-        pinned: existing?.pinned,
-        actionRefs: mergeConversationActionRefs(existing?.actionRefs ?? [], ref),
-        actionTargetKeys,
-      };
-
-      return [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(
-        0,
-        MAX_STORED_CONVERSATIONS,
-      );
-    });
-  }, [activeSessionId, conversationId, uiLanguage]);
-
-  const saveCurrentConversation = React.useCallback(
-    (options: {
-      preserveUpdatedAt?: boolean;
-      promote?: boolean;
-      snapshotConversationId?: string;
-      snapshotMessages?: Message[];
-    } = {}) => {
-      const snapshotMessages = options.snapshotMessages ?? messages;
-      const snapshotConversationId = options.snapshotConversationId ?? conversationId;
-
-      if (snapshotMessages.length === 0) {
-        return;
-      }
-
-      setConversationHistory((prev) => {
-        const existing = prev.find((conversation) => conversation.id === activeSessionId);
-        const mergedActionRefs = sessionActionRefs.reduce(
-          (refs, ref) => mergeConversationActionRefs(refs, ref),
-          existing?.actionRefs ?? [],
-        );
-        const mergedActionTargetKeys = Array.from(
-          new Set([
-            ...(existing?.actionTargetKeys ?? []),
-            ...Array.from(sessionActionTargetKeys),
-          ]),
-        );
-        const item: ConversationHistoryItem = {
-          id: activeSessionId,
-          title: getConversationTitle(snapshotMessages, uiLanguage),
-          updatedAt:
-            options.preserveUpdatedAt && existing ? existing.updatedAt : Date.now(),
-		          conversationId: snapshotConversationId,
-		          messages: snapshotMessages,
-		          pinned: existing?.pinned,
-		          actionRefs: mergedActionRefs,
-		          actionTargetKeys: mergedActionTargetKeys,
-		        };
-
-        if (existing && options.promote === false) {
-          return prev.map((conversation) =>
-            conversation.id === activeSessionId ? item : conversation,
-          );
-        }
-
-        return [item, ...prev.filter((conversation) => conversation.id !== activeSessionId)].slice(
-          0,
-          MAX_STORED_CONVERSATIONS,
-        );
-      });
-    },
-    [activeSessionId, conversationId, messages, sessionActionRefs, sessionActionTargetKeys, uiLanguage],
-  );
-
-  React.useEffect(() => {
-    if (!loading) {
-      if (suppressNextHistoryAutosaveRef.current) {
-        suppressNextHistoryAutosaveRef.current = false;
-        return;
-      }
-      saveCurrentConversation();
-    }
-  }, [loading, saveCurrentConversation]);
-
   const startNewConversation = React.useCallback(() => {
     if (loading && chatAbortControllerRef.current) {
       stopRequestedRef.current = true;
@@ -2351,10 +1776,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [activeSessionId, startNewConversation],
   );
 
-	  const renameConversation = React.useCallback((conversationHistoryId: string, title: string) => {
-	    const trimmed = title.trim();
-	    if (!trimmed) {
-	      return;
+  const renameConversation = React.useCallback((conversationHistoryId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      return;
     }
     setConversationHistory((prev) =>
       prev.map((conversation) =>
@@ -2362,20 +1787,20 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
           ? { ...conversation, title: trimmed }
           : conversation,
       ),
-	    );
-	  }, []);
+    );
+  }, []);
 
-	  const toggleConversationPinned = React.useCallback((conversationHistoryId: string) => {
-	    setConversationHistory((prev) =>
-	      prev.map((conversation) =>
-	        conversation.id === conversationHistoryId
-	          ? { ...conversation, pinned: !conversation.pinned }
-	          : conversation,
-	      ),
-	    );
-	  }, []);
+  const toggleConversationPinned = React.useCallback((conversationHistoryId: string) => {
+    setConversationHistory((prev) =>
+      prev.map((conversation) =>
+        conversation.id === conversationHistoryId
+          ? { ...conversation, pinned: !conversation.pinned }
+          : conversation,
+      ),
+    );
+  }, []);
 
-	  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
+  const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
     const body = bodyRef.current;
     if (body) {
       body.scrollTo({ top: body.scrollHeight, behavior });
@@ -2545,47 +1970,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       window.clearInterval(timer);
     };
   }, [open, refreshAiopsActionCandidates]);
-
-  React.useEffect(() => {
-    if (!open || !historySidebarOpen || historyPanelView !== 'uploads') {
-      return undefined;
-    }
-
-    let disposed = false;
-
-    const loadUploadedDocuments = async () => {
-      setUploadedDocumentsLoading(true);
-      try {
-        const payload = await fetchUploadedRagDocuments();
-        if (disposed) {
-          return;
-        }
-        const uploadStatus = payload.spec.status;
-        const serverDocuments = payload.spec.documents ?? [];
-        setUploadedDocuments((prev) => mergeUploadedDocuments(serverDocuments, prev));
-        setUploadedDocumentsError(
-          uploadStatus === 'collected' || uploadStatus === 'empty'
-            ? ''
-            : (payload.spec.reason ?? copy.uploadedDocsError),
-        );
-      } catch (error) {
-        if (!disposed) {
-          setUploadedDocumentsError(
-            error instanceof Error ? error.message : copy.uploadedDocsError,
-          );
-        }
-      } finally {
-        if (!disposed) {
-          setUploadedDocumentsLoading(false);
-        }
-      }
-    };
-
-    void loadUploadedDocuments();
-    return () => {
-      disposed = true;
-    };
-  }, [copy.uploadedDocsError, historyPanelView, historySidebarOpen, open]);
 
   const refreshAiopsRuntimeStatus = React.useCallback(async () => {
     const seq = ++aiopsStatusRequestSeqRef.current;
@@ -3278,117 +2662,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       return next;
     });
-  }, []);
-
-  const addImageFiles = React.useCallback(
-    async (files: File[]) => {
-      const normalizedFiles = uniqueFiles(files);
-      const imageFiles = normalizedFiles.filter(isAcceptedImageFile);
-      const documentFiles = normalizedFiles.filter(
-        (file) => !isAcceptedImageFile(file) && isRagDocumentFile(file),
-      );
-
-      if (imageFiles.length === 0 && documentFiles.length === 0) {
-        setAttachmentError(
-          '지원 형식: PNG/JPEG/WebP/GIF 이미지 또는 PDF/DOCX/PPTX/XLSX/TXT/MD/JSON/YAML/log 문서입니다.',
-        );
-        return;
-      }
-
-      const unsupportedCount = normalizedFiles.length - imageFiles.length - documentFiles.length;
-      if (unsupportedCount > 0) {
-        setAttachmentError('일부 파일은 지원 형식이 아니라 제외했습니다.');
-      }
-
-      if (imageFiles.length > 0) {
-        const nextCount = pendingAttachments.length + imageFiles.length;
-        if (nextCount > MAX_IMAGE_ATTACHMENTS) {
-          setAttachmentError(`이미지는 최대 ${MAX_IMAGE_ATTACHMENTS}개까지 첨부할 수 있습니다.`);
-          return;
-        }
-
-        const tooLarge = imageFiles.find((file) => file.size > MAX_IMAGE_ATTACHMENT_BYTES);
-        if (tooLarge) {
-          setAttachmentError(
-            `${tooLarge.name} 파일이 너무 큽니다. 이미지당 최대 ${formatFileSize(
-              MAX_IMAGE_ATTACHMENT_BYTES,
-            )}까지 가능합니다.`,
-          );
-          return;
-        }
-
-        const currentTotal = pendingAttachments.reduce((total, item) => total + item.size, 0);
-        const nextTotal = imageFiles.reduce((total, file) => total + file.size, currentTotal);
-        if (nextTotal > MAX_IMAGE_ATTACHMENT_TOTAL_BYTES) {
-          setAttachmentError(
-            `첨부 이미지 합계는 최대 ${formatFileSize(MAX_IMAGE_ATTACHMENT_TOTAL_BYTES)}까지 가능합니다.`,
-          );
-          return;
-        }
-      }
-
-      const tooLargeDocument = documentFiles.find(
-        (file) => file.size > MAX_RAG_DOCUMENT_UPLOAD_BYTES,
-      );
-      if (tooLargeDocument) {
-        setAttachmentError(
-          `${tooLargeDocument.name} 문서가 너무 큽니다. 문서당 최대 ${formatFileSize(
-            MAX_RAG_DOCUMENT_UPLOAD_BYTES,
-          )}까지 가능합니다.`,
-        );
-        return;
-      }
-
-      try {
-        if (imageFiles.length > 0) {
-          const attachments = await Promise.all(imageFiles.map(readImageAttachment));
-          setPendingAttachments((prev) => [...prev, ...attachments]);
-        }
-
-        if (documentFiles.length > 0) {
-          const uploaded = await Promise.all(
-            documentFiles.map(async (file) => {
-              const commonMetadata = {
-                labels: { source: 'chat-attachment', version: 'v0.1.5' },
-                namespace: 'cywell-aiops',
-                runId: activeSessionId,
-                sourceType: 'user-upload',
-                version: 'v0.1.5',
-              };
-              const result = shouldUploadRagDocumentAsFile(file)
-                ? await uploadRagDocumentFile(file, commonMetadata)
-                : await uploadRagDocument({
-                    ...commonMetadata,
-                    content: await readRagDocumentContent(file),
-                    mimeType: file.type || 'text/plain',
-                    name: file.name,
-                  });
-              if (result.spec.status !== 'persisted') {
-                throw new Error(
-                  result.spec.reason || `${file.name} 문서를 RAG 저장소에 등록하지 못했습니다.`,
-                );
-              }
-              return result.spec.document;
-            }),
-          );
-          setUploadedDocuments((prev) => {
-            return mergeUploadedDocuments(uploaded, prev);
-          });
-          setHistoryPanelView('uploads');
-          setHistorySidebarOpen(true);
-        }
-
-        setAttachmentError('');
-      } catch (error) {
-        setAttachmentError(error instanceof Error ? error.message : '파일을 처리하지 못했습니다.');
-      }
-    },
-    [activeSessionId, pendingAttachments],
-  );
-
-  const removeAttachment = React.useCallback((id: string) => {
-    setPendingAttachments((prev) => prev.filter((item) => item.id !== id));
-    setAttachmentError('');
   }, []);
 
   const handleFileInputChange = React.useCallback(
@@ -4183,7 +3456,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                         const messageActionAnchor =
                           message.role === 'assistant' ? actionAnchorForMessageIndex(index) : undefined;
                         const storedActionCandidates = message.actionCandidates ?? [];
-                        const matchedActionCandidates =
+                        const matched =
                           isAssistantMessageWithContent
                             ? storedActionCandidates.length > 0
                               ? storedActionCandidates
@@ -4191,19 +3464,20 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 ? matchActionCandidatesForMessage(message.content, actionCandidates)
                                 : []
                             : [];
+                        const matchedActionCandidates = dedupeActionCandidates(matched);
                         const createPlanDisabledReason =
                           executionModeAllowsActions(executionMode)
                             ? ''
                             : '읽기 전용: 후보만 표시';
                         const answerActionRecords =
                           isAssistantMessageWithContent
-                            ? latestAnswerActionRecords(
+                            ? latestAnswerActionRecords({
+                                actionRefs: effectiveSessionActionRefs,
                                 aiopsStatus,
                                 executionMode,
-                                message.content,
-                                messageActionAnchor,
-                                effectiveSessionActionRefs,
-                              )
+                                messageAnchor: messageActionAnchor,
+                                messageContent: message.content,
+                              })
                             : [];
                         const exactAnswerActionRefs =
                           isAssistantMessageWithContent && messageActionAnchor
