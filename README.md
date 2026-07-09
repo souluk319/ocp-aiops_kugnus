@@ -108,10 +108,10 @@ avoiding image attachment rejection in current OLS deployments.
 
 OLS owns live read-only OpenShift observation through its MCP tools. The gateway
 owns validation, redaction, streaming normalization, attachments, and future
-internal integrations. See [docs/ols-gateway-tool-boundary.md](docs/ols-gateway-tool-boundary.md).
+internal integrations. See [docs/architecture/ols-gateway-tool-boundary.md](docs/architecture/ols-gateway-tool-boundary.md).
 
 The current implementation follows the approved security envelope from
-[docs/aiops-agent-architecture-proposal.md](docs/aiops-agent-architecture-proposal.md):
+[docs/architecture/aiops-agent-architecture-proposal.md](docs/architecture/aiops-agent-architecture-proposal.md):
 
 - Gateway keeps the console `UserToken` at the boundary and forwards it only to
   OpenShift/Lightspeed APIs that need it.

@@ -19,4 +19,4 @@ python3 scripts/convert-contract-pdfs.py
 
 ## 관련 정리 문서
 
-- `docs/aiops-action-plan-e-book.html`: Action Plan 흐름, 검토 기록 저장 위치, 로컬/배포판 확인 방법 정리
+- `docs/study/aiops-action-plan-e-book.html`: Action Plan 흐름, 검토 기록 저장 위치, 로컬/배포판 확인 방법 정리

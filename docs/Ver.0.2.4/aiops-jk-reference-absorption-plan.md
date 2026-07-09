@@ -43,13 +43,13 @@ JK 브랜치가 우리보다 우위인 부분은 아래이다.
 | --- | --- | --- |
 | `demo/DESIGN.md` | 466px docked panel, expanded 1240px, 316px context rail, runbook card, compact composer | assistant layout과 CSS acceptance criteria |
 | `demo/ocp_chatbot_redesign.html` | 우선 확인 3개, command block, copy control, context rail, quick prompt, read-only indicator | 카드 정보 구조와 expanded/docked 화면 흐름 |
-| `docs/ols-gateway-tool-boundary.md` | OLS는 read-only observation, Gateway는 BFF/policy/SSE, mutation은 별도 승인 흐름 | Gateway prompt와 UI 라벨 책임 경계 |
-| `docs/aiops-agent-architecture-proposal.md` | ActionProposal, SealedActionPlan, ApprovalDecision, ExecutionGrant, Action Executor 경계 | Action Plan lifecycle UI와 실행 모드 설명 |
+| `docs/architecture/ols-gateway-tool-boundary.md` | OLS는 read-only observation, Gateway는 BFF/policy/SSE, mutation은 별도 승인 흐름 | Gateway prompt와 UI 라벨 책임 경계 |
+| `docs/architecture/aiops-agent-architecture-proposal.md` | ActionProposal, SealedActionPlan, ApprovalDecision, ExecutionGrant, Action Executor 경계 | Action Plan lifecycle UI와 실행 모드 설명 |
 | `komsco-ai-gateway/komsco_ai_gateway/main.py` | 자연어 intent, followup 복원, target resolution, action plan 생성/실행 branch | UI보다 먼저 로직 계약 inventory로 흡수 |
 | `komsco-ai-gateway/komsco_ai_gateway/aiops_core.py` | typed mutation request builder, HPA/rollback/eviction precondition | 실행 전 deterministic validation 기준 |
 | `komsco-ai-gateway/komsco_ai_gateway/action_executor.py` | ExecutionGrant audience/digest/target/policy 검증 | 승인 후 실행 경계와 실패 문구 기준 |
 | `komsco-ai-gateway/komsco_ai_gateway/security.py` | mutation request classification과 gateway guardrail | OLS 일반 답변으로 빠지면 안 되는 변경 요청 차단 기준 |
-| `docs/aiops-agentic-scenario-verification-report.md` | 3/4/5턴 `진행해`, restart/scale/evict/rollback/HPA, ambiguous block | Gateway/action regression gate |
+| `docs/reports/aiops-agentic-scenario-verification-report.md` | 3/4/5턴 `진행해`, restart/scale/evict/rollback/HPA, ambiguous block | Gateway/action regression gate |
 | `scripts/evaluate-aiops-actions-e2e.py` | live action e2e의 setup, approve, execute, verify 흐름 | 이후 별도 검증 스크립트 또는 task 설계 참고 |
 
 ## 구현 범위

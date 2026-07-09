@@ -29,9 +29,9 @@ demo/DESIGN.md
 demo/ocp_chatbot_redesign.html
 demo/ocp_chatbot_redesign_docked.png
 demo/ocp_chatbot_redesign_expanded.png
-docs/ols-gateway-tool-boundary.md
-docs/aiops-agent-architecture-proposal.md
-docs/aiops-agentic-scenario-verification-report.md
+docs/architecture/ols-gateway-tool-boundary.md
+docs/architecture/aiops-agent-architecture-proposal.md
+docs/reports/aiops-agentic-scenario-verification-report.md
 scripts/evaluate-aiops-actions-e2e.py
 ```
 
