@@ -338,17 +338,17 @@ export const V2Rca: React.FC<{
             <Button onClick={() => setActionNote('원본 증거 YAML은 BE evidence store 연동 후 열 수 있습니다.')} size="sm">
               원본 증거 열기
             </Button>
-            <Button onClick={() => setActionNote('변경 요청 초안을 로컬 화면에 생성했습니다.')} size="sm">
-              변경 요청 생성
+            <Button onClick={() => setActionNote('조치 후보는 실행 기록 화면에서 승인 상태와 서버 변경 여부까지 확인합니다.')} size="sm">
+              조치 후보 확인
             </Button>
             <Button onClick={() => onNavigate('executions')} size="sm">
-              실행 기록
+              조치 이력 보기
             </Button>
             {actionNote && <span className="v2-rca-command-bar__note">{actionNote}</span>}
           </div>
         </Card>
 
-        <Card title="감사 / 타임라인">
+        <Card title="분석 타임라인">
           <div className="v2-rca-timeline">
             {timeline.map((entry) => (
               <article className="v2-rca-timeline__item" key={`${entry.title}-${entry.detail}`}>

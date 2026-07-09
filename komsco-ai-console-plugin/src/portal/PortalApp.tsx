@@ -2319,10 +2319,12 @@ const buildRcaFindings = (summary: ClusterSummary, item: QueueItem | undefined, 
   if (isPodIssue(item) || isDerivedWorkloadIssue(item)) {
     return [
       {
-        detail: '활성 파드 상태 변화 감지',
-        kicker: '주 원인',
+        detail: isDerivedWorkloadIssue(item)
+          ? '컨트롤러 가용성 변화가 관측됐으며, 실제 원인은 관련 파드 상태와 이벤트로 확인해야 합니다.'
+          : '현재 실패/대기 상태가 관측됐으며, 실제 원인은 컨테이너 종료 사유와 이벤트로 확인해야 합니다.',
+        kicker: '주 원인 후보',
         meta: `${podMetricLine(podSummary)} · 이슈 후보 ${podSummary.issueCandidates}`,
-        title: isDerivedWorkloadIssue(item) ? '컨트롤러 가용성 변화' : '활성 파드 상태 변화',
+        title: isDerivedWorkloadIssue(item) ? '컨트롤러 가용성 변화' : '파드 런타임 이상 신호',
         tone: 'primary',
       },
       {
@@ -4666,6 +4668,23 @@ const RcaView: React.FC<{
         </div>
       </section>
 
+      <section className="rca-product-contract" aria-label="RCA 센터와 서비스 맵 역할">
+        <article>
+          <span>RCA 센터</span>
+          <strong>증거 기반 원인 분석</strong>
+          <p>원인 후보를 단순 텍스트로 끝내지 않고, 출처·필드·상태·확인 명령으로 검증합니다.</p>
+          <b>증거 패키지 + Runbook Gate</b>
+        </article>
+        <article>
+          <span>서비스 맵</span>
+          <strong>의존성 기반 영향 경로</strong>
+          <p>Route부터 Service, Pod, Node, PVC까지 이어지는 관계를 따라 장애 범위를 확인합니다.</p>
+          <button className="portal-button" onClick={() => onNavigate('service-map')} type="button">
+            서비스 맵 열기
+          </button>
+        </article>
+      </section>
+
       <section className="rca-main-grid">
         <Panel
           className="rca-queue-panel"
@@ -4836,13 +4855,13 @@ const RcaView: React.FC<{
               onClick={() => launchSelectedAssistant('action-plan')}
               type="button"
             >
-              변경 요청 생성
+              조치 후보 확인
             </button>
-            <button className="portal-button" onClick={() => onNavigate('executions')} type="button">실행 기록</button>
+            <button className="portal-button" onClick={() => onNavigate('executions')} type="button">조치 이력 보기</button>
             {actionNote && <span>{actionNote}</span>}
           </div>
         </Panel>
-        <Panel title="감사 / 타임라인">
+        <Panel title="분석 타임라인">
           <div className="rca-audit-trail">
             {timeline.map((entry) => (
               <article key={`${entry.title}-${entry.detail}`}>

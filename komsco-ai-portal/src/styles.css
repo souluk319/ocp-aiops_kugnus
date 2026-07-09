@@ -3203,6 +3203,62 @@ button:disabled {
   min-width: 258px;
 }
 
+.rca-product-contract {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rca-product-contract article {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+.rca-product-contract article:nth-child(2) {
+  border-left-color: var(--green);
+}
+
+.rca-product-contract span {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--blue);
+}
+
+.rca-product-contract article:nth-child(2) span {
+  color: var(--green);
+}
+
+.rca-product-contract strong {
+  font-size: 16px;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.rca-product-contract p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.rca-product-contract b {
+  font-size: 12px;
+  color: #1d4ed8;
+}
+
+.rca-product-contract .portal-button {
+  justify-self: start;
+  margin-top: 2px;
+}
+
 .rca-main-grid {
   display: grid;
   grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.18fr) minmax(380px, 1.04fr);
@@ -7085,6 +7141,7 @@ button:disabled {
   .map-control-strip,
   .rca-active-header,
   .rca-case-header,
+  .rca-product-contract,
   .rca-main-grid,
   .topology-inspector__body {
     grid-template-columns: 1fr;
@@ -7253,6 +7310,7 @@ button:disabled {
   .rca-active-header,
   .rca-active-header dl,
   .rca-case-header,
+  .rca-product-contract,
   .rca-main-grid,
   .map-control-strip,
   .topology-inspector__body,

@@ -1368,7 +1368,7 @@ export const AiopsAuditPage: React.FC = () => {
   const data = useAiopsPageData();
 
   return (
-    <PageShell data={data} eyebrow="Cywell AI" icon={<HistoryIcon />} title="RCA 센터">
+    <PageShell data={data} eyebrow="Cywell AI" icon={<HistoryIcon />} title="감사 기록">
       <section className="komsco-ai-page__panel">
         <div className="komsco-ai-page__panel-heading">
           <RobotIcon />

@@ -2068,10 +2068,12 @@ export const buildRcaFindings = (summary: ClusterSummary, item: QueueItem | unde
   if (isPodIssue(item) || isDerivedWorkloadIssue(item)) {
     return [
       {
-        detail: '활성 파드 상태 변화 감지',
-        kicker: '주 원인',
+        detail: isDerivedWorkloadIssue(item)
+          ? '컨트롤러 가용성 변화가 관측됐으며, 실제 원인은 관련 파드 상태와 이벤트로 확인해야 합니다.'
+          : '현재 실패/대기 상태가 관측됐으며, 실제 원인은 컨테이너 종료 사유와 이벤트로 확인해야 합니다.',
+        kicker: '주 원인 후보',
         meta: `${podMetricLine(podSummary)} · 이슈 후보 ${podSummary.issueCandidates}`,
-        title: isDerivedWorkloadIssue(item) ? '컨트롤러 가용성 변화' : '활성 파드 상태 변화',
+        title: isDerivedWorkloadIssue(item) ? '컨트롤러 가용성 변화' : '파드 런타임 이상 신호',
         tone: 'primary',
       },
       {
