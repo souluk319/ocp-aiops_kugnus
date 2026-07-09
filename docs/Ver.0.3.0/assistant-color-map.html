@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AIOps Assistant Color Map</title>
+    <style>
+      :root {
+        --ink-950: #1a1a1a;
+        --ink-900: #222222;
+        --ink-700: #3d4148;
+        --ink-600: #5f6670;
+        --surface: #ffffff;
+        --surface-2: #f5f5f5;
+        --surface-3: #f0f2f5;
+        --line: #d8dde5;
+        --line-soft: #ededed;
+        --blue-600: #2563eb;
+        --blue-700: #174ea6;
+        --blue-soft: #eff6ff;
+        --green-soft: #f0fdf4;
+        --amber-soft: #fff7ed;
+        --page: #f5f5f5;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink-900);
+        font-family:
+          Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system,
+          BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.58;
+        background: var(--page);
+      }
+
+      main {
+        width: min(1120px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 36px 0 56px;
+      }
+
+      header {
+        padding: 22px 24px;
+        color: #ffffff;
+        background: var(--ink-950);
+        border: 1px solid var(--ink-950);
+        border-radius: 16px;
+        box-shadow: 0 24px 72px rgb(12 12 12 / 18%);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 24px;
+        line-height: 1.2;
+      }
+
+      header p {
+        max-width: 760px;
+        margin-top: 8px;
+        color: #d6dbe3;
+        font-size: 14px;
+      }
+
+      section {
+        margin-top: 18px;
+        padding: 20px 22px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+
+      h2 {
+        margin-bottom: 12px;
+        font-size: 17px;
+      }
+
+      .note {
+        color: var(--ink-600);
+        font-size: 13px;
+      }
+
+      .token-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+
+      .token {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        min-height: 64px;
+        padding: 10px;
+        background: #faf9f6;
+        border: 1px solid var(--line-soft);
+        border-radius: 10px;
+      }
+
+      .swatch {
+        width: 42px;
+        height: 42px;
+        border: 1px solid rgb(12 12 12 / 12%);
+        border-radius: 9px;
+      }
+
+      .token strong {
+        display: block;
+        font-size: 12px;
+      }
+
+      .token code {
+        color: var(--ink-600);
+        font-size: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        padding: 10px 9px;
+        vertical-align: top;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      th {
+        color: var(--ink-700);
+        font-size: 12px;
+        text-align: left;
+        background: var(--surface-2);
+      }
+
+      td code {
+        display: inline-block;
+        padding: 1px 5px;
+        color: var(--ink-900);
+        background: var(--surface-3);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+      }
+
+      .sample-board {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 300px;
+        gap: 18px;
+        padding: 16px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+
+      .mock-panel {
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: 0 18px 48px rgb(12 12 12 / 12%);
+      }
+
+      .mock-header {
+        padding: 14px 16px;
+        color: #ffffff;
+        background: var(--ink-950);
+        border-bottom: 2px solid var(--blue-600);
+      }
+
+      .mock-strip {
+        display: flex;
+        gap: 8px;
+        padding: 10px 14px;
+        background: #faf9f6;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .pill {
+        padding: 5px 10px;
+        color: var(--ink-600);
+        font-size: 12px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+      }
+
+      .mock-body {
+        min-height: 220px;
+        padding: 18px;
+        background: var(--surface);
+      }
+
+      .mock-composer {
+        padding: 12px;
+        background: rgb(250 249 246 / 96%);
+        border-top: 1px solid var(--line-soft);
+      }
+
+      .mock-input {
+        padding: 12px;
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgb(12 12 12 / 3%);
+      }
+
+      .mock-rail {
+        padding: 14px;
+        background:
+          linear-gradient(180deg, var(--surface-2) 0%, #ffffff 42%),
+          #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+
+      .mock-card {
+        margin-top: 10px;
+        padding: 12px;
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 8px 22px rgb(12 12 12 / 4%);
+      }
+
+      .changed {
+        color: var(--blue-700);
+        font-weight: 700;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          width: min(100vw - 24px, 1120px);
+          padding-top: 18px;
+        }
+
+        .sample-board {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>AIOps Assistant 색상 맵</h1>
+        <p>
+          대상 커밋은 <code>a3448b8</code>이며, 기준 파일은
+          <code>komsco-ai-console-plugin/src/components/assistant.css</code>입니다.
+          이번 1차 변경은 FAB 챗봇의 차가운 slate 느낌을 줄이고, 흰색/검정
+          계열을 기본 표면으로 정리한 작업입니다.
+        </p>
+      </header>
+
+      <section>
+        <h2>1. 전역 색상 토큰</h2>
+        <p class="note">
+          컴포넌트가 직접 색을 반복해서 들고 있지 않도록, FAB 챗봇의 기본
+          색상은 아래 <code>--komsco-*</code> 토큰을 중심으로 맞춥니다.
+        </p>
+        <div class="token-grid" style="margin-top: 14px">
+          <div class="token">
+            <span class="swatch" style="background: #1a1a1a"></span>
+            <span><strong>Ink 950</strong><code>#1A1A1A</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #222"></span>
+            <span><strong>Ink 900</strong><code>#222222</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #3d4148"></span>
+            <span><strong>Ink 700</strong><code>#3D4148</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #5f6670"></span>
+            <span><strong>Ink 600</strong><code>#5F6670</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #ffffff"></span>
+            <span><strong>Surface</strong><code>#FFFFFF</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #f5f5f5"></span>
+            <span><strong>Surface 2</strong><code>#F5F5F5</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #f0f2f5"></span>
+            <span><strong>Surface 3</strong><code>#F0F2F5</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #d8dde5"></span>
+            <span><strong>Line</strong><code>#D8DDE5</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #ededed"></span>
+            <span><strong>Line Soft</strong><code>#EDEDED</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #2563eb"></span>
+            <span><strong>Blue 600</strong><code>#2563EB</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #174ea6"></span>
+            <span><strong>Blue 700</strong><code>#174EA6</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #eff6ff"></span>
+            <span><strong>Blue Soft</strong><code>#EFF6FF</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #f0fdf4"></span>
+            <span><strong>Green Soft</strong><code>#F0FDF4</code></span>
+          </div>
+          <div class="token">
+            <span class="swatch" style="background: #fff7ed"></span>
+            <span><strong>Amber Soft</strong><code>#FFF7ED</code></span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>2. 요소별 색상 사용</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>UI 요소</th>
+              <th>CSS selector</th>
+              <th>사용 색상</th>
+              <th>역할</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>FAB 챗봇 패널</td>
+              <td><code>.komsco-ai__panel</code></td>
+              <td>
+                배경 <code>#FFFFFF</code>, 테두리 <code>#D8DDE5</code>,
+                그림자 <code>rgb(12 12 12 / 18%)</code>
+              </td>
+              <td>전체 창을 깨끗한 흰색 도구 표면으로 고정합니다.</td>
+            </tr>
+            <tr>
+              <td>상단 헤더</td>
+              <td><code>.komsco-ai__header</code></td>
+              <td>
+                배경 <code>#1A1A1A</code>, 글자 <code>#FFFFFF</code>,
+                하단 라인 <code>#2563EB</code>
+              </td>
+              <td>운영 콘솔의 중심 제어 영역을 가장 강하게 잡습니다.</td>
+            </tr>
+            <tr>
+              <td>상단 컨텍스트 바</td>
+              <td><code>.komsco-ai__context-strip</code></td>
+              <td>
+                배경 <code>#FAF9F6</code>, 하단선 <code>#EDEDED</code>
+              </td>
+              <td>헤더 아래 정보를 따뜻한 흰색 계열로 분리합니다.</td>
+            </tr>
+            <tr>
+              <td>상태/모드 pill</td>
+              <td><code>.komsco-ai__context-pill</code></td>
+              <td>
+                글자 <code>#5F6670</code>, 배경 <code>#F5F5F5</code>,
+                테두리 <code>#D8DDE5</code>
+              </td>
+              <td>상태 정보를 작게 보이되 읽히게 유지합니다.</td>
+            </tr>
+            <tr>
+              <td>입력창 영역</td>
+              <td><code>.komsco-ai__composer-wrap</code></td>
+              <td>
+                배경 <code>rgb(250 249 246 / 96%)</code>, 상단선
+                <code>#EDEDED</code>
+              </td>
+              <td>본문과 입력부를 부드럽게 구분합니다.</td>
+            </tr>
+            <tr>
+              <td>빠른 프롬프트 버튼</td>
+              <td><code>.komsco-ai__quick-prompt</code></td>
+              <td>
+                글자 <code>#5F6670</code>, 배경 <code>#F5F5F5</code>,
+                테두리 <code>#D8DDE5</code>
+              </td>
+              <td>버튼 수가 많아져도 화면을 어지럽히지 않게 합니다.</td>
+            </tr>
+            <tr>
+              <td>텍스트 입력 박스</td>
+              <td><code>.komsco-ai__input</code></td>
+              <td>
+                배경 <code>#FFFFFF</code>, 테두리 <code>#D8DDE5</code>,
+                그림자 <code>rgb(12 12 12 / 3%)</code>
+              </td>
+              <td>입력 위치를 분명히 하되 과한 강조를 피합니다.</td>
+            </tr>
+            <tr>
+              <td>오른쪽 인사이트 rail</td>
+              <td><code>.komsco-ai__insight-rail</code></td>
+              <td>
+                배경 <code>#F5F5F5 → #FFFFFF</code>, 좌측선
+                <code>#D8DDE5</code>
+              </td>
+              <td>전체 화면에서 오른쪽 정보 패널을 자연스럽게 분리합니다.</td>
+            </tr>
+            <tr>
+              <td>연결 상태 카드</td>
+              <td><code>.komsco-ai__connection-card</code></td>
+              <td>
+                배경 <code>#FFFFFF</code>, 테두리 <code>#D8DDE5</code>,
+                그림자 <code>rgb(12 12 12 / 4%)</code>
+              </td>
+              <td>상태 카드는 카드처럼 보이되 무겁지 않게 둡니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>3. 적용 느낌 예시</h2>
+        <div class="sample-board">
+          <div class="mock-panel">
+            <div class="mock-header">
+              <strong>AIOps for OCP</strong>
+            </div>
+            <div class="mock-strip">
+              <span class="pill">Node 1/1</span>
+              <span class="pill">Operator</span>
+              <span class="pill">실행 가능</span>
+            </div>
+            <div class="mock-body">
+              <h3>무엇을 확인할까요?</h3>
+              <p class="note" style="margin-top: 8px">
+                본문은 흰색 표면 위에 두고, 상태와 버튼만 작은 색으로
+                구분합니다.
+              </p>
+            </div>
+            <div class="mock-composer">
+              <div class="mock-input">무엇을 확인할까요?</div>
+            </div>
+          </div>
+          <aside class="mock-rail">
+            <strong>현재 클러스터 컨텍스트</strong>
+            <div class="mock-card">
+              <span class="changed">클러스터 연결됨</span>
+              <p class="note" style="margin-top: 6px">
+                카드와 rail은 같은 border 계열을 써서 분리감만 줍니다.
+              </p>
+            </div>
+            <div class="mock-card">
+              <span class="changed">저장된 리포트</span>
+              <p class="note" style="margin-top: 6px">
+                강조색은 상태와 행동에만 제한합니다.
+              </p>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. 이번 변경에서 의도적으로 유지한 색</h2>
+        <p class="note">
+          성공/주의/위험 같은 의미색은 제품 판단에 직접 연결되므로 1차 색상
+          정돈에서 크게 바꾸지 않았습니다. 현재는 표면과 테두리의 칙칙한
+          slate 느낌을 줄이는 데 집중했습니다.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
