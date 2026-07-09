@@ -46,6 +46,9 @@ const assistantSourceLabel = (message: Message, language: UiLanguage): string =>
   if (message.answerSource === 'ols') {
     return isKo ? 'Lightspeed 연결' : 'Lightspeed connected';
   }
+  if (message.answerSource === 'ols_unavailable') {
+    return isKo ? 'Lightspeed 응답 없음' : 'Lightspeed unavailable';
+  }
   if (message.answerSource === 'gateway_direct') {
     return isKo ? 'Gateway 실조회' : 'Gateway live query';
   }
@@ -64,6 +67,9 @@ const assistantSourceClass = (message: Message): string => {
   }
   if (message.answerSource === 'ols') {
     return 'komsco-ai__message-source--ols';
+  }
+  if (message.answerSource === 'ols_unavailable') {
+    return 'komsco-ai__message-source--fallback';
   }
   if (message.answerSource === 'copilot_reply') {
     return 'komsco-ai__message-source--aiops';
@@ -86,6 +92,11 @@ const assistantSourceTitle = (message: Message, language: UiLanguage): string =>
     return message.gatewayContextDigest
       ? `OpenShift Lightspeed stream connected · ${message.gatewayContextDigest}`
       : 'OpenShift Lightspeed stream connected';
+  }
+  if (message.answerSource === 'ols_unavailable') {
+    return message.gatewayContextDigest
+      ? `OpenShift Lightspeed final answer unavailable · ${message.gatewayContextDigest}`
+      : 'OpenShift Lightspeed final answer unavailable';
   }
   if (message.answerSource === 'gateway_direct') {
     const label = isKo

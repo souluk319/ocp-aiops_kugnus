@@ -1,26 +1,24 @@
 {
   "apiVersion": "aiops.komsco/v1alpha1",
   "kind": "OcpConnectivityLadderReport",
-  "generatedAt": "2026-07-09T00:43:59.102413Z",
+  "generatedAt": "2026-07-09T16:29:06.856676Z",
   "branch": "refactor/ver0.3.0",
-  "headSha": "9795da9632aba3630b14f3f44c909ff3929dcb85",
+  "headSha": "4f4ef7ccd1a81022545f98577afd930f96a85ba2",
   "apiServer": "https://api.ocp.cywell.server:6443",
   "gateway": "http://127.0.0.1:18080",
-  "timeoutSeconds": 8,
+  "timeoutSeconds": 15,
   "summary": {
-    "readyForStrictLightspeedGate": false,
-    "firstFailingLayer": "ocIdentity",
-    "message": "oc whoami did not return a non-empty user"
+    "readyForStrictLightspeedGate": true,
+    "firstFailingLayer": "",
+    "message": "OCP connectivity ladder passed; run task kugnus:lightspeed:live-verify."
   },
   "interpretation": {
-    "likelyCause": "oc_login_or_auth_session_invalid",
-    "confidence": "medium",
-    "explanation": "The network path reached later layers, but live oc identity/token/auth review failed.",
+    "likelyCause": "none_detected",
+    "confidence": "high",
+    "explanation": "All connectivity ladder checks passed; strict Lightspeed verification can run.",
     "nextActions": [
-      "Run oc login in WSL, then rerun task kugnus:ocp:doctor.",
-      "Do not commit tokens, kubeconfig, or .env files."
-    ],
-    "notCodeBlocker": true
+      "Run task kugnus:lightspeed:live-verify."
+    ]
   },
   "results": {
     "dns": {
@@ -32,18 +30,18 @@
     },
     "tcp": {
       "ok": true,
-      "durationMs": 4
+      "durationMs": 5
     },
     "tls": {
       "ok": true,
-      "durationMs": 25,
+      "durationMs": 31,
       "cipher": "TLS_AES_128_GCM_SHA256",
       "subject": ""
     },
     "versionEndpoint": {
       "ok": true,
       "statusCode": 200,
-      "durationMs": 14,
+      "durationMs": 15,
       "jsonKind": null,
       "jsonApiVersion": null,
       "accessReviewStatus": {},
@@ -53,41 +51,62 @@
     "ocServer": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 61,
+      "durationMs": 93,
       "stdout": "https://api.ocp.cywell.server:6443",
       "stderr": "",
-      "timeoutSeconds": 8,
+      "timeoutSeconds": 15,
       "matchesExpectedServer": true
     },
     "ocIdentity": {
-      "ok": false,
-      "returnCode": 1,
-      "durationMs": 96,
-      "stdout": "",
-      "stderr": "error: You must be logged in to the server (Unauthorized)",
-      "timeoutSeconds": 8,
-      "identityPresent": false,
-      "reason": "oc whoami returned an empty identity"
+      "ok": true,
+      "returnCode": 0,
+      "durationMs": 117,
+      "stdout": "admin",
+      "stderr": "",
+      "timeoutSeconds": 15,
+      "identityPresent": true
     },
     "ocToken": {
       "ok": true,
-      "durationMs": 55,
+      "durationMs": 86,
       "returnCode": 0,
       "tokenLength": 50,
       "timeout": false,
       "stderr": ""
     },
     "selfSubjectReview": {
-      "ok": false,
-      "statusCode": 401,
-      "durationMs": 20,
-      "bodyPreview": "{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"metadata\":{},\"status\":\"Failure\",\"message\":\"Unauthorized\",\"reason\":\"Unauthorized\",\"code\":401}\n"
+      "ok": true,
+      "statusCode": 201,
+      "durationMs": 17,
+      "jsonKind": "SelfSubjectReview",
+      "jsonApiVersion": "authentication.k8s.io/v1",
+      "accessReviewStatus": {},
+      "lightspeedStatus": {},
+      "bodyPreview": "{\"kind\":\"SelfSubjectReview\",\"apiVersion\":\"authentication.k8s.io/v1\",\"metadata\":{\"creationTimestamp\":\"2026-07-09T16:29:07Z\"},\"status\":{\"userInfo\":{\"username\":\"admin\",\"uid\":\"6029fc91-79e0-4856-a097-d9058b64c6c0\",\"groups\":[\"system:authenticated:oauth\",\"system:authenticated\"],\"extra\":{\"scopes.authorizat"
     },
     "gatewayStatus": {
-      "ok": false,
-      "statusCode": 0,
-      "durationMs": 0,
-      "error": "<urlopen error [Errno 111] Connection refused>"
+      "ok": true,
+      "statusCode": 200,
+      "durationMs": 47,
+      "jsonKind": "AIOpsRuntimeStatus",
+      "jsonApiVersion": "aiops.komsco/v1",
+      "accessReviewStatus": {
+        "status": "success",
+        "recordsVisible": true,
+        "reason": ""
+      },
+      "lightspeedStatus": {
+        "status": "configured",
+        "baseService": "openshift-lightspeed/lightspeed-app-server:8443",
+        "streamProbe": "failed",
+        "lastStatus": "failed",
+        "lastContextDigest": "sha256:1872d046373a2659dd9ef2c25f7345b04454171114235f2158af5b1165136606",
+        "lastStartedAt": "2026-07-09T16:26:33.897353+00:00",
+        "lastCompletedAt": "2026-07-09T16:26:33.899629+00:00",
+        "lastError": "OpenShift Lightspeed ended without answer text after 2 attempts; final answer was not generated",
+        "fallbackActive": false
+      },
+      "bodyPreview": "{\"apiVersion\":\"aiops.komsco/v1\",\"kind\":\"AIOpsRuntimeStatus\",\"metadata\":{\"name\":\"runtime-status\",\"generatedAt\":\"2026-07-09T16:29:06.854349+00:00\"},\"spec\":{\"capabilities\":{\"mutationsEnabled\":true,\"diagnosticsEnabled\":false,\"diagnosticsControllerConfigured\":false,\"actionExecutorConfigured\":true,\"unrest"
     }
   },
   "wslNetwork": {
@@ -95,10 +114,10 @@
     "ipRouteGet": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 6,
+      "durationMs": 7,
       "stdout": "10.0.1.230 via 172.29.160.1 dev eth0 src 172.29.163.203 uid 1001 \n    cache",
       "stderr": "",
-      "timeoutSeconds": 8
+      "timeoutSeconds": 15
     },
     "ipBriefAddr": {
       "ok": true,
@@ -106,7 +125,7 @@
       "durationMs": 1,
       "stdout": "lo               UNKNOWN        127.0.0.1/8 10.255.255.254/32 ::1/128 \neth0             UP             172.29.163.203/20 fe80::215:5dff:fef1:3512/64",
       "stderr": "",
-      "timeoutSeconds": 8
+      "timeoutSeconds": 15
     },
     "resolvConfPreview": "# This file was automatically generated by WSL. To stop automatic generation of this file, add the following entry to /etc/wsl.conf:\n# [network]\n# generateResolvConf = false\nnameserver 10.255.255.254\nsearch tail14d38e.ts.net\n",
     "hints": [
@@ -122,10 +141,10 @@
     "routePrint": {
       "ok": true,
       "returnCode": 0,
-      "durationMs": 261,
+      "durationMs": 241,
       "stdout": "===========================================================================\nInterface List\n 22...<mac> ......Fortinet SSL VPN Virtual Ethernet Adapter\n 20...<mac> ......Realtek USB GbE Family Controller\n 47...........................Tailscale Tunnel\n 21...<mac> ......Intel(R) Ethernet Connection (24) I219-V\n  8...<mac> ......Intel(R) Wi-Fi 6E AX211 160MHz\n  9...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter\n 24...<mac> ......Microsoft Wi-Fi Direct Virtual Adapter #2\n 16...<mac> ......Bluetooth Device (Personal Area Network)\n  1...........................Software Loopback Interface 1\n 19...<mac> ......Hyper-V Virtual Ethernet Adapter\n 32...<mac> ......Hyper-V Virtual Ethernet Adapter #2\n===========================================================================\n\nIPv4 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None\n\nIPv6 Route Table\n===========================================================================\nActive Routes:\n  None\nPersistent Routes:\n  None",
       "stderr": "",
-      "timeoutSeconds": 8
+      "timeoutSeconds": 15
     },
     "vpnAdapters": [
       {

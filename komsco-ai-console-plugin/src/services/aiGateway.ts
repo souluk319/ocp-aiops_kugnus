@@ -16,6 +16,7 @@ type StreamChatOptions = {
 
 export type ChatFeedbackPayload = {
   answerContract?: string;
+  assistantAnswer?: string;
   answerSource?: string;
   conversationId?: string;
   feedbackId?: string;
@@ -27,6 +28,7 @@ export type ChatFeedbackPayload = {
   route?: string;
   source?: string;
   timestamp: string;
+  userMessage?: string;
 };
 
 export type ChatFeedbackResult = {

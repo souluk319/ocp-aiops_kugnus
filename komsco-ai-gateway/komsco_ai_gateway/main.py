@@ -56,6 +56,7 @@ from .answer_planning import (
     answer_language,
     answer_language_contract,
     answer_section_contract,
+    assistant_operating_answer_style_contract,
     build_aiops_answer_contract_text,
     build_gateway_fallback_answer_plan,
     casual_identity_answer,
@@ -82,6 +83,8 @@ from .cluster_evidence import (
     rca_probe_event_status,
 )
 from .cluster_summary import build_cluster_summary as build_cluster_summary_read_model
+from .chat_feedback import ChatFeedbackInputError, build_chat_feedback_record
+from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
     OlsGatewayContextInput,
@@ -91,6 +94,7 @@ from .ols_payloads import (
     build_ols_payload as build_ols_payload_for_context,
     build_ols_context_handoff as build_ols_context_handoff_for_limits,
 )
+from .ols_query_rendering import OlsQueryRenderInput, render_ols_query
 from .page_context import (
     page_context_aiops_execution_mode,
     page_context_is_pod_workload,
@@ -196,6 +200,26 @@ from .settings import (
     parse_int,
     parse_millis_env_as_seconds,
     parse_ols_verify,
+)
+from .test_pod_create import (
+    TestPodCreateSettings,
+    answer as render_test_pod_create_answer,
+    candidate_from_preflight as build_test_pod_create_candidate_from_preflight,
+    count_from_message as parse_test_pod_create_count_from_message,
+    disabled_answer as render_test_pod_create_disabled_answer,
+    is_ready as test_pod_create_request_is_ready,
+    pod_manifest as build_crashloop_test_pod_manifest,
+    pod_name as build_crashloop_test_pod_name,
+    request_from_message as parse_test_pod_create_request_from_message,
+    review_execution_result as build_test_pod_create_review_execution_result,
+    tool_plan as build_test_pod_create_tool_plan,
+)
+from .text_reference_filter import (
+    TextReferenceFilter,
+    normalize_pod_restart_language,
+    should_filter_gateway_api_references,
+    should_filter_low_signal_references,
+    strip_private_reasoning_sections,
 )
 
 PUBLIC_MAIN_REEXPORTS = (
@@ -449,31 +473,20 @@ UNRESTRICTED_COMMAND_TIMEOUT_SECONDS = int(
 UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES = int(
     os.getenv("KOMSCO_AI_UNRESTRICTED_COMMAND_MAX_OUTPUT_BYTES", "20000")
 )
+GATEWAY_DIRECT_ANSWER_ENABLED = parse_bool(
+    os.getenv("KOMSCO_AI_GATEWAY_DIRECT_ANSWER_ENABLED"),
+    default=False,
+)
+REQUIRE_OLS_FINAL_ANSWER = parse_bool(
+    os.getenv("KOMSCO_AI_REQUIRE_OLS_FINAL_ANSWER"),
+    default=True,
+)
 RUN_HEARTBEAT_SECONDS = 5.0
 MAX_IMAGE_ATTACHMENTS = 4
 MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024
 ALLOWED_IMAGE_MIME_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
-DISALLOWED_GATEWAY_API_REFERENCE_RE = re.compile(
-    r"^\s*(Gateway|GatewayClass)\s+\[gateway\.networking\.k8s\.io/v1\]:\s+https?://",
-    re.IGNORECASE,
-)
 AIOPS_ANSWER_QUERY_PLAN_LABEL = "조회 계획:"
-EXPLICIT_KUBERNETES_GATEWAY_API_RE = re.compile(
-    r"(?i)(gatewayclass|gateway\.networking\.k8s\.io|kubernetes gateway api|openshift gateway api|gateway api)"
-)
-LOW_SIGNAL_REFERENCE_RE = re.compile(
-    r"^\s*("
-    r"Extension APIs|"
-    r"Admission plugins|"
-    r"TokenReview\s+\[authentication\.k8s\.io/v1\]|"
-    r"ClusterRole\s+\[authorization\.openshift\.io/v1\]"
-    r"):\s+https?://",
-    re.IGNORECASE,
-)
-EXPLICIT_OPENSHIFT_DOC_REFERENCE_RE = re.compile(
-    r"(?i)(문서|docs?|reference|참고 링크|api\s*문서|extension api|admission plugin|tokenreview|clusterrole)"
-)
 POD_STATUS_ANALYSIS_RE = re.compile(
     r"(?i)((pod|pods|파드).*(상태|현황|이력|횟수|많은|높은|분석|확인|조회|"
     r"crashloop|imagepull|backoff|failed|error|pending|교체|replacement|rollout|"
@@ -614,13 +627,6 @@ FOLLOWUP_EXECUTION_RE = re.compile(
     r"^\s*(?:승인|승인해|실행|실행해|진행|진행해|수행|수행해|적용|적용해|해|해줘|yes|ok|확인)\s*[.!?。]*\s*$",
     re.IGNORECASE,
 )
-POD_RESTART_LANGUAGE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("재시작 빈도", "누적 재시작 횟수"),
-    ("높은 빈도", "높은 누적 재시작 횟수"),
-    ("빈번한 재시작", "누적 재시작 이력"),
-    ("재시작이 빈번하게 발생", "재시작 이력이 누적"),
-    ("재시작이 빈번", "누적 재시작 횟수가 높음"),
-)
 VISION_SYSTEM_PROMPT = (
     "You are an image analysis component for an OpenShift AIOps assistant. "
     "Extract visible text, UI state, error messages, resource names, namespace names, "
@@ -633,14 +639,18 @@ AIOPS_WORKLOAD_RE = re.compile(
     r"nvidia|gpu|dcgm|\bmig\b|device[-_.]?plugin)",
     re.IGNORECASE,
 )
-TEST_POD_CREATE_DEFAULT_NAMESPACE = "gpu-test-kugnus"
-TEST_POD_CREATE_DEFAULT_COUNT = 3
+TEST_POD_CREATE_ENABLED = os.getenv("KOMSCO_AI_TEST_POD_CREATE_ENABLED", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 TEST_POD_CREATE_DEFAULT_IMAGE = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
 TEST_POD_CREATE_NAME_PREFIX = "aiops-test-pod"
 TEST_POD_CREATE_APP_LABEL = "aiops-test-pods"
 TEST_POD_CREATE_ALLOWED_NAMESPACES = {
     item.strip()
-    for item in os.getenv("KOMSCO_AI_TEST_POD_CREATE_ALLOWED_NAMESPACES", TEST_POD_CREATE_DEFAULT_NAMESPACE).split(",")
+    for item in os.getenv("KOMSCO_AI_TEST_POD_CREATE_ALLOWED_NAMESPACES", "").split(",")
     if item.strip()
 }
 TEST_POD_CREATE_FAILURE_COMMAND = [
@@ -648,6 +658,19 @@ TEST_POD_CREATE_FAILURE_COMMAND = [
     "-c",
     "echo aiops intentional crashloop test pod; exit 1",
 ]
+
+
+def test_pod_create_settings() -> TestPodCreateSettings:
+    return TestPodCreateSettings(
+        enabled=TEST_POD_CREATE_ENABLED,
+        default_image=TEST_POD_CREATE_DEFAULT_IMAGE,
+        name_prefix=TEST_POD_CREATE_NAME_PREFIX,
+        app_label=TEST_POD_CREATE_APP_LABEL,
+        allowed_namespaces=frozenset(TEST_POD_CREATE_ALLOWED_NAMESPACES),
+        failure_command=tuple(TEST_POD_CREATE_FAILURE_COMMAND),
+    )
+
+
 LAST_RUNTIME_TOOL_PLAN: dict[str, Any] | None = None
 LAST_RCA_CONTEXT: dict[str, Any] | None = None
 RUNBOOK_REGISTRY_VERSION = "v1"
@@ -1421,7 +1444,6 @@ def action_record_context() -> ActionRecordContext:
     return ActionRecordContext(
         cluster_id=CLUSTER_ID,
         mutations_enabled=MUTATIONS_ENABLED,
-        test_pod_create_default_count=TEST_POD_CREATE_DEFAULT_COUNT,
         test_pod_create_default_image=TEST_POD_CREATE_DEFAULT_IMAGE,
         test_pod_create_name_prefix=TEST_POD_CREATE_NAME_PREFIX,
         test_pod_create_app_label=TEST_POD_CREATE_APP_LABEL,
@@ -1815,6 +1837,7 @@ class ChatRequest(BaseModel):
 
 class ChatFeedbackCreate(BaseModel):
     answerContract: str | None = Field(default=None, max_length=160)
+    assistantAnswer: str | None = Field(default=None, max_length=4000)
     answerSource: str | None = Field(default=None, max_length=80)
     conversationId: str | None = Field(default=None, max_length=160)
     feedbackId: str | None = Field(default=None, max_length=180)
@@ -1826,6 +1849,7 @@ class ChatFeedbackCreate(BaseModel):
     route: str | None = Field(default=None, max_length=240)
     source: str | None = Field(default=None, max_length=80)
     timestamp: str | None = Field(default=None, max_length=80)
+    userMessage: str | None = Field(default=None, max_length=2400)
 
 
 class RagDocumentUploadCreate(StrictBaseModel):
@@ -2926,16 +2950,24 @@ def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, An
             ]
         ).lower()
         if any(token in source_hint for token in ("test-pod", "test_pod", "create-test", "pod-create")):
+            count = parameters.get("count")
+            target_namespace = namespace or target.name
+            if not TEST_POD_CREATE_ENABLED:
+                raise HTTPException(status_code=403, detail="CrashLoop test Pod creation is disabled in product mode")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
+                raise HTTPException(status_code=400, detail="test pod count must be explicitly set between 1 and 5")
+            if target_namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
+                raise HTTPException(status_code=403, detail="namespace is outside the test Pod creation allowlist")
             return {
                 "apiVersion": target.apiVersion or "v1",
                 "kind": "Namespace",
-                "namespace": namespace or target.name,
+                "namespace": target_namespace,
                 "targetName": target.name,
                 "toolName": "create_crashloop_test_pods",
                 "parameters": parameters
                 or {
                     "failureMode": "crashloop",
-                    "count": TEST_POD_CREATE_DEFAULT_COUNT,
+                    "count": count,
                     "image": TEST_POD_CREATE_DEFAULT_IMAGE,
                     "namePrefix": TEST_POD_CREATE_NAME_PREFIX,
                 },
@@ -4510,13 +4542,6 @@ def append_gateway_evidence(current: str | None, new_evidence: str) -> str:
     return f"{current}\n\n{new_evidence}"
 
 
-def normalize_pod_restart_language(text: str) -> str:
-    normalized = text
-    for source, replacement in POD_RESTART_LANGUAGE_REPLACEMENTS:
-        normalized = normalized.replace(source, replacement)
-    return normalized
-
-
 def state_summary(container_status: Mapping[str, Any]) -> str:
     state = container_status.get("state")
     if not isinstance(state, Mapping):
@@ -4931,51 +4956,56 @@ def action_policy_mode_for_execution_mode(mode: str, candidate_ready: bool) -> s
     return "read_only_review"
 
 
-def test_pod_create_count_from_message(message: str) -> int:
-    text = message.lower()
-    digit = re.search(r"\b([1-5])\s*(?:개|pods?|파드)?\b", text)
-    if digit:
-        return int(digit.group(1))
-    korean_numbers = (
-        (1, r"한\s*개|하나|일\s*개"),
-        (2, r"두\s*개|둘|두\s*대|이\s*개"),
-        (3, r"세\s*개|셋|삼\s*개"),
-        (4, r"네\s*개|넷|사\s*개"),
-        (5, r"다섯\s*개|다섯|오\s*개"),
-    )
-    for count, pattern in korean_numbers:
-        if re.search(pattern, text, re.IGNORECASE):
-            return count
-    english_numbers = (
-        (1, r"\bone\b"),
-        (2, r"\btwo\b"),
-        (3, r"\bthree\b"),
-        (4, r"\bfour\b"),
-        (5, r"\bfive\b"),
-    )
-    for count, pattern in english_numbers:
-        if re.search(pattern, text, re.IGNORECASE):
-            return count
-    return TEST_POD_CREATE_DEFAULT_COUNT
+def test_pod_create_count_from_message(message: str) -> int | None:
+    return parse_test_pod_create_count_from_message(message)
 
 
 def test_pod_create_request_from_message(message: str) -> dict[str, Any]:
-    names = namespace_names_from_message(message)
-    namespace = names[0] if names else TEST_POD_CREATE_DEFAULT_NAMESPACE
-    return {
-        "count": test_pod_create_count_from_message(message),
-        "failureMode": "crashloop",
-        "image": TEST_POD_CREATE_DEFAULT_IMAGE,
-        "namespace": namespace,
-        "targetName": "aiops-test-pods",
-    }
+    return parse_test_pod_create_request_from_message(
+        message,
+        test_pod_create_settings(),
+        namespace_names_from_message,
+    )
+
+
+def test_pod_create_is_ready(request: Mapping[str, Any]) -> bool:
+    return test_pod_create_request_is_ready(request, test_pod_create_settings())
+
+
+def test_pod_create_disabled_answer(request: Mapping[str, Any], language: str) -> str:
+    return render_test_pod_create_disabled_answer(request, language)
 
 
 async def collect_test_pod_create_preflight(
     user_auth_header: str,
     request: Mapping[str, Any],
 ) -> dict[str, Any]:
-    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
+    namespace = str(request.get("namespace") or "").strip()
+    count = request.get("count")
+    if not TEST_POD_CREATE_ENABLED:
+        return {
+            "error": "CrashLoop test Pod creation is disabled in product mode",
+            "namespace": namespace,
+            "ok": False,
+            "server": OPENSHIFT_API_URL,
+            "status": "test_pod_create_disabled",
+        }
+    if not namespace:
+        return {
+            "error": "namespace is required for test Pod creation",
+            "namespace": "",
+            "ok": False,
+            "server": OPENSHIFT_API_URL,
+            "status": "missing_namespace_for_test_pod_create",
+        }
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
+        return {
+            "error": "test Pod count must be explicitly set between 1 and 5",
+            "namespace": namespace,
+            "ok": False,
+            "server": OPENSHIFT_API_URL,
+            "status": "missing_or_invalid_count_for_test_pod_create",
+        }
     if namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
         return {
             "error": f"namespace `{namespace}` is outside the test Pod creation allowlist",
@@ -5024,60 +5054,13 @@ def test_pod_create_candidate_from_preflight(
     run_id: str,
     incident_id: str,
 ) -> dict[str, Any]:
-    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
-    count = int(request.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
-    candidate_id = f"action-candidate-test-pod-create-{hashlib.sha256(namespace.encode()).hexdigest()[:12]}"
-    return {
-        "approvalRequired": True,
-        "blockedActions": [],
-        "blockedReasons": ["approval-required"],
-        "confidence": "high" if preflight.get("ok") else "medium",
-        "evidence": f"{namespace} namespace 존재 확인 후 의도적으로 CrashLoopBackOff가 나는 테스트 Pod {count}개를 생성할 수 있습니다.",
-        "evidenceRefs": [
-            {
-                "evidenceType": "namespace_preflight",
-                "findingId": f"test-pod-create-{namespace}",
-                "sourceType": "create_crashloop_test_pods",
-                "status": "collected" if preflight.get("ok") else "missing",
-            }
-        ],
-        "executable": True,
-        "executionPolicy": {
-            "executionEnabled": True,
-            "mode": "execute",
-            "mutationVerbsDisabled": False,
-            "proposalOnly": False,
-        },
-        "expectedImpact": f"{namespace} namespace에 의도적으로 CrashLoopBackOff가 나는 테스트 Pod {count}개를 생성합니다. 승인 전에는 생성하지 않습니다.",
-        "id": candidate_id,
-        "priority": 35,
-        "parameters": {
-            "count": count,
-            "failureMode": "crashloop",
-            "image": str(request.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE),
-            "namePrefix": TEST_POD_CREATE_NAME_PREFIX,
-        },
-        "prerequisiteChecks": ["대상 namespace 존재 확인", "테스트 목적 확인", "정리 방법 확인"],
-        "recommendationSteps": ["CrashLoop 테스트 Pod 생성 계획 작성", "승인 게이트 통과", "생성 후 CrashLoopBackOff 상태 조회로 검증"],
-        "riskLevel": "low",
-        "riskLabel": "낮음",
-        "severity": "실행 가능",
-        "sourceFindingId": f"test-pod-create-{namespace}",
-        "sourceType": "create_crashloop_test_pods",
-        "statusLabel": "승인 후 실행 가능",
-        "target": {
-            "apiVersion": "v1",
-            "kind": "Namespace",
-            "name": namespace,
-            "namespace": namespace,
-            "uid": str(preflight.get("uid") or f"namespace-{namespace}"),
-        },
-        "title": f"CrashLoop 테스트 Pod {count}개 생성",
-        "verificationChecks": ["생성 전 namespace 재확인", f"label app={TEST_POD_CREATE_APP_LABEL} 기준 Pod {count}개 조회"],
-        "chatRunId": run_id,
-        "incidentId": incident_id,
-        "expiresAt": (datetime.now(UTC) + timedelta(minutes=15)).isoformat(),
-    }
+    return build_test_pod_create_candidate_from_preflight(
+        request,
+        preflight,
+        run_id,
+        incident_id,
+        test_pod_create_settings(),
+    )
 
 
 def test_pod_create_answer(
@@ -5086,102 +5069,14 @@ def test_pod_create_answer(
     execution_mode: str,
     language: str,
 ) -> str:
-    is_en = language == "en"
-    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
-    count = int(request.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
-    action_mode = action_capable_execution_mode(execution_mode)
-    preflight_label = "namespace exists" if is_en else "namespace 존재 확인"
-    if not preflight.get("ok"):
-        preflight_label = "namespace must be rechecked before execution" if is_en else "실행 전 namespace 재확인 필요"
-
-    if is_en:
-        lines = [
-            "## Current Assessment",
-            (
-                f"{execution_mode_sentence(execution_mode, language)} "
-                + (
-                    "After Action Plan creation, approval, and execution, intentional CrashLoopBackOff test Pods can be created."
-                    if action_mode and preflight.get("ok")
-                    else "Plan candidates can be reviewed, but creation and execution are locked."
-                    if not action_mode
-                    else "The namespace must be rechecked before an Action Plan candidate is created."
-                )
-            ),
-            "",
-            "## Target",
-            f"- namespace: `{namespace}`",
-            "- object group: `aiops-test-pods`",
-            f"- requested count: `{count}`",
-            "- failure mode: `CrashLoopBackOff`",
-            "",
-            "## Confirmed Evidence",
-            f"- API server: {preflight.get('server') or '-'}",
-            f"- namespace preflight: {preflight_label}",
-            "",
-            "## Action Plan",
-            (
-                f"- Approval-required candidate: create `{count}` CrashLoopBackOff test Pods in `{namespace}`"
-                if action_mode and preflight.get("ok")
-                else "- Status: read-only mode shows the plan candidate only; switch to execution-enabled mode to create it."
-                if not action_mode
-                else "- Status: namespace must be rechecked before a candidate is created."
-            ),
-            "- No Pod is created before approval.",
-            f"- Execution: after approval, the Gateway creates {count} Pod objects with a fixed command that exits with code 1.",
-            f"- Verification: after execution, confirm that `app={TEST_POD_CREATE_APP_LABEL}` has {count} Pods and the containers enter CrashLoopBackOff/Error.",
-            "",
-            "## Terminal Check Commands",
-            "```bash",
-            "oc whoami --show-server",
-            f"oc get namespace {namespace}",
-            f"oc get pods -n {namespace} -l app={TEST_POD_CREATE_APP_LABEL}",
-            "```",
-        ]
-        return "\n".join(lines)
-
-    lines = [
-        "## 현재 판단",
-        (
-            f"{execution_mode_sentence(execution_mode, language)} "
-            + (
-                "Action Plan 생성 후 승인·실행하면 의도적으로 CrashLoopBackOff가 나는 테스트 Pod를 만들 수 있습니다."
-                if action_mode and preflight.get("ok")
-                else "계획 후보는 확인할 수 있지만 생성과 실행은 잠겨 있습니다."
-                if not action_mode
-                else "Action Plan 후보 생성 전 namespace 재확인이 필요합니다."
-            )
-        ),
-        "",
-        "## 대상",
-        f"- namespace: `{namespace}`",
-        "- 오브젝트 그룹: `aiops-test-pods`",
-        f"- 생성 수량: `{count}`",
-        "- 실패 방식: `CrashLoopBackOff`",
-        "",
-        "## 확인 결과",
-        f"- API 서버: {preflight.get('server') or '-'}",
-        f"- namespace 사전 확인: {preflight_label}",
-        "",
-        "## Action Plan",
-        (
-            f"- 승인 필요 후보: `{namespace}`에 CrashLoopBackOff 테스트 Pod {count}개 생성"
-            if action_mode and preflight.get("ok")
-            else "- 상태: 읽기 전용 모드에서는 계획 후보만 표시하고, 생성은 실행 가능 모드에서 진행합니다."
-            if not action_mode
-            else "- 상태: 실행 전 namespace 재확인 필요"
-        ),
-        "- 승인 전에는 Pod를 생성하지 않습니다.",
-        "- 실행: 승인 후 Gateway가 종료 코드 1로 즉시 종료되는 Pod 오브젝트를 생성합니다.",
-        f"- 검증: 실행 후 `app={TEST_POD_CREATE_APP_LABEL}` label 기준으로 Pod {count}개와 CrashLoopBackOff/Error 상태를 확인합니다.",
-        "",
-        "## 터미널 확인 명령",
-        "```bash",
-        "oc whoami --show-server",
-        f"oc get namespace {namespace}",
-        f"oc get pods -n {namespace} -l app={TEST_POD_CREATE_APP_LABEL}",
-        "```",
-    ]
-    return "\n".join(lines)
+    return render_test_pod_create_answer(
+        request,
+        preflight,
+        execution_mode_sentence(execution_mode, language),
+        action_mode=action_capable_execution_mode(execution_mode),
+        language=language,
+        settings=test_pod_create_settings(),
+    )
 
 
 def test_pod_create_tool_plan(
@@ -5190,56 +5085,9 @@ def test_pod_create_tool_plan(
     *,
     can_propose: bool | None = None,
 ) -> dict[str, Any]:
-    namespace = str(request.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
-    action_ready = action_capable_execution_mode(execution_mode) if can_propose is None else bool(can_propose)
-    plan_steps: list[dict[str, Any]] = [
-        {
-            "step": 1,
-            "adapter": "oc",
-            "tool": "oc_get_namespace",
-            "verb": "get",
-            "purpose": "대상 namespace 존재 확인",
-        }
-    ]
-    if action_ready:
-        plan_steps.extend(
-            [
-                {
-                    "step": 2,
-                    "adapter": "aiops-gateway",
-                    "tool": "create_test_pod_action_candidate",
-                    "verb": "propose",
-                    "purpose": "승인 필요 테스트 Pod 생성 Action Plan 후보 생성",
-                },
-                {
-                    "step": 3,
-                    "adapter": "oc",
-                    "tool": "oc_get_created_pods",
-                    "verb": "get",
-                    "purpose": "승인 후 생성된 Pod 오브젝트 확인",
-                },
-            ]
-        )
-    return {
-        "task_type": "test_pod_create",
-        "target": {
-            "apiVersion": "v1",
-            "kind": "Namespace",
-            "name": namespace,
-            "namespace": namespace,
-        },
-        "execution_policy": {
-            "mode": action_policy_mode_for_execution_mode(execution_mode, action_ready),
-            "mutations_enabled": action_ready,
-            "proposal_only": not action_ready,
-            "review_only": False,
-        },
-        "tool_plan": plan_steps,
-        "validation": {
-            "ok": True,
-            "status": "action_candidate_ready" if action_ready else "preflight_required",
-        },
-    }
+    requested_can_propose = action_capable_execution_mode(execution_mode) if can_propose is None else bool(can_propose)
+    action_ready = test_pod_create_is_ready(request) and requested_can_propose
+    return build_test_pod_create_tool_plan(request, execution_mode, action_ready=action_ready)
 
 
 def namespace_cleanup_candidates_from_inventory(inventory: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -6708,69 +6556,6 @@ def build_cronjob_activity_evidence(
     return "\n".join(lines)
 
 
-PRIVATE_REASONING_START_RE = re.compile(
-    r"(<\|channel\|>\s*(?:thought|analysis)\s*<channel>|"
-    r"<\|start_header_id\|>\s*(?:thought|analysis)\s*<\|end_header_id\|>|"
-    r"<think>|"
-    r"<(?:thought|analysis)>)",
-    re.IGNORECASE,
-)
-PRIVATE_REASONING_END_RE = re.compile(
-    r"(<\|channel\|>\s*(?:final|assistant)\s*<channel>|"
-    r"<\|start_header_id\|>\s*(?:final|assistant)\s*<\|end_header_id\|>|"
-    r"</think>|"
-    r"</(?:thought|analysis)>|"
-    r"<(?:final|assistant)>)",
-    re.IGNORECASE,
-)
-PRIVATE_REASONING_TOKEN_RE = re.compile(
-    r"<\|[^>\n]*\|>|</?channel>|</?(?:thought|analysis|final|assistant)>",
-    re.IGNORECASE,
-)
-PRIVATE_REASONING_LEAK_LINE_RE = re.compile(
-    r"^\s*(?:(?:thought|analysis)\b.*\b(?:user|I\s+(?:need|should|have|will)|tool|called|already)\b|"
-    r"(?:I\s+(?:need|should|have|will)|I\s+have\s+already|Let's\s+search|Looking\s+at\s+the\s+.*output|Patterns\s+to\s+search)\b)",
-    re.IGNORECASE,
-)
-
-
-def strip_private_reasoning_tokens(text: str) -> str:
-    return PRIVATE_REASONING_TOKEN_RE.sub("", text)
-
-
-def strip_private_reasoning_sections(text: str) -> str:
-    private_reasoning_active = False
-    filtered_lines: list[str] = []
-
-    for line in text.replace("\r\n", "\n").splitlines(keepends=True):
-        remaining = line
-        while remaining:
-            if private_reasoning_active:
-                end_match = PRIVATE_REASONING_END_RE.search(remaining)
-                if not end_match:
-                    remaining = ""
-                    break
-                private_reasoning_active = False
-                remaining = remaining[end_match.end() :]
-                continue
-
-            start_match = PRIVATE_REASONING_START_RE.search(remaining)
-            if not start_match:
-                cleaned = strip_private_reasoning_tokens(remaining)
-                if not PRIVATE_REASONING_LEAK_LINE_RE.search(cleaned):
-                    filtered_lines.append(cleaned)
-                remaining = ""
-                break
-
-            before = strip_private_reasoning_tokens(remaining[: start_match.start()])
-            if before:
-                filtered_lines.append(before)
-            private_reasoning_active = True
-            remaining = remaining[start_match.end() :]
-
-    return "".join(filtered_lines)
-
-
 def trim_context_content(content: str, limit: int = 700) -> str:
     normalized = re.sub(r"\s+", " ", strip_private_reasoning_sections(content)).strip()
     if len(normalized) <= limit:
@@ -6804,6 +6589,7 @@ def build_ols_query(
     page_context = normalize_console_page_context(req.pageContext)
     language_contract = answer_language_contract(req)
     section_contract = answer_section_contract(req)
+    operating_answer_contract = assistant_operating_answer_style_contract(req)
     resource_summary_contract = resource_summary_rca_answer_contract(req)
     forwarded_to_ols = should_forward_image_attachments_to_ols()
     effective_policy = policy or classify_request_policy(req.message)
@@ -6812,247 +6598,32 @@ def build_ols_query(
         gateway_context=gateway_context,
         gateway_evidence=gateway_evidence,
     )
-    context_handoff_block = (
-        f"\nVerified operational context:\n{context_handoff}\n"
-        if context_handoff
-        else ""
-    )
     recent_context = build_recent_conversation_context(req)
-    recent_context_block = (
-        f"\nRecent conversation context:\n{recent_context}\n"
-        "Use this only to resolve follow-up references such as 그 namespace, 그 파드, 안에 있는 파드, 정리. "
-        "Cluster facts still require verified Gateway/OpenShift evidence.\n"
-        if recent_context
-        else ""
+    attachment_context = build_attachment_context(
+        req.attachments,
+        redact_sensitive(image_analysis) if image_analysis else None,
+        forwarded_to_ols=forwarded_to_ols,
     )
 
-    if OLS_QUERY_PROFILE in {"minimal", "direct", "safe"}:
-        query = f"""
-{redact_sensitive(req.message).strip()}
-
-{language_contract}
-Use live OpenShift evidence collection when cluster facts are needed.
-Do not invent alert, pod, node, namespace, resource names, causes, or actions.
-Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
-Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
-{section_contract}
-{resource_summary_contract}
-조회 계획은 필요한 경우 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
-Do not present risky actions such as delete, restart, scale, defrag, patch, or apply as immediate commands; mark them as approval-required actions after verification.
-If no screenshot/image is attached, do not claim you inspected a screenshot.
-사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
-Policy decision: {redact_sensitive(str(effective_policy.get("decision") or "allow_evidence_collection")) if isinstance(effective_policy, Mapping) else "allow_evidence_collection"}.
-Console context:
-{json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
-Attachment context:
-{build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
-{recent_context_block}
-{context_handoff_block}
-{section_contract}
-"""
-        return redact_sensitive(query)
-
-    if OLS_QUERY_PROFILE in {"compact", "context"}:
-        query = f"""
-KOMSCO AI context.
-Use this pre-collected context as evidence, but still separate verified facts from unknowns.
-Do not invent alert, pod, node, namespace, resource names, causes, or actions.
-Do not print Secret, token, password, private key, kubeconfig, or raw credentials.
-Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
-조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
-Mutation is not allowed from this answer. Propose risky actions only after evidence and approval.
-If no screenshot/image is attached, do not say you inspected the screen image.
-If the user asks about this AI gateway, do not attach unrelated Kubernetes Gateway API links.
-사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 verified operational context에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
-
-Policy:
-{json.dumps(redact_sensitive(effective_policy), ensure_ascii=False)}
-
-Subject:
-{json.dumps(redact_sensitive(subject_metadata), ensure_ascii=False)}
-
-User question:
-{redact_sensitive(req.message)}
-
-Recent conversation context:
-{recent_context if recent_context else "No recent conversation context was provided."}
-
-Console context:
-{json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
-
-Attachments:
-{build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
-
-Verified operational context:
-{context_handoff if context_handoff else "No verified operational context was collected before this answer."}
-
-Answer format:
-{language_contract}
-{section_contract}
-{resource_summary_contract}
-"""
-        return redact_sensitive(query)
-
-    query = f"""
-[Gateway 보안 경계]
-{build_gateway_guardrail(effective_policy)}
-
-[Gateway 정책 결정]
-{json.dumps(redact_sensitive(effective_policy), ensure_ascii=False)}
-
-[API 서버 관찰 주체]
-{json.dumps(redact_sensitive(subject_metadata), ensure_ascii=False)}
-
-[사용자 질문]
-{redact_sensitive(req.message)}
-
-[최근 대화 맥락]
-{recent_context if recent_context else "최근 대화 맥락 없음"}
-
-[현재 콘솔 컨텍스트]
-{json.dumps(redact_sensitive(page_context), ensure_ascii=False)}
-
-[첨부 이미지]
-{build_attachment_context(req.attachments, redact_sensitive(image_analysis) if image_analysis else None, forwarded_to_ols=forwarded_to_ols)}
-
-[Gateway 선조회 증거]
-{context_handoff if context_handoff else "Gateway 선조회 증거 없음"}
-
-[AIOps 답변 경험 계약]
-- Tool Plan JSON은 Gateway 내부 작전서입니다. 기본 답변 본문에 raw Tool Plan JSON이나 raw RcaContext JSON을 출력하지 마세요.
-- {language_contract}
-- {section_contract}
-{resource_summary_contract}
-- 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
-- 사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 Gateway 선조회 자료에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
-
-[CrashLoopBackOff 시연 답변 계약]
-{crashloop_demo_prompt_answer_contract(req)}
-
-[과거 Pod 재시작 RCA 시연 답변 계약]
-{past_pod_restart_demo_prompt_contract(req)}
-
-이미지/화면 컨텍스트 처리:
-- [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 기준으로 답하세요.
-- [현재 콘솔 컨텍스트]는 URL, namespace, resource metadata입니다. 화면의 시각적 내용 자체라고 단정하지 말고, `/catalog/ns/<namespace>` 같은 경로가 있으면 "경로 기준으로는 Catalog 페이지로 보입니다"처럼 확인 범위를 분리하세요.
-- [첨부 이미지]에 Gateway 비전 분석 결과가 없으면 이미지 내부 텍스트, 색상, 표 항목을 보았다고 말하지 마세요. 필요한 경우 이미지 첨부 또는 비전 분석 설정이 필요하다는 점을 별도 전제로만 짧게 표시하세요.
-
-AIOps 리소스 원인분석 라우팅:
-- 이 프롬프트에서 "Gateway"는 KOMSCO AI Gateway/BFF 보안 경계를 뜻합니다. 사용자가 Kubernetes Gateway API를 명시적으로 묻지 않았다면 `gateway.networking.k8s.io`, `Gateway`, `GatewayClass` 문서 링크를 추가하지 마세요.
-- [현재 콘솔 컨텍스트]에 `resourceKind`와 `resourceName`이 있고 사용자가 "현재 화면", "안전한 확인 절차", "단계별 확인", "문제 여부", "원인"을 묻는 경우에는 단순 절차 안내로 끝내지 마세요. Gateway가 이미 조회한 Pod/Event/Metric/RAG 자료를 먼저 요약하고, 확인 결과, 원인 후보, 승인 가능한 조치 후보를 구분하세요.
-- 사용자가 namespace와 리소스/워크로드 이름을 언급하고 "왜", "원인", "안 떠", "Pending", "CrashLoop", "ImagePull", "Ready", "Secret", "ConfigMap", "PVC", "HPA", "스케일", "지난주 이슈", "최근 운영 이슈"처럼 장애 원인 분석을 묻는 경우 active alert 조회를 우선하지 말고 해당 namespace의 Kubernetes 리소스 조회를 먼저 수행하세요.
-- alert 조회는 사용자가 "경고", "alert", "알람"을 명시했거나, 리소스 상태 조회 후 관련 경고를 보강할 때 사용하세요. "활성 alert에 없음"은 HPA, Pod, PVC, Job 장애가 없다는 뜻이 아닙니다.
-- HPA/스케일아웃 질문은 `HorizontalPodAutoscaler` 목록 또는 상세를 먼저 조회하고, `TARGETS`, `currentMetrics`, `desiredReplicas`, `currentReplicas`, `minReplicas`, `maxReplicas`, 관련 Deployment/Pod 상태를 기준으로 설명하세요.
-- Pod/Deployment/워크로드 이름이 주어졌지만 정확한 Pod 이름이 아니면 namespace의 Pod 목록을 먼저 조회하고, `metadata.name`, `labels.app`, ownerReferences가 질문 대상과 맞는 Pod를 선택해 상세 조회하세요.
-- 사용자가 정확한 Pod 이름 또는 Pod 목록 조회 결과에 있는 Pod를 지목했다면, Gateway 선조회 Pod 요약만으로 원인/조치 계획을 끝내지 말고 `apiVersion: v1`, `kind: Pod`, `namespace`, `name` 상세를 조회하세요. command/args/env/image/ownerReferences/labels/events 확인이 필요한 질문에서는 상세 조회 결과가 없다는 점을 명시하고 일반론으로 단정하지 마세요.
-- Pod 상세의 owner가 ReplicaSet이면 해당 ReplicaSet 상세를 조회해 상위 Deployment 이름을 확인하세요. Deployment 이름을 확인하지 못한 경우에는 추정한 Deployment 이름으로 조치 명령을 만들지 말고 owner chain 조회가 필요하다고 쓰세요.
-- 사용자가 Pod 재시작, rollout restart, delete pod, scale 같은 변경 요청을 했지만 대상 namespace 또는 리소스 이름이 없으면 임의로 Gateway API나 다른 동음이의어 리소스로 해석하지 마세요. "대상 미지정"으로 표시하고 `namespace`, `Pod 또는 관리 객체 이름`, 장애 증상만 요청하세요.
-- `CreateContainerConfigError`는 Pod의 `status.containerStatuses[*].state.waiting.message`, `envFrom.configMapRef`, `envFrom.secretRef`, volume secret/configMap 참조를 기준으로 원인을 설명하세요. Secret 값은 조회하거나 출력하지 마세요.
-- PVC/Pending 질문은 PVC 상세와 관련 Pod의 `volumes[*].persistentVolumeClaim`, `status.conditions`, 이벤트 메시지를 기준으로 설명하고, 존재하지 않는 StorageClass/Provisioner/BindingMode를 구분하세요.
-- namespace 전체의 "최근/지난주/운영 이슈" 요약 질문은 먼저 Pod 목록, HPA 목록, PVC 목록, Job 목록을 확인하고, 비정상 리소스의 대표 상세만 조회해 우선순위를 작성하세요. 최종 답변은 반드시 분석 요약과 조치 항목을 먼저 쓰고, 공용 웹 URL은 기본 답변에 출력하지 마세요.
-
-CronJob/Activity 분석 프로토콜:
-- 사용자가 콘솔 Activity, 반복 실행, CronJob, Job, schedule, 특정 분 단위 주기를 묻는 경우에는 CronJob `spec.schedule`, `spec.concurrencyPolicy`, `successfulJobsHistoryLimit`, `failedJobsHistoryLimit`, container image, lifecycle/retention 관련 env, 최근 Job 실행 이력을 기준으로 답하세요.
-- `spec.schedule`에서 분 단위 interval이 확인되면 첫 문장에 "네, 설정상 의도된 <N>분 주기입니다"처럼 정상 여부를 먼저 명확히 답하세요.
-- 이름만 보고 작업 목적을 단정하지 말고, env 이름에 hibernate/suspend/sleep/idle/delete/ttl/expire/cleanup/retention/prune/archive/max_age/timeout 같은 lifecycle/retention 신호가 확인된 경우에만 해당 정책으로 보인다고 쓰세요.
-- 초 단위 env는 사람이 읽는 값으로 같이 풀어 쓰되 "기준값"으로만 표현하세요. 예: `1800`은 30분, `1209600`은 14일입니다. 로그나 소스 확인 없이 생성 후/마지막 사용 후/유휴 시간 기준인지 단정하지 마세요.
-- `concurrencyPolicy: Forbid`는 이전 실행이 끝나지 않았을 때 중복 실행을 막는 설정으로 설명하고, `successfulJobsHistoryLimit`는 콘솔에 남는 성공 Job 이력 수를 설명할 때만 사용하세요.
-- 실제로 어떤 리소스를 처리했는지는 CronJob 설정만으로 단정하지 말고 최근 Job 로그 확인이 필요하다고 분리하세요.
-- 로그 확인 명령은 가능하면 `oc -n <namespace> logs job/<job-name>` 형태로 제시하고, 최근 Job 이름 확인 명령은 `oc -n <namespace> get jobs --sort-by=.metadata.creationTimestamp | grep <cronjob-name>` 형태를 우선 제시하세요.
-
-Pod 상태/재시작 분석 프로토콜:
-- Pod 상태 또는 재시작 이력 질문은 현재 상태와 과거 재시작 이력을 먼저 분리하세요. 현재 상태는 `status.phase`, `Ready` condition, `status.containerStatuses[*].ready`, `status.containerStatuses[*].state`를 기준으로 표현하세요.
-- `restartCount`만 보고 현재 `CrashLoopBackOff`, "현재 진행 중", "지속 오류"라고 단정하지 마세요. 현재 `state.waiting.reason` 또는 `oc get pods` STATUS가 `CrashLoopBackOff`인 경우에만 현재 CrashLoopBackOff라고 쓰세요.
-- `restartCount`는 Pod 단위가 아니라 container 단위입니다. 멀티컨테이너 Pod는 반드시 container 이름별로 `restartCount`, `lastState.terminated.reason`, `exitCode`, `finishedAt`, 현재 `state`를 구분해 쓰세요.
-- `restartCount`는 누적 카운터입니다. 특정 시간 구간의 증가량이나 여러 종료 시각이 확인되지 않았다면 "빈번", "빈도", "계속 발생"이라고 표현하지 말고 "재시작 이력/누적 재시작 횟수"라고 쓰세요.
-- `oc get pods -A --sort-by=.status.containerStatuses[0].restartCount`는 첫 번째 컨테이너 기준이라 멀티컨테이너 Pod의 재시작을 놓칠 수 있습니다. 가능하면 JSON 결과의 모든 `containerStatuses[*]`를 기준으로 상위 항목을 판단하세요.
-- `Running` 및 `Ready=True`이면서 restartCount가 높은 Pod는 "현재 CrashLoop"가 아니라 "과거 또는 최근 재시작 이력/최근 복구됨"으로 표현하고, 마지막 종료 시각과 현재 startedAt을 같이 제시하세요.
-- `status.phase=Failed`이고 현재 `state.terminated`인 Pod는 현재 재시작 중인 Pod가 아니라 종료된 Pod 객체일 수 있습니다. `startTime`, `finishedAt`, owner/controller/operator 상태를 함께 보고 "과거 실패 이력"과 "현재 장애"를 분리하세요.
-- OpenShift 관리 namespace의 installer/revisioner/pruner 같은 단발성 작업 Pod가 Failed로 남아 있더라도 관련 ClusterOperator가 `Available=True`, `Degraded=False`, `Progressing=False`이면 현재 제어면 장애라고 단정하지 마세요. "과거 실패 Pod 이력, 현재 Operator 상태는 정상"처럼 표현하세요.
-- `Last State`가 `Error`와 exit code만 제공되면 일반적인 원인을 나열하기 전에 `--previous` 로그 또는 이벤트 조회 결과를 확인하세요. `exitCode=137`은 OOMKilled일 수 있지만 `reason`이 `OOMKilled`가 아니면 단정하지 말고 "강제 종료 가능성, 추가 확인 필요"로 표현하세요.
-- 이전 종료 원인을 볼 때는 `oc logs <pod> -n <namespace> -c <container> --previous --tail=120`처럼 컨테이너명을 포함하세요. 단일 컨테이너 Pod도 컨테이너명을 명시하면 확인 범위가 더 명확합니다.
-- 우선순위는 1) 현재 `Pending`, `NotReady`, `CrashLoopBackOff`, `ImagePullBackOff` 등 비정상 상태, 2) 현재 Running/Ready지만 최근에 재시작된 컨테이너, 3) 오래된 재시작 이력 순으로 정리하세요.
-- `ImagePullBackOff` 또는 `ErrImagePull`은 `status.containerStatuses[*].state.waiting.message`와 Events를 최우선 확인 결과로 삼고, catalog/marketplace 성격의 Pod라면 관련 `CatalogSource` 상태와 image registry 접근성도 확인 항목에 포함하세요.
-- 최종 답변 표에는 가능한 경우 `Namespace`, `Pod`, `Container`, `현재 상태`, `Ready`, `Restart Count`, `Last State/Exit`, `마지막 종료 시각`, `확인 결과`를 포함하세요.
-
-Pod 조치/복구 계획 프로토콜:
-- Pod가 controller-owned이면 `metadata.ownerReferences`를 따라 관리 객체를 먼저 식별하세요. `Pod -> ReplicaSet -> Deployment` 관계가 확인되면 최종 관리 객체는 Deployment로 표현하고, 조치 명령에는 확인된 정확한 `deployment/<name>`을 사용하세요.
-- 정확한 관리 객체 이름이 증거에 있는데 `<deployment-name>`, `<pod-name>` 같은 placeholder를 남기지 마세요. 이름이 없을 때만 조회 명령을 먼저 제시하세요.
-- selector/label 기반 검증 명령도 placeholder로 남기지 마세요. Pod/Deployment 상세의 `metadata.labels` 또는 Deployment selector가 확인되면 `-l app=<value>`처럼 실제 값을 쓰고, label/selector가 확인되지 않았다면 `oc get pod -n <namespace> --show-labels`로 먼저 확인하라고 쓰세요.
-- Deployment가 관리하는 Pod의 복구 계획에서 ReplicaSet 직접 수정은 권장하지 마세요. ReplicaSet은 현재 template의 산출물로 보고, 수정/롤백/rollout restart 대상은 상위 Deployment로 잡으세요.
-- `spec.containers[*].command` 또는 `args`가 즉시 종료 명령, `exit`, 실패하는 헬스 체크용 명령, 명시적 예외 발생처럼 컨테이너 종료를 직접 유발하는 확인 결과라면 원인을 "컨테이너 실행 명령/애플리케이션 프로세스가 즉시 종료됨"으로 우선 설명하세요. OOMKilled, probe 실패, 노드 문제 같은 일반 원인은 해당 field나 event 확인 결과가 있을 때만 후보로 제시하세요.
-- Pod spec의 command/args를 조회하지 못했다면 "실행 명령 오류가 확인됨"이라고 쓰지 말고 "확인 필요"로 표현하세요. 반대로 command/args가 확인되면 설정값/외부 서비스/DB 같은 일반 후보보다 그 값을 먼저 기준으로 제시하세요.
-- `CrashLoopBackOff`에서 단순 `oc delete pod` 또는 `oc rollout restart`는 template/image/config 문제가 그대로면 해결책이 아니라고 분리하세요. 영구 조치는 Deployment template의 command/image/env/config 수정 또는 정상 revision으로 rollback입니다.
-- 사용자가 "조치 계획"을 요청하면 `원인 확인`, `수정 또는 rollback`, `rollout 검증`, `재발 방지 확인` 순서로 쓰고, 검증에는 `oc rollout status deployment/<name> -n <namespace>`와 selector 기반 `oc get pod` 확인을 포함하세요.
-- 리소스 label/annotation/name에 test, e2e, scenario, sandbox, demo, sample 같은 비운영 신호가 있고 사용자의 문맥도 테스트/검증이면 "서비스 복구"와 별도로 "테스트 리소스 정리" 선택지를 제시하세요. 이때도 확인된 namespace와 관리 객체 이름을 사용하고, 특정 테스트 이름을 임의로 만들지 마세요.
-- 로그가 이미 없거나 `--previous` 조회가 실패해도 Pod spec의 command/args, current state, lastState, events가 원인을 충분히 설명하면 그 확인 결과를 우선 사용하세요. 로그 확인은 보조 검증으로만 표시하세요.
-
-Deployment rollout/Pod 교체 판정 프로토콜:
-- `replicas=2`, `Ready 2/2`, Pod 2개 존재, Pod Age만으로 "교체 완료", "rollout 완료", "새 Pod가 자리 잡음"이라고 쓰지 마세요. 이는 현재 가용성 증거일 뿐 실행/교체 증거가 아닙니다.
-- rollout restart 실행 여부는 `spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]`, Deployment revision 증가, 새 ReplicaSet 생성 및 old/new ReplicaSet replica 전환, ExecutionRecord의 `mutation_succeeded`, 또는 질문 전에 수집한 Pod 이름과 현재 Pod 이름의 before/after 비교가 있을 때만 확인됐다고 쓰세요.
-- 위 증거가 없고 현재 Pod가 질문 전부터 존재하던 동일 이름/동일 `pod-template-hash`라면 "아직 실행 전 또는 교체 증거 없음"으로 답하세요.
-- 사용자가 "Pod가 교체됐는지" 물으면 현재 Pod 목록뿐 아니라 Deployment rollout 자료의 `RestartedAt`, `Revision`, `Recent ReplicaSets`, `Current Pods`를 기준으로 판단하세요.
-- 교체를 보여주기 위한 테스트 시나리오에서는 실행 전 Pod 이름과 실행 후 Pod 이름/hash/revision을 나란히 비교하세요.
-
-OpenShift 경고 분석 프로토콜:
-- 사용자가 "최근 경고", "alert", "우선 확인 항목"을 묻는 경우 먼저 active alert 목록을 조회하세요.
-- 주요 alert별 상세 조사는 아래 순서를 따르세요. 해당 상세 조회가 실패하면 실패 사실과 이유를 답변에 포함하고, 확인하지 못한 원인은 추정으로만 표현하세요.
-- 상태 표현은 엄격히 구분하세요.
-  - "상세 확인됨": 관련 리소스 상세 조회를 수행했고, 답변에 쓰는 field path가 그 결과에 존재하는 경우에만 사용하세요.
-  - "Alert 확인": active alert의 labels/annotations만 기준으로 삼은 경우에 사용하세요.
-  - "추가 확인 필요": 상세 조회를 하지 않았거나 도구가 실패한 경우에 사용하세요.
-- 상세 조회를 실제로 호출하지 않은 리소스의 `status.conditions`, `containerStatuses`, `events`, Secret/ConfigMap 존재 여부를 확인했다고 쓰지 마세요.
-- KubePodNotReady:
-  1. alert label의 namespace/pod 값으로 `resources_get`을 사용해 `apiVersion: v1`, `kind: Pod`, `namespace`, `name`을 조회하세요.
-  2. Pod의 `status.conditions`, `status.containerStatuses[*].state.waiting.reason/message`, `spec.containers[*].image`, ownerReferences를 기준으로 원인을 작성하세요.
-  3. 이벤트 조회 도구가 있으면 해당 namespace/pod의 events도 조회하세요. 이벤트 도구가 없거나 실패하면 events는 추가 확인 명령으로만 제시하세요.
-  4. container가 시작하지 못한 상태(ImagePullBackOff, ErrImagePull 등)이면 `oc logs`를 원인 확인의 첫 명령으로 제시하지 마세요.
-- ClusterNotUpgradeable:
-  1. `resources_get`으로 `apiVersion: config.openshift.io/v1`, `kind: ClusterVersion`, `name: version`을 조회하세요.
-  2. `status.conditions[type=Upgradeable]`의 status/reason/message를 최우선 확인 결과로 사용하세요.
-  3. `ClusterOperator` 문제라고 쓰려면 ClusterOperator 상세나 요약에서 실제 Degraded/Unavailable/Progressing이 확인된 경우에만 그렇게 표현하세요.
-- AlertmanagerReceiversNotConfigured:
-  1. alert 결과만으로 ConfigMap 또는 Secret 이름을 만들어 조회하지 마세요.
-  2. Secret 내용은 권한 또는 보안 정책상 직접 조회가 제한될 수 있으므로, 조회 시도 대신 "설정 리소스 확인은 권한상 제한될 수 있음"으로 표현하고 사용자가 확인할 안전한 명령을 제시하세요.
-- etcdDatabaseHighFragmentationRatio:
-  1. alert annotation의 비율/instance/pod를 기준으로 설명하세요.
-  2. defrag는 즉시 실행 지시가 아니라 상태 확인, 영향도 판단, 공식 절차 검토, 승인 후 수행으로 표현하세요.
-- Watchdog:
-  1. Alertmanager 경로 확인용 상시 경고로 분류하고 우선 조치 대상에서 제외하세요.
-
-답변 지침:
-- {language_contract}
-- {section_contract}
-- 최종 답변은 단순 문장 나열이 아니라 운영자가 바로 읽을 수 있는 구조화된 답변으로 작성하세요.
-- 확인 결과가 부족한 항목은 `추가 확인`에 넣고, 확인한 사실과 원인 후보를 섞지 마세요.
-- 실시간 클러스터 상태(경고, 이벤트, Pod, Node, 리소스, 메트릭, 로그)가 필요한 질문이면 OpenShift MCP 도구를 먼저 사용하세요.
-- 도구 결과에 없는 alert, pod, node, namespace, resource 이름이나 상태를 만들지 마세요.
-- 도구를 사용할 수 없거나 결과가 부족하면 확인하지 못했다고 말하고 사용자가 확인할 명령을 제시하세요.
-- 폐쇄망 고객용 기본 답변에는 공용 웹 URL을 붙이지 마세요. 사용자가 외부 문서를 명시적으로 요청한 경우에만 문서명 중심으로 짧게 안내하고, `github.com`, `docs.openshift.com`, `access.redhat.com` URL은 기본 본문에 쓰지 마세요.
-- 참고 문서가 필요한 경우에도 답변의 대상 리소스/경고와 직접 관련된 문서명만 1-2개로 제한하세요. Pod 상태 분석 답변 끝에 `Extension APIs`, `Admission plugins`, `TokenReview`, `ClusterRole`처럼 분석 대상과 무관한 API 색인 참조를 붙이지 마세요.
-- alert 이름이나 summary만으로 원인을 단정하지 마세요. 원인, 영향, 조치 우선순위는 관련 리소스 상세 조회 결과가 있을 때만 "확인됨"으로 표현하세요.
-- 도구 결과로 확인한 사실과 추가 확인이 필요한 추정을 분리해서 작성하세요. 최종 답변에는 각 주요 항목마다 "확인 결과"를 짧게 포함하세요.
-- 도구 실패나 권한 제한이 있으면 숨기지 말고 "조회 실패/권한 제한" 항목으로 짧게 표시하세요.
-- 사용자가 실행 가능한 조치와 확인 결과를 함께 제시하세요.
-- Secret, token, password, private key는 절대 출력하지 마세요.
-- etcd defrag, 리소스 삭제, 재시작, 설정 변경 같은 위험 작업은 "즉시 수행"으로 단정하지 말고 상태 확인, 영향 판단, 공식 절차 검토, 승인 후 수행 순서로 표현하세요.
-- 대상이 특정되지 않은 재시작 요청에는 `oc get pods -A`를 기본 제안하지 마세요. 현재 콘솔 컨텍스트 namespace가 있으면 `oc get pods -n <namespace>`를 제시하고, namespace도 없으면 namespace와 Pod/Deployment/StatefulSet/DaemonSet 이름을 먼저 요청하세요.
-- `oc delete pod`는 기본 재시작 방법으로 제시하지 마세요. ownerReferences, replica 수, PDB, 현재 rollout 상태를 확인했고 승인 단계가 있다는 조건을 명시한 경우에만 보조 선택지로 언급하세요. Deployment가 확인되면 승인 후 계획의 기본 후보는 `oc rollout restart deployment/<name> -n <namespace>`입니다.
-- KubePodNotReady는 대상 Pod의 status.containerStatuses와 events를 확인하기 전까지 원인을 단정하지 마세요. container가 시작하지 못한 상태면 oc logs를 우선 명령으로 제시하지 말고 oc describe pod/events를 먼저 제시하세요.
-- KubePodNotReady가 openshift-marketplace의 catalog Pod라면 이미지 풀, registry, CatalogSource/PackageManifest 영향 범위를 먼저 확인하고 일반 업무 서비스 장애로 단정하지 마세요.
-- ClusterNotUpgradeable는 ClusterOperator 장애로 단정하지 마세요. ClusterVersion conditions 또는 oc adm upgrade 상당 결과의 reason/message를 확인하고, ClusterOperator가 실제 Degraded/Unavailable/Progressing일 때만 Operator 문제라고 표현하세요.
-- AlertmanagerReceiversNotConfigured는 alert 결과만으로 특정 ConfigMap/Secret 이름을 만들지 말고, 권한상 직접 확인이 제한될 수 있음을 표시하세요.
-- Watchdog alert는 Alertmanager 경로 확인용 상시 경고임을 설명하고 우선 조치 대상에서 제외하세요.
-- Markdown은 GitHub Flavored Markdown으로 작성하고, 코드블록은 반드시 삼중 백틱으로 열고 삼중 백틱으로 닫으세요.
-- 코드블록 안에는 실행 가능한 명령만 넣고, "Pod 로그 확인" 같은 설명 문장은 코드블록 밖에 작성하세요.
-- 장애 분석 답변은 가능한 경우 `현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인` 순서로 작성하세요.
-- 사용자가 `CrashLoopBackOff` 또는 `크래시 루프 백 오프`를 말했거나 확인 결과에 `CrashLoopBackOff`가 있으면 첫 문장에 "컨테이너가 시작 후 곧바로 종료되고 Kubernetes가 재시작을 반복하다가 대기 시간을 늘리는 상태"라는 뜻을 먼저 설명하세요.
-- 단순 개념 질문은 RCA 보고서로 늘리지 말고, 짧은 정의와 확인 방법만 답하세요.
-- `Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖에 작성하세요.
-- 코드블록 안에 다시 ```bash 같은 fence를 중첩하지 마세요.
-- OpenShift 관점에서 설명하세요.
-"""
-    return redact_sensitive(query)
+    return render_ols_query(
+        OlsQueryRenderInput(
+            profile=OLS_QUERY_PROFILE,
+            message=req.message,
+            page_context=page_context,
+            policy=effective_policy if isinstance(effective_policy, Mapping) else {},
+            subject_metadata=subject_metadata if isinstance(subject_metadata, Mapping) else {},
+            language_contract=language_contract,
+            section_contract=section_contract,
+            operating_answer_contract=operating_answer_contract,
+            resource_summary_contract=resource_summary_contract,
+            attachment_context=attachment_context,
+            recent_context=recent_context,
+            context_handoff=context_handoff,
+            gateway_guardrail=build_gateway_guardrail(effective_policy),
+            crashloop_contract=crashloop_demo_prompt_answer_contract(req),
+            past_pod_restart_contract=past_pod_restart_demo_prompt_contract(req),
+        )
+    )
 
 
 async def analyze_image_attachments(
@@ -7242,9 +6813,11 @@ async def call_ollama_chat(
         update_ols_stream_status(
             "not_configured",
             context_digest=context_digest,
-            fallback_active=True,
+            fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
             reason=reason,
         )
+        if REQUIRE_OLS_FINAL_ANSWER:
+            raise RuntimeError(reason)
         yield {
             "type": "text",
             "content": "DEV_ECHO: Gateway is running. Configure KOMSCO_AI_LLM_BASE_URL and KOMSCO_AI_LLM_MODEL.\n\n",
@@ -7261,10 +6834,14 @@ async def call_ollama_chat(
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "너는 KOMSCO AIOps 운영 분석가다. 확인 결과와 추정을 분리하고, "
-                    "위험한 조치는 승인 전 실행 지시로 쓰지 않는다."
-                ),
+	                "content": (
+	                    "너는 KOMSCO AIOps 운영 분석가다. 확인 결과와 추정을 분리하고, "
+	                    "위험한 조치는 승인 전 실행 지시로 쓰지 않는다. "
+	                    "답변은 `현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인` 순서를 우선한다. "
+	                    "코드블록 안에는 실행 가능한 명령만 넣고, "
+	                    "`Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖에 둔다. "
+	                    "공용 웹 URL은 기본 답변에 출력하지 마세요."
+	                ),
             },
             {"role": "user", "content": query},
         ],
@@ -7287,7 +6864,7 @@ async def call_ollama_chat(
                 update_ols_stream_status(
                     "failed",
                     context_digest=context_digest,
-                    fallback_active=True,
+                    fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
                     reason=f"HTTP {response.status_code}: {detail}",
                 )
                 raise HTTPException(status_code=response.status_code, detail=detail)
@@ -7313,7 +6890,7 @@ async def call_ollama_chat(
             update_ols_stream_status(
                 "failed",
                 context_digest=context_digest,
-                fallback_active=True,
+                fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
                 reason=safe_exception_text(exc),
             )
         raise
@@ -7342,9 +6919,11 @@ async def call_ols_stream(
         update_ols_stream_status(
             fallback_status,
             context_digest=context_digest,
-            fallback_active=True,
+            fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
             reason=fallback_reason,
         )
+        if REQUIRE_OLS_FINAL_ANSWER:
+            raise RuntimeError(fallback_reason)
         yield {
             "type": "text",
             "content": "DEV_ECHO: Gateway is running. Configure OLS_BASE_URL for Lightspeed streaming.\n\n",
@@ -7395,7 +6974,7 @@ async def call_ols_stream(
                     update_ols_stream_status(
                         "failed",
                         context_digest=context_digest,
-                        fallback_active=True,
+                        fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
                         reason=f"HTTP {response.status_code}: {safe_detail}",
                     )
                     raise HTTPException(status_code=response.status_code, detail=safe_detail)
@@ -7458,143 +7037,10 @@ async def call_ols_stream(
             update_ols_stream_status(
                 "failed",
                 context_digest=context_digest,
-                fallback_active=True,
+                fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
                 reason=safe_exception_text(exc),
             )
         raise
-
-
-def should_filter_gateway_api_references(message: str) -> bool:
-    return not bool(EXPLICIT_KUBERNETES_GATEWAY_API_RE.search(message))
-
-
-def should_filter_low_signal_references(message: str) -> bool:
-    return not bool(EXPLICIT_OPENSHIFT_DOC_REFERENCE_RE.search(message))
-
-
-def is_disallowed_gateway_api_reference(line: str) -> bool:
-    return bool(DISALLOWED_GATEWAY_API_REFERENCE_RE.search(line))
-
-
-def is_low_signal_reference(line: str) -> bool:
-    return bool(LOW_SIGNAL_REFERENCE_RE.search(line))
-
-
-class TextReferenceFilter:
-    def __init__(
-        self,
-        *,
-        filter_gateway_api_references: bool,
-        filter_low_signal_references: bool = False,
-        normalize_restart_language: bool = False,
-    ) -> None:
-        self.filter_gateway_api_references = filter_gateway_api_references
-        self.filter_low_signal_references = filter_low_signal_references
-        self.normalize_restart_language = normalize_restart_language
-        self.pending = ""
-        self.held_lines: list[str] = []
-        self.private_reasoning_active = False
-
-    def filter(self, content: str, *, final: bool = False) -> str:
-        content = self.filter_private_reasoning(content, final=final)
-        if not content:
-            return ""
-        if (
-            not self.filter_gateway_api_references
-            and not self.filter_low_signal_references
-            and not self.normalize_restart_language
-        ):
-            return content
-
-        text = f"{self.pending}{content}"
-        if final:
-            complete = text
-            self.pending = ""
-        else:
-            last_newline = text.rfind("\n")
-            if last_newline == -1:
-                self.pending = text
-                return ""
-
-            complete = text[: last_newline + 1]
-            self.pending = text[last_newline + 1 :]
-
-        if self.normalize_restart_language:
-            complete = normalize_pod_restart_language(complete)
-
-        lines = complete.splitlines(keepends=True)
-        filtered_lines: list[str] = []
-        for line in lines:
-            if self.is_disallowed_reference(line):
-                self.held_lines = []
-                continue
-
-            if self.held_lines:
-                if not line.strip():
-                    self.held_lines.append(line)
-                    continue
-
-                filtered_lines.extend(self.held_lines)
-                self.held_lines = []
-
-            if line.strip() == "---":
-                self.held_lines = [line]
-                continue
-
-            filtered_lines.append(line)
-
-        return "".join(filtered_lines)
-
-    def filter_private_reasoning(self, content: str, *, final: bool = False) -> str:
-        lines = content.replace("\r\n", "\n").splitlines(keepends=True)
-        filtered_lines: list[str] = []
-
-        for line in lines:
-            remaining = line
-            while remaining:
-                if self.private_reasoning_active:
-                    end_match = PRIVATE_REASONING_END_RE.search(remaining)
-                    if not end_match:
-                        remaining = ""
-                        break
-                    self.private_reasoning_active = False
-                    remaining = remaining[end_match.end() :]
-                    continue
-
-                start_match = PRIVATE_REASONING_START_RE.search(remaining)
-                if not start_match:
-                    cleaned = strip_private_reasoning_tokens(remaining)
-                    if not PRIVATE_REASONING_LEAK_LINE_RE.search(cleaned):
-                        filtered_lines.append(cleaned)
-                    remaining = ""
-                    break
-
-                before = strip_private_reasoning_tokens(remaining[: start_match.start()])
-                if before:
-                    filtered_lines.append(before)
-                self.private_reasoning_active = True
-                remaining = remaining[start_match.end() :]
-
-        if final:
-            self.private_reasoning_active = False
-
-        return "".join(filtered_lines)
-
-    def is_disallowed_reference(self, line: str) -> bool:
-        return (
-            self.filter_gateway_api_references
-            and is_disallowed_gateway_api_reference(line)
-        ) or (
-            self.filter_low_signal_references
-            and is_low_signal_reference(line)
-        )
-
-    def flush(self) -> str:
-        filtered = self.filter("", final=True)
-        if self.held_lines:
-            filtered = f"{filtered}{''.join(self.held_lines)}"
-            self.held_lines = []
-        return filtered
 
 
 async def fetch_ocp_json(
@@ -9840,6 +9286,10 @@ CRASHLOOPBACKOFF_PLAIN_DEFINITION = (
     "CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고, Kubernetes가 재시작을 반복하다가 "
     "잠시 대기 시간을 늘리는 상태입니다."
 )
+CRASHLOOPBACKOFF_FIRST_SENTENCE_RULE = (
+    '첫 문장에 "컨테이너가 시작 후 곧바로 종료되고 Kubernetes가 재시작을 반복하다가 대기 시간을 늘리는 상태"를 '
+    "설명한다."
+)
 
 
 def message_mentions_crashloop(message: str) -> bool:
@@ -10649,6 +10099,50 @@ def build_image_answer_fallback(
     return "\n".join(lines)
 
 
+def build_ols_required_failure_answer(
+    req: ChatRequest,
+    tool_results: list[Mapping[str, Any]],
+    *,
+    image_analysis: str | None = None,
+    image_forwarded_to_ols: bool = False,
+) -> str:
+    failed_steps = [
+        str(item.get("name") or item.get("evidenceType") or "확인 단계")
+        for item in tool_results
+        if str(item.get("status") or "").lower() in {"error", "failed", "timeout"}
+        and not is_internal_fallback_diagnostic(item.get("name"))
+        and not is_internal_fallback_diagnostic(item.get("summary"))
+        and not is_internal_fallback_diagnostic(item.get("detail"))
+    ]
+    lines = [
+        "## 현재 상태",
+        f"{active_llm_label()} 최종 답변을 받지 못해 RCA 답변을 생성하지 않았습니다.",
+        "Gateway는 조회 계획, 확인 결과, RCA Context를 준비했지만 최종 분석은 Lightspeed 응답 기준으로 제공해야 합니다.",
+        "",
+        "## 확인한 것",
+        "- 서버 변경: 실행하지 않음",
+        "- Gateway 역할: Tool Plan/Evidence/RCA Context를 준비하고 모델에 전달",
+    ]
+    if req.attachments:
+        lines.append(
+            f"- 이미지 첨부: {'Lightspeed attachments로 전달 시도' if image_forwarded_to_ols else '모델 전달 비활성'}"
+        )
+        if image_analysis:
+            lines.append("- 화면 분석 보조 결과: 확보됨")
+    if failed_steps:
+        lines.append(f"- 실패 단계: {', '.join(dict.fromkeys(failed_steps))}")
+
+    lines.extend(
+        [
+            "",
+            "## 다음 조치",
+            "- VPN/FortiClient, OLS 연결, 사용자 토큰 상태를 확인한 뒤 같은 요청을 다시 실행합니다.",
+            "- 반복되면 진행 상세의 Lightspeed 오류와 Gateway context digest를 함께 확인합니다.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def build_empty_answer_fallback(
     req: ChatRequest,
     policy: Mapping[str, Any],
@@ -11162,31 +10656,11 @@ def test_pod_create_review_execution_result(sealed_plan: Mapping[str, Any]) -> d
     target = target_from_plan(sealed_plan)
     action = action_from_plan(sealed_plan)
     parameters = action.get("parameters") if isinstance(action.get("parameters"), Mapping) else {}
-    target_name = str(target.get("name") or target.get("namespace") or TEST_POD_CREATE_DEFAULT_NAMESPACE)
-    count = int(parameters.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
-    return {
-        "mutationOutcome": {
-            "status": "review_recorded",
-            "reason": f"test Pod creation review recorded for {target_name}; no Pod was created",
-            "httpStatus": 200,
-        },
-        "remediationOutcome": {
-            "status": "verified",
-            "reason": f"{target_name} test Pod creation plan review recorded for {count} Pods without mutation",
-        },
-        "executorTrace": {
-            "mutationSubmitted": False,
-            "reviewOnly": True,
-            "toolName": "test_pod_create_review",
-            "target": target,
-        },
-    }
+    return build_test_pod_create_review_execution_result(target, parameters)
 
 
 def crashloop_test_pod_name(prefix: str, request_id: str, index: int) -> str:
-    suffix = f"{request_id}-{index}"
-    trimmed_prefix = prefix[: max(1, 63 - len(suffix) - 1)].rstrip("-")
-    return f"{trimmed_prefix}-{suffix}"
+    return build_crashloop_test_pod_name(prefix, request_id, index)
 
 
 def crashloop_test_pod_manifest(
@@ -11197,39 +10671,14 @@ def crashloop_test_pod_manifest(
     pod_name: str,
     request_id: str,
 ) -> dict[str, Any]:
-    labels = {
-        "app": TEST_POD_CREATE_APP_LABEL,
-        "aiops.komsco/scenario": "crashloop-test",
-        "aiops.komsco/request-id": request_id,
-    }
-    return {
-        "apiVersion": "v1",
-        "kind": "Pod",
-        "metadata": {
-            "annotations": {
-                "aiops.komsco/created-by": "aiops-action-plan",
-                "aiops.komsco/purpose": "intentional-crashloop-test",
-            },
-            "labels": labels,
-            "name": pod_name,
-            "namespace": namespace,
-        },
-        "spec": {
-            "containers": [
-                {
-                    "command": list(TEST_POD_CREATE_FAILURE_COMMAND),
-                    "image": image,
-                    "imagePullPolicy": "IfNotPresent",
-                    "name": "crashloop",
-                    "resources": {
-                        "requests": {"cpu": "5m", "memory": "16Mi"},
-                        "limits": {"cpu": "50m", "memory": "64Mi"},
-                    },
-                }
-            ],
-            "restartPolicy": "Always",
-        },
-    }
+    return build_crashloop_test_pod_manifest(
+        image=image,
+        index=index,
+        namespace=namespace,
+        pod_name=pod_name,
+        request_id=request_id,
+        settings=test_pod_create_settings(),
+    )
 
 
 async def create_crashloop_test_pods_execution_result(
@@ -11240,10 +10689,30 @@ async def create_crashloop_test_pods_execution_result(
     target = target_from_plan(sealed_plan)
     parameters = parameters_from_plan(sealed_plan)
     namespace = str(target.get("namespace") or target.get("name") or "")
-    count = int(parameters.get("count") or TEST_POD_CREATE_DEFAULT_COUNT)
+    count = int(parameters.get("count") or 0)
     image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
     name_prefix = str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX)
 
+    if not TEST_POD_CREATE_ENABLED:
+        return {
+            "mutationOutcome": {
+                "status": "mutation_rejected",
+                "reason": "CrashLoop test Pod creation is disabled in product mode",
+                "httpStatus": 403,
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
+        }
+    if count < 1 or count > 5:
+        return {
+            "mutationOutcome": {
+                "status": "mutation_rejected",
+                "reason": "test Pod count must be explicitly set between 1 and 5",
+                "httpStatus": 400,
+            },
+            "remediationOutcome": {"status": "not_remediated"},
+            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
+        }
     if namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
         return {
             "mutationOutcome": {
@@ -14705,52 +14174,13 @@ async def create_chat_feedback(
 ) -> dict[str, Any]:
     user_auth_header = verify_bearer_header(authorization)
     subject = await fetch_self_subject_review(user_auth_header)
-    rating = req.rating.strip().lower()
-    if rating not in {"up", "down"}:
-        raise HTTPException(status_code=400, detail="rating must be up or down")
-
-    created_at = now_rfc3339()
-    submitted_at = req.timestamp or created_at
-    projection = {
-        "conversationId": req.conversationId or "",
-        "messageId": req.messageId,
-        "mode": req.mode,
-        "rating": rating,
-        "timestamp": submitted_at,
-    }
-    feedback_id = req.feedbackId or (
-        f"chat-feedback-{canonical_digest(redact_sensitive(projection)).removeprefix('sha256:')[:16]}"
-    )
-    record = {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ChatFeedbackRecord",
-        "metadata": {
-            "createdAt": created_at,
-            "name": feedback_id,
-        },
-        "spec": {
-            "answerContract": req.answerContract or "",
-            "answerSource": req.answerSource or "",
-            "conversationId": req.conversationId or "",
-            "intent": req.intent or "",
-            "messageId": req.messageId,
-            "mode": req.mode,
-            "optionalComment": redact_sensitive(req.optionalComment or ""),
-            "rating": rating,
-            "route": req.route or "",
-            "source": req.source or req.answerSource or "",
-            "submittedAt": submitted_at,
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
+    try:
+        feedback_id, record, response = build_chat_feedback_record(req, subject)
+    except ChatFeedbackInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await bounded_put_record("chatFeedback", feedback_id, record)
     increment_metric("aiops_chat_feedback_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ChatFeedback",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return response
 
 
 @app.post("/v1/chat/stream")
@@ -14767,6 +14197,9 @@ async def chat_stream(
         run_id = req.runId or f"run-{uuid.uuid4()}"
         request_id = f"req-{uuid.uuid4()}"
         incident_id = req.conversationId or f"inc-{uuid.uuid4()}"
+        followup_selection = resolve_numeric_followup_message(req.message, req.recentMessages)
+        if followup_selection:
+            req.message = followup_selection.effective_message
         policy = classify_request_policy(req.message)
         subject = safe_subject(None)
         product_access_review: dict[str, Any] | None = None
@@ -14964,7 +14397,7 @@ async def chat_stream(
                     "summary": policy_check_summary(policy),
                 }
             )
-            if is_test_pod_create_request(req):
+            if is_test_pod_create_request(req) and TEST_POD_CREATE_ENABLED:
                 runtime_tool_plan = test_pod_create_tool_plan(
                     test_pod_create_request_from_message(req.message),
                     page_context_aiops_execution_mode(req),
@@ -15061,6 +14494,39 @@ async def chat_stream(
                 execution_mode = page_context_aiops_execution_mode(req)
                 language = answer_language(req)
                 request = test_pod_create_request_from_message(req.message)
+                if not test_pod_create_is_ready(request):
+                    preflight = await collect_test_pod_create_preflight(authorization, request)
+                    answer_text = test_pod_create_disabled_answer(request, language)
+                    transcript_answer_chunks.append(answer_text)
+                    yield sse(
+                        {
+                            "type": "tool_result",
+                            "detail": json.dumps(redact_sensitive(preflight), ensure_ascii=False, indent=2),
+                            "id": f"{request_id}-test-pod-create-disabled",
+                            "name": "test_pod_create_guard",
+                            "result": redact_sensitive(preflight),
+                            "status": "skipped",
+                            "summary": "테스트 Pod 생성은 현재 제품 조건에서 비활성",
+                        }
+                    )
+                    yield sse(
+                        {
+                            "type": "text",
+                            "content": answer_text,
+                            "source": "gateway_direct",
+                            "answerContract": "test-pod-create-guard-v1",
+                        }
+                    )
+                    yield sse(
+                        {
+                            "type": "run_status",
+                            "runId": run_id,
+                            "stage": "completed",
+                            "message": "Gateway 테스트 Pod 생성 가드 확인 완료",
+                        }
+                    )
+                    yield sse("[DONE]")
+                    return
                 action_mode = action_capable_execution_mode(execution_mode)
                 yield sse(
                     {
@@ -16736,7 +16202,7 @@ async def chat_stream(
                 runtime_tool_plan,
                 gateway_evidence,
             )
-            if grounded_answer:
+            if grounded_answer and GATEWAY_DIRECT_ANSWER_ENABLED:
                 transcript_answer_chunks.append(grounded_answer)
                 transcript_answer_contracts.append("evidence-grounded-pod-rca-v0.2.2")
                 yield sse(
@@ -16920,7 +16386,9 @@ async def chat_stream(
                     update_ols_stream_status(
                         "failed",
                         context_digest=ols_gateway_context["metadata"]["digest"],
-                        fallback_active=ols_attempt >= OLS_EMPTY_ANSWER_RETRIES,
+                        fallback_active=(
+                            not REQUIRE_OLS_FINAL_ANSWER and ols_attempt >= OLS_EMPTY_ANSWER_RETRIES
+                        ),
                         reason=safe_detail,
                     )
                     ols_error_event = {
@@ -16929,9 +16397,9 @@ async def chat_stream(
                         "id": f"{request_id}-{active_llm_stage()}-stream",
                         "name": f"{active_llm_stage()}_stream",
                         "status": "error",
-                        "summary": f"{active_llm_label()} request failed; Gateway fallback will answer from collected evidence",
+                        "summary": f"{active_llm_label()} request failed; final answer was not generated",
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                        "fallbackAnswer": True,
+                        "finalAnswerUnavailable": True,
                     }
                     ols_tool_results.append(ols_error_event)
                     if ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
@@ -16965,37 +16433,55 @@ async def chat_stream(
                     )
             if not emitted_answer_text:
                 fallback_reason = (
-                    f"{active_llm_label()} ended without answer text; Gateway fallback emitted"
+                    f"{active_llm_label()} ended without answer text; final answer was not generated"
                     if ols_attempt_count <= 1
-                    else f"{active_llm_label()} ended without answer text after {ols_attempt_count} attempts; Gateway fallback emitted"
+                    else f"{active_llm_label()} ended without answer text after {ols_attempt_count} attempts; final answer was not generated"
                 )
                 update_ols_stream_status(
                     "failed",
                     context_digest=ols_gateway_context["metadata"]["digest"],
-                    fallback_active=True,
+                    fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
                     reason=fallback_reason,
                 )
-                fallback_answer = build_empty_answer_fallback(
-                    req,
-                    policy,
-                    ols_tool_results,
-                    gateway_evidence,
-                    image_analysis=image_analysis,
-                    image_forwarded_to_ols=should_forward_image_attachments_to_ols(),
-                )
+                if REQUIRE_OLS_FINAL_ANSWER:
+                    fallback_answer = build_ols_required_failure_answer(
+                        req,
+                        ols_tool_results,
+                        image_analysis=image_analysis,
+                        image_forwarded_to_ols=should_forward_image_attachments_to_ols(),
+                    )
+                    fallback_source = "ols_required_notice"
+                    fallback_event_extra: dict[str, Any] = {
+                        "finalAnswerUnavailable": True,
+                    }
+                else:
+                    fallback_answer = build_empty_answer_fallback(
+                        req,
+                        policy,
+                        ols_tool_results,
+                        gateway_evidence,
+                        image_analysis=image_analysis,
+                        image_forwarded_to_ols=should_forward_image_attachments_to_ols(),
+                    )
+                    fallback_source = "gateway_fallback"
+                    fallback_event_extra = {
+                        "fallbackAnswer": True,
+                    }
                 transcript_answer_chunks.append(fallback_answer)
                 yield sse(
                     {
                         "type": "text",
                         "content": fallback_answer,
-                        "source": "gateway_fallback",
-                        "fallbackAnswer": True,
+                        "source": fallback_source,
                         "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                         "streamProbe": "failed",
+                        **fallback_event_extra,
                     }
                 )
 
-            if rag_answer_citation_text:
+            can_append_gateway_contract_text = emitted_answer_text or not REQUIRE_OLS_FINAL_ANSWER
+
+            if can_append_gateway_contract_text and rag_answer_citation_text:
                 transcript_answer_chunks.append(rag_answer_citation_text)
                 yield sse(
                     {
@@ -17006,37 +16492,38 @@ async def chat_stream(
                     }
                 )
 
-            crashloop_answer_contract = build_crashloop_demo_answer_contract_text(req, run_id)
-            if crashloop_answer_contract:
-                transcript_answer_chunks.append(crashloop_answer_contract)
-                transcript_answer_contracts.append("crashloop-v0.1.3")
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": crashloop_answer_contract,
-                        "source": "gateway_answer_contract",
-                        "answerContract": "crashloop-v0.1.3",
-                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                    }
-                )
-            else:
-                aiops_answer_contract = build_aiops_answer_contract_text(
-                    policy=policy,
-                    rca_context=rca_context_event["context"],
-                    runtime_tool_plan=runtime_tool_plan,
-                )
-                if aiops_answer_contract:
-                    transcript_answer_chunks.append(aiops_answer_contract)
-                    transcript_answer_contracts.append("aiops-action-v0.1.9")
+            if can_append_gateway_contract_text:
+                crashloop_answer_contract = build_crashloop_demo_answer_contract_text(req, run_id)
+                if crashloop_answer_contract:
+                    transcript_answer_chunks.append(crashloop_answer_contract)
+                    transcript_answer_contracts.append("crashloop-v0.1.3")
                     yield sse(
                         {
                             "type": "text",
-                            "content": aiops_answer_contract,
+                            "content": crashloop_answer_contract,
                             "source": "gateway_answer_contract",
-                            "answerContract": "aiops-action-v0.1.9",
+                            "answerContract": "crashloop-v0.1.3",
                             "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
                         }
                     )
+                else:
+                    aiops_answer_contract = build_aiops_answer_contract_text(
+                        policy=policy,
+                        rca_context=rca_context_event["context"],
+                        runtime_tool_plan=runtime_tool_plan,
+                    )
+                    if aiops_answer_contract:
+                        transcript_answer_chunks.append(aiops_answer_contract)
+                        transcript_answer_contracts.append("aiops-action-v0.1.9")
+                        yield sse(
+                            {
+                                "type": "text",
+                                "content": aiops_answer_contract,
+                                "source": "gateway_answer_contract",
+                                "answerContract": "aiops-action-v0.1.9",
+                                "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
+                            }
+                        )
 
             rca_context_event = current_rca_context_event("post_answer")
             rca_result = parse_rca_result(

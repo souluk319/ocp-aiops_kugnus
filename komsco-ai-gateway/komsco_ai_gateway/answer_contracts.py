@@ -65,6 +65,22 @@ def answer_section_contract(req: ChatAnswerRequest) -> str:
     )
 
 
+def assistant_operating_answer_style_contract(req: ChatAnswerRequest) -> str:
+    if answer_language(req) == "en":
+        return (
+            "Default assistant answer style: answer the exact question first, in the smallest useful size. "
+            "Use current console context such as page path, namespace, resource kind, selected filters, and verified evidence when available. "
+            "Then add 2-3 context-fit next-step prompts, for example top-N table, status split, detailed check commands, or Action Proposal draft. "
+            "Do not reflexively create or display an Action Plan unless the user asks for a change/action or the target, risk, approval condition, and verification are concrete."
+        )
+    return (
+        "기본 운영 답변 양식: 사용자의 질문에 먼저 짧고 정확하게 답하세요. "
+        "현재 콘솔 경로, namespace, resource kind, 선택 필터, 검증된 조회 결과가 있으면 화면 기준으로 반영하세요. "
+        "그 다음 상황에 맞는 다음 단계 질문 2~3개를 제안하세요. 예: 상위 N개 표 정리, 상태별 분기표, 상세 확인 명령, Action Proposal 초안. "
+        "Action Plan은 반사적으로 만들거나 노출하지 말고, 사용자가 조치/변경을 원하거나 대상·위험·승인 조건·검증 방법이 구체적일 때만 제안하세요."
+    )
+
+
 def casual_identity_answer(req: ChatAnswerRequest) -> str:
     if answer_language(req) == "en":
         return "\n\n".join(

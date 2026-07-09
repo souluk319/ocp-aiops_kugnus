@@ -487,23 +487,6 @@ const isCrashLoopFinding = (finding: AiopsAnomalyFinding): boolean => {
   return haystack.includes('crashloop') || finding.type === 'pod_crashloop';
 };
 
-export const actionCandidateMatchesFinding = (
-  candidate: AiopsActionCandidate,
-  finding: AiopsAnomalyFinding,
-): boolean => {
-  if (candidate.sourceFindingId && candidate.sourceFindingId === finding.id) {
-    return true;
-  }
-
-  const target = candidate.target ?? {};
-  const findingTarget = findingTargetParts(finding);
-  return (
-    target.namespace === findingTarget.namespace &&
-    target.name === findingTarget.name &&
-    (!target.kind || !findingTarget.kind || target.kind === findingTarget.kind)
-  );
-};
-
 const findingEvidenceText = (finding: AiopsAnomalyFinding, fallback = '확인 결과 수집 중'): string =>
   normalizeFindingDisplayText(
     safeEvidenceText(finding.evidence || finding.message, fallback),
@@ -514,60 +497,6 @@ const findingNextCheckText = (
   finding: AiopsAnomalyFinding,
   fallback = '관련 Pod 상태, 이벤트, 로그 가능 여부 확인',
 ): string => normalizeFindingDisplayText(safeEvidenceText(finding.nextCheck, fallback), finding);
-
-const buildFindingDemoPrompt = (
-  finding: AiopsAnomalyFinding,
-  candidate?: AiopsActionCandidate,
-): string => {
-  const target = anomalyResourceLabel(finding);
-  const candidateLine = candidate
-    ? `연결된 조치 후보: ${candidate.title} / ${candidate.statusLabel || '승인 전 확인 필요'}`
-    : '연결된 조치 후보: 아직 특정 후보와 강하게 묶이지 않았으니 확인 필요로 표시';
-
-  return [
-    '다음 OpenShift 이상 징후를 RCA 분석하고, 승인 필요한 조치 후보까지 정리해줘.',
-    '',
-    `시나리오: CrashLoopBackOff 원인 분석`,
-    `findingId: ${finding.id}`,
-    `대상: ${target}`,
-    `심각도: ${finding.severity}`,
-    `원인 후보: ${finding.candidateCause || finding.reason || '추가 확인 필요'}`,
-    `현재 확인 결과: ${findingEvidenceText(finding)}`,
-    `다음 확인: ${findingNextCheckText(finding)}`,
-    candidateLine,
-    '',
-    '답변 형식:',
-    '1. 확인 결과',
-    '2. 가능한 원인 후보',
-    '3. 추가 확인 필요 항목',
-    '4. 먼저 확인할 조회 항목과 순서',
-    '5. 실행 계획이 필요하면 승인 조건과 되돌림 기준',
-    '',
-    '주의: 로그 원문은 민감정보 가능성이 있으니 원문 노출 없이 필요 여부와 확인 방법만 정리해줘. 실제 변경은 계획, 승인, 검증 조건을 거쳐야 한다.',
-  ].join('\n');
-};
-
-export const buildFindingDemoDraft = (
-  finding: AiopsAnomalyFinding,
-  candidate?: AiopsActionCandidate,
-): AssistantDraftPromptRequest => {
-  const target = findingTargetParts(finding);
-  return {
-    id: `${finding.id}-${Date.now()}`,
-    pageContext: {
-      candidateId: candidate?.id,
-      candidateStatusLabel: candidate?.statusLabel,
-      findingId: finding.id,
-      findingTitle: finding.title,
-      scenarioId: isCrashLoopFinding(finding) ? 'crashloop' : finding.type,
-      selectedAt: new Date().toISOString(),
-      source: 'aiops-dashboard-anomaly-board',
-      target,
-    },
-    prompt: buildFindingDemoPrompt(finding, candidate),
-    taskMode: 'troubleshooting',
-  };
-};
 
 export const buildActionCandidatePrompt = (
   candidate: AiopsActionCandidate,
@@ -609,10 +538,8 @@ export const buildActionCandidatePrompt = (
 };
 
 export const AnomalySummaryBoard: React.FC<{
-  activeFindingId?: string;
-  onAnalyzeFinding?: (finding: AiopsAnomalyFinding) => void;
   overview: AiopsOverview | null;
-}> = ({ activeFindingId, onAnalyzeFinding, overview }) => {
+}> = ({ overview }) => {
   const anomalies = overview?.spec.anomalies?.spec;
   const status = anomalies?.status ?? (overview ? 'unknown' : 'loading');
   const tone = anomalyStatusTone(status);
@@ -678,10 +605,9 @@ export const AnomalySummaryBoard: React.FC<{
           {topFindings.map((finding) => {
             const findingTone = anomalySeverityTone(finding.severity);
             const crashLoopDemo = isCrashLoopFinding(finding);
-            const active = activeFindingId === finding.id;
             return (
               <article
-                className={`komsco-ai-page__anomaly-item is-${findingTone}${active ? ' is-active-demo' : ''}`}
+                className={`komsco-ai-page__anomaly-item is-${findingTone}`}
                 data-aiops-finding-id={finding.id}
                 data-aiops-scenario={crashLoopDemo ? 'crashloop' : finding.type}
                 key={finding.id}
@@ -703,19 +629,6 @@ export const AnomalySummaryBoard: React.FC<{
                 </dl>
                 <div className="komsco-ai-page__anomaly-actions">
                   {crashLoopDemo && <span className="komsco-ai-page__demo-badge">0.1.3 demo</span>}
-                  {active && (
-                    <span className="komsco-ai-page__demo-badge is-active">질문에 연결됨</span>
-                  )}
-                  {crashLoopDemo && (
-                    <Button
-                      data-aiops-demo-action="seed-chat-prompt"
-                      isInline
-                      onClick={() => onAnalyzeFinding?.(finding)}
-                      variant="link"
-                    >
-                      챗봇으로 RCA 질문 생성
-                    </Button>
-                  )}
                 </div>
               </article>
             );

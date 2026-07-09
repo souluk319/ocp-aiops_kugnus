@@ -79,10 +79,11 @@ assert(
   'Read-only mode must still compute Action Plan candidates for preview',
 );
 assert(
-  launcher.includes('읽기 전용: 후보만 표시') &&
+  !launcher.includes("const message = '읽기 전용: 후보만 표시'") &&
+    launcher.includes("const createPlanDisabledReason = '';") &&
     launcher.includes('createDisabledReason={createPlanDisabledReason}') &&
     actionPlanButtons.includes('createDisabledReason'),
-  'Read-only mode must show Action Plan candidates but lock plan creation',
+  'Read-only mode must show Action Plan candidates and allow plan creation while keeping approval/execution gated',
 );
 assert(launcher.includes('mergeConversationActionRefs'), 'Action refs must share one merge/dedupe path');
 assert(launcher.includes('setConversationHistory((prev) =>') && launcher.includes('actionRefs: mergeConversationActionRefs'), 'Created Action Plans must be reflected in conversation history immediately');
@@ -331,6 +332,10 @@ assert(
 assert(
   launcher.includes('Action Plan을 생성했습니다. 아래 카드에서 승인 또는 실행을 이어갈 수 있습니다.'),
   'Create-plan success must tell the user what changed and where to continue',
+);
+assert(
+  launcher.includes('Action Plan을 생성했습니다. 읽기 전용 모드에서는 승인·실행 없이 계획 내용만 확인합니다.'),
+  'Read-only create-plan success must explain that only approval/execution remains blocked',
 );
 assert(css.includes('.komsco-ai__create-action-plan-feedback'), 'Action Plan create feedback CSS must exist');
 assert(actionPlanButtons.includes('komsco-ai__create-action-plan-disabled-reason'), 'Target-required Action Plan card must render the reason visibly');

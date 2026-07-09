@@ -89,16 +89,19 @@ const statusPayload = {
     records: {
       auditRecords: [{ kind: 'AuditRecord', metadata: { name: 'audit-verify' }, spec: {} }],
       chatFeedback: [
-        {
-          kind: 'ChatFeedback',
-          metadata: { createdAt: '2026-07-08T00:00:02Z', name: 'feedback-verify' },
+	        {
+	          kind: 'ChatFeedback',
+	          metadata: { createdAt: '2026-07-08T00:00:02Z', name: 'feedback-verify' },
           spec: {
+            assistantAnswer:
+              'CrashLoopBackOff 원인은 이전 로그와 Event를 확인한 뒤 승인 가능한 Action Plan으로 분리해야 합니다.',
             conversationId: 'inc-learning-verify',
             messageId: 'assistant-message-1',
             optionalComment: '조치 전 검증 설명은 좋음',
             rating: 'up',
             route: 'gateway',
             submittedAt: '2026-07-08T00:00:02Z',
+            userMessage: 'CrashLoopBackOff 원인을 확인해줘',
           },
         },
       ],

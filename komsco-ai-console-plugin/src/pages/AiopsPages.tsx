@@ -18,7 +18,6 @@ import {
 } from '@patternfly/react-icons';
 import {
   type AiopsActionCandidate,
-  type AiopsAnomalyFinding,
   type AiopsOverview,
   type AiopsRecord,
   type AiopsRuntimeStatus,
@@ -42,9 +41,7 @@ import {
   ActionCandidateBoard,
   AnomalySummaryBoard,
   OperatorFlowBoard,
-  actionCandidateMatchesFinding,
   buildActionCandidatePrompt,
-  buildFindingDemoDraft,
 } from './AiopsDashboardSections';
 import { DocsHero, DocsLayout, DocsMetrics, uploadedDocumentQuery } from './AiopsDocsSections';
 import { safeEvidenceText } from '../utils/evidenceDisplay';
@@ -1029,25 +1026,10 @@ export const AiopsDashboardPage: React.FC = () => {
   const lightspeedProbe =
     data.status?.spec.safetyContract?.lightspeedStatus?.streamProbe ?? 'probe 확인 중';
   const controlTower = data.overview?.spec.controlTower;
-  const activeDemoFindingId =
-    typeof assistantDraftPrompt?.pageContext.findingId === 'string'
-      ? assistantDraftPrompt.pageContext.findingId
-      : undefined;
   const activeActionCandidateId =
     typeof assistantDraftPrompt?.pageContext.candidateId === 'string'
       ? assistantDraftPrompt.pageContext.candidateId
       : undefined;
-  const seedFindingPrompt = React.useCallback(
-    (finding: AiopsAnomalyFinding) => {
-      const candidates = data.overview?.spec.actionCandidates?.spec?.candidates ?? [];
-      const matchingCandidate = candidates.find((candidate) =>
-        actionCandidateMatchesFinding(candidate, finding),
-      );
-
-      setAssistantDraftPrompt(buildFindingDemoDraft(finding, matchingCandidate));
-    },
-    [data.overview],
-  );
   const seedActionCandidatePrompt = React.useCallback((candidate: AiopsActionCandidate) => {
     setAssistantDraftPrompt(buildActionCandidatePrompt(candidate));
   }, []);
@@ -1154,11 +1136,7 @@ export const AiopsDashboardPage: React.FC = () => {
         />
       </div>
 
-      <AnomalySummaryBoard
-        activeFindingId={activeDemoFindingId}
-        onAnalyzeFinding={seedFindingPrompt}
-        overview={data.overview}
-      />
+      <AnomalySummaryBoard overview={data.overview} />
 
       <ActionCandidateBoard
         activeCandidateId={activeActionCandidateId}

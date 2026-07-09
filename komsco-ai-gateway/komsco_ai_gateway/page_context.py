@@ -32,6 +32,7 @@ K8S_RESOURCE_KIND_BY_ROUTE_SEGMENT = {
 PAGE_CONTEXT_ALLOWED_KEYS = {
     "aiopsDemoCycle",
     "aiopsExecutionMode",
+    "aiopsViewContext",
     "clusterScope",
     "href",
     "namespace",

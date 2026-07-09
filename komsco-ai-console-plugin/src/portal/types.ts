@@ -127,6 +127,7 @@ export type AiopsRuntimeStatus = {
       actionProposals: AiopsRecord[];
       auditRecords?: AiopsRecord[];
       approvalDecisions: AiopsRecord[];
+      chatFeedback?: AiopsRecord[];
       chatTranscripts?: AiopsRecord[];
       diagnosticRequests: AiopsRecord[];
       executionRecords: AiopsRecord[];

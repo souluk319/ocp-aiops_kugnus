@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIOps for OCP 발표자료 초안 · 현장 실습 반영본</title>
+  <style>
+    :root {
+      --bg: #eef3f8;
+      --paper: #ffffff;
+      --ink: #10233f;
+      --muted: #5a6b82;
+      --line: #d8e2ee;
+      --blue: #2368c8;
+      --cyan: #17a6c8;
+      --green: #15975f;
+      --orange: #c87818;
+      --red: #d64545;
+      --shadow: 0 16px 40px rgba(16, 35, 63, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Pretendard", "Noto Sans KR", "Segoe UI", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    header.deck-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+      padding: 14px 28px;
+      background: rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .brand small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    nav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    nav a {
+      color: var(--blue);
+      text-decoration: none;
+      border: 1px solid var(--line);
+      background: #f8fbff;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    main {
+      width: min(1220px, calc(100vw - 36px));
+      margin: 28px auto 64px;
+      display: grid;
+      gap: 26px;
+    }
+
+    section.slide {
+      min-height: 720px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 34px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .eyebrow {
+      color: var(--blue);
+      font-weight: 900;
+      font-size: 13px;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 54px;
+      max-width: 920px;
+    }
+
+    h2 {
+      font-size: 38px;
+    }
+
+    h3 {
+      font-size: 20px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .lead {
+      max-width: 980px;
+      font-size: 22px;
+      color: #28415e;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+    }
+
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: repeat(3, 1fr); }
+    .grid.side { grid-template-columns: 0.88fr 1.12fr; align-items: start; }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 20px;
+      background: #fbfdff;
+    }
+
+    .panel strong {
+      color: var(--ink);
+    }
+
+    .panel h3 {
+      margin-bottom: 10px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      color: #324961;
+    }
+
+    li { margin: 8px 0; }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      background: #f6f9fd;
+      color: #20364f;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-weight: 800;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .tag.blue { background: #eaf3ff; border-color: #bdd6ff; color: #195bb4; }
+    .tag.green { background: #e9fbf2; border-color: #b8ebd0; color: #0d7548; }
+    .tag.orange { background: #fff6e8; border-color: #ffd79a; color: #9b5a0d; }
+    .tag.red { background: #fff0f0; border-color: #ffc5c5; color: #b83030; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .step {
+      min-height: 140px;
+      border: 1px solid var(--line);
+      border-top: 5px solid var(--blue);
+      background: #fbfdff;
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .step .num {
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .step strong {
+      display: block;
+      margin: 7px 0;
+      font-size: 16px;
+    }
+
+    .step span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .shot {
+      width: 100%;
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #f8fbff;
+      box-shadow: 0 10px 28px rgba(16, 35, 63, 0.09);
+    }
+
+    .caption {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      background: #f3f7fc;
+      color: #20364f;
+      font-weight: 900;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .callout {
+      border-left: 5px solid var(--blue);
+      background: #eff6ff;
+      color: #254766;
+      padding: 16px 18px;
+      border-radius: 12px;
+      font-weight: 800;
+    }
+
+    .callout.green {
+      border-left-color: var(--green);
+      background: #effbf5;
+    }
+
+    .callout.orange {
+      border-left-color: var(--orange);
+      background: #fff8ec;
+    }
+
+    .speaker {
+      margin-top: auto;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      color: #37516c;
+      font-size: 14px;
+    }
+
+    .speaker strong { color: var(--ink); }
+
+    .mini {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      h1 { font-size: 38px; }
+      h2 { font-size: 30px; }
+      section.slide { min-height: auto; padding: 24px; }
+      .grid.two, .grid.three, .grid.side, .flow { grid-template-columns: 1fr; }
+      header.deck-header { align-items: flex-start; flex-direction: column; }
+      nav { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <header class="deck-header">
+    <div class="brand">
+      AIOps for OCP · 발표자료 초안
+      <small>docs/Ver.0.3.0 · 현장 실습 화면 반영본 · 2026.07.10</small>
+    </div>
+    <nav aria-label="slides">
+      <a href="#s1">개요</a>
+      <a href="#s4">운영 흐름</a>
+      <a href="#s8">Assistant</a>
+      <a href="#s10">RCA</a>
+      <a href="#s11">Action/Audit</a>
+      <a href="#s14">로드맵</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="slide" id="s1">
+      <div class="eyebrow">Slide 1 · Opening</div>
+      <h1>OpenShift Native AIOps with Lightspeed</h1>
+      <p class="lead">OpenShift Console, OpenShift Lightspeed, AI Gateway, AIOps 관리포털을 결합해 운영자가 장애를 빠르게 파악하고, 증거 기반으로 원인을 분석하며, 승인된 조치와 감사 기록까지 연결하는 통합 운영 경험을 제공합니다.</p>
+      <div class="tag-row">
+        <span class="tag blue">OpenShift Console Plugin</span>
+        <span class="tag green">Lightspeed 연동</span>
+        <span class="tag orange">Evidence/RCA</span>
+        <span class="tag">Action/Audit</span>
+      </div>
+      <div class="grid side">
+        <div class="panel">
+          <h3>발표 기준선</h3>
+          <ul>
+            <li>v1.0은 <strong>읽기 전용 관측과 RCA</strong>가 중심입니다.</li>
+            <li>Action Plan은 위험 작업을 바로 실행하는 기능이 아니라 <strong>제안·승인·감사로 넘어가는 통제 지점</strong>입니다.</li>
+            <li>시연은 “완전 자동 복구”가 아니라 <strong>운영자가 신뢰할 수 있는 판단 흐름</strong>을 보여주는 데 집중합니다.</li>
+          </ul>
+        </div>
+        <div>
+          <img class="shot" src="assets/fullscreen-dashboard-ui.png" alt="AIOps dashboard fullscreen UI">
+          <div class="caption">실습 화면: OpenShift Console 안에서 동작하는 AIOps 전역 패널과 관리 포털.</div>
+        </div>
+      </div>
+      <div class="speaker"><strong>발표 메모:</strong> “새 포털을 따로 만든 것”이 아니라 OpenShift 안에서 운영자가 보고 있던 맥락을 유지한 채 AI 지원을 붙인다는 점을 먼저 말합니다.</div>
+    </section>
+
+    <section class="slide" id="s2">
+      <div class="eyebrow">Slide 2 · Problem</div>
+      <h2>도입 배경: OpenShift 운영 환경의 과제</h2>
+      <div class="grid two">
+        <div class="panel">
+          <h3>현재 운영 방식의 어려움</h3>
+          <ul>
+            <li>Alert와 Event가 많아 핵심 이슈 선별이 늦어집니다.</li>
+            <li>Pod, Node, Event, Metric을 각 콘솔에서 따로 확인해야 합니다.</li>
+            <li>원인 분석과 보고서 작성이 수동으로 반복됩니다.</li>
+            <li>자동화 조치를 도입하려면 권한, 승인, 감사가 먼저 정리되어야 합니다.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>AIOps 적용 후 목표</h3>
+          <ul>
+            <li>이슈 큐와 서비스 맵으로 서비스 영향도가 큰 문제를 먼저 봅니다.</li>
+            <li>Assistant가 현재 화면과 클러스터 조회 결과를 묶어 분석합니다.</li>
+            <li>RCA 증거 패키지와 실행 기록으로 보고서 근거를 남깁니다.</li>
+            <li>AI는 제안하고, 운영자가 승인하며, 실행기는 제한된 typed action만 수행합니다.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout">핵심 메시지: 운영 자동화의 출발점은 “AI가 알아서 고친다”가 아니라 “운영자가 더 빠르고 안전하게 판단한다”입니다.</div>
+    </section>
+
+    <section class="slide" id="s3">
+      <div class="eyebrow">Slide 3 · Concept</div>
+      <h2>솔루션 개념: OpenShift + Lightspeed + AIOps</h2>
+      <div class="grid three">
+        <div class="panel">
+          <h3>OpenShift</h3>
+          <p>운영 대상 플랫폼, Console Plugin, RBAC, Operator/OLM 배포 기반을 제공합니다.</p>
+        </div>
+        <div class="panel">
+          <h3>OpenShift Lightspeed</h3>
+          <p>Pod, Node, Event, Metric, Resource 등 현재 클러스터 관측과 AI 응답 기반을 담당합니다.</p>
+        </div>
+        <div class="panel">
+          <h3>AI Gateway</h3>
+          <p>UserToken 경계, RBAC 검증, 민감정보 제거, 감사로그, RAG/Tool 연동을 담당합니다.</p>
+        </div>
+      </div>
+      <div class="grid two">
+        <div class="panel">
+          <h3>AIOps Portal</h3>
+          <p>대시보드, RCA 센터, 서비스 맵, 실행 기록, 위키, 보고서, 설정을 단일 화면으로 통합합니다.</p>
+        </div>
+        <div class="panel">
+          <h3>Action/Audit Layer</h3>
+          <p>승인 기반 조치, 실행 기록, 감사 원장, 보고서 산출을 지원하는 통제 및 이력 관리 계층입니다.</p>
+        </div>
+      </div>
+      <div class="speaker"><strong>발표 메모:</strong> Lightspeed를 대체하는 구조가 아니라, Lightspeed 앞뒤에 사내 보안·증거·감사 계층을 붙이는 구조입니다.</div>
+    </section>
+
+    <section class="slide" id="s4">
+      <div class="eyebrow">Slide 4 · Target Flow</div>
+      <h2>목표 운영 경험: Detect → Ask → RCA → Approve → Report</h2>
+      <div class="flow">
+        <div class="step"><div class="num">01</div><strong>Detect</strong><span>대시보드에서 Health Score, 이슈 큐, 주요 리소스 상태 확인</span></div>
+        <div class="step"><div class="num">02</div><strong>Ask</strong><span>현재 화면 기준으로 Assistant에게 질문</span></div>
+        <div class="step"><div class="num">03</div><strong>Collect Evidence</strong><span>Event, Metric, Log, RAG, 과거 증적 수집</span></div>
+        <div class="step"><div class="num">04</div><strong>RCA</strong><span>원인 후보, 신뢰도, 서비스 영향 경로 정리</span></div>
+        <div class="step"><div class="num">05</div><strong>Approve & Execute</strong><span>위험 작업은 Action Plan과 승인 후 제한 실행</span></div>
+        <div class="step"><div class="num">06</div><strong>Audit & Report</strong><span>감사 원장, RCA 증거 패키지, 운영 브리핑 생성</span></div>
+      </div>
+      <div class="callout green">오늘 실습에서 다시 정리한 결론: v1 발표는 Detect, Ask, Evidence, RCA를 단단히 보여주고, Approve/Execute/Audit은 통제형 확장 흐름으로 설명하는 것이 안전합니다.</div>
+    </section>
+
+    <section class="slide" id="s5">
+      <div class="eyebrow">Slide 5 · Native Integration</div>
+      <h2>OpenShift Native Integration: 3가지 제공 방식</h2>
+      <table>
+        <thead>
+          <tr><th>제공 방식</th><th>의미</th><th>시연 포인트</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Operator/OLM Integration</td><td>CRD/CSV/Bundle, Subscription, InstallPlan 기반 설치와 업그레이드</td><td>회사 서버 배포 전에는 publish/install을 분리하고 승인 후 진행</td></tr>
+          <tr><td>Application Launcher Integration</td><td>ConsoleLink로 OpenShift 우상단 앱 메뉴에 진입점 제공</td><td>OpenShift 안에서 자연스럽게 AIOps로 이동</td></tr>
+          <tr><td>Console Navigation Extension</td><td>좌측 Navigation에 AIOps 대시보드와 RCA 센터 추가</td><td>별도 외부 포털이 아닌 Console-native UX</td></tr>
+        </tbody>
+      </table>
+      <div class="speaker"><strong>발표 메모:</strong> 로컬 시연은 9000 console bridge 기준이지만, 배포 목표는 Dynamic Console Plugin과 OLM 기반입니다.</div>
+    </section>
+
+    <section class="slide" id="s6">
+      <div class="eyebrow">Slide 6 · Architecture</div>
+      <h2>목표 아키텍처 및 데이터 흐름</h2>
+      <div class="grid side">
+        <div class="panel">
+          <h3>Gateway가 맡는 일</h3>
+          <ul>
+            <li>UserToken과 RBAC 경계를 확인합니다.</li>
+            <li>민감정보를 제거하고 조회 가능한 증거를 구조화합니다.</li>
+            <li>Tool Plan과 Evidence Context를 만들어 Lightspeed에 전달합니다.</li>
+            <li>승인/실행/감사 기록은 서버 변경 여부와 함께 남깁니다.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>중요한 정리</h3>
+          <ul>
+            <li>Gateway 실조회만으로 빠르게 답할 수 있는 단순 집계가 있습니다.</li>
+            <li>하지만 RCA/상황 설명/화면 이해는 Lightspeed 최종 답변과 화면 context가 중요합니다.</li>
+            <li>Fallback은 비상용이어야 하며, 프롬프트나 내부 용어를 사용자에게 뱉으면 실패입니다.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout orange">실습에서 발견한 gap: AIOps 커스텀 페이지의 카드/필터/top N 알림 목록을 Assistant 요청 context로 충분히 넘겨야 합니다.</div>
+    </section>
+
+    <section class="slide" id="s7">
+      <div class="eyebrow">Slide 7 · Lightspeed + Gateway</div>
+      <h2>Lightspeed + AI Gateway 연동 흐름</h2>
+      <div class="grid two">
+        <div class="panel">
+          <h3>이상적인 답변 흐름</h3>
+          <ul>
+            <li>사용자 질문과 현재 화면 context를 받습니다.</li>
+            <li>Gateway가 필요한 조회 계획과 Evidence를 수집합니다.</li>
+            <li>RCA Context JSON을 구성해 Lightspeed에 전달합니다.</li>
+            <li>Lightspeed가 최종 답변을 streaming합니다.</li>
+          </ul>
+        </div>
+        <div>
+          <img class="shot" src="assets/assistant-pod-count-answer.png" alt="Assistant pod count answer">
+          <div class="caption">실습 비교: 간단한 질문에도 “근거”와 “다음 단계”가 짧게 붙을 때 운영자에게 훨씬 친절합니다.</div>
+        </div>
+      </div>
+      <div class="speaker"><strong>발표 메모:</strong> 단순 집계는 Gateway가 빠르게 만들 수 있지만, 운영자 경험은 “다음에 무엇을 할지”까지 제안해야 완성됩니다.</div>
+    </section>
+
+    <section class="slide" id="s8">
+      <div class="eyebrow">Slide 8 · AI Assistant</div>
+      <h2>AI Assistant: 현재 화면을 이해하는 운영 Copilot</h2>
+      <div class="grid side">
+        <div>
+          <img class="shot" src="assets/ocp-pod-context-assistant.png" alt="OpenShift pod screen with assistant answer">
+          <div class="caption">실습 기준: OCP 기본 리소스 화면은 route, kind, namespace, filter context가 잘 잡히면 답변 품질이 올라갑니다.</div>
+        </div>
+        <div class="panel">
+          <h3>좋은 Assistant 답변의 기준</h3>
+          <ul>
+            <li>현재 화면이 무엇인지 먼저 짧게 확인합니다.</li>
+            <li>사용자가 보고 있는 필터나 리소스 범위를 인지합니다.</li>
+            <li>가능한 조치 후보를 표로 정리하되, 승인 필요 여부와 실행 전 검증 조건을 분리합니다.</li>
+            <li>마지막에는 자연스러운 다음 질문 또는 선택지를 제공합니다.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout">오늘 확정한 품질 기준: 사용자가 숫자만 입력해도 직전 답변의 후속 선택지로 이어질 수 있어야 합니다.</div>
+    </section>
+
+    <section class="slide" id="s9">
+      <div class="eyebrow">Slide 9 · Dashboard</div>
+      <h2>운영 대시보드: 상황 인지와 이슈 진입점</h2>
+      <div class="grid side">
+        <div class="panel">
+          <h3>대시보드의 역할</h3>
+          <ul>
+            <li>Health Score와 이슈 큐로 지금 볼 문제를 고릅니다.</li>
+            <li>알림과 이벤트를 grouping해서 반복되는 신호를 줄입니다.</li>
+            <li>서비스 맵과 RCA 센터로 연결되는 진입점을 제공합니다.</li>
+          </ul>
+        </div>
+        <div>
+          <img class="shot" src="assets/alerts-assistant-context.png" alt="AIOps alerts page with assistant overlay">
+          <div class="caption">실습 화면: 알림 & 이벤트 화면은 페이지명만이 아니라 보이는 카드 목록까지 Assistant context로 넘겨야 합니다.</div>
+        </div>
+      </div>
+      <div class="speaker"><strong>발표 메모:</strong> “대시보드는 숫자판이 아니라 다음 행동으로 이동하는 운영 허브”라는 PDF 문장을 시연 화면과 연결합니다.</div>
+    </section>
+
+    <section class="slide" id="s10">
+      <div class="eyebrow">Slide 10 · RCA Center</div>
+      <h2>RCA 센터와 서비스 맵: 증거 기반 원인 분석</h2>
+      <div class="grid two">
+        <div>
+          <img class="shot" src="assets/rca-center-reference-slide.png" alt="RCA center reference slide">
+          <div class="caption">발표 초안의 기준: RCA는 AI 답변이 아니라 어떤 증거가 결론을 뒷받침하는지 보여주는 화면입니다.</div>
+        </div>
+        <div class="panel">
+          <h3>우리가 다시 이해한 역할</h3>
+          <ul>
+            <li>RCA 센터는 “조치 기록 목록”이 아니라 문제 분석 캔버스입니다.</li>
+            <li>제목은 문제 분석, 원인 후보, 확인한 증거, 영향 범위 중심이어야 합니다.</li>
+            <li>서비스 맵은 Route → Service → Workload → Pod → Node/PVC 관계를 보여주는 영향 경로입니다.</li>
+            <li>Assistant RCA는 이 분석 흐름을 챗봇으로 이어가는 보조 진입점입니다.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="s11">
+      <div class="eyebrow">Slide 11 · Action & Audit</div>
+      <h2>안전한 조치: Read-only 우선, 승인 기반 실행</h2>
+      <div class="grid side">
+        <div class="panel">
+          <h3>v1 발표에서의 Action Plan 위치</h3>
+          <ul>
+            <li>기본 관측은 UserToken과 RBAC 범위 내 읽기 전용입니다.</li>
+            <li>위험 작업은 자연어를 바로 실행하지 않고 Action Proposal로 바꿉니다.</li>
+            <li>Action Executor는 별도 권한과 typed action만 사용합니다.</li>
+            <li>읽기 전용에서도 계획 후보는 볼 수 있지만, 승인/실행은 제한됩니다.</li>
+          </ul>
+        </div>
+        <div>
+          <img class="shot" src="assets/read-only-action-plan-candidate.png" alt="Read-only action plan candidate">
+          <div class="caption">실습 화면: 읽기 전용에서는 Action Plan 후보를 보여주되, 서버 변경은 막아야 합니다.</div>
+        </div>
+      </div>
+      <div class="speaker"><strong>발표 메모:</strong> v2의 통제형 실행 기능을 일부 시연하더라도, v1 목표는 “제안과 판단 조건”을 안정적으로 보여주는 것입니다.</div>
+    </section>
+
+    <section class="slide" id="s12">
+      <div class="eyebrow">Slide 12 · Multi-vision / One-click Path</div>
+      <h2>AIOps Lightspeed: 화면·이미지·자연어 기반 점검</h2>
+      <div class="grid two">
+        <div class="panel">
+          <h3>시연 가능한 흐름</h3>
+          <ul>
+            <li>이미지나 현재 화면을 첨부해 상황을 설명하게 합니다.</li>
+            <li>Gateway가 화면 context와 cluster evidence를 정리합니다.</li>
+            <li>Lightspeed가 운영자 언어로 원인 후보와 다음 확인을 제시합니다.</li>
+            <li>필요하면 Action Plan 판단 조건으로 이어집니다.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>오늘 발견한 주의점</h3>
+          <ul>
+            <li>이미지를 보냈는데 fallback이 이미지 없이 답하면 실패입니다.</li>
+            <li>Fallback은 프롬프트를 드러내면 안 됩니다.</li>
+            <li>AIOps 커스텀 페이지 context는 route만이 아니라 카드 목록과 선택 상세까지 전달해야 합니다.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout orange">발표 전 필수 점검: OLS 연결, 이미지 전달, AIOps 페이지 context 주입, fallback 문구를 각각 따로 확인합니다.</div>
+    </section>
+
+    <section class="slide" id="s13">
+      <div class="eyebrow">Slide 13 · Runbook/RAG/Audit/Report</div>
+      <h2>Runbook/RAG, 감사, 보고서: 운영 지식의 폐쇄 루프</h2>
+      <div class="grid side">
+        <div>
+          <img class="shot" src="assets/audit-ledger-current.png" alt="Audit ledger current screen">
+          <div class="caption">실습 화면: 감사 원장은 제안, 승인, 실행/검토 기록을 나중에 보고서와 재검증에 쓰기 위한 원장입니다.</div>
+        </div>
+        <div class="panel">
+          <h3>정리된 용어</h3>
+          <ul>
+            <li><strong>Runbook/SOP</strong>: 조직이 승인한 운영 절차와 대응 문서입니다.</li>
+            <li><strong>RAG</strong>: 답변 전 내부 문서를 검색해 참고 context로 붙이는 방식입니다.</li>
+            <li><strong>Audit</strong>: 누가 무엇을 제안·승인·실행했는지 남기는 기록입니다.</li>
+            <li><strong>Report</strong>: RCA와 감사 기록을 사람이 제출할 수 있는 문서로 정리한 산출물입니다.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="speaker"><strong>발표 메모:</strong> 피드백과 실행 기록이 곧바로 Runbook에 자동 반영되는 것은 아닙니다. 운영자가 선별해 지식 자산화하는 흐름으로 설명합니다.</div>
+    </section>
+
+    <section class="slide" id="s14">
+      <div class="eyebrow">Slide 14 · Roadmap</div>
+      <h2>제품 로드맵: AIOps for OCP의 진화</h2>
+      <img class="shot" src="assets/roadmap-v1-v2-v3.png" alt="Product roadmap v1 v2 v3">
+      <div class="grid three">
+        <div class="panel">
+          <h3>v1.0 현재</h3>
+          <p>Read-only Observability & RCA. 장애 인지와 증거 기반 원인 분석 시간을 줄이는 단계입니다.</p>
+        </div>
+        <div class="panel">
+          <h3>v2.0 Next</h3>
+          <p>Controlled Action & Audit. 승인 기반 조치와 감사 원장을 본격화하는 단계입니다.</p>
+        </div>
+        <div class="panel">
+          <h3>v3.0 Future</h3>
+          <p>Predictive Ops & Auto-remediation. 승인된 패턴에 대해 예측과 자율 복구로 발전합니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="s15">
+      <div class="eyebrow">Slide 15 · Demo Script</div>
+      <h2>시연 흐름 초안</h2>
+      <table>
+        <thead>
+          <tr><th>순서</th><th>화면</th><th>보여줄 내용</th><th>성공 기준</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>대시보드</td><td>Health Score, 이슈 큐, 서비스 영향 지도</td><td>현재 클러스터 상태와 우선 확인 대상을 설명할 수 있음</td></tr>
+          <tr><td>2</td><td>알림 & 이벤트</td><td>BackOff, Readiness, Failed 같은 운영 신호</td><td>연결된 이슈 상세에서 리소스 상태 보기로 이어짐</td></tr>
+          <tr><td>3</td><td>OCP Pod 목록</td><td>CrashLoopBackOff/Failed 필터 화면에서 Assistant 질문</td><td>현재 화면 기준 조치 후보와 검증 조건 제시</td></tr>
+          <tr><td>4</td><td>RCA 센터</td><td>문제 분석, 원인 후보, 확인한 증거, 영향 범위</td><td>AI 결론이 아니라 증거 기반 설명임을 보여줌</td></tr>
+          <tr><td>5</td><td>실행 기록</td><td>제안/승인/검토/실행 기록과 원장 JSON 내보내기</td><td>서버 변경 여부와 보고서 반영 가능 여부를 구분</td></tr>
+          <tr><td>6</td><td>위키/보고서</td><td>Runbook/RAG와 운영 보고서 산출 방향</td><td>자동 학습이 아니라 선별 반영 구조로 설명</td></tr>
+        </tbody>
+      </table>
+      <div class="callout green">시연 톤: “이미 다 자동으로 고칩니다”가 아니라 “운영자가 믿고 판단할 수 있게 증거와 다음 행동을 연결합니다.”</div>
+    </section>
+
+    <section class="slide" id="s16">
+      <div class="eyebrow">Slide 16 · Acceptance</div>
+      <h2>발표 전 품질 게이트</h2>
+      <table>
+        <thead>
+          <tr><th>항목</th><th>Pass 기준</th><th>현재 주의점</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Lightspeed 연결</td><td>OLS 최종 답변이 오고 fallback 프롬프트가 노출되지 않음</td><td>FortiClient/회사망 연결 상태 확인 필요</td></tr>
+          <tr><td>화면 context</td><td>OCP 기본 화면과 AIOps 커스텀 화면 모두 현재 화면을 설명</td><td>AIOps 카드 목록/top N context 주입 보강 필요</td></tr>
+          <tr><td>Answer format</td><td>요약, 영향 범위, 확인한 근거, 원인 후보, Action Plan, 추가 확인</td><td>과도한 목록/공용 URL/내부 용어 제거 필요</td></tr>
+          <tr><td>Action Plan</td><td>읽기 전용에서도 후보는 보이고, 승인/실행은 정책에 따라 차단</td><td>시연 범위는 v1 중심으로 설명</td></tr>
+          <tr><td>Audit/Report</td><td>검토/실행 기록과 서버 변경 여부가 사람이 이해 가능</td><td>용어는 “원장 JSON 내보내기”처럼 운영자 언어로 조정</td></tr>
+        </tbody>
+      </table>
+      <div class="speaker"><strong>마무리 멘트:</strong> “AIOps for OCP는 장애를 대신 겪어주는 자동화가 아니라, 운영자가 더 빨리 이해하고 더 안전하게 승인하도록 돕는 통합 운영 루프입니다.”</div>
+    </section>
+  </main>
+</body>
+</html>

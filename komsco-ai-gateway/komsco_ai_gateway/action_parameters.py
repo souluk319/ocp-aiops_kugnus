@@ -12,7 +12,6 @@ from .security import now_rfc3339
 class ActionRecordContext:
     cluster_id: str
     mutations_enabled: bool
-    test_pod_create_default_count: int
     test_pod_create_default_image: str
     test_pod_create_name_prefix: str
     test_pod_create_app_label: str
@@ -120,7 +119,7 @@ def normalize_action_parameters(
         }
 
     if tool_name == "test_pod_create_review":
-        count = parameters.get("count", context.test_pod_create_default_count)
+        count = parameters.get("count")
         image = str(parameters.get("image") or context.test_pod_create_default_image)
         if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
             raise HTTPException(status_code=400, detail="test pod count must be an integer between 1 and 5")
@@ -132,7 +131,7 @@ def normalize_action_parameters(
         }
 
     if tool_name == "create_crashloop_test_pods":
-        count = parameters.get("count", context.test_pod_create_default_count)
+        count = parameters.get("count")
         image = str(parameters.get("image") or context.test_pod_create_default_image)
         name_prefix = str(parameters.get("namePrefix") or context.test_pod_create_name_prefix).strip()
         if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:

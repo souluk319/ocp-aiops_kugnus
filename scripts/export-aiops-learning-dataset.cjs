@@ -312,8 +312,13 @@ const transcriptToLearningRecord = (record, context, options) => {
   return { ...cleanRecord, digest: sha256(cleanRecord) };
 };
 
+const hasReviewableFeedbackTranscript = (record) => {
+  const spec = specOf(record);
+  return Boolean(asText(spec.userMessage).trim() && asText(spec.assistantAnswer).trim());
+};
+
 const feedbackOnlyRecords = (feedback, options) =>
-  feedback.map((record) => {
+  feedback.filter(hasReviewableFeedbackTranscript).map((record) => {
     const spec = specOf(record);
     const cleanRecord = sanitize(
       {
@@ -321,8 +326,8 @@ const feedbackOnlyRecords = (feedback, options) =>
         source: 'chat_feedback',
         createdAt: createdAt(record),
         taskType: 'feedback_only',
-        prompt: '',
-        assistantAnswer: '',
+        prompt: asText(spec.userMessage),
+        assistantAnswer: asText(spec.assistantAnswer),
         answerContract: asText(spec.answerContract),
         evidenceSummary: { collectedCount: 0, failedCount: 0, missingCount: 0, evidenceTypes: [] },
         feedback: [
@@ -440,7 +445,7 @@ const buildDataset = async (options) => {
   const learningRecords = transcripts.map((record) =>
     transcriptToLearningRecord(record, context, options),
   );
-  if (learningRecords.length === 0 && feedback.length > 0) {
+  if (learningRecords.length === 0 && feedback.some(hasReviewableFeedbackTranscript)) {
     learningRecords.push(...feedbackOnlyRecords(feedback, options));
   }
 

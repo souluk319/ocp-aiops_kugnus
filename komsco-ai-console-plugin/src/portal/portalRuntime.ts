@@ -62,6 +62,7 @@ const emptyStatus: AiopsRuntimeStatus = {
       actionProposals: [],
       auditRecords: [],
       approvalDecisions: [],
+      chatFeedback: [],
       diagnosticRequests: [],
       executionRecords: [],
       sealedActionPlans: [],

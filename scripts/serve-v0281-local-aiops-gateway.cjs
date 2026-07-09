@@ -2867,6 +2867,14 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/v1/chat/feedback' && req.method === 'POST') {
     const body = await readJsonBody(req);
+    const userMessage = String(body.userMessage || '').trim();
+    const assistantAnswer = String(body.assistantAnswer || '').trim();
+    if (!userMessage || !assistantAnswer) {
+      json(res, 400, {
+        detail: 'userMessage and assistantAnswer are required for runbook-reviewable chat feedback',
+      });
+      return;
+    }
     const submittedAt = nowIso();
     const feedbackId =
       String(body.feedbackId || '').trim() ||
@@ -2877,6 +2885,7 @@ const server = http.createServer(async (req, res) => {
       metadata: { name: feedbackId, createdAt: submittedAt },
       spec: {
         answerContract: body.answerContract || '',
+        assistantAnswer: assistantAnswer.slice(0, 4000),
         answerSource: body.answerSource || '',
         conversationId: body.conversationId || '',
         messageId: body.messageId || '',
@@ -2887,6 +2896,7 @@ const server = http.createServer(async (req, res) => {
         source: body.source || body.answerSource || '',
         intent: body.intent || '',
         submittedAt,
+        userMessage: userMessage.slice(0, 2400),
       },
       subject: LOCAL_SUBJECT,
     };

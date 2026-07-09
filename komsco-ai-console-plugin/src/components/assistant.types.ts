@@ -7,6 +7,7 @@ export type Message = {
   answerContract?: string;
   answerSource?:
     | 'ols'
+    | 'ols_unavailable'
     | 'gateway_direct'
     | 'gateway_fallback'
     | 'copilot_clarification'
@@ -240,6 +241,7 @@ export interface ExecutionOutcomeSummary {
 }
 
 export type AssistantLauncherProps = {
+  ambientPageContext?: Record<string, unknown>;
   defaultOpen?: boolean;
   draftPrompt?: AssistantDraftPrompt;
   embedded?: boolean;

@@ -19,6 +19,11 @@ from komsco_ai_gateway.answer_planning import (
 )
 from komsco_ai_gateway.host_diagnostics_collector import collect_host_diagnostics
 from komsco_ai_gateway.host_diagnostics_controller import build_diagnostic_job_manifest
+from komsco_ai_gateway.followup_selection import (
+    extract_numbered_followups,
+    resolve_numeric_followup_message,
+    selected_followup_index,
+)
 from komsco_ai_gateway.main import (
     ACTION_PROPOSALS,
     ACTION_REGISTRY_DIGEST,
@@ -80,6 +85,7 @@ from komsco_ai_gateway.main import (
     build_product_access_review_request,
     build_pod_count_investigation,
     build_break_glass_request_record,
+    build_ols_required_failure_answer,
     build_preapproved_patch_record,
     build_rag_answer_citation_text,
     build_rag_context_detail,
@@ -2273,6 +2279,32 @@ def test_normalize_console_page_context_extracts_catalog_namespace() -> None:
     assert context["perspective"] == "developer"
 
 
+def test_normalize_console_page_context_keeps_aiops_alert_view_context() -> None:
+    context = normalize_console_page_context(
+        {
+            "aiopsViewContext": {
+                "pageTitle": "알림 & 이벤트",
+                "route": "/dashboards/aiops/alerts",
+                "selectedAlert": {"reason": "Readiness 실패 반복 감지"},
+                "visibleAlerts": [
+                    {
+                        "reason": "BackOff 반복 감지",
+                        "severity": "risk",
+                        "target": "gpu-test-kugnus/Pod/aiops-test-pod-1",
+                    }
+                ],
+            },
+            "pathname": "/dashboards/aiops/alerts",
+            "title": "ignored browser title",
+        }
+    )
+
+    assert context["route"] == "dashboards"
+    assert context["aiopsViewContext"]["pageTitle"] == "알림 & 이벤트"
+    assert context["aiopsViewContext"]["visibleAlerts"][0]["reason"] == "BackOff 반복 감지"
+    assert "title" not in context
+
+
 def test_product_access_review_request_is_config_driven_ssar() -> None:
     request = build_product_access_review_request()
 
@@ -3005,12 +3037,15 @@ def test_build_ols_query_defaults_to_minimal_safe_prompt() -> None:
     assert "최근 OpenShift 경고" in query
     assert "[KOMSCO AI Gateway handoff]" not in query
     assert "[User question]" not in query
-    assert "Use evidence-check OpenShift checks only" in query
+    assert "Use live OpenShift evidence collection when cluster facts are needed" in query
     assert "Do not invent alert, pod, node, namespace, resource names" in query
     assert "If no screenshot/image is attached" in query
+    assert "기본 운영 답변 양식" in query
+    assert "다음 단계 질문 2~3개" in query
+    assert "Action Plan은 반사적으로 만들거나 노출하지 말고" in query
     assert "Policy decision:" in query
     assert "현재 판단" in query
-    assert len(query) < 1200
+    assert len(query) < 1800
     assert "title" not in query
     assert "OKD" not in query
 
@@ -3179,6 +3214,35 @@ def test_build_ols_query_treats_console_path_as_context_not_image() -> None:
     assert "If no screenshot/image is attached" in query
 
 
+def test_build_ols_query_includes_aiops_alert_view_context() -> None:
+    query = build_ols_query(
+        ChatRequest(
+            message="이 화면 무슨 상황이야?",
+            pageContext={
+                "aiopsViewContext": {
+                    "pageTitle": "알림 & 이벤트",
+                    "route": "/dashboards/aiops/alerts",
+                    "visibleAlerts": [
+                        {
+                            "count": 3,
+                            "reason": "BackOff 반복 감지",
+                            "severity": "risk",
+                            "target": "gpu-test-kugnus/Pod/aiops-test-pod-1",
+                            "title": "BackOff 반복 감지",
+                        }
+                    ],
+                },
+                "pathname": "/dashboards/aiops/alerts",
+            },
+        )
+    )
+
+    assert "알림 & 이벤트" in query
+    assert "BackOff 반복 감지" in query
+    assert "gpu-test-kugnus/Pod/aiops-test-pod-1" in query
+    assert "ignored browser title" not in query
+
+
 def test_build_ols_query_includes_security_guardrail_and_redacts_user_secrets() -> None:
     policy = classify_request_policy("deployment restart 해줘 token=my-secret-token-value")
     query = build_ols_query(
@@ -3205,6 +3269,8 @@ def test_build_ols_query_context_profile_includes_gateway_evidence(monkeypatch) 
     assert "Verified operational context:" in query
     assert "openshift-lightspeed exporter restartCount=44" in query
     assert "RCA 또는 운영 상태 질문에는 가능한 경우 아래 순서를 사용하세요" in query
+    assert "기본 운영 답변 양식" in query
+    assert "상위 N개 표 정리" in query
     assert "현재 판단" in query
     assert "확인 결과" in query
     assert "추가 확인" in query
@@ -3236,6 +3302,48 @@ def test_build_ols_query_includes_sanitized_recent_conversation_context() -> Non
     assert "안에 있는 파드" in query
     assert "<|channel|>" not in query
     assert "thought The user" not in query
+
+
+def test_numeric_followup_selection_extracts_next_step_options() -> None:
+    answer = """
+**다음 단계로 무엇을 도와드릴까요?**
+
+1. **비정상 Pod 목록 상세 확인**: 현재 `CrashLoopBackOff` 또는 `Failed` 상태인 Pod들의 이름, 네임스페이스, 최근 로그를 정리해 드릴까요?
+2. **원인 분석 (RCA) 시작**: 특정 Pod를 지정해 주시면 Event와 로그를 분석해 정확한 실패 원인을 찾아볼까요?
+3. **클러스터 이벤트 점검**: Pod 상태에 영향을 줄 수 있는 Node 이슈나 클러스터 수준 이벤트를 조회해 볼까요?
+"""
+
+    assert selected_followup_index("1") == 1
+    assert selected_followup_index("2번") == 2
+    assert selected_followup_index("세 번째") == 3
+    assert extract_numbered_followups(answer) == [
+        "비정상 Pod 목록 상세 확인: 현재 CrashLoopBackOff 또는 Failed 상태인 Pod들의 이름, 네임스페이스, 최근 로그를 정리해 드릴까요?",
+        "원인 분석 (RCA) 시작: 특정 Pod를 지정해 주시면 Event와 로그를 분석해 정확한 실패 원인을 찾아볼까요?",
+        "클러스터 이벤트 점검: Pod 상태에 영향을 줄 수 있는 Node 이슈나 클러스터 수준 이벤트를 조회해 볼까요?",
+    ]
+
+
+def test_numeric_followup_selection_resolves_effective_message_from_recent_answer() -> None:
+    answer = """
+**다음 단계로 무엇을 도와드릴까요?**
+
+1. **비정상 Pod 목록 상세 확인**: 현재 `CrashLoopBackOff` 또는 `Failed` 상태인 Pod들의 이름, 네임스페이스, 최근 로그를 정리해 드릴까요?
+2. **원인 분석 (RCA) 시작**: 특정 Pod를 지정해 주시면 Event와 로그를 분석해 정확한 실패 원인을 찾아볼까요?
+3. **클러스터 이벤트 점검**: Pod 상태에 영향을 줄 수 있는 Node 이슈나 클러스터 수준 이벤트를 조회해 볼까요?
+"""
+    selection = resolve_numeric_followup_message(
+        "2",
+        [
+            {"role": "user", "content": "가능한 AIOps 조치 후보를 정리해줘"},
+            {"role": "assistant", "content": answer},
+        ],
+    )
+
+    assert selection is not None
+    assert selection.index == 2
+    assert "원인 분석 (RCA) 시작" in selection.effective_message
+    assert "2\n" not in selection.effective_message
+    assert "바로 이어서 진행" in selection.effective_message
 
 
 def test_cleanup_followup_clarifies_recent_test_pod_scope() -> None:
@@ -3885,7 +3993,95 @@ def test_generic_runtime_health_fallback_does_not_force_rca_template() -> None:
     assert "RAG 검색 결과가 있다는 사실만으로 전체 서비스가 정상이라고 단정하지 않습니다" in fallback
 
 
-def test_chat_stream_marks_lightspeed_context_digest_on_gateway_fallback(monkeypatch) -> None:
+def test_ols_required_failure_answer_does_not_render_gateway_rca_fallback() -> None:
+    answer = build_ols_required_failure_answer(
+        ChatRequest(message="이거 무슨 상황이야", attachments=[]),
+        [
+            {
+                "name": "lightspeed_stream",
+                "status": "error",
+                "summary": "OpenShift Lightspeed request failed; final answer was not generated",
+            }
+        ],
+    )
+
+    assert "최종 답변을 받지 못해 RCA 답변을 생성하지 않았습니다" in answer
+    assert "## RCA 보고서" not in answer
+    assert "### 원인 후보" not in answer
+    assert "oc get" not in answer
+    assert "Gateway fallback" not in answer
+
+
+def test_chat_stream_routes_gateway_grounded_answer_to_lightspeed_by_default(monkeypatch) -> None:
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    def fake_grounded_answer(*_args, **_kwargs) -> str:
+        return "DIRECT GATEWAY ANSWER"
+
+    async def answer_call_ols_stream(*_args, **kwargs):
+        gateway_context = kwargs.get("gateway_context")
+        context_digest = ""
+        if isinstance(gateway_context, Mapping) and isinstance(gateway_context.get("metadata"), Mapping):
+            context_digest = str(gateway_context["metadata"].get("digest") or "")
+        gateway_main.update_ols_stream_status("succeeded", context_digest=context_digest)
+        yield {"type": "text", "content": "Lightspeed에서 생성한 최종 답변입니다.\n", "source": "ols"}
+        yield {"type": "end", "conversationId": "conversation-final"}
+
+    monkeypatch.setattr(gateway_main, "GATEWAY_DIRECT_ANSWER_ENABLED", False)
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+    monkeypatch.setattr(gateway_main, "build_grounded_aiops_answer", fake_grounded_answer)
+    monkeypatch.setattr(gateway_main, "call_ols_stream", answer_call_ols_stream)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={"message": "현재 클러스터에서 에러 상태인 pod 목록을 확인하고 원인 분석해줘"},
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        answer_text = "".join(
+            str(event.get("content") or "")
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        )
+        lightspeed_run_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "run_status"
+            and event.get("stage") == "lightspeed"
+        ]
+        gateway_direct_events = [
+            event
+            for event in events
+            if isinstance(event, dict)
+            and event.get("type") == "text"
+            and event.get("source") == "gateway_evidence_renderer"
+        ]
+
+        assert lightspeed_run_events
+        assert "Lightspeed에서 생성한 최종 답변입니다" in answer_text
+        assert "DIRECT GATEWAY ANSWER" not in answer_text
+        assert gateway_direct_events == []
+
+    asyncio.run(run())
+
+
+def test_chat_stream_marks_lightspeed_context_digest_on_ols_required_notice(monkeypatch) -> None:
     gateway_main.OLS_STREAM_STATUS = {
         "streamProbe": "not_started",
         "lastStatus": "not_started",
@@ -3955,33 +4151,36 @@ def test_chat_stream_marks_lightspeed_context_digest_on_gateway_fallback(monkeyp
             and event.get("type") == "run_status"
             and event.get("stage") == "lightspeed"
         ]
-        fallback_error_events = [
+        ols_error_events = [
             event
             for event in events
             if isinstance(event, dict)
             and event.get("type") == "tool_result"
             and event.get("name") == "lightspeed_stream"
         ]
-        fallback_text_events = [
+        ols_notice_events = [
             event
             for event in events
             if isinstance(event, dict)
             and event.get("type") == "text"
-            and event.get("fallbackAnswer") is True
+            and event.get("source") == "ols_required_notice"
         ]
 
         assert lightspeed_run_events[-1]["gatewayContextDigest"] == context_digest
-        assert fallback_error_events[-1]["gatewayContextDigest"] == context_digest
-        assert fallback_error_events[-1]["fallbackAnswer"] is True
-        assert fallback_text_events[-1]["gatewayContextDigest"] == context_digest
-        assert fallback_text_events[-1]["source"] == "gateway_fallback"
+        assert ols_error_events[-1]["gatewayContextDigest"] == context_digest
+        assert ols_error_events[-1]["finalAnswerUnavailable"] is True
+        assert ols_notice_events[-1]["gatewayContextDigest"] == context_digest
+        assert ols_notice_events[-1]["finalAnswerUnavailable"] is True
+        assert "최종 답변을 받지 못해 RCA 답변을 생성하지 않았습니다" in ols_notice_events[-1]["content"]
+        assert "## RCA 보고서" not in ols_notice_events[-1]["content"]
+        assert "Gateway fallback" not in ols_notice_events[-1]["content"]
         assert gateway_main.OLS_STREAM_STATUS["streamProbe"] == "failed"
-        assert gateway_main.OLS_STREAM_STATUS["fallbackActive"] is True
+        assert gateway_main.OLS_STREAM_STATUS["fallbackActive"] is False
         assert gateway_main.OLS_STREAM_STATUS["lastContextDigest"] == context_digest
 
         lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
         assert lightspeed_status["streamProbe"] == "failed"
-        assert lightspeed_status["fallbackActive"] is True
+        assert lightspeed_status["fallbackActive"] is False
         assert lightspeed_status["lastContextDigest"] == context_digest
 
     asyncio.run(run())
@@ -4042,7 +4241,7 @@ def test_chat_stream_redacts_secret_bearing_ols_errors(monkeypatch) -> None:
         assert "supersecret" not in json.dumps(status_response.json(), ensure_ascii=False)
         assert "[REDACTED]" in response.text
         lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
-        assert lightspeed_status["fallbackActive"] is True
+        assert lightspeed_status["fallbackActive"] is False
         assert "supersecret" not in lightspeed_status["lastError"]
 
     asyncio.run(run())
@@ -4093,18 +4292,20 @@ def test_chat_stream_marks_empty_ols_success_as_fallback_status(monkeypatch) -> 
         assert response.status_code == 200
         assert status_response.status_code == 200
         events = parse_sse_events(response.text)
-        fallback_text_events = [
+        ols_notice_events = [
             event
             for event in events
             if isinstance(event, dict)
             and event.get("type") == "text"
-            and event.get("fallbackAnswer") is True
+            and event.get("source") == "ols_required_notice"
         ]
-        assert fallback_text_events
+        assert ols_notice_events
+        assert "최종 답변을 받지 못해 RCA 답변을 생성하지 않았습니다" in ols_notice_events[-1]["content"]
+        assert "## RCA 보고서" not in ols_notice_events[-1]["content"]
         lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
         assert lightspeed_status["streamProbe"] == "failed"
-        assert lightspeed_status["fallbackActive"] is True
-        assert lightspeed_status["lastContextDigest"] == fallback_text_events[-1]["gatewayContextDigest"]
+        assert lightspeed_status["fallbackActive"] is False
+        assert lightspeed_status["lastContextDigest"] == ols_notice_events[-1]["gatewayContextDigest"]
 
     asyncio.run(run())
 
@@ -7494,6 +7695,7 @@ def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypat
                 headers=headers,
                 json={
                     "answerContract": "v0281-fixture",
+                    "assistantAnswer": "답변에 token=assistant-secret 이 있으면 안 됩니다.",
                     "answerSource": "gateway_direct",
                     "conversationId": "conversation-feedback-test",
                     "feedbackId": "feedback-contract-test",
@@ -7508,6 +7710,7 @@ def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypat
                     "route": "/dashboards/aiops",
                     "source": "gateway_direct",
                     "timestamp": "2026-07-06T09:00:00Z",
+                    "userMessage": "왜 Authorization: Bearer user-secret 이 화면에 보이나요?",
                 },
             )
             status_response = await client.get("/v1/aiops/status", headers=headers)
@@ -7525,6 +7728,8 @@ def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypat
         assert spec["optionalComment"].count("[REDACTED]") >= 2
         assert "secret-token-value" not in spec["optionalComment"]
         assert "raw-secret" not in spec["optionalComment"]
+        assert "assistant-secret" not in spec["assistantAnswer"]
+        assert "user-secret" not in spec["userMessage"]
 
         stored = CHAT_FEEDBACK["feedback-contract-test"]
         assert stored["spec"] == spec
@@ -7541,6 +7746,49 @@ def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypat
         assert "aiops_chat_feedback_total 1" in metrics_response.text
         assert "aiops_chat_feedback_records 1" in metrics_response.text
         assert "secret-token-value" not in metrics_response.text
+
+    try:
+        asyncio.run(run())
+    finally:
+        CHAT_FEEDBACK.clear()
+        CHAT_FEEDBACK.update(previous_feedback)
+        METRICS["aiops_chat_feedback_total"] = previous_metric
+
+
+def test_chat_feedback_api_rejects_records_without_question_and_answer(monkeypatch) -> None:
+    previous_feedback = dict(CHAT_FEEDBACK)
+    previous_metric = METRICS.get("aiops_chat_feedback_total", 0)
+    CHAT_FEEDBACK.clear()
+    METRICS["aiops_chat_feedback_total"] = 0
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return {"username": "tester@example.com", "uid": "uid-tester", "groups": ["ops"]}
+
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        headers = {"Authorization": "Bearer test-token"}
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/feedback",
+                headers=headers,
+                json={
+                    "answerContract": "v029",
+                    "answerSource": "ols_unavailable",
+                    "feedbackId": "feedback-empty-transcript",
+                    "messageId": "message-empty-transcript",
+                    "mode": "read-only",
+                    "rating": "down",
+                    "route": "/dashboards/aiops/alerts",
+                    "timestamp": "2026-07-10T02:28:00Z",
+                },
+            )
+
+        assert response.status_code == 400
+        assert "userMessage and assistantAnswer are required" in response.text
+        assert "feedback-empty-transcript" not in CHAT_FEEDBACK
+        assert METRICS["aiops_chat_feedback_total"] == 0
 
     try:
         asyncio.run(run())
@@ -8154,6 +8402,8 @@ def test_create_crashloop_test_pods_action_posts_fixed_failure_pod_manifests(mon
 
     monkeypatch.setattr(gateway_main, "submit_ocp_request", fake_submit_ocp_request)
     monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ALLOWED_NAMESPACES", {"gpu-test-kugnus"})
 
     sealed_plan = {
         "metadata": {"idempotencyKey": "idem-test-pods"},
@@ -8214,6 +8464,56 @@ def test_test_pod_create_count_from_korean_and_english_words() -> None:
     )["count"] == 2
 
 
+def test_chat_stream_test_pod_create_is_disabled_by_default(monkeypatch) -> None:
+    gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.clear()
+
+    async def fake_subject_review(_user_auth_header: str) -> dict:
+        return safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
+
+    async def fake_product_access_review(_user_auth_header: str) -> dict:
+        return {
+            "allowed": True,
+            "enabled": True,
+            "required": True,
+            "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
+        }
+
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", False)
+    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
+    monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
+
+    async def run() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/chat/stream",
+                headers={"Authorization": "Bearer test-token"},
+                json={
+                    "message": "gpu-test-kugnus 네임스페이스에 테스트pod 두개만 생성해봐",
+                    "pageContext": {"aiopsExecutionMode": "execute"},
+                    "runId": "run-test-pod-disabled",
+                },
+            )
+
+        assert response.status_code == 200
+        events = parse_sse_events(response.text)
+        text = "\n".join(
+            event.get("content", "")
+            for event in events
+            if isinstance(event, dict) and event.get("type") == "text"
+        )
+        assert "검증 전용 경로" in text
+        assert "Action Plan 후보를 만들지 않습니다" in text
+        assert not [
+            candidate
+            for candidate in gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.values()
+            if candidate.get("sourceType") == "create_crashloop_test_pods"
+        ]
+
+    asyncio.run(run())
+
+
 def test_chat_stream_test_pod_create_keeps_requested_count_in_gateway_candidate(monkeypatch) -> None:
     gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.clear()
 
@@ -8240,6 +8540,8 @@ def test_chat_stream_test_pod_create_keeps_requested_count_in_gateway_candidate(
         }
 
     monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ALLOWED_NAMESPACES", {"gpu-test-kugnus"})
     monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
     monkeypatch.setattr(gateway_main, "fetch_product_access_review", fake_product_access_review)
     monkeypatch.setattr(gateway_main, "collect_test_pod_create_preflight", fake_test_pod_preflight)
@@ -8279,7 +8581,9 @@ def test_chat_stream_test_pod_create_keeps_requested_count_in_gateway_candidate(
     asyncio.run(run())
 
 
-def test_test_pod_create_candidate_maps_to_executable_crashloop_action() -> None:
+def test_test_pod_create_candidate_maps_to_executable_crashloop_action(monkeypatch) -> None:
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ALLOWED_NAMESPACES", {"gpu-test-kugnus"})
     intent = action_candidate_plan_intent(
         ActionCandidatePlanCreate(
             candidateId="chat-test-pod-create-gpu-test-kugnus",
@@ -8456,6 +8760,8 @@ def test_test_pod_create_candidate_plan_preserves_pods_create_action(monkeypatch
         }
 
     monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ALLOWED_NAMESPACES", {"gpu-test-kugnus"})
     monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
 
     request = ActionCandidatePlanCreate(

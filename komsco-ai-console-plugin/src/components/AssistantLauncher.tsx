@@ -727,6 +727,79 @@ const formatMessageTime = (timestamp: number | undefined, language: UiLanguage):
   }).format(new Date(timestamp));
 };
 
+type AssistantFollowupPrompt = {
+  index: number;
+  label: string;
+  prompt: string;
+};
+
+const FOLLOWUP_ANCHOR_RE =
+  /(다음\s*단계|무엇을\s*도와|원하시면|이어(?:서)?\s*진행|선택해\s*주세요|어떤\s*것을)/i;
+const NUMBERED_FOLLOWUP_RE = /^\s*(\d{1,2})[\.)]\s+(.+?)\s*$/;
+const BOLD_HEADING_RE = /^\*\*(.+?)\*\*\s*[:：]?\s*(.*)$/;
+
+const cleanFollowupPrompt = (raw: string): string => {
+  let text = raw.trim().replace(/^[-•]\s*/, '');
+  const headingMatch = text.match(BOLD_HEADING_RE);
+  if (headingMatch) {
+    const heading = headingMatch[1].trim();
+    const tail = headingMatch[2].trim();
+    text = tail ? `${heading}: ${tail}` : heading;
+  }
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const followupLabel = (prompt: string): string => {
+  const [head] = prompt.split(/[:：]/);
+  return (head || prompt).trim().slice(0, 42);
+};
+
+const extractAssistantFollowupPrompts = (content: string): AssistantFollowupPrompt[] => {
+  const prompts: AssistantFollowupPrompt[] = [];
+  let inFollowupSection = false;
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (FOLLOWUP_ANCHOR_RE.test(trimmed)) {
+      inFollowupSection = true;
+      continue;
+    }
+    if (!inFollowupSection) {
+      continue;
+    }
+    if (trimmed.startsWith('---') && prompts.length > 0) {
+      break;
+    }
+    const match = trimmed.match(NUMBERED_FOLLOWUP_RE);
+    if (!match) {
+      if (prompts.length > 0 && /^(#{1,6}\s+|\*\*[^*]+\*\*)/.test(trimmed)) {
+        break;
+      }
+      continue;
+    }
+    const prompt = cleanFollowupPrompt(match[2]);
+    if (prompt) {
+      prompts.push({
+        index: Number(match[1]),
+        label: followupLabel(prompt),
+        prompt,
+      });
+    }
+    if (prompts.length >= 5) {
+      break;
+    }
+  }
+
+  return prompts;
+};
+
 const getAssistantConnectionState = (
   summary: ClusterSummary | null,
   summaryLoading: boolean,
@@ -877,6 +950,24 @@ const publicFeedbackSource = (message: Message): NonNullable<Message['answerSour
     return 'gateway_direct';
   }
   return 'copilot_reply';
+};
+
+const feedbackExcerpt = (value: string, maxLength: number): string | undefined => {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1).trim()}…` : normalized;
+};
+
+const previousUserMessageForFeedback = (messages: Message[], assistantIndex: number): string | undefined => {
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === 'user') {
+      return message.content;
+    }
+  }
+  return undefined;
 };
 
 const writeStoredMessageFeedback = (payload: ChatFeedbackPayload): void => {
@@ -1108,6 +1199,7 @@ const writeClipboardText = async (text: string): Promise<boolean> => {
 };
 
 const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
+  ambientPageContext,
   defaultOpen = false,
   draftPrompt,
   embedded = false,
@@ -2243,17 +2335,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
 	  const handleCreateActionPlanFromChat = React.useCallback(
 	    async (candidate: AiopsActionCandidate) => {
-      if (!executionModeAllowsActions(executionMode)) {
-        const message = '읽기 전용: 후보만 표시';
-        setAiopsActionNotice('');
-        setAiopsActionError(message);
-        setActionCandidateFeedback({
-          candidateId: candidate.id,
-          message,
-          tone: 'error',
-        });
-        return;
-      }
 	      if (candidate.planDisabledReason) {
 	        setAiopsActionNotice('');
 	        setAiopsActionError(candidate.planDisabledReason);
@@ -2280,12 +2361,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
       try {
         const result = await createActionCandidatePlan(candidate);
-        upsertAiopsRuntimeRecords({
-          actionProposals: result.spec?.proposal ? [result.spec.proposal] : undefined,
-          sealedActionPlans: result.spec?.plan ? [result.spec.plan] : undefined,
-        });
-        const createdMessage =
-          'Action Plan을 생성했습니다. 아래 카드에서 승인 또는 실행을 이어갈 수 있습니다.';
+	        upsertAiopsRuntimeRecords({
+	          actionProposals: result.spec?.proposal ? [result.spec.proposal] : undefined,
+	          sealedActionPlans: result.spec?.plan ? [result.spec.plan] : undefined,
+	        });
+	        const createdMessage =
+	          executionMode === 'read-only'
+	            ? 'Action Plan을 생성했습니다. 읽기 전용 모드에서는 승인·실행 없이 계획 내용만 확인합니다.'
+	            : 'Action Plan을 생성했습니다. 아래 카드에서 승인 또는 실행을 이어갈 수 있습니다.';
         setAiopsActionNotice(createdMessage);
         setActionCandidateFeedback({
           candidateId: candidate.id,
@@ -2484,12 +2567,20 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       message: Message,
       feedback: MessageFeedbackChoice,
       optionalComment?: string,
-    ) => {
-      const messageId = `${activeSessionId}:${index}:${message.timestamp ?? 'pending'}`;
+	    ) => {
+	      const messageId = `${activeSessionId}:${index}:${message.timestamp ?? 'pending'}`;
       const submittedAt = new Date().toISOString();
       const feedbackSource = publicFeedbackSource(message);
+      const userMessage = previousUserMessageForFeedback(messagesRef.current, index);
+      const assistantAnswer = feedbackExcerpt(stripDefaultEvidenceAppendix(message.content), 2000);
+      const userMessageExcerpt = feedbackExcerpt(userMessage ?? '', 1200);
+      if (!userMessageExcerpt || !assistantAnswer) {
+        // Runbook-reviewable feedback must include both sides of the conversation.
+        return;
+      }
       const payload: ChatFeedbackPayload = {
         answerContract: publicFeedbackAnswerContract(message),
+        assistantAnswer,
         answerSource: feedbackSource,
         conversationId: conversationId ?? activeSessionId,
         feedbackId: `feedback-${messageId.replace(/[^a-zA-Z0-9-]+/g, '-')}-${feedback}`,
@@ -2501,18 +2592,22 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         route: window.location.pathname,
         source: feedbackSource,
         timestamp: submittedAt,
+        userMessage: userMessageExcerpt,
       };
 
       writeStoredMessageFeedback(payload);
       void submitChatFeedback(payload)
-        .then(() => refreshAiopsRuntimeStatus())
+        .then(() => {
+          void refreshAiopsRuntimeStatus();
+          void onRunComplete?.();
+        })
         .catch((error) => {
           // Feedback is already kept locally; gateway persistence is best-effort during local tests.
           // eslint-disable-next-line no-console
           console.warn('AIOps feedback persistence failed', error);
         });
     },
-    [activeSessionId, conversationId, executionMode, refreshAiopsRuntimeStatus],
+    [activeSessionId, conversationId, executionMode, onRunComplete, refreshAiopsRuntimeStatus],
   );
 
   const toggleMessageFeedback = React.useCallback(
@@ -2724,6 +2819,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     async (prompt?: string) => {
       const question = (prompt ?? input).trim();
       const attachments = [...pendingAttachments];
+      const activeAmbientPageContext = ambientPageContext;
       const activeDraftPageContext = draftPageContext;
       const requestExecutionMode = executionMode;
 
@@ -2761,6 +2857,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         const runId = createRunId();
         const pageContext = {
           ...buildConsolePageContext(),
+          ...activeAmbientPageContext,
           aiopsExecutionMode: requestExecutionMode,
           aiopsDemoCycle: activeDraftPageContext,
           aiopsTaskMode: assistantTaskMode,
@@ -3137,6 +3234,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
               setMessages((prev) =>
                 markLastAssistantSource(prev, 'copilot_reply', event.gatewayContextDigest),
               );
+            } else if (event.source === 'ols_required_notice') {
+              setMessages((prev) =>
+                markLastAssistantSource(prev, 'ols_unavailable', event.gatewayContextDigest),
+              );
+              updateLightspeedStatus({
+                fallbackActive: false,
+                lastContextDigest: event.gatewayContextDigest,
+                lastStatus: event.streamProbe ?? 'failed',
+                streamProbe: event.streamProbe ?? 'failed',
+              });
             } else {
               setMessages((prev) =>
                 markLastAssistantSource(
@@ -3282,6 +3389,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     },
     [
       enqueueAssistantText,
+      ambientPageContext,
       assistantTaskMode,
       draftPageContext,
       executionMode,
@@ -3486,10 +3594,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                 : []
                             : [];
                         const matchedActionCandidates = dedupeActionCandidates(matched);
-                        const createPlanDisabledReason =
-                          executionModeAllowsActions(executionMode)
-                            ? ''
-                            : '읽기 전용: 후보만 표시';
+                        const createPlanDisabledReason = '';
                         const answerActionRecords =
                           isAssistantMessageWithContent
                             ? latestAnswerActionRecords({
@@ -3565,6 +3670,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           message.role === 'assistant' && message.streaming === true;
                         const canShowAssistantPostAnswer =
                           message.role === 'assistant' && hasContent && !assistantStillStreaming;
+                        const followupPrompts =
+                          canShowAssistantPostAnswer && isLatestAssistantMessage
+                            ? extractAssistantFollowupPrompts(message.content)
+                            : [];
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
                         return (
                           <div
@@ -3588,6 +3697,32 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     setPreviewAttachment,
                                     uiLanguage,
                                   )}
+                                </div>
+                              )}
+                              {followupPrompts.length > 0 && (
+                                <div
+                                  aria-label={
+                                    uiLanguage === 'en'
+                                      ? 'Suggested next questions'
+                                      : '제안된 다음 질문'
+                                  }
+                                  className="komsco-ai__followup-prompts"
+                                >
+                                  {followupPrompts.map((prompt) => (
+                                    <button
+                                      className="komsco-ai__followup-prompt"
+                                      key={`${prompt.index}-${prompt.label}`}
+                                      onClick={() => void send(prompt.prompt)}
+                                      type="button"
+                                    >
+                                      <span className="komsco-ai__followup-prompt-index">
+                                        {prompt.index}
+                                      </span>
+                                      <span className="komsco-ai__followup-prompt-label">
+                                        {prompt.label}
+                                      </span>
+                                    </button>
+                                  ))}
                                 </div>
                               )}
                               {canShowAssistantPostAnswer &&
