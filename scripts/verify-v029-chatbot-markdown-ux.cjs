@@ -264,6 +264,10 @@ assert(Number(markdownFontMatch[1]) >= 14, 'Markdown body font must be at least 
 assert(css.includes('.komsco-ai__command-card'), 'Command card CSS must exist');
 assert(css.includes('.komsco-ai__command-risk.is-read-only'), 'Read-only command risk badge CSS must exist');
 assert(css.includes('.komsco-ai__command-risk.is-approval-required'), 'Approval-required command risk badge CSS must exist');
+assert(
+  !markdown.includes("readOnly: '읽기 전용'") && !markdown.includes('labels.readOnly'),
+  'Command cards must not render a visible read-only badge that conflicts with the global execution mode',
+);
 assert(actionPlanButtons.includes('komsco-ai__create-action-plan-title'), 'Action Plan candidate cards must render a concrete plan title');
 assert(actionPlanButtons.includes('komsco-ai__create-action-plan-brief'), 'Action Plan candidate cards must keep the default row compact');
 assert(actionPlanButtons.includes('komsco-ai__create-action-plan-details'), 'Action Plan candidate details must be collapsible instead of flooding the chat');

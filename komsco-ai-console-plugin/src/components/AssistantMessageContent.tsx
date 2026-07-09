@@ -155,7 +155,7 @@ const RUNBOOK_SECTION_META: Record<
     },
     terminal: {
       badge: 'Commands',
-      subtitle: 'Safe read-only commands for terminal verification',
+      subtitle: 'Safe query commands for terminal verification',
       tone: 'neutral',
     },
     verification: {
@@ -207,7 +207,7 @@ const RUNBOOK_SECTION_META: Record<
     },
     terminal: {
       badge: '명령',
-      subtitle: '터미널에서 안전하게 확인할 read-only 명령',
+      subtitle: '터미널에서 안전하게 확인할 조회 명령',
       tone: 'neutral',
     },
     verification: {

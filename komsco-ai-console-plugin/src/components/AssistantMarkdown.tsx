@@ -39,7 +39,6 @@ const CODE_BLOCK_LABELS: Record<
     copy: string;
     copyCommand: string;
     language: string;
-    readOnly: string;
     approvalRequired: string;
     showUnwrapped: string;
     showWrapped: string;
@@ -50,7 +49,6 @@ const CODE_BLOCK_LABELS: Record<
     copy: 'Copy code',
     copyCommand: 'Copy command',
     language: 'code',
-    readOnly: 'read-only',
     showUnwrapped: 'Disable line wrap',
     showWrapped: 'Wrap lines',
   },
@@ -59,7 +57,6 @@ const CODE_BLOCK_LABELS: Record<
     copy: '코드 복사',
     copyCommand: '명령 복사',
     language: '코드',
-    readOnly: '읽기 전용',
     showUnwrapped: '개행 해제',
     showWrapped: '개행 표시',
   },
@@ -109,9 +106,9 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language, risk, uiLanguage 
     >
       <div className="komsco-ai__code-meta">
         <span className="komsco-ai__code-language">{displayLanguage}</span>
-        {risk && (
+        {risk === 'approval-required' && (
           <span className={`komsco-ai__command-risk is-${risk}`}>
-            {risk === 'approval-required' ? labels.approvalRequired : labels.readOnly}
+            {labels.approvalRequired}
           </span>
         )}
       </div>
