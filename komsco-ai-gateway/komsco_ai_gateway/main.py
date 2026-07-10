@@ -100,7 +100,9 @@ from .cluster_evidence_runtime import (
 from .cluster_summary import build_cluster_summary as build_cluster_summary_read_model
 from .chat_feedback import ChatFeedbackInputError, build_chat_feedback_record
 from .chat_pod_count_flow import (
+    DirectPodCountFlowDependencies,
     TopPodNamespaceFlowDependencies,
+    stream_direct_pod_count,
     stream_top_pod_namespace_count,
 )
 from .followup_selection import resolve_numeric_followup_message
@@ -8075,257 +8077,34 @@ async def chat_stream(
                 and policy.get("decision") != "action_proposal_only"
                 and not crashloop_demo_target_from_request(req)
             ):
-                target_name = str(pod_count_query.get("targetName") or "")
-                namespace = str(pod_count_query.get("namespace") or "")
-                scope_summary = (
-                    f"namespace `{namespace}` 범위에서 조회"
-                    if namespace
-                    else "접근 가능한 전체 namespace에서 조회"
+                dependencies = DirectPodCountFlowDependencies(
+                    openshift_api_url=OPENSHIFT_API_URL,
+                    openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+                    async_client_factory=httpx.AsyncClient,
+                    timeout_factory=httpx.Timeout,
+                    fetch_ocp_json=fetch_ocp_json,
+                    path_segment=path_segment,
+                    resource_items=resource_items,
+                    metadata_name=metadata_name,
+                    metadata_namespace=metadata_namespace,
+                    build_investigation=build_pod_count_investigation,
+                    build_response=pod_count_investigation_response,
+                    redact_sensitive=redact_sensitive,
+                    build_evidence_events=build_evidence_reference_events,
+                    current_rca_context_event=current_rca_context_event,
                 )
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-pod-count-scope",
-                        "name": "pod_count_scope_resolve",
-                        "summary": "요청에서 대상 이름과 namespace 범위 해석",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(
-                            {
-                                "namespace": namespace or "all-accessible-namespaces",
-                                "scope": scope_summary,
-                                "targetName": target_name or "missing",
-                            },
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        "id": f"{request_id}-pod-count-scope",
-                        "name": "pod_count_scope_resolve",
-                        "result": pod_count_query,
-                        "status": "success" if target_name else "skipped",
-                        "summary": (
-                            f"대상 `{target_name}`, {scope_summary}"
-                            if target_name
-                            else f"대상 이름 미확인, {scope_summary}"
-                        ),
-                    }
-                )
-                if namespace:
-                    deployments_path = f"/apis/apps/v1/namespaces/{path_segment(namespace)}/deployments"
-                    pods_path = f"/api/v1/namespaces/{path_segment(namespace)}/pods"
-                else:
-                    deployments_path = "/apis/apps/v1/deployments"
-                    pods_path = "/api/v1/pods"
-
-                deployments_payload: Mapping[str, Any] | None = None
-                pods_payload: Mapping[str, Any] | None = None
-                pod_count_result: dict[str, Any] | None = None
-                if not target_name:
-                    pod_count_result = build_pod_count_investigation(
-                        pod_count_query,
-                        deployments_payload,
-                        pods_payload,
-                    )
-                elif not OPENSHIFT_API_URL:
-                    pod_count_result = {
-                        "namespace": namespace,
-                        "reason": "OPENSHIFT_API_URL is not configured",
-                        "status": "unavailable",
-                        "targetName": target_name,
-                    }
-                else:
-                    async with httpx.AsyncClient(
-                        verify=OPENSHIFT_API_CA_FILE,
-                        timeout=httpx.Timeout(20.0, connect=5.0),
-                    ) as client:
-                        yield sse(
-                            {
-                                "type": "tool_call",
-                                "id": f"{request_id}-pod-count-deployments",
-                                "name": "pod_count_deployment_lookup",
-                                "summary": f"Deployment 목록 조회: `{deployments_path}`",
-                            }
-                        )
-                        deployments_payload = await fetch_ocp_json(
-                            client,
-                            deployments_path,
-                            authorization,
-                        )
-                        matched_deployment_count = sum(
-                            1
-                            for deployment in resource_items(deployments_payload)
-                            if metadata_name(deployment) == target_name
-                            and (not namespace or metadata_namespace(deployment) == namespace)
-                        )
-                        deployment_status = "success" if deployments_payload else "skipped"
-                        yield sse(
-                            {
-                                "type": "tool_result",
-                                "detail": json.dumps(
-                                    {
-                                        "matchedDeployments": matched_deployment_count,
-                                        "path": deployments_path,
-                                        "receivedItems": len(resource_items(deployments_payload)),
-                                        "targetName": target_name,
-                                    },
-                                    ensure_ascii=False,
-                                    indent=2,
-                                ),
-                                "id": f"{request_id}-pod-count-deployments",
-                                "name": "pod_count_deployment_lookup",
-                                "result": {
-                                    "matchedDeployments": matched_deployment_count,
-                                    "path": deployments_path,
-                                },
-                                "status": deployment_status,
-                                "summary": (
-                                    f"Deployment `{target_name}` 후보 {matched_deployment_count}건 확인"
-                                    if deployments_payload
-                                    else "Deployment 목록을 받지 못해 Pod fallback 조회 준비"
-                                ),
-                            }
-                        )
-
-                        yield sse(
-                            {
-                                "type": "tool_call",
-                                "id": f"{request_id}-pod-count-pods",
-                                "name": "pod_count_pod_lookup",
-                                "summary": f"Pod 목록 조회: `{pods_path}`",
-                            }
-                        )
-                        pods_payload = await fetch_ocp_json(client, pods_path, authorization)
-                        pod_items = resource_items(pods_payload)
-                        yield sse(
-                            {
-                                "type": "tool_result",
-                                "detail": json.dumps(
-                                    {
-                                        "path": pods_path,
-                                        "receivedItems": len(pod_items),
-                                        "targetName": target_name,
-                                    },
-                                    ensure_ascii=False,
-                                    indent=2,
-                                ),
-                                "id": f"{request_id}-pod-count-pods",
-                                "name": "pod_count_pod_lookup",
-                                "result": {"path": pods_path, "receivedItems": len(pod_items)},
-                                "status": "success" if pods_payload else "skipped",
-                                "summary": (
-                                    f"Pod 목록 {len(pod_items)}건 수신"
-                                    if pods_payload
-                                    else "Pod 목록을 받지 못함"
-                                ),
-                            }
-                        )
-
-                    if not pods_payload:
-                        pod_count_result = {
-                            "namespace": namespace,
-                            "reason": f"Kubernetes API pod list was not returned for {pods_path}",
-                            "status": "unavailable",
-                            "targetName": target_name,
-                        }
-                    else:
-                        yield sse(
-                            {
-                                "type": "tool_call",
-                                "id": f"{request_id}-pod-count-match",
-                                "name": "pod_count_selector_match",
-                                "summary": "Deployment selector와 Pod label/name 매칭",
-                            }
-                        )
-                        pod_count_result = build_pod_count_investigation(
-                            pod_count_query,
-                            deployments_payload,
-                            pods_payload,
-                        )
-                        result_rows = pod_count_result.get("rows")
-                        matched_pods = sum(
-                            int(row.get("totalPods") or 0)
-                            for row in (result_rows if isinstance(result_rows, list) else [])
-                            if isinstance(row, Mapping)
-                        )
-                        match_strategy = str(pod_count_result.get("matchStrategy") or "none")
-                        yield sse(
-                            {
-                                "type": "tool_result",
-                                "detail": json.dumps(
-                                    redact_sensitive(pod_count_result),
-                                    ensure_ascii=False,
-                                    indent=2,
-                                ),
-                                "id": f"{request_id}-pod-count-match",
-                                "name": "pod_count_selector_match",
-                                "result": {
-                                    "matchedPods": matched_pods,
-                                    "matchStrategy": match_strategy,
-                                    "status": pod_count_result.get("status"),
-                                },
-                                "status": (
-                                    "success"
-                                    if pod_count_result.get("status") == "found"
-                                    else "skipped"
-                                ),
-                                "summary": (
-                                    f"`{match_strategy}` 방식으로 Pod {matched_pods}개 매칭"
-                                    if pod_count_result.get("status") == "found"
-                                    else "매칭되는 Deployment/Pod 없음"
-                                ),
-                            }
-                        )
-
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-pod-count-investigation",
-                        "name": "pod_count_investigation",
-                        "summary": "Pod 개수 조회 결과 정리",
-                    }
-                )
-                pod_count_result = pod_count_result or {
-                    "namespace": namespace,
-                    "reason": "Pod count investigation did not produce a result",
-                    "status": "unavailable",
-                    "targetName": target_name,
-                }
-                pod_count_text = pod_count_investigation_response(pod_count_result)
-                result_status = str(pod_count_result.get("status") or "")
-                pod_count_event = {
-                    "type": "tool_result",
-                    "detail": pod_count_text,
-                    "id": f"{request_id}-pod-count-investigation",
-                    "name": "pod_count_investigation",
-                    "result": pod_count_result,
-                    "status": "success" if result_status == "found" else "skipped",
-                    "summary": "Pod 개수 직접 조회 완료",
-                }
-                yield sse(pod_count_event)
-                for evidence_event in build_evidence_reference_events(
-                    event=pod_count_event,
+                async for stream_event in stream_direct_pod_count(
+                    authorization=authorization,
+                    dependencies=dependencies,
                     incident_id=incident_id,
+                    pod_count_query=pod_count_query,
+                    request_id=request_id,
                     run_id=run_id,
-                    source_type="gateway-direct-evidence",
                     subject=subject,
                 ):
-                    yield sse(evidence_event)
-                rca_context_event = current_rca_context_event("post_answer")
-                LAST_RCA_CONTEXT = rca_context_event["context"]
-                yield sse(rca_context_event)
-                yield sse({"type": "text", "content": pod_count_text})
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed",
-                        "message": "Gateway Pod 개수 직접 조회 완료",
-                    }
-                )
-                yield sse("[DONE]")
+                    if stream_event.latest_rca_context is not None:
+                        LAST_RCA_CONTEXT = stream_event.latest_rca_context
+                    yield stream_event.payload
                 return
 
             cleanup_focus = conversation_focus_from_request(req)
