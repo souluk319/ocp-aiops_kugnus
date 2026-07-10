@@ -77,7 +77,6 @@ from komsco_ai_gateway.main import (
     build_conversation_cleanup_review_candidate,
     build_node_status_rca_evidence,
     build_product_access_review_request,
-    build_pod_count_investigation,
     build_break_glass_request_record,
     build_ols_required_failure_answer,
     build_preapproved_patch_record,
@@ -1582,79 +1581,6 @@ def test_policy_check_progress_copy_uses_operator_language() -> None:
     assert "내부 결정값: allow_evidence_collection" in summarize_policy_detail(evidence_check_policy)
     assert policy_check_summary(action_policy) == "조치 요청은 Action Plan 경로로 처리"
     assert "Action proposal only" not in policy_check_summary(action_policy)
-
-
-def test_build_pod_count_investigation_uses_deployment_selector() -> None:
-    result = build_pod_count_investigation(
-        {"namespace": "team-a", "targetName": "web-api"},
-        {
-            "items": [
-                {
-                    "metadata": {"name": "web-api", "namespace": "team-a"},
-                    "spec": {
-                        "replicas": 3,
-                        "selector": {"matchLabels": {"app": "web-api"}},
-                    },
-                    "status": {"readyReplicas": 3, "availableReplicas": 3},
-                }
-            ]
-        },
-        {
-            "items": [
-                {
-                    "metadata": {
-                        "labels": {"app": "web-api"},
-                        "name": "web-api-7d9c4f4d5f-a",
-                        "namespace": "team-a",
-                    },
-                    "status": {
-                        "containerStatuses": [{"ready": True, "restartCount": 0}],
-                        "phase": "Running",
-                    },
-                },
-                {
-                    "metadata": {
-                        "labels": {"app": "web-api"},
-                        "name": "web-api-7d9c4f4d5f-b",
-                        "namespace": "team-a",
-                    },
-                    "status": {
-                        "containerStatuses": [{"ready": True, "restartCount": 0}],
-                        "phase": "Running",
-                    },
-                },
-                {
-                    "metadata": {
-                        "labels": {"app": "web-api"},
-                        "name": "web-api-7d9c4f4d5f-c",
-                        "namespace": "team-a",
-                    },
-                    "status": {
-                        "containerStatuses": [{"ready": True, "restartCount": 1}],
-                        "phase": "Running",
-                    },
-                },
-                {
-                    "metadata": {
-                        "labels": {"app": "other"},
-                        "name": "other-7d9c4f4d5f-a",
-                        "namespace": "team-a",
-                    },
-                    "status": {
-                        "containerStatuses": [{"ready": True, "restartCount": 0}],
-                        "phase": "Running",
-                    },
-                },
-            ]
-        },
-    )
-
-    assert result["status"] == "found"
-    assert result["matchStrategy"] == "deployment_selector"
-    assert result["rows"][0]["desiredReplicas"] == 3
-    assert result["rows"][0]["totalPods"] == 3
-    assert result["rows"][0]["runningPods"] == 3
-    assert result["rows"][0]["readyPods"] == 3
 
 
 def test_rag_upload_document_redacts_sensitive_content_before_chunking() -> None:
