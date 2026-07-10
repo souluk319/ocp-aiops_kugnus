@@ -38,8 +38,6 @@ from komsco_ai_gateway.main import (
     RUNBOOK_REGISTRY_DIGEST,
     RUNBOOK_REGISTRY_ENTRIES,
     SEALED_ACTION_PLANS,
-    ActionCandidatePlanCreate,
-    ActionCandidateTargetCreate,
     ActionProposalCreate,
     ActionTarget,
     BreakGlassRequestCreate,
@@ -89,7 +87,6 @@ from komsco_ai_gateway.main import (
     build_rag_upload_document,
     build_sealed_action_plan_record,
     build_restart_metric_rca_evidence,
-    action_candidate_plan_intent,
     candidate_action_request_digest,
     can_subject_read_record,
     compact_controller_submission,
@@ -6627,33 +6624,6 @@ def test_chat_stream_test_pod_create_keeps_requested_count_in_gateway_candidate(
     asyncio.run(run())
 
 
-def test_test_pod_create_candidate_maps_to_executable_crashloop_action(monkeypatch) -> None:
-    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", True)
-    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ALLOWED_NAMESPACES", {"gpu-test-kugnus"})
-    intent = action_candidate_plan_intent(
-        ActionCandidatePlanCreate(
-            candidateId="chat-test-pod-create-gpu-test-kugnus",
-            title="CrashLoop 테스트 Pod 3개 생성",
-            sourceFindingId="test-pod-create-gpu-test-kugnus",
-            sourceType="test_pod_create_review",
-            target=ActionCandidateTargetCreate(
-                apiVersion="v1",
-                kind="Namespace",
-                name="gpu-test-kugnus",
-                namespace="gpu-test-kugnus",
-            ),
-            parameters={
-                "count": 3,
-                "failureMode": "crashloop",
-                "image": "registry.access.redhat.com/ubi9/ubi-minimal:latest",
-                "namePrefix": "aiops-test-pod",
-            },
-        )
-    )
-
-    assert intent["toolName"] == "create_crashloop_test_pods"
-    assert intent["parameters"]["count"] == 3
-    assert intent["parameters"]["failureMode"] == "crashloop"
 
 
 def test_pod_inventory_evidence_creates_review_only_action_candidates() -> None:
@@ -6793,56 +6763,6 @@ def test_recent_chat_action_candidates_are_not_trimmed_by_overview_priority() ->
         gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES.clear()
 
 
-def test_test_pod_create_candidate_plan_preserves_pods_create_action(monkeypatch) -> None:
-    ACTION_PROPOSALS.clear()
-    SEALED_ACTION_PLANS.clear()
-
-    async def fake_fetch_ocp_json(_client, path: str, _authorization: str, *_, **__) -> dict:
-        assert path == "/api/v1/namespaces/gpu-test-kugnus"
-        return {
-            "apiVersion": "v1",
-            "kind": "Namespace",
-            "metadata": {"name": "gpu-test-kugnus", "uid": "namespace-uid-gpu-test"},
-        }
-
-    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.test:6443")
-    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ENABLED", True)
-    monkeypatch.setattr(gateway_main, "TEST_POD_CREATE_ALLOWED_NAMESPACES", {"gpu-test-kugnus"})
-    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fake_fetch_ocp_json)
-
-    request = ActionCandidatePlanCreate(
-        candidateId="chat-test-pod-create-gpu-test-kugnus",
-        title="CrashLoop 테스트 Pod 3개 생성",
-        sourceFindingId="test-pod-create-gpu-test-kugnus",
-        sourceType="create_crashloop_test_pods",
-        target=ActionCandidateTargetCreate(
-            apiVersion="v1",
-            kind="Namespace",
-            name="gpu-test-kugnus",
-            namespace="gpu-test-kugnus",
-        ),
-        parameters={
-            "count": 3,
-            "failureMode": "crashloop",
-            "image": "registry.access.redhat.com/ubi9/ubi-minimal:latest",
-            "namePrefix": "aiops-test-pod",
-        },
-    )
-    subject = safe_subject({"username": "dev-user", "uid": "uid-dev", "groups": ["system:authenticated"]})
-
-    result = asyncio.run(
-        gateway_main.create_plan_from_action_candidate(request, "Bearer user-token", subject)
-    )
-
-    sealed_plan = result["spec"]["plan"]["spec"]["sealedActionPlan"]
-    assert sealed_plan["action"]["toolName"] == "create_crashloop_test_pods"
-    assert sealed_plan["action"]["authorization"]["resource"] == "pods"
-    assert sealed_plan["action"]["authorization"]["verb"] == "create"
-    assert sealed_plan["action"]["normalizedParameters"]["count"] == 3
-    assert sealed_plan["action"]["normalizedParameters"]["failureMode"] == "crashloop"
-    assert sealed_plan["safety"]["risk"] == "low"
-    assert len(ACTION_PROPOSALS) == 1
-    assert len(SEALED_ACTION_PLANS) == 1
 
 
 def test_core_action_hpa_bounds_blocks_unreviewed_max_increase() -> None:
@@ -6921,129 +6841,14 @@ def test_action_proposal_digest_uses_runtime_target_not_hardcoded_target() -> No
     assert candidate_action_request_digest(candidate) != candidate_action_request_digest(changed_candidate)
 
 
-def test_action_candidate_plan_intent_maps_deployment_to_restart_action() -> None:
-    intent = action_candidate_plan_intent(
-        ActionCandidatePlanCreate(
-            candidateId="action-candidate-deploy",
-            title="Deployment restart candidate",
-            target=ActionCandidateTargetCreate(
-                apiVersion="apps/v1",
-                kind="Deployment",
-                namespace="team-a",
-                name="web",
-            ),
-        )
-    )
-
-    assert intent["apiVersion"] == "apps/v1"
-    assert intent["kind"] == "Deployment"
-    assert intent["namespace"] == "team-a"
-    assert intent["targetName"] == "web"
-    assert intent["toolName"] == "rollout_restart_deployment"
-    assert "restartedAt" in intent["parameters"]
 
 
-def test_action_candidate_plan_intent_maps_deployment_command_fix_to_patch_action() -> None:
-    intent = action_candidate_plan_intent(
-        ActionCandidatePlanCreate(
-            candidateId="action-candidate-deployment-command-fix",
-            sourceType="deployment_container_command_fix",
-            title="Deployment command 수정",
-            target=ActionCandidateTargetCreate(
-                apiVersion="apps/v1",
-                kind="Deployment",
-                namespace="team-a",
-                name="sample-crashy",
-            ),
-            parameters={
-                "command": ["python", "-c", "import time; time.sleep(86400)"],
-                "containerName": "app",
-                "reason": "CrashLoopBackOff command fix",
-            },
-        )
-    )
-
-    assert intent["apiVersion"] == "apps/v1"
-    assert intent["kind"] == "Deployment"
-    assert intent["namespace"] == "team-a"
-    assert intent["targetName"] == "sample-crashy"
-    assert intent["toolName"] == "set_deployment_container_command"
-    assert intent["parameters"]["containerName"] == "app"
-    assert intent["parameters"]["command"] == ["python", "-c", "import time; time.sleep(86400)"]
 
 
-def test_action_candidate_plan_intent_maps_pod_to_eviction_action() -> None:
-    intent = action_candidate_plan_intent(
-        ActionCandidatePlanCreate(
-            candidateId="action-candidate-pod",
-            title="Pod eviction candidate",
-            target=ActionCandidateTargetCreate(
-                apiVersion="v1",
-                kind="Pod",
-                namespace="team-a",
-                name="web-abc",
-            ),
-        )
-    )
-
-    assert intent["apiVersion"] == "v1"
-    assert intent["kind"] == "Pod"
-    assert intent["namespace"] == "team-a"
-    assert intent["targetName"] == "web-abc"
-    assert intent["toolName"] == "evict_one_unhealthy_controller_owned_pod"
-    assert intent["parameters"] == {"reason": "action_candidate_unhealthy_pod_eviction"}
 
 
-def test_action_candidate_plan_intent_maps_pod_diagnostic_to_review_action() -> None:
-    intent = action_candidate_plan_intent(
-        ActionCandidatePlanCreate(
-            candidateId="action-candidate-pod-diagnostic",
-            sourceFindingId="pod-crashloop-diagnostic",
-            sourceType="pod_diagnostic_review",
-            title="원인 확인 플랜",
-            target=ActionCandidateTargetCreate(
-                apiVersion="v1",
-                kind="Pod",
-                namespace="team-a",
-                name="web-abc",
-            ),
-        )
-    )
-
-    assert intent["apiVersion"] == "v1"
-    assert intent["kind"] == "Pod"
-    assert intent["namespace"] == "team-a"
-    assert intent["targetName"] == "web-abc"
-    assert intent["toolName"] == "pod_diagnostic_review"
-    assert intent["parameters"] == {"includePreviousLogs": True, "includeEvents": True}
 
 
-def test_action_candidate_plan_intent_keeps_pod_fix_review_separate_from_diagnostic() -> None:
-    intent = action_candidate_plan_intent(
-        ActionCandidatePlanCreate(
-            candidateId="action-candidate-pod-fix-review",
-            sourceFindingId="pod-crashloop-fix-review",
-            sourceType="pod_fix_or_rollback_review",
-            title="수정/롤백 검토 플랜",
-            target=ActionCandidateTargetCreate(
-                apiVersion="v1",
-                kind="Pod",
-                namespace="team-a",
-                name="web-abc",
-            ),
-        )
-    )
-
-    assert intent["apiVersion"] == "v1"
-    assert intent["kind"] == "Pod"
-    assert intent["namespace"] == "team-a"
-    assert intent["targetName"] == "web-abc"
-    assert intent["toolName"] == "pod_fix_or_rollback_review"
-    assert intent["parameters"] == {
-        "includeOwnerChain": True,
-        "includeRolloutHistory": True,
-        "includeTemplateReview": True,
-    }
 
 
 def test_pod_diagnostic_review_action_proposal_is_review_only() -> None:

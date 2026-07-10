@@ -88,6 +88,7 @@ from .cluster_evidence import (
     state_summary,
 )
 from . import cluster_evidence_runtime
+from . import action_candidate_plans
 from . import namespace_cleanup as namespace_cleanup_runtime
 from . import natural_action_orchestration
 from . import natural_action_parsing
@@ -2068,146 +2069,42 @@ async def create_natural_action_plan(
     )
 
 
+def _action_candidate_plan_config() -> action_candidate_plans.ActionCandidatePlanConfig:
+    return action_candidate_plans.ActionCandidatePlanConfig(
+        openshift_api_url=OPENSHIFT_API_URL,
+        openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+        test_pod_create_enabled=TEST_POD_CREATE_ENABLED,
+        test_pod_create_allowed_namespaces=frozenset(TEST_POD_CREATE_ALLOWED_NAMESPACES),
+        test_pod_create_default_image=TEST_POD_CREATE_DEFAULT_IMAGE,
+        test_pod_create_name_prefix=TEST_POD_CREATE_NAME_PREFIX,
+    )
+
+
+def _action_candidate_plan_dependencies() -> action_candidate_plans.ActionCandidatePlanDependencies:
+    return action_candidate_plans.ActionCandidatePlanDependencies(
+        action_candidate_plan_intent=action_candidate_plan_intent,
+        action_target_type=ActionTarget,
+        action_proposal_create_type=ActionProposalCreate,
+        async_client_factory=httpx.AsyncClient,
+        timeout_factory=httpx.Timeout,
+        now_rfc3339=now_rfc3339,
+        path_segment=path_segment,
+        fetch_ocp_json=fetch_ocp_json,
+        resolve_natural_action_target=resolve_natural_action_target,
+        build_action_proposal_record=build_action_proposal_record,
+        build_sealed_action_plan_record=build_sealed_action_plan_record,
+        bounded_put_record=bounded_put_record,
+        increment_metric=increment_metric,
+        maybe_auto_approve_and_execute=maybe_auto_approve_and_execute,
+    )
+
+
 def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, Any]:
-    target = req.target
-    kind = target.kind
-    namespace = target.namespace or ""
-    parameters = dict(req.parameters)
-
-    if kind == "Deployment":
-        source_hint = " ".join(
-            [
-                str(req.candidateId or ""),
-                str(req.sourceType or ""),
-                str(req.title or ""),
-                str(req.sourceFindingId or ""),
-            ]
-        ).lower()
-        if any(token in source_hint for token in ("container_command", "command_fix", "set_deployment_container_command")):
-            return {
-                "apiVersion": target.apiVersion or "apps/v1",
-                "kind": "Deployment",
-                "namespace": namespace,
-                "targetName": target.name,
-                "toolName": "set_deployment_container_command",
-                "parameters": parameters,
-                "summary": f"Deployment `{namespace}/{target.name}` container command update",
-            }
-        return {
-            "apiVersion": target.apiVersion or "apps/v1",
-            "kind": "Deployment",
-            "namespace": namespace,
-            "targetName": target.name,
-            "toolName": "rollout_restart_deployment",
-            "parameters": parameters or {"restartedAt": now_rfc3339()},
-            "summary": f"Deployment `{namespace}/{target.name}` rollout restart",
-        }
-
-    if kind == "Pod":
-        source_hint = " ".join(
-            [
-                str(req.candidateId or ""),
-                str(req.sourceType or ""),
-                str(req.title or ""),
-                str(req.sourceFindingId or ""),
-            ]
-        ).lower()
-        if any(token in source_hint for token in ("fix-review", "fix_or_rollback", "rollback_review")):
-            return {
-                "apiVersion": target.apiVersion or "v1",
-                "kind": "Pod",
-                "namespace": namespace,
-                "targetName": target.name,
-                "toolName": "pod_fix_or_rollback_review",
-                "parameters": parameters
-                or {
-                    "includeOwnerChain": True,
-                    "includeRolloutHistory": True,
-                    "includeTemplateReview": True,
-                },
-                "summary": f"Pod `{namespace}/{target.name}` fix or rollback review",
-            }
-        if any(
-            token in source_hint
-            for token in (
-                "diagnostic",
-                "diagnosis",
-                "rca",
-                "evidence",
-                "log-review",
-                "pod_crashloop",
-            )
-        ):
-            return {
-                "apiVersion": target.apiVersion or "v1",
-                "kind": "Pod",
-                "namespace": namespace,
-                "targetName": target.name,
-                "toolName": "pod_diagnostic_review",
-                "parameters": parameters or {"includePreviousLogs": True, "includeEvents": True},
-                "summary": f"Pod `{namespace}/{target.name}` diagnostic review",
-            }
-        return {
-            "apiVersion": target.apiVersion or "v1",
-            "kind": "Pod",
-            "namespace": namespace,
-            "targetName": target.name,
-            "toolName": "evict_one_unhealthy_controller_owned_pod",
-            "parameters": parameters or {"reason": "action_candidate_unhealthy_pod_eviction"},
-            "summary": f"Unhealthy controller-owned Pod `{namespace}/{target.name}` eviction",
-        }
-
-    if kind == "Namespace":
-        source_hint = " ".join(
-            [
-                str(req.candidateId or ""),
-                str(req.sourceType or ""),
-                str(req.title or ""),
-                str(req.sourceFindingId or ""),
-            ]
-        ).lower()
-        if any(token in source_hint for token in ("test-pod", "test_pod", "create-test", "pod-create")):
-            count = parameters.get("count")
-            target_namespace = namespace or target.name
-            if not TEST_POD_CREATE_ENABLED:
-                raise HTTPException(status_code=403, detail="CrashLoop test Pod creation is disabled in product mode")
-            if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
-                raise HTTPException(status_code=400, detail="test pod count must be explicitly set between 1 and 5")
-            if target_namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
-                raise HTTPException(status_code=403, detail="namespace is outside the test Pod creation allowlist")
-            return {
-                "apiVersion": target.apiVersion or "v1",
-                "kind": "Namespace",
-                "namespace": target_namespace,
-                "targetName": target.name,
-                "toolName": "create_crashloop_test_pods",
-                "parameters": parameters
-                or {
-                    "failureMode": "crashloop",
-                    "count": count,
-                    "image": TEST_POD_CREATE_DEFAULT_IMAGE,
-                    "namePrefix": TEST_POD_CREATE_NAME_PREFIX,
-                },
-                "summary": f"Create CrashLoop test Pods in namespace `{target.name}`",
-            }
-        return {
-            "apiVersion": target.apiVersion or "v1",
-            "kind": "Namespace",
-            "namespace": namespace or target.name,
-            "targetName": target.name,
-            "toolName": "namespace_cleanup_review",
-            "parameters": parameters
-            or {
-                "backupReviewed": False,
-                "ownerConfirmed": False,
-                "pvcRouteReviewed": False,
-            },
-            "summary": f"Namespace `{target.name}` cleanup review",
-        }
-
-    raise HTTPException(
-        status_code=400,
-        detail=f"Action candidate target kind {kind} is not connected to an executable action yet",
+    dependencies = _action_candidate_plan_dependencies()
+    return action_candidate_plans.action_candidate_plan_intent(
+        req,
+        config=_action_candidate_plan_config(),
+        now_rfc3339=dependencies.now_rfc3339,
     )
 
 
@@ -2216,194 +2113,13 @@ async def create_plan_from_action_candidate(
     authorization: str,
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if not OPENSHIFT_API_URL:
-        raise HTTPException(
-            status_code=503,
-            detail="OpenShift API URL이 없어 조치 대상 리소스를 확인하지 못했습니다.",
-        )
-
-    intent = action_candidate_plan_intent(req)
-    review_only_candidate = str(intent.get("toolName") or "") in {
-        "namespace_cleanup_review",
-        "test_pod_create_review",
-        "pod_diagnostic_review",
-        "pod_fix_or_rollback_review",
-    }
-    if str(intent.get("kind") or "") == "Namespace":
-        target_name = str(intent["targetName"])
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(20.0, connect=5.0),
-        ) as client:
-            live_target = await fetch_ocp_json(
-                client,
-                f"/api/v1/namespaces/{path_segment(target_name)}",
-                authorization,
-                required=True,
-            )
-        if not isinstance(live_target, Mapping):
-            raise HTTPException(status_code=404, detail=f"Namespace `{target_name}`를 찾지 못했습니다.")
-        metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
-        uid = str(metadata.get("uid") or "")
-        if not uid:
-            raise HTTPException(status_code=409, detail="Namespace UID를 확인하지 못했습니다.")
-        target = ActionTarget(
-            apiVersion="v1",
-            kind="Namespace",
-            namespace=target_name,
-            name=target_name,
-            uid=uid,
-        )
-        proposal_request = ActionProposalCreate(
-            incidentId=req.incidentId,
-            runId=req.runId,
-            toolName=str(intent["toolName"]),
-            target=target,
-            parameters=dict(intent["parameters"]),
-            evidenceRefs=req.evidenceRefs,
-            expectedImpact=req.expectedImpact,
-            prerequisiteChecks=req.prerequisiteChecks,
-            problemSummary=req.problemSummary or req.title,
-            recommendationSteps=req.recommendationSteps,
-            policy={
-                "candidateId": req.candidateId,
-                "source": "aiops-action-candidate-board",
-                "sourceFindingId": req.sourceFindingId,
-                "sourceType": req.sourceType,
-                **dict(req.policy),
-                **({"reviewOnly": True} if review_only_candidate else {}),
-            },
-            verificationChecks=req.verificationChecks,
-        )
-        proposal_record = build_action_proposal_record(proposal_request, subject)
-        proposal_id = str(proposal_record["metadata"]["name"])
-        await bounded_put_record("actionProposals", proposal_id, proposal_record)
-        increment_metric("aiops_action_proposals_total")
-
-        plan_record = build_sealed_action_plan_record(proposal_record)
-        plan = plan_record["spec"]["sealedActionPlan"]
-        plan_id = str(plan_record["metadata"]["name"])
-        await bounded_put_record("sealedActionPlans", plan_id, plan_record)
-        increment_metric("aiops_action_plans_total")
-        return {
-            "apiVersion": "aiops.komsco/v1",
-            "kind": "ActionCandidatePlan",
-            "metadata": {"name": plan_id, "createdAt": plan_record["metadata"]["createdAt"]},
-            "spec": {
-                "candidateId": req.candidateId,
-                "intent": intent,
-                "plan": plan_record,
-                "planDigest": plan["digest"]["planDigest"],
-                "planId": plan_id,
-                "proposal": proposal_record,
-                "proposalId": proposal_id,
-                "status": "planned",
-                "target": target.model_dump(),
-                "title": req.title,
-            },
-        }
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        resolved_target = await resolve_natural_action_target(client, intent, authorization)
-
-    status = str(resolved_target.get("status") or "unknown")
-    if status == "ambiguous":
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "candidates": resolved_target.get("candidates", []),
-                "message": f"{intent['kind']} `{intent['targetName']}` 후보가 여러 namespace에서 발견되었습니다.",
-                "status": status,
-            },
-        )
-    if status == "missing_namespace":
-        raise HTTPException(
-            status_code=400,
-            detail=f"{intent['kind']} `{intent['targetName']}` 조치에는 namespace가 필요합니다.",
-        )
-    if status != "found":
-        raise HTTPException(
-            status_code=404,
-            detail=f"{intent['kind']} `{intent['namespace']}/{intent['targetName']}`를 찾지 못했습니다.",
-        )
-
-    live_target = (
-        resolved_target.get("target")
-        if isinstance(resolved_target.get("target"), Mapping)
-        else None
+    return await action_candidate_plans.create_plan_from_action_candidate(
+        req,
+        authorization,
+        subject,
+        config=_action_candidate_plan_config(),
+        dependencies=_action_candidate_plan_dependencies(),
     )
-    if not live_target:
-        raise HTTPException(status_code=404, detail="조치 대상 리소스를 찾지 못했습니다.")
-
-    metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
-    namespace = str(metadata.get("namespace") or intent["namespace"])
-    target_name = str(metadata.get("name") or intent["targetName"])
-    uid = str(metadata.get("uid") or "")
-    if not uid:
-        raise HTTPException(status_code=409, detail="조치 대상 UID를 확인하지 못했습니다.")
-
-    target = ActionTarget(
-        apiVersion=str(intent.get("apiVersion") or req.target.apiVersion or "apps/v1"),
-        kind=str(intent["kind"]),
-        namespace=namespace,
-        name=target_name,
-        uid=uid,
-    )
-    proposal_request = ActionProposalCreate(
-        incidentId=req.incidentId,
-        runId=req.runId,
-        toolName=str(intent["toolName"]),
-        target=target,
-        parameters=dict(intent["parameters"]),
-        evidenceRefs=req.evidenceRefs,
-        expectedImpact=req.expectedImpact,
-        prerequisiteChecks=req.prerequisiteChecks,
-        problemSummary=req.problemSummary or req.title,
-        recommendationSteps=req.recommendationSteps,
-        policy={
-            "candidateId": req.candidateId,
-            "source": "aiops-action-candidate-board",
-            "sourceFindingId": req.sourceFindingId,
-            "sourceType": req.sourceType,
-            **dict(req.policy),
-            **({"reviewOnly": True} if review_only_candidate else {}),
-        },
-        verificationChecks=req.verificationChecks,
-    )
-    proposal_record = build_action_proposal_record(proposal_request, subject)
-    proposal_id = str(proposal_record["metadata"]["name"])
-    await bounded_put_record("actionProposals", proposal_id, proposal_record)
-    increment_metric("aiops_action_proposals_total")
-
-    plan_record = build_sealed_action_plan_record(proposal_record)
-    plan_id = str(plan_record["metadata"]["name"])
-    await bounded_put_record("sealedActionPlans", plan_id, plan_record)
-    increment_metric("aiops_action_plans_total")
-    auto_result = await maybe_auto_approve_and_execute(plan_record, authorization)
-
-    plan = plan_record["spec"]["sealedActionPlan"]
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ActionCandidatePlan",
-        "metadata": {"name": plan_id, "createdAt": plan_record["metadata"]["createdAt"]},
-        "spec": {
-            "candidateId": req.candidateId,
-            "intent": intent,
-            "plan": plan_record,
-            "planDigest": plan["digest"]["planDigest"],
-            "planId": plan_id,
-            "proposal": proposal_record,
-            "proposalId": proposal_id,
-            "status": "planned",
-            "target": target.model_dump(),
-            "title": req.title,
-            **(auto_result or {}),
-        },
-    }
-
 
 def natural_action_plan_response(result: Mapping[str, Any]) -> str:
     return natural_action_rendering.natural_action_plan_response(
