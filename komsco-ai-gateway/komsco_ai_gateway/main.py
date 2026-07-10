@@ -122,6 +122,10 @@ from .chat_attachment_cronjob_flow import (
     AttachmentCronjobFlowDependencies,
     stream_attachment_and_cronjob_preflight,
 )
+from .chat_restart_evidence_flow import (
+    RestartEvidenceFlowDependencies,
+    stream_restart_evidence,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1927,6 +1931,20 @@ def attachment_cronjob_flow_dependencies() -> AttachmentCronjobFlowDependencies:
         append_gateway_evidence=append_gateway_evidence,
         safe_exception_text=safe_exception_text,
         evidence_summary=_evidence_summary,
+        build_evidence_reference_events=build_evidence_reference_events,
+        sse=sse,
+    )
+
+
+def restart_evidence_flow_dependencies() -> RestartEvidenceFlowDependencies:
+    return RestartEvidenceFlowDependencies(
+        crashloop_target=crashloop_demo_target_from_request,
+        official_namespace=official_namespace_restart_namespace,
+        collect_official=collect_official_namespace_restart_evidence_events,
+        official_fallback=official_namespace_restart_skipped_evidence_events,
+        collect_crashloop=collect_crashloop_demo_evidence_events,
+        append_gateway_evidence=append_gateway_evidence,
+        safe_exception_text=safe_exception_text,
         build_evidence_reference_events=build_evidence_reference_events,
         sse=sse,
     )
@@ -8300,116 +8318,20 @@ async def chat_stream(
                         gateway_evidence = stream_event.gateway_evidence
                     yield stream_event.payload
 
-            crashloop_demo_target = crashloop_demo_target_from_request(req)
-            official_restart_namespace = official_namespace_restart_namespace(runtime_tool_plan)
-            if official_restart_namespace and not crashloop_demo_target:
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-official-namespace-restart-evidence",
-                        "name": "official_namespace_restart_evidence",
-                        "summary": f"공식 Evidence RCA namespace 재시작 조회 결과 수집: `{official_restart_namespace}`",
-                    }
-                )
-                try:
-                    official_restart_events = await collect_official_namespace_restart_evidence_events(
-                        authorization,
-                        official_restart_namespace,
-                        request_id,
-                    )
-                except Exception as exc:
-                    safe_detail = safe_exception_text(exc)
-                    official_restart_events = official_namespace_restart_skipped_evidence_events(
-                        namespace=official_restart_namespace,
-                        request_id=request_id,
-                        reason=safe_detail,
-                        detail=safe_detail,
-                    )
-
-                for official_restart_event in official_restart_events:
-                    gateway_evidence = append_gateway_evidence(
-                        gateway_evidence,
-                        str(
-                            official_restart_event.get("detail")
-                            or official_restart_event.get("summary")
-                            or ""
-                        ),
-                    )
-                    yield sse(official_restart_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=official_restart_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
-
-            if crashloop_demo_target:
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-crashloop-demo-evidence",
-                        "name": "crashloop_demo_evidence",
-                        "summary": "CrashLoopBackOff 시연 조회 결과 수집",
-                    }
-                )
-                try:
-                    crashloop_events = await collect_crashloop_demo_evidence_events(
-                        authorization,
-                        crashloop_demo_target,
-                        request_id,
-                    )
-                except Exception as exc:
-                    safe_detail = safe_exception_text(exc)
-                    crashloop_events = [
-                        {
-                            "type": "tool_result",
-                            "detail": f"CrashLoop event evidence unavailable: {safe_detail}",
-                            "evidenceType": "event",
-                            "id": f"{request_id}-crashloop-event-evidence",
-                            "missingReason": safe_detail,
-                            "name": "crashloop_event_evidence",
-                            "status": "error",
-                            "summary": "CrashLoop Event 조회 결과 수집 실패",
-                        },
-                        {
-                            "type": "tool_result",
-                            "detail": f"CrashLoop previous log availability unavailable: {safe_detail}",
-                            "evidenceType": "pod_log",
-                            "id": f"{request_id}-crashloop-log-availability",
-                            "missingReason": safe_detail,
-                            "name": "crashloop_log_availability",
-                            "status": "error",
-                            "summary": "CrashLoop 이전 로그 가용성 확인 실패",
-                        },
-                        {
-                            "type": "tool_result",
-                            "detail": f"CrashLoop Pod snapshot unavailable: {safe_detail}",
-                            "evidenceType": "snapshot",
-                            "id": f"{request_id}-crashloop-pod-snapshot",
-                            "missingReason": safe_detail,
-                            "name": "crashloop_pod_snapshot",
-                            "status": "error",
-                            "summary": "CrashLoop Pod snapshot 조회 결과 수집 실패",
-                        },
-                    ]
-
-                for crashloop_event in crashloop_events:
-                    gateway_evidence = append_gateway_evidence(
-                        gateway_evidence,
-                        str(crashloop_event.get("detail") or crashloop_event.get("summary") or ""),
-                    )
-                    yield sse(crashloop_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=crashloop_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
-
+            async for stream_event in stream_restart_evidence(
+                authorization=authorization,
+                dependencies=restart_evidence_flow_dependencies(),
+                gateway_evidence=gateway_evidence,
+                incident_id=incident_id,
+                request=req,
+                request_id=request_id,
+                run_id=run_id,
+                runtime_tool_plan=runtime_tool_plan,
+                subject=subject,
+            ):
+                if stream_event.gateway_evidence is not None:
+                    gateway_evidence = stream_event.gateway_evidence
+                yield stream_event.payload
             if past_pod_restart_demo_active(req):
                 yield sse(
                     {
