@@ -66,6 +66,9 @@ from .cluster_evidence import (
 )
 from . import cluster_evidence_runtime
 from . import namespace_cleanup as namespace_cleanup_runtime
+from . import natural_action_orchestration
+from . import natural_action_parsing
+from . import natural_action_rendering
 from .cluster_evidence_runtime import (
     ClusterEvidenceRuntimeCallbacks,
     ClusterEvidenceRuntimeConfig,
@@ -1792,13 +1795,16 @@ cleanup_review_candidate_response = namespace_cleanup_runtime.cleanup_review_can
 
 
 def execution_mode_allows_actions(req: ChatRequest) -> bool:
-    return page_context_aiops_execution_mode(req) in {"execute", "unrestricted"}
+    return natural_action_parsing.execution_mode_allows_actions(
+        req, execution_mode=page_context_aiops_execution_mode
+    )
 
 
 def execution_mode_allows_immediate_actions(req: ChatRequest) -> bool:
-    return (
-        page_context_aiops_execution_mode(req) == "unrestricted"
-        and UNRESTRICTED_COMMANDS_ENABLED
+    return natural_action_parsing.execution_mode_allows_immediate_actions(
+        req,
+        execution_mode=page_context_aiops_execution_mode,
+        unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
     )
 
 
@@ -1941,149 +1947,90 @@ def natural_target_name(
 
 
 def rollback_revision_from_message(message: str) -> int | None:
-    match = ROLLBACK_REVISION_RE.search(message)
-    if not match:
-        return None
-    revision = match.group("revision") or match.group("korean_revision")
-    if not revision:
-        return None
-    return int(revision)
+    return natural_action_parsing.rollback_revision_from_message(
+        message, pattern=ROLLBACK_REVISION_RE
+    )
 
 
 def hpa_bounds_from_message(message: str) -> tuple[int, int] | None:
-    min_match = HPA_MIN_RE.search(message)
-    max_match = HPA_MAX_RE.search(message)
-    if not min_match or not max_match:
-        return None
-    min_replicas = int(min_match.group("value"))
-    max_replicas = int(max_match.group("value"))
-    if min_replicas < 1 or max_replicas < min_replicas:
-        return None
-    return min_replicas, max_replicas
+    return natural_action_parsing.hpa_bounds_from_message(
+        message, min_pattern=HPA_MIN_RE, max_pattern=HPA_MAX_RE
+    )
 
 
 def is_followup_execution_request(message: str) -> bool:
-    return bool(FOLLOWUP_EXECUTION_RE.search(message))
+    return natural_action_parsing.is_followup_execution_request(
+        message, pattern=FOLLOWUP_EXECUTION_RE
+    )
 
 
 def recent_natural_action_request(req: ChatRequest) -> ChatRequest | None:
-    for message in reversed(req.recentMessages):
-        role = message.role.strip().lower()
-        content = message.content.strip()
-        if role != "user" or not content or is_followup_execution_request(content):
-            continue
-
-        candidate = ChatRequest(
-            message=content,
-            pageContext=req.pageContext,
-            conversationId=req.conversationId,
-            runId=req.runId,
-        )
-        if parse_natural_action_intent(candidate):
-            return candidate
-
-    return None
+    return natural_action_parsing.recent_natural_action_request(
+        req,
+        request_factory=ChatRequest,
+        is_followup=is_followup_execution_request,
+        parse_intent=parse_natural_action_intent,
+    )
 
 
 def parse_natural_action_intent(req: ChatRequest) -> dict[str, Any] | None:
-    namespace = namespace_from_natural_action(req)
+    return natural_action_parsing.parse_natural_action_intent(
+        req,
+        namespace_from_request=namespace_from_natural_action,
+        target_name_from_request=lambda request, match: natural_target_name(request, match),
+        hpa_target_name_from_request=lambda request, match: natural_target_name(
+            request, match, expected_kind="HorizontalPodAutoscaler"
+        ),
+        pod_target_name_from_request=lambda request, match: natural_target_name(
+            request, match, expected_kind="Pod"
+        ),
+        hpa_bounds=hpa_bounds_from_message,
+        rollback_revision=rollback_revision_from_message,
+        page_context_resource_name=page_context_resource_name,
+        now_rfc3339=now_rfc3339,
+        hpa_request_pattern=HPA_REQUEST_RE,
+        scale_intent_pattern=SCALE_INTENT_RE,
+        scale_replicas_pattern=SCALE_REPLICAS_RE,
+        pod_eviction_pattern=POD_EVICTION_REQUEST_RE,
+        pod_resource_pattern=POD_RESOURCE_RE,
+        rollback_request_pattern=ROLLBACK_REQUEST_RE,
+        restart_intent_pattern=RESTART_INTENT_RE,
+        restart_request_pattern=RESTART_REQUEST_RE,
+    )
 
-    if HPA_REQUEST_RE.search(req.message):
-        bounds = hpa_bounds_from_message(req.message)
-        target_name = natural_target_name(req, None, expected_kind="HorizontalPodAutoscaler")
-        if bounds and namespace and target_name:
-            min_replicas, max_replicas = bounds
-            return {
-                "apiVersion": "autoscaling/v2",
-                "kind": "HorizontalPodAutoscaler",
-                "toolName": "set_hpa_bounds",
-                "targetName": target_name,
-                "namespace": namespace,
-                "parameters": {
-                    "allowMaxIncrease": False,
-                    "maxReplicas": max_replicas,
-                    "minReplicas": min_replicas,
-                },
-                "summary": (
-                    f"HPA `{namespace}/{target_name}` minReplicas를 `{min_replicas}`, "
-                    f"maxReplicas를 `{max_replicas}`로 변경"
-                ),
-            }
 
-    scale_match = SCALE_INTENT_RE.search(req.message)
-    replicas_match = scale_match or SCALE_REPLICAS_RE.search(req.message)
-    if replicas_match:
-        target_name = natural_target_name(req, scale_match)
-        replicas = int(replicas_match.group("replicas"))
-        if not target_name:
-            return None
-        return {
-            "apiVersion": "apps/v1",
-            "kind": "Deployment",
-            "toolName": "set_replicas_within_bounds",
-            "targetName": target_name,
-            "namespace": namespace,
-            "parameters": {
-                "hpaReviewed": False,
-                "maxReplicas": max(20, replicas),
-                "minReplicas": 0,
-                "replicas": replicas,
-            },
-            "summary": f"Deployment `{namespace}/{target_name}` replicas를 `{replicas}`로 변경",
-        }
-
-    if POD_EVICTION_REQUEST_RE.search(req.message) and (
-        POD_RESOURCE_RE.search(req.message)
-        or page_context_resource_name(req, "Pod")
-        or re.search(r"(?:pod|pods|파드)", req.message, re.IGNORECASE)
-    ):
-        target_name = natural_target_name(req, None, expected_kind="Pod")
-        if not namespace or not target_name:
-            return None
-        return {
-            "apiVersion": "v1",
-            "kind": "Pod",
-            "toolName": "evict_one_unhealthy_controller_owned_pod",
-            "targetName": target_name,
-            "namespace": namespace,
-            "parameters": {"reason": "natural_language_unhealthy_pod_eviction"},
-            "summary": f"Unhealthy controller-owned Pod `{namespace}/{target_name}` eviction",
-        }
-
-    if ROLLBACK_REQUEST_RE.search(req.message):
-        target_name = natural_target_name(req, None)
-        if not target_name:
-            return None
-        revision = rollback_revision_from_message(req.message)
-        return {
-            "apiVersion": "apps/v1",
-            "kind": "Deployment",
-            "toolName": "rollback_deployment_to_revision",
-            "targetName": target_name,
-            "namespace": namespace,
-            "parameters": {"revision": revision},
-            "summary": (
-                f"Deployment `{namespace}/{target_name}` rollback"
-                + (f" to revision `{revision}`" if revision else " to previous revision")
-            ),
-        }
-
-    restart_match = RESTART_INTENT_RE.search(req.message)
-    if restart_match or RESTART_REQUEST_RE.search(req.message):
-        target_name = natural_target_name(req, restart_match)
-        if not target_name:
-            return None
-        return {
-            "apiVersion": "apps/v1",
-            "kind": "Deployment",
-            "toolName": "rollout_restart_deployment",
-            "targetName": target_name,
-            "namespace": namespace,
-            "parameters": {"restartedAt": now_rfc3339()},
-            "summary": f"Deployment `{namespace}/{target_name}` rollout restart",
-        }
-
-    return None
+def _natural_action_orchestration_dependencies(
+) -> natural_action_orchestration.NaturalActionOrchestrationDependencies:
+    return natural_action_orchestration.NaturalActionOrchestrationDependencies(
+        openshift_api_url=OPENSHIFT_API_URL,
+        openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+        mutations_enabled=MUTATIONS_ENABLED,
+        sealed_action_plans=SEALED_ACTION_PLANS,
+        execution_records=EXECUTION_RECORDS,
+        action_target_type=ActionTarget,
+        action_proposal_create_type=ActionProposalCreate,
+        approval_decision_create_type=ApprovalDecisionCreate,
+        approval_decision_record_input_type=ApprovalDecisionRecordInput,
+        execution_grant_input_type=ExecutionGrantInput,
+        parse_natural_action_intent=parse_natural_action_intent,
+        resolve_natural_action_target=resolve_natural_action_target,
+        build_action_proposal_record=build_action_proposal_record,
+        build_sealed_action_plan_record=build_sealed_action_plan_record,
+        bounded_put_record=bounded_put_record,
+        increment_metric=increment_metric,
+        can_subject_read_record=can_subject_read_record,
+        fetch_action_access_review=fetch_action_access_review,
+        enforce_action_access_review=enforce_action_access_review,
+        build_approval_decision_record=build_approval_decision_record_for_context,
+        validate_approval_is_active=validate_approval_is_active,
+        validate_execution_evidence_freshness=validate_execution_evidence_freshness,
+        build_execution_grant_reference=build_execution_grant_reference_for_context,
+        action_record_context=action_record_context,
+        execute_action_with_executor=execute_action_with_executor,
+        natural_action_executor_fallback_authorization=natural_action_executor_fallback_authorization,
+        now_rfc3339=now_rfc3339,
+        redact_sensitive=redact_sensitive,
+    )
 
 
 async def create_natural_action_plan(
@@ -2094,96 +2041,14 @@ async def create_natural_action_plan(
     incident_id: str,
     run_id: str,
 ) -> dict[str, Any] | None:
-    intent = parse_natural_action_intent(req)
-    if not intent:
-        return None
-    if not OPENSHIFT_API_URL:
-        return {
-            "intent": intent,
-            "status": "unavailable",
-            "summary": "OpenShift API URL이 없어 Action Plan 대상을 확인하지 못했습니다.",
-        }
-
-    namespace = str(intent["namespace"])
-    target_name = str(intent["targetName"])
-    api_version = str(intent.get("apiVersion") or "apps/v1")
-    kind = str(intent.get("kind") or "Deployment")
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        resolved_target = await resolve_natural_action_target(client, intent, authorization)
-
-    if resolved_target.get("status") == "ambiguous":
-        return {
-            "candidates": resolved_target.get("candidates", []),
-            "intent": intent,
-            "status": "ambiguous",
-            "summary": f"{kind} `{target_name}` 후보가 여러 namespace에서 발견되었습니다.",
-        }
-
-    if resolved_target.get("status") == "missing_namespace":
-        return {
-            "intent": intent,
-            "status": "missing_namespace",
-            "summary": f"{kind} `{target_name}` 조치에는 namespace가 필요합니다.",
-        }
-
-    live_target = resolved_target.get("target") if isinstance(resolved_target.get("target"), Mapping) else None
-
-    if not live_target:
-        return {
-            "intent": intent,
-            "status": "not_found",
-            "summary": f"{kind} `{namespace}/{target_name}`를 찾지 못했습니다.",
-        }
-
-    metadata = live_target.get("metadata", {}) if isinstance(live_target.get("metadata"), Mapping) else {}
-    namespace = str(metadata.get("namespace") or namespace)
-    target_name = str(metadata.get("name") or target_name)
-    intent = {
-        **intent,
-        "namespace": namespace,
-        "targetName": target_name,
-        "summary": f"{kind} `{namespace}/{target_name}` 조치",
-    }
-    target = ActionTarget(
-        apiVersion=api_version,
-        kind=kind,
-        namespace=namespace,
-        name=target_name,
-        uid=str(metadata.get("uid") or ""),
+    return await natural_action_orchestration.create_natural_action_plan(
+        req,
+        authorization,
+        subject,
+        incident_id=incident_id,
+        run_id=run_id,
+        dependencies=_natural_action_orchestration_dependencies(),
     )
-    proposal_request = ActionProposalCreate(
-        incidentId=incident_id,
-        runId=run_id,
-        toolName=str(intent["toolName"]),
-        target=target,
-        parameters=dict(intent["parameters"]),
-        policy={"source": "natural-language-chat"},
-    )
-    proposal_record = build_action_proposal_record(proposal_request, subject)
-    proposal_id = str(proposal_record["metadata"]["name"])
-    await bounded_put_record("actionProposals", proposal_id, proposal_record)
-    increment_metric("aiops_action_proposals_total")
-
-    plan_record = build_sealed_action_plan_record(proposal_record)
-    plan_id = str(plan_record["metadata"]["name"])
-    await bounded_put_record("sealedActionPlans", plan_id, plan_record)
-    increment_metric("aiops_action_plans_total")
-
-    plan = plan_record["spec"]["sealedActionPlan"]
-    return {
-        "intent": intent,
-        "parameters": intent["parameters"],
-        "planDigest": plan["digest"]["planDigest"],
-        "planId": plan_id,
-        "proposalId": proposal_id,
-        "risk": plan["safety"]["risk"],
-        "status": "planned",
-        "target": target.model_dump(),
-    }
 
 
 def action_candidate_plan_intent(req: ActionCandidatePlanCreate) -> dict[str, Any]:
@@ -2524,207 +2389,49 @@ async def create_plan_from_action_candidate(
 
 
 def natural_action_plan_response(result: Mapping[str, Any]) -> str:
-    if result.get("status") == "unavailable":
-        return "\n".join(
-            [
-                "자연어 조치 요청을 해석했지만 Gateway가 OpenShift API에 연결되어 있지 않아 실행 계획을 만들지 못했습니다.",
-                "",
-                "실제 조치를 수행하지 않았습니다.",
-                "",
-                f"- 요청 해석: {result.get('summary')}",
-                "- 확인할 항목: `OPENSHIFT_API_URL` 또는 Gateway의 OpenShift API 연결 설정",
-            ]
-        )
-
-    if result.get("status") == "ambiguous":
-        intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
-        candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
-        candidate_lines = [
-            f"- `{candidate.get('namespace')}/{candidate.get('name')}` ({candidate.get('kind') or intent.get('kind') or 'resource'})"
-            for candidate in candidates
-            if isinstance(candidate, Mapping)
-        ]
-        return "\n".join(
-            [
-                "자연어 조치 요청을 해석했지만 대상 후보가 여러 개라 실행하지 않았습니다.",
-                "",
-                "### 대상 후보",
-                *(candidate_lines or ["- 후보를 표시할 수 없습니다."]),
-                "",
-                "namespace와 대상 이름을 함께 지정해 다시 요청하세요.",
-            ]
-        )
-
-    if result.get("status") == "missing_namespace":
-        return "\n".join(
-            [
-                "자연어 조치 요청을 해석했지만 namespace가 없어 실행하지 않았습니다.",
-                "",
-                f"- 요청 해석: {result.get('summary')}",
-                "- 예: `cis 네임스페이스의 cis 파드 3개로 올려줘`",
-            ]
-        )
-
-    if result.get("status") == "not_found":
-        intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
-        kind = str(intent.get("kind") or "resource")
-        return "\n".join(
-            [
-                f"자연어 조치 요청을 해석했지만 대상 {kind} 리소스를 찾지 못했습니다.",
-                "",
-                f"- 요청 해석: {result.get('summary')}",
-                "- namespace와 대상 이름을 확인한 뒤 다시 요청하세요.",
-            ]
-        )
-
-    target = result.get("target") if isinstance(result.get("target"), Mapping) else {}
-    parameters = result.get("parameters") if isinstance(result.get("parameters"), Mapping) else {}
-    intent = result.get("intent") if isinstance(result.get("intent"), Mapping) else {}
-    risk = str(result.get("risk") or "unknown")
-    next_step = "오른쪽 `AIOps 실행 상태 > 승인·실행`에서 `승인` 후 `실행`을 누르면 실제 변경됩니다."
-    if risk in {"medium", "high"}:
-        next_step = (
-            "이 조치는 medium/high risk로 분류될 수 있어 승인 정책상 별도 승인자가 필요할 수 있습니다. "
-            "오른쪽 `AIOps 실행 상태 > 승인·실행`에서 승인 가능 여부를 확인하세요."
-        )
-
-    return "\n".join(
-        [
-            "자연어 조치 요청을 승인 가능한 Action Plan으로 정리했습니다.",
-            "",
-            "### Action Plan",
-            f"- 대상: `{target.get('namespace')}/{target.get('name')}` ({target.get('kind')})",
-            f"- 조치: `{intent.get('toolName')}`",
-            f"- 입력값: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
-            f"- 위험도: `{risk}`",
-            "- 상태: 승인 전에는 변경 작업을 실행하지 않습니다.",
-            "",
-            "### 다음 단계",
-            f"- {next_step}",
-        ]
+    return natural_action_rendering.natural_action_plan_response(
+        result, redact_sensitive=redact_sensitive
     )
 
 
 def action_plan_result_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
-    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
-    sealed_plan = record.get("spec", {}).get("sealedActionPlan")
-    if not isinstance(sealed_plan, Mapping):
-        return {"status": "not_found"}
-    action = sealed_plan.get("action") if isinstance(sealed_plan.get("action"), Mapping) else {}
-    target = sealed_plan.get("target") if isinstance(sealed_plan.get("target"), Mapping) else {}
-    parameters = action.get("normalizedParameters")
-    parameters = parameters if isinstance(parameters, Mapping) else {}
-    digest = sealed_plan.get("digest") if isinstance(sealed_plan.get("digest"), Mapping) else {}
-    return {
-        "intent": {
-            "toolName": action.get("toolName"),
-            "targetName": target.get("name"),
-            "namespace": target.get("namespace"),
-            "parameters": dict(parameters),
-            "summary": f"{action.get('toolName')} {target.get('namespace')}/{target.get('name')}",
-        },
-        "parameters": dict(parameters),
-        "planDigest": digest.get("planDigest"),
-        "planId": metadata.get("name"),
-        "proposalId": "",
-        "risk": sealed_plan.get("safety", {}).get("risk") if isinstance(sealed_plan.get("safety"), Mapping) else "",
-        "status": "planned",
-        "target": dict(target),
-    }
+    return natural_action_orchestration.action_plan_result_from_record(record)
 
 
 def plan_has_execution(plan_id: str) -> bool:
-    return any(
-        record.get("spec", {}).get("planId") == plan_id
-        for record in EXECUTION_RECORDS.values()
-        if isinstance(record.get("spec"), Mapping)
+    return natural_action_orchestration.plan_has_execution(
+        plan_id, execution_records=EXECUTION_RECORDS
     )
 
 
 def latest_pending_action_plan_result(subject: Mapping[str, Any]) -> dict[str, Any] | None:
-    candidates = sorted(
-        SEALED_ACTION_PLANS.values(),
-        key=lambda record: str(record.get("metadata", {}).get("createdAt") or ""),
-        reverse=True,
+    return natural_action_orchestration.latest_pending_action_plan_result(
+        subject,
+        sealed_action_plans=SEALED_ACTION_PLANS,
+        plan_has_execution=plan_has_execution,
+        can_subject_read_record=can_subject_read_record,
+        action_plan_result_from_record=action_plan_result_from_record,
     )
-    for record in candidates:
-        plan_id = str(record.get("metadata", {}).get("name") or "")
-        if not plan_id or plan_has_execution(plan_id):
-            continue
-        if not can_subject_read_record(record, subject):
-            continue
-        result = action_plan_result_from_record(record)
-        if result.get("status") == "planned":
-            return result
-    return None
 
 
 def no_pending_action_plan_response() -> str:
-    return "\n".join(
-        [
-            "실행할 Gateway AIOps Action Plan이 없습니다.",
-            "",
-            "`승인`/`실행` 같은 후속 명령은 Gateway가 생성한 미실행 Action Plan이 있을 때만 처리합니다.",
-            "대상과 namespace를 포함해서 다시 요청하세요.",
-            "",
-            "예: `komsco-ai-dev 네임스페이스의 aiops-two-pod-exec 파드 3개로 올려줘`",
-            "예: `6:cis 파드 3개로 올려줘`",
-        ]
-    )
+    return natural_action_rendering.no_pending_action_plan_response()
 
 
 def unresolved_natural_action_response(req: ChatRequest) -> str:
-    context = normalize_console_page_context(req.pageContext)
-    namespace = namespace_from_natural_action(req)
-    resource_name = page_context_resource_name(req)
-    lines = [
-        "변경 요청으로 판단했지만 실행 가능한 Gateway AIOps Action으로 확정하지 못했습니다.",
-        "",
-        "실제 조치를 수행하지 않았습니다.",
-        "",
-        "### 부족한 정보",
-    ]
-    if not namespace:
-        lines.append("- Namespace가 명확하지 않습니다.")
-    if not resource_name:
-        resource_name = next(
-            (
-                page_context_resource_name(req, kind)
-                for kind in ("Pod", "HorizontalPodAutoscaler")
-                if page_context_resource_name(req, kind)
-            ),
-            "",
-        )
-    if not resource_name and not any(
-        parser.search(req.message)
-        for parser in (
+    return natural_action_rendering.unresolved_natural_action_response(
+        req,
+        normalize_console_page_context=normalize_console_page_context,
+        namespace_from_natural_action=namespace_from_natural_action,
+        page_context_resource_name=page_context_resource_name,
+        resource_patterns=(
             DEPLOYMENT_RESOURCE_RE,
             POD_RESOURCE_RE,
             HPA_RESOURCE_RE,
             NAMESPACED_RESOURCE_SHORTHAND_RE,
             BACKTICK_RESOURCE_RE,
-        )
-    ):
-        lines.append("- 대상 리소스 이름이 명확하지 않습니다.")
-    if len(lines) == 5:
-        lines.append(
-            "- 지원되는 조치 형태가 아닙니다. 현재 자연어 즉시 실행은 Deployment scale/restart/rollback, "
-            "controller-owned unhealthy Pod eviction, HPA bounds 변경을 우선 지원합니다."
-        )
-    lines.extend(
-        [
-            "",
-            "### 다시 입력 예시",
-            "- `6:cis 파드 3개로 올려줘`",
-            "- `6 네임스페이스의 cis 파드 3개로 올려줘`",
-            "- `komsco-ai-dev:aiops-two-pod-exec 재시작해줘`",
-            "- `komsco-ai-dev 네임스페이스의 pod/worker-abc 교체해줘`",
-            "- `komsco-ai-dev 네임스페이스의 hpa/web-hpa 최소 2 최대 8로 변경해줘`",
-        ]
+        ),
     )
-    if context:
-        lines.extend(["", f"- 현재 콘솔 경로: `{context.get('pathname') or context.get('href') or '-'}`"])
-    return "\n".join(lines)
 
 
 async def execute_natural_action_plan_result(
@@ -2732,194 +2439,25 @@ async def execute_natural_action_plan_result(
     authorization: str,
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if plan_result.get("status") != "planned":
-        return {
-            "plan": dict(plan_result),
-            "status": "not_executed",
-            "reason": "natural action plan was not created",
-        }
-
-    plan_id = str(plan_result.get("planId") or "")
-    plan_record = SEALED_ACTION_PLANS.get(plan_id)
-    if not plan_record:
-        return {
-            "plan": dict(plan_result),
-            "status": "not_executed",
-            "reason": "sealed action plan was not found",
-        }
-
-    sealed_plan = plan_record["spec"]["sealedActionPlan"]
-    plan_digest = sealed_plan["digest"]["planDigest"]
-    action_access_review = await fetch_action_access_review(authorization, sealed_plan)
-    enforce_action_access_review(action_access_review)
-    approval_request = ApprovalDecisionCreate(
-        approvalScope="lab-auto-unrestricted",
-        expectedPlanDigest=plan_digest,
-        planId=plan_id,
+    return await natural_action_orchestration.execute_natural_action_plan_result(
+        plan_result,
+        authorization,
+        subject,
+        dependencies=_natural_action_orchestration_dependencies(),
     )
-    approval_record = build_approval_decision_record_for_context(
-        ApprovalDecisionRecordInput(
-            plan_record=plan_record,
-            request=approval_request,
-            approver=subject,
-            action_access_review=action_access_review,
-            context=action_record_context(),
-            allow_self_approval=True,
-        )
-    )
-    approval_id = str(approval_record["metadata"]["name"])
-    await bounded_put_record("approvalDecisions", approval_id, approval_record)
-    increment_metric("aiops_approval_decisions_total")
-
-    approval_decision = approval_record["spec"]["approvalDecision"]
-    validate_approval_is_active(approval_decision)
-    validate_execution_evidence_freshness(sealed_plan)
-    grant_reference = build_execution_grant_reference_for_context(
-        ExecutionGrantInput(
-            approval=approval_record,
-            plan=plan_record,
-            approver=subject,
-            context=action_record_context(),
-        )
-    )
-    execution_id = f"execution-{uuid.uuid4()}"
-    if MUTATIONS_ENABLED:
-        executor_result = await execute_action_with_executor(
-            sealed_plan,
-            grant_reference,
-            fallback_authorization=natural_action_executor_fallback_authorization(),
-        )
-    else:
-        executor_result = {
-            "mutationOutcome": {
-                "status": "mutation_disabled",
-                "reason": "KOMSCO_AI_ENABLE_MUTATIONS is false.",
-            },
-            "remediationOutcome": {"status": "not_remediated"},
-            "executorTrace": {"mutationSubmitted": False},
-        }
-
-    execution_record = {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ExecutionRecord",
-        "metadata": {"name": execution_id, "createdAt": now_rfc3339()},
-        "spec": {
-            "executionId": execution_id,
-            "approvalId": approval_id,
-            "planId": plan_id,
-            "planDigest": plan_digest,
-            "executionGrantRef": {
-                key: value for key, value in grant_reference.items() if key != "claims"
-            },
-            "mutationOutcome": executor_result["mutationOutcome"],
-            "remediationOutcome": executor_result["remediationOutcome"],
-            "executorTrace": redact_sensitive(executor_result.get("executorTrace") or {}),
-            "executionAuthorization": redact_sensitive(action_access_review),
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
-    await bounded_put_record("executionRecords", execution_id, execution_record)
-    approval_decision["status"] = "executed"
-    approval_decision["executedAt"] = execution_record["metadata"]["createdAt"]
-    await bounded_put_record("approvalDecisions", approval_id, approval_record)
-    increment_metric("aiops_execution_requests_total")
-
-    mutation_status = str(executor_result.get("mutationOutcome", {}).get("status") or "")
-    if mutation_status == "mutation_succeeded":
-        status = "executed"
-    elif mutation_status == "review_recorded":
-        status = "review_recorded"
-    elif mutation_status == "mutation_disabled":
-        status = "execution_disabled"
-    else:
-        status = "execution_failed"
-
-    return {
-        "approvalId": approval_id,
-        "approval": approval_record,
-        "executionId": execution_id,
-        "execution": execution_record,
-        "mutationOutcome": executor_result.get("mutationOutcome"),
-        "plan": dict(plan_result),
-        "remediationOutcome": executor_result.get("remediationOutcome"),
-        "status": status,
-    }
 
 
 def natural_action_execution_response(result: Mapping[str, Any]) -> str:
-    plan_result = result.get("plan") if isinstance(result.get("plan"), Mapping) else {}
-    target = plan_result.get("target") if isinstance(plan_result.get("target"), Mapping) else {}
-    intent = plan_result.get("intent") if isinstance(plan_result.get("intent"), Mapping) else {}
-    parameters = plan_result.get("parameters") if isinstance(plan_result.get("parameters"), Mapping) else {}
-    if not parameters and isinstance(intent.get("parameters"), Mapping):
-        parameters = intent["parameters"]
-    if not parameters:
-        plan_id = str(plan_result.get("planId") or "")
-        plan_record = SEALED_ACTION_PLANS.get(plan_id) if plan_id else None
-        sealed_plan = plan_record.get("spec", {}).get("sealedActionPlan", {}) if isinstance(plan_record, Mapping) else {}
-        action = sealed_plan.get("action") if isinstance(sealed_plan.get("action"), Mapping) else {}
-        normalized = action.get("normalizedParameters") if isinstance(action.get("normalizedParameters"), Mapping) else {}
-        parameters = normalized
-    mutation = result.get("mutationOutcome") if isinstance(result.get("mutationOutcome"), Mapping) else {}
-    remediation = result.get("remediationOutcome") if isinstance(result.get("remediationOutcome"), Mapping) else {}
-    status = str(result.get("status") or "unknown")
-
-    if status == "not_executed":
-        return "\n".join(
-            [
-                "자연어 조치 요청을 해석했지만 실행하지 못했습니다.",
-                "",
-                f"- Reason: `{result.get('reason') or 'unknown'}`",
-                "- namespace와 대상 이름을 확인한 뒤 다시 요청하세요.",
-            ]
-        )
-
-    heading = "자연어 조치 요청을 해석해 실행까지 완료했습니다."
-    if status == "review_recorded":
-        heading = "자연어 조치 요청을 해석해 검토 기록을 남겼습니다."
-    if status == "execution_disabled":
-        heading = "자연어 조치 요청을 해석했지만 mutation 실행은 비활성화되어 있습니다."
-    elif status == "execution_failed":
-        heading = "자연어 조치 요청을 해석해 실행했지만 Kubernetes 변경이 실패했습니다."
-
-    return "\n".join(
-        [
-            heading,
-            "",
-            "### 실행 요약",
-            f"- 대상: `{target.get('namespace')}/{target.get('name')}` ({target.get('kind')})",
-            f"- Action: `{intent.get('toolName')}`",
-            f"- Parameters: `{json.dumps(redact_sensitive(parameters), ensure_ascii=False)}`",
-            f"- Plan: `{plan_result.get('planId')}`",
-            f"- Approval: `{result.get('approvalId')}`",
-            f"- Execution: `{result.get('executionId')}`",
-            f"- Mutation: `{mutation.get('status')}` / `{mutation.get('reason')}`",
-            f"- Verification: `{remediation.get('status')}` / `{remediation.get('reason')}`",
-        ]
+    return natural_action_rendering.natural_action_execution_response(
+        result,
+        sealed_action_plans=SEALED_ACTION_PLANS,
+        redact_sensitive=redact_sensitive,
     )
 
 
 def natural_action_evidence_check_response(intent: Mapping[str, Any]) -> str:
-    return "\n".join(
-        [
-            "현재 AIOps 모드가 `읽기 전용`이라 실행 계획, 승인, 실행은 만들지 않고 조치 후보만 정리합니다.",
-            "",
-            "상태: **제안만 함 / 실행 안 함**",
-            "",
-            "### 요청 해석",
-            f"- 대상: `{intent.get('namespace')}/{intent.get('targetName')}`",
-            f"- Action: `{intent.get('toolName')}`",
-            f"- Parameters: `{json.dumps(redact_sensitive(intent.get('parameters') or {}), ensure_ascii=False)}`",
-            "",
-            "### 선행 확인",
-            "- 대상 리소스, namespace, owner, 최근 Event, 관련 Alert를 먼저 확인합니다.",
-            "- 원인이 특정되지 않으면 재시작, scale, patch 같은 변경성 작업을 후보에서 제외합니다.",
-            "",
-            "### 안전선",
-            "- 금지 동작: `oc apply`, `oc delete`, `oc patch`, `oc scale`, `oc exec`",
-            "- 실제 변경은 별도 승인된 실행 모드와 Action Executor 경로에서만 가능합니다.",
-        ]
+    return natural_action_rendering.natural_action_evidence_check_response(
+        intent, redact_sensitive=redact_sensitive
     )
 
 
