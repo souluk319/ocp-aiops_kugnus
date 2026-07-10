@@ -87,7 +87,7 @@ assert(followupComponent.includes('if (!accepted)'), 'Rejected follow-up sends m
 assert(followupComponent.includes('<button'), 'Follow-up number toggles must be native buttons');
 assert(followupComponent.includes('rewriteAssistantFollowupQuery(option.prompt)'), 'Follow-up selections must be rewritten as user commands before sending');
 assert(followupCss.includes('grid-template-columns: 26px minmax(0, 1fr)'), 'Follow-up rows must use a stable number/text layout');
-assert(followupCss.includes('font-size: 14px') && followupCss.includes('white-space: normal'), 'Follow-up text must remain readable and wrap naturally');
+assert(followupCss.includes('font-size: 13px') && followupCss.includes('white-space: normal'), 'Follow-up text must remain readable and wrap naturally');
 assert(!css.includes('.komsco-ai__followup-prompt {'), 'Legacy pill styling must be removed from the oversized stylesheet');
 assert(gatewayAnswerContracts.includes("### 다음으로 무엇을 확인할까요?"), 'Gateway answer contract must use the exact Korean follow-up heading');
 assert(gatewayAnswerContracts.includes('최대 3개'), 'Gateway answer contract must cap follow-up choices at three');

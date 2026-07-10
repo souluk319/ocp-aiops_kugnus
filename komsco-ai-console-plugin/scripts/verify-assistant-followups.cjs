@@ -130,7 +130,9 @@ assert.ok(
 assert.ok(!legacyCss.includes('.komsco-ai__followup-prompt {'), 'legacy pill CSS must be removed');
 assert.ok(css.includes('grid-template-columns: 26px minmax(0, 1fr)'));
 assert.ok(css.includes('border-radius: 6px'));
-assert.ok(css.includes('font-size: 14px'));
+assert.ok(css.includes('font-size: 12.5px'));
+assert.ok(css.includes('font-size: 13px'));
+assert.ok(css.includes('font-size: 11px'));
 assert.ok(css.includes('white-space: normal'));
 assert.ok(css.includes('overflow-wrap: anywhere'));
 assert.ok(!css.includes('box-shadow: 0 '), 'choice rows must not use pill shadows');

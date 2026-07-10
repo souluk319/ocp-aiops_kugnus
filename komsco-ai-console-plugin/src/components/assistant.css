@@ -7940,8 +7940,8 @@
 
 /* v0.2.8.1: Action Plan-first chatbot answer UX. */
 .komsco-ai__surface .komsco-ai__message--assistant .komsco-ai__message-content {
-  font-size: 14.5px;
-  line-height: 1.68;
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-answer {
@@ -7994,13 +7994,13 @@
 .komsco-ai__surface .komsco-ai__runbook-section-body {
   padding: 0 0 12px 31px;
   font-size: 14px;
-  line-height: 1.68;
+  line-height: 1.65;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-section-body p,
 .komsco-ai__surface .komsco-ai__runbook-section-body li {
   font-size: 14px;
-  line-height: 1.68;
+  line-height: 1.65;
 }
 
 .komsco-ai__surface .komsco-ai__runbook-paragraph-stack {
