@@ -1,0 +1,87 @@
+.komsco-ai__followup-choice-group {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  margin-block: 12px 4px;
+  gap: 8px;
+}
+
+.komsco-ai__followup-choice-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--komsco-ink-800, #172033);
+}
+
+.komsco-ai__followup-choice-list {
+  display: grid;
+  min-width: 0;
+  border-block-start: 1px solid var(--pf-t--global--border--color--default, #d8dee8);
+}
+
+.komsco-ai__followup-choice {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 7px 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-block-end: 1px solid var(--pf-t--global--border--color--default, #e2e7ee);
+  gap: 9px;
+}
+
+.komsco-ai__followup-choice:hover:not(:disabled) {
+  background: var(--pf-t--global--background--color--secondary--default, #f6f8fb);
+}
+
+.komsco-ai__followup-choice:focus-visible {
+  outline: 2px solid var(--pf-t--global--border--color--brand--default, #2563eb);
+  outline-offset: -2px;
+}
+
+.komsco-ai__followup-choice:disabled {
+  cursor: default;
+}
+
+.komsco-ai__followup-choice-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--pf-t--global--text--color--brand--default, #075985);
+  background: var(--pf-t--global--background--color--secondary--default, #f6f8fb);
+  border: 1px solid var(--pf-t--global--border--color--default, #cbd5e1);
+  border-radius: 6px;
+}
+
+.komsco-ai__followup-choice:not([data-selected='true']):disabled
+  .komsco-ai__followup-choice-number {
+  opacity: 0.48;
+}
+
+.komsco-ai__followup-choice[data-selected='true'] .komsco-ai__followup-choice-number {
+  color: #fff;
+  background: var(--pf-t--global--background--color--brand--default, #2563eb);
+  border-color: var(--pf-t--global--border--color--brand--default, #2563eb);
+}
+
+.komsco-ai__followup-choice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: normal;
+}

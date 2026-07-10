@@ -2,41 +2,23 @@ import asyncio
 import base64
 import binascii
 import hashlib
-import io
 import json
-import math
 import mimetypes
 import os
 import re
 import time
 import uuid
-import zipfile
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from pathlib import Path
 from urllib.parse import quote
-import xml.etree.ElementTree as ET
 
 import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
-
-try:
-    import psycopg
-    from psycopg.rows import dict_row
-    from psycopg.types.json import Jsonb
-except ImportError:  # pragma: no cover - optional local RAG backend dependency
-    psycopg = None
-    dict_row = None
-    Jsonb = None
-
-try:
-    from pypdf import PdfReader
-except ImportError:  # pragma: no cover - optional document parser dependency
-    PdfReader = None
 
 from .aiops_core import (
     HOST_DIAGNOSTIC_COLLECTORS,
@@ -102,7 +84,14 @@ from .page_context import (
     page_context_resource_name,
     normalize_console_page_context,
 )
+from .image_analysis import (
+    analyze_image_attachments as analyze_image_attachments_with_model,
+    build_grounded_image_question,
+    get_vision_config as get_image_analysis_config,
+)
 from .rca_result_parser import parse_rca_result
+from . import rag_pgvector as rag_pgvector
+from .rag_pgvector import RAG_SYNC_DIR, RagDocumentUploadCreate, build_rag_answer_citation_text, build_rag_context_detail, build_rag_upload_document, parse_rag_upload_form_labels, row_matches_rag_filters
 from .security import (
     build_evidence_reference,
     build_gateway_guardrail,
@@ -153,6 +142,25 @@ from .action_approvals import (
     validate_approval_is_active,
     validate_execution_evidence_freshness,
 )
+from .action_candidates import (
+    ACTION_CANDIDATE_FORBIDDEN_VERBS,
+    build_aiops_action_candidates as build_aiops_action_candidates_for_runtime,
+)
+from .action_execution import (
+    ActionExecutionConfig,
+    append_query as action_execution_append_query,
+    create_crashloop_test_pods_execution_result as action_execution_create_crashloop_test_pods_execution_result,
+    execute_action_with_executor as action_execution_execute_action_with_executor,
+    execute_typed_action_plan as action_execution_execute_typed_action_plan,
+    executor_auth_header as action_execution_executor_auth_header,
+    fetch_executor_live_state as action_execution_fetch_executor_live_state,
+    namespace_cleanup_review_execution_result as action_execution_namespace_cleanup_review_execution_result,
+    pod_diagnostic_review_execution_result as action_execution_pod_diagnostic_review_execution_result,
+    pod_fix_or_rollback_review_execution_result as action_execution_pod_fix_or_rollback_review_execution_result,
+    submit_ocp_request as action_execution_submit_ocp_request,
+    test_pod_create_review_execution_result as action_execution_test_pod_create_review_execution_result,
+    verify_typed_action_postcondition as action_execution_verify_typed_action_postcondition,
+)
 from .action_records import (
     build_action_proposal_record as build_action_proposal_record_for_context,
     build_candidate_action_request as build_candidate_action_request_for_context,
@@ -188,23 +196,21 @@ from .schemas import (
     RagSearchFilters,
     RunbookPlanCreate,
     SealedActionPlanCreate,
-    StrictBaseModel,
     UnrestrictedCommandExecuteCreate,
 )
 from .settings import (
     first_env_value,
-    infer_embedding_api_style,
     infer_llm_api_style,
     parse_bool,
     parse_float_env,
     parse_int,
-    parse_millis_env_as_seconds,
     parse_ols_verify,
 )
 from .test_pod_create import (
     TestPodCreateSettings,
     answer as render_test_pod_create_answer,
     candidate_from_preflight as build_test_pod_create_candidate_from_preflight,
+    collect_preflight as collect_test_pod_create_preflight_for_settings,
     count_from_message as parse_test_pod_create_count_from_message,
     disabled_answer as render_test_pod_create_disabled_answer,
     is_ready as test_pod_create_request_is_ready,
@@ -221,19 +227,25 @@ from .text_reference_filter import (
     should_filter_low_signal_references,
     strip_private_reasoning_sections,
 )
+PUBLIC_MAIN_REEXPORTS = (ActionCandidateTargetCreate, BreakGlassTargetNode, DiagnosticEvidencePolicy, DiagnosticLimits, DiagnosticTargetNode, DiagnosticTimeRange, get_action_registry_entry, sealed_action_plan_digest, validate_action_target)
 
-PUBLIC_MAIN_REEXPORTS = (
-    ActionCandidateTargetCreate,
-    BreakGlassTargetNode,
-    DiagnosticEvidencePolicy,
-    DiagnosticLimits,
-    DiagnosticTargetNode,
-    DiagnosticTimeRange,
-    get_action_registry_entry,
-    sealed_action_plan_digest,
-    validate_action_target,
-)
-
+RAG_BACKEND_URL, RAG_EMBEDDING_SERVICE_URL, RAG_EMBEDDING_MODEL, RAG_EMBEDDING_API_STYLE, RAG_EMBEDDING_TIMEOUT_SECONDS, PdfReader = (rag_pgvector.RAG_BACKEND_URL, rag_pgvector.RAG_EMBEDDING_SERVICE_URL, rag_pgvector.RAG_EMBEDDING_MODEL, rag_pgvector.RAG_EMBEDDING_API_STYLE, rag_pgvector.RAG_EMBEDDING_TIMEOUT_SECONDS, rag_pgvector.PdfReader)
+def sync_rag_pgvector_config() -> None:
+    rag_pgvector.RAG_BACKEND_URL, rag_pgvector.RAG_EMBEDDING_SERVICE_URL, rag_pgvector.RAG_EMBEDDING_MODEL, rag_pgvector.RAG_EMBEDDING_API_STYLE, rag_pgvector.RAG_EMBEDDING_TIMEOUT_SECONDS, rag_pgvector.PdfReader = RAG_BACKEND_URL, RAG_EMBEDDING_SERVICE_URL, RAG_EMBEDDING_MODEL, RAG_EMBEDDING_API_STYLE, RAG_EMBEDDING_TIMEOUT_SECONDS, PdfReader
+def build_rag_backend_status() -> dict[str, Any]:
+    sync_rag_pgvector_config(); return rag_pgvector.build_rag_backend_status()
+async def call_embedding_service_async(value: str) -> list[float] | None:
+    sync_rag_pgvector_config(); return await rag_pgvector.call_embedding_service_async(value)
+def extract_rag_upload_file_content(name: str, mime_type: str, raw: bytes) -> tuple[str, dict[str, Any]]:
+    sync_rag_pgvector_config(); return rag_pgvector.extract_rag_upload_file_content(name, mime_type, raw)
+def list_pgvector_upload_documents(subject: Mapping[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
+    sync_rag_pgvector_config(); return rag_pgvector.list_pgvector_upload_documents(subject)
+async def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+    sync_rag_pgvector_config(); return await rag_pgvector.persist_rag_upload_document(record)
+async def search_pgvector_runbooks(req: RagSearchCreate, subject: Mapping[str, Any] | None = None) -> tuple[str, str, list[dict[str, Any]]]:
+    sync_rag_pgvector_config(); return await rag_pgvector.search_pgvector_runbooks(req, subject=subject)
+async def sync_rag_directory_on_startup() -> None:
+    sync_rag_pgvector_config(); await rag_pgvector.sync_rag_directory_on_startup()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -247,17 +259,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         task.add_done_callback(_on_sync_done)
     yield
 
-
 app = create_app(lifespan=lifespan)
 
 
-LEGACY_HOME_LLM_URL = first_env_value("KUGNUS_HOME_LLM_URL")
 LLM_PROVIDER = first_env_value("KOMSCO_AI_LLM_PROVIDER")
-LLM_BASE_URL = first_env_value("KOMSCO_AI_LLM_BASE_URL", "KUGNUS_HOME_LLM_URL").rstrip("/")
-LLM_MODEL = first_env_value("KOMSCO_AI_LLM_MODEL", "KUGNUS_HOME_LLM_MODEL")
+LLM_BASE_URL = first_env_value("KOMSCO_AI_LLM_BASE_URL").rstrip("/")
+LLM_MODEL = first_env_value("KOMSCO_AI_LLM_MODEL")
 LLM_API_STYLE = (
     first_env_value("KOMSCO_AI_LLM_API_STYLE")
-    or infer_llm_api_style(LLM_PROVIDER, LLM_BASE_URL, LEGACY_HOME_LLM_URL)
+    or infer_llm_api_style(LLM_PROVIDER, LLM_BASE_URL)
 ).strip().lower()
 LLM_TIMEOUT_SECONDS = parse_float_env("KOMSCO_AI_LLM_TIMEOUT_SECONDS", default=300.0)
 
@@ -375,74 +385,14 @@ RECORD_STORE_TOKEN_FILE = os.getenv(
     "/var/run/secrets/kubernetes.io/serviceaccount/token",
 )
 RECORD_STORE_NAMESPACE = os.getenv("KOMSCO_AI_RECORD_STORE_NAMESPACE", "")
-RAG_BACKEND_URL = os.getenv("KOMSCO_AI_RAG_BACKEND_URL", "").rstrip("/")
-RAG_BACKEND_TYPE = os.getenv("KOMSCO_AI_RAG_BACKEND_TYPE", "pgvector")
-RAG_COLLECTION = os.getenv("KOMSCO_AI_RAG_COLLECTION", "komsco-aiops-runbooks")
-LEGACY_HOME_EMBED_URL = first_env_value("KUGNUS_HOME_EMBED_URL")
-RAG_EMBEDDING_PROVIDER = first_env_value("KOMSCO_AI_EMBEDDING_PROVIDER")
-RAG_EMBEDDING_SERVICE_URL = first_env_value(
-    "KOMSCO_AI_EMBEDDING_BASE_URL",
-    "KOMSCO_AI_RAG_EMBEDDING_SERVICE_URL",
-    "KUGNUS_HOME_EMBED_URL",
-).rstrip("/")
-RAG_EMBEDDING_API_STYLE = (
-    first_env_value("KOMSCO_AI_EMBEDDING_API_STYLE")
-    or infer_embedding_api_style(
-        RAG_EMBEDDING_PROVIDER,
-        RAG_EMBEDDING_SERVICE_URL,
-        LEGACY_HOME_EMBED_URL,
-    )
-).strip().lower()
-RAG_EMBEDDING_MODEL = first_env_value(
-    "KOMSCO_AI_EMBEDDING_MODEL",
-    "KOMSCO_AI_RAG_EMBEDDING_MODEL",
-    "KUGNUS_HOME_EMBED_MODEL",
-)
-RAG_VECTOR_DIMENSIONS = int(
-    first_env_value(
-        "KOMSCO_AI_EMBEDDING_DIMENSIONS",
-        "KOMSCO_AI_RAG_VECTOR_DIMENSIONS",
-        "KUGNUS_HOME_EMBED_DIMENSIONS",
-    )
-    or "0"
-)
-RAG_EFFECTIVE_VECTOR_DIMENSIONS = RAG_VECTOR_DIMENSIONS or 64
-RAG_DEMO_SEED_ENABLED = parse_bool(os.getenv("KOMSCO_AI_RAG_DEMO_SEED_ENABLED"), default=True)
-RAG_UPLOAD_MAX_BYTES = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_BYTES", str(5 * 1024 * 1024)))
-RAG_UPLOAD_MAX_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHARS", "120000"))
-RAG_UPLOAD_MAX_CHUNKS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNKS", "80"))
-RAG_UPLOAD_MAX_CHUNK_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_MAX_CHUNK_CHARS", "1200"))
-RAG_UPLOAD_CHUNK_OVERLAP_CHARS = int(os.getenv("KOMSCO_AI_RAG_UPLOAD_CHUNK_OVERLAP_CHARS", "0"))
-RAG_EMBEDDING_TIMEOUT_SECONDS = parse_float_env(
-    "KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS",
-    "KOMSCO_AI_RAG_EMBEDDING_TIMEOUT_SECONDS",
-    default=parse_millis_env_as_seconds("KUGNUS_HOME_EMBED_TIMEOUT_MS", 10.0),
-)
-RAG_SYNC_DIR = os.getenv("KOMSCO_AI_RAG_SYNC_DIR", "")
-RAG_SYNC_SOURCE_TYPE = os.getenv("KOMSCO_AI_RAG_SYNC_SOURCE_TYPE", "runbook")
-RAG_SYNC_ACL_GROUPS = [
-    g.strip()
-    for g in os.getenv("KOMSCO_AI_RAG_SYNC_ACL_GROUPS", "aiops-admins").split(",")
-    if g.strip()
-]
-RAG_SYNC_CUSTOMER = os.getenv("KOMSCO_AI_RAG_SYNC_CUSTOMER", "komsco")
-RAG_SYNC_NAMESPACE = os.getenv("KOMSCO_AI_RAG_SYNC_NAMESPACE", "komsco-ai-kugnus")
-RAG_SYNC_VERSION = os.getenv("KOMSCO_AI_RAG_SYNC_VERSION", "v0.1.7")
-RAG_DANGEROUS_CONTENT_RE = re.compile(
-    r"\b(?:oc|kubectl)\s+(?:delete|patch|replace|scale|adm|debug|exec)\b|"
-    r"\brm\s+-rf\b|"
-    r"\bchmod\s+777\b|"
-    r"\bdefrag\b",
-    re.IGNORECASE,
-)
-RAG_BROAD_SYSTEM_GROUPS = {
-    "system:authenticated",
-    "system:authenticated:oauth",
-    "system:unauthenticated",
-}
+
 SERVICEACCOUNT_NAMESPACE_FILE = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 CLUSTER_ID = os.getenv("KOMSCO_AI_CLUSTER_ID", "unknown-cluster")
-MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=True)
+MUTATIONS_ENABLED = parse_bool(os.getenv("KOMSCO_AI_ENABLE_MUTATIONS"), default=False)
+ACTION_PLAN_CAPABILITY_ENABLED = parse_bool(
+    os.getenv("KOMSCO_AI_ACTION_PLAN_CAPABILITY_ENABLED"),
+    default=True,
+)
 ACTION_MAX_RECORDS = int(os.getenv("KOMSCO_AI_ACTION_MAX_RECORDS", "1000"))
 ACTION_EXECUTOR_TOKEN_FILE = os.getenv(
     "KOMSCO_AI_ACTION_EXECUTOR_TOKEN_FILE",
@@ -627,12 +577,6 @@ FOLLOWUP_EXECUTION_RE = re.compile(
     r"^\s*(?:승인|승인해|실행|실행해|진행|진행해|수행|수행해|적용|적용해|해|해줘|yes|ok|확인)\s*[.!?。]*\s*$",
     re.IGNORECASE,
 )
-VISION_SYSTEM_PROMPT = (
-    "You are an image analysis component for an OpenShift AIOps assistant. "
-    "Extract visible text, UI state, error messages, resource names, namespace names, "
-    "and operational signals from the attached image. Be concise and do not invent "
-    "details that are not visible."
-)
 AIOPS_WORKLOAD_RE = re.compile(
     r"(aiops|komsco[-_.]?ai|cywell[-_.]?aiops|openshift[-_.]?lightspeed|"
     r"lightspeed|trustyai|rhoai|open[-_.]?data[-_.]?hub|\bodh\b|model[-_.]?registry|"
@@ -778,27 +722,6 @@ RUNBOOK_REGISTRY_ENTRIES: dict[str, dict[str, Any]] = {
             "hpaPolicyReviewRequired": True,
         },
     },
-    "deployment_container_command_fix_v1": {
-        "runbookId": "deployment_container_command_fix_v1",
-        "runbookVersion": "v1",
-        "incidentClass": "deployment_command_crashloop_recovery",
-        "targetKind": "Deployment",
-        "allowedSteps": [
-            {
-                "stepId": "set_container_command",
-                "toolName": "set_deployment_container_command",
-                "toolVersion": "v1",
-                "requiredParameters": ["containerName", "command"],
-            }
-        ],
-        "policyChecks": {
-            "namespaceRequired": True,
-            "targetUidRequired": True,
-            "platformNamespaceRequiresExplicitPolicy": True,
-            "ownerReviewRequired": True,
-            "commandChangeReviewRequired": True,
-        },
-    },
 }
 RUNBOOK_REGISTRY_BUNDLE = {
     "schemaVersion": "v1",
@@ -836,12 +759,12 @@ PREAPPROVED_PATCH_FIELD_BUNDLE = {
 PREAPPROVED_PATCH_FIELD_DIGEST = canonical_digest(PREAPPROVED_PATCH_FIELD_BUNDLE)
 BREAK_GLASS_PROFILE_VERSION = "v1"
 BREAK_GLASS_PROFILES: dict[str, dict[str, Any]] = {
-    "node_triage_v1": {
-        "profileId": "node_triage_v1",
+    "node_readonly_triage_v1": {
+        "profileId": "node_readonly_triage_v1",
         "profileVersion": BREAK_GLASS_PROFILE_VERSION,
         "enabled": BREAK_GLASS_ENABLED and bool(BREAK_GLASS_IMAGE_DIGEST),
         "imageDigest": BREAK_GLASS_IMAGE_DIGEST or "not-configured",
-        "fixedEntrypoint": ["/aiops/breakglass-runner", "--profile", "node-triage"],
+        "fixedEntrypoint": ["/aiops/breakglass-runner", "--profile", "node-readonly-triage"],
         "arbitraryCommandInputAllowed": False,
         "privilegedJob": {
             "enabled": BREAK_GLASS_ENABLED and bool(BREAK_GLASS_IMAGE_DIGEST),
@@ -1852,19 +1775,6 @@ class ChatFeedbackCreate(BaseModel):
     userMessage: str | None = Field(default=None, max_length=2400)
 
 
-class RagDocumentUploadCreate(StrictBaseModel):
-    name: str = Field(min_length=1, max_length=220)
-    mimeType: str = Field(default="text/markdown", min_length=1, max_length=120)
-    content: str | None = Field(default=None, max_length=RAG_UPLOAD_MAX_CHARS)
-    data: str | None = Field(default=None, max_length=((RAG_UPLOAD_MAX_BYTES * 4) // 3) + 8)
-    sourceUri: str | None = Field(default=None, max_length=500)
-    sourceType: str = Field(default="user-upload", min_length=1, max_length=80)
-    customer: str = Field(default="komsco", min_length=1, max_length=80)
-    namespace: str = Field(default="user-upload", min_length=1, max_length=253)
-    version: str = Field(default="v0.1.4", min_length=1, max_length=80)
-    aclGroups: list[str] = Field(default_factory=list, max_length=40)
-    labels: dict[str, str] = Field(default_factory=dict)
-    runId: str | None = Field(default=None, max_length=120)
 
 
 CASUAL_IDENTITY_RE = re.compile(
@@ -1880,7 +1790,8 @@ CASUAL_EMOTION_RE = re.compile(
 OPERATIONAL_CONTEXT_RE = re.compile(
     r"(openshift|오픈시프트|ocp|kubernetes|쿠버네티스|cluster|클러스터|namespace|네임스페이스|"
     r"node|노드|operator|pod|파드|deployment|deploy|배포|event|이벤트|alert|경고|"
-    r"action\s*plan|조치|승인|실행|터미널|명령|oc\b|restart|rollback|scale|delete|create|cleanup)",
+    r"action\s*plan|조치|승인|실행|터미널|명령|oc\b|restart|재시작|rollback|scale|delete|create|cleanup|"
+    r"crash\s*loop|crashloop|CrashLoopBackOff|ImagePullBackOff|OOMKilled|scenario|시나리오)",
     re.IGNORECASE,
 )
 GENERAL_CONCEPT_SUBJECT_RE = re.compile(
@@ -3452,7 +3363,7 @@ async def execute_natural_action_plan_result(
         executor_result = await execute_action_with_executor(
             sealed_plan,
             grant_reference,
-            fallback_authorization=authorization,
+            fallback_authorization=natural_action_executor_fallback_authorization(),
         )
     else:
         executor_result = {
@@ -3893,425 +3804,17 @@ def build_aiops_anomaly_summary(
     )
 
 
-ACTION_CANDIDATE_FORBIDDEN_VERBS = [
-    "apply",
-    "attach",
-    "create",
-    "delete",
-    "evict",
-    "exec",
-    "patch",
-    "replace",
-    "restart",
-    "rollout",
-    "scale",
-    "update",
-]
-
-
-def action_candidate_target_label(resource: Mapping[str, Any]) -> str:
-    kind = str(resource.get("kind") or "Resource")
-    name = str(resource.get("name") or "unknown")
-    namespace = str(resource.get("namespace") or "")
-    return f"{namespace}/{kind}/{name}" if namespace else f"cluster/{kind}/{name}"
-
-
-def evidence_check_check_command(resource: Mapping[str, Any], fallback: str = "관련 리소스 상태를 조회합니다.") -> str:
-    kind = str(resource.get("kind") or "")
-    name = str(resource.get("name") or "")
-    namespace = str(resource.get("namespace") or "")
-    if kind.lower() == "pod" and name and namespace:
-        return f"oc describe pod {name} -n {namespace}"
-    if kind.lower() == "clusteroperator" and name:
-        return f"oc get clusteroperator {name} -o yaml"
-    if kind.lower() == "clusterversion":
-        return "oc get clusterversion version -o yaml"
-    if kind and name and namespace:
-        return f"oc describe {kind} {name} -n {namespace}"
-    return fallback
-
-
-def action_candidate_template(
-    finding: Mapping[str, Any],
-) -> tuple[list[str], list[str], list[str], str, str]:
-    finding_type = str(finding.get("type") or "")
-    resource = finding.get("resource") if isinstance(finding.get("resource"), Mapping) else {}
-    target_label = action_candidate_target_label(resource)
-    evidence_check_check = evidence_check_check_command(resource)
-
-    if finding_type == "pod_crashloop":
-        return (
-            [
-                evidence_check_check,
-                "이전 컨테이너 로그와 Warning Event를 확인해 현재 진행 중인 CrashLoop인지 확정합니다.",
-                "소유 리소스와 최근 배포 변경 이력을 확인합니다.",
-            ],
-            [
-                "원인이 image, command, env, config, dependency 중 어디인지 분리합니다.",
-                "승인 전에는 template 수정, rollback, 재시작을 실행 계획으로 만들지 않습니다.",
-                "승인 후에는 단일 원인에 맞춘 변경 계획과 rollback 경로를 별도로 작성합니다.",
-            ],
-            [
-                "대상 workload의 rollout 상태와 Ready Pod 수를 확인합니다.",
-                "최근 1시간 restart 증가량이 멈췄는지 Thanos 지표로 재확인합니다.",
-            ],
-            f"{target_label} 회복 가능성이 있지만 잘못된 변경은 재시작 또는 서비스 영향으로 이어질 수 있습니다.",
-            "high",
-        )
-    if finding_type == "pod_image_pull":
-        return (
-            [
-                evidence_check_check,
-                "이미지 이름, tag, registry 접근성, imagePullSecret 참조를 확인합니다.",
-                "동일 namespace의 Secret과 ServiceAccount 연결 상태를 확인합니다.",
-            ],
-            [
-                "이미지/tag 오타, registry 권한, pull secret 누락 중 하나로 원인을 좁힙니다.",
-                "승인 전에는 image 또는 secret 변경을 실행하지 않습니다.",
-                "승인 후에는 변경 범위와 영향받는 workload를 명시한 계획을 작성합니다.",
-            ],
-            [
-                "Pod Events에서 pull 실패 메시지가 사라졌는지 확인합니다.",
-                "새 Pod가 ImagePullBackOff 없이 Running/Ready로 진입했는지 확인합니다.",
-            ],
-            f"{target_label} 기동 차단을 해소할 수 있으나 image/secret 변경은 배포 범위 전체에 영향이 날 수 있습니다.",
-            "high",
-        )
-    if finding_type in {"pod_pending", "warning_event"}:
-        return (
-            [
-                evidence_check_check,
-                "동일 namespace의 최근 Event를 시간순으로 확인합니다.",
-                "PVC, quota, node resource, scheduling constraint 중 차단 지점을 분리합니다.",
-            ],
-            [
-                "스케줄링 실패 사유가 quota/PVC/node/affinity 중 무엇인지 확정합니다.",
-                "승인 전에는 resource request, PVC, node selector, affinity를 변경하지 않습니다.",
-                "승인 후에는 최소 변경 단위와 되돌림 방법을 포함한 계획을 작성합니다.",
-            ],
-            [
-                "Pending Pod가 Running/Ready로 바뀌었는지 확인합니다.",
-                "동일 reason의 Warning Event가 계속 증가하지 않는지 확인합니다.",
-            ],
-            f"{target_label} 배치 지연을 해소할 수 있으나 quota나 scheduling 변경은 다른 workload에 영향을 줄 수 있습니다.",
-            "medium",
-        )
-    if finding_type == "clusteroperator_condition":
-        return (
-            [
-                evidence_check_check,
-                "Operator condition의 reason/message와 관련 operand namespace를 확인합니다.",
-                "ClusterVersion과 다른 ClusterOperator의 연쇄 영향을 확인합니다.",
-            ],
-            [
-                "Operator 자체 문제인지 operand 문제인지 분리합니다.",
-                "승인 전에는 ClusterOperator, Subscription, operand 리소스를 변경하지 않습니다.",
-                "승인 후에는 벤더/운영 절차에 맞는 복구 계획을 별도로 작성합니다.",
-            ],
-            [
-                "해당 ClusterOperator의 Available/Degraded/Progressing 조건을 재확인합니다.",
-                "콘솔과 경고 상태가 동시에 회복되었는지 확인합니다.",
-            ],
-            f"{target_label} 정상화는 클러스터 기능 전체에 영향이 있으므로 변경 전 승인과 영향 범위 확인이 필요합니다.",
-            "high",
-        )
-    if finding_type == "upgrade_blocked":
-        return (
-            [
-                evidence_check_check,
-                "Upgradeable=False reason과 AdminAck 또는 차단 조건을 확인합니다.",
-                "관련 ClusterOperator 조건과 업데이트 채널 상태를 함께 확인합니다.",
-            ],
-            [
-                "업그레이드 차단 조건을 문서화하고 필요한 승인 절차를 정리합니다.",
-                "승인 전에는 upgrade ack, 채널 변경, 업데이트 진행을 수행하지 않습니다.",
-                "승인 후에는 maintenance window와 rollback 판단 기준을 포함합니다.",
-            ],
-            [
-                "Upgradeable 조건이 True로 회복되었는지 확인합니다.",
-                "업그레이드 전 필수 ClusterOperator가 안정 상태인지 확인합니다.",
-            ],
-            "업그레이드 차단 해소는 클러스터 전체 운영 계획과 연결되므로 사전 승인 없이는 실행하지 않습니다.",
-            "high",
-        )
-    if finding_type in {"active_alert", "pod_restart_spike", "pod_restart_history"}:
-        return (
-            [
-                evidence_check_check,
-                "Alert label, Pod 상태, 최근 restart 지표가 같은 대상을 가리키는지 확인합니다.",
-                "현재 장애인지 복구된 이력인지 lastState와 시간 범위로 분리합니다.",
-            ],
-            [
-                "경고와 지표의 공통 원인을 RCA 후보로 고정합니다.",
-                "승인 전에는 재시작, scale, patch 같은 증상 제거 작업을 실행하지 않습니다.",
-                "승인 후에는 원인별 수정과 검증 순서를 나눈 계획을 작성합니다.",
-            ],
-            [
-                "Alert firing 상태가 해소되었는지 확인합니다.",
-                "restart 증가량과 Ready 상태가 안정화되었는지 확인합니다.",
-            ],
-            f"{target_label}의 경고/재시작 신호를 줄일 수 있으나 원인 확정 전 실행은 재발 가능성이 높습니다.",
-            "medium",
-        )
-    return (
-        [
-            evidence_check_check,
-            "관련 리소스의 현재 상태, Event, owner 관계를 먼저 확인합니다.",
-            "데이터 소스 실패가 있으면 후보 신뢰도를 낮춰 판단합니다.",
-        ],
-        [
-            "확인 결과가 충분할 때만 수정 후보를 하나로 좁힙니다.",
-            "승인 전에는 변경성 작업을 실행하지 않습니다.",
-            "승인 후에는 영향 범위와 되돌림 기준을 포함한 계획을 작성합니다.",
-        ],
-        [
-            "같은 이상 징후가 더 이상 증가하지 않는지 확인합니다.",
-            "대상 리소스와 상위 workload의 정상 상태를 함께 확인합니다.",
-        ],
-        f"{target_label}의 운영 리스크를 낮출 수 있으나 원인 확정 전 실행은 금지됩니다.",
-        "medium",
-    )
-
-
 def build_aiops_action_candidates(
     anomaly_summary: Mapping[str, Any] | None,
     data_sources: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    anomaly_spec = (
-        anomaly_summary.get("spec", {})
-        if isinstance(anomaly_summary, Mapping) and isinstance(anomaly_summary.get("spec"), Mapping)
-        else {}
+    return build_aiops_action_candidates_for_runtime(
+        anomaly_summary,
+        data_sources,
+        mutations_enabled=ACTION_PLAN_CAPABILITY_ENABLED,
+        action_executor_url=ACTION_EXECUTOR_URL,
+        unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
     )
-    findings = anomaly_spec.get("findings") if isinstance(anomaly_spec.get("findings"), list) else []
-    required_gaps = [
-        item
-        for item in data_sources
-        if item.get("required") and item.get("status") not in {"available", "partial"}
-    ]
-    action_execution_enabled = MUTATIONS_ENABLED and bool(ACTION_EXECUTOR_URL) and not required_gaps
-    action_candidate_mode = "execute"
-    proposal_only = not action_execution_enabled
-    blocked_actions = [] if action_execution_enabled else list(ACTION_CANDIDATE_FORBIDDEN_VERBS)
-    candidates: list[dict[str, Any]] = []
-    for finding in findings:
-        if not isinstance(finding, Mapping):
-            continue
-        finding_type = str(finding.get("type") or "unknown")
-        finding_resource = dict(finding.get("resource") if isinstance(finding.get("resource"), Mapping) else {})
-        if finding_type in {"pod_crashloop", "pod_restart_spike", "pod_restart_history"} and str(
-            finding_resource.get("kind") or ""
-        ) == "Pod":
-            source_id = str(
-                finding.get("id")
-                or hashlib.sha256(json.dumps(finding, sort_keys=True, default=str).encode()).hexdigest()[:16]
-            )
-            diagnostic_steps = [
-                evidence_check_check_command(finding_resource),
-                "이전 컨테이너 로그(`--previous`)와 Warning Event를 확인합니다.",
-                "lastState.reason, exitCode, command/env/config 확인 결과를 분리합니다.",
-            ]
-            candidates.append(
-                {
-                    "approvalRequired": True,
-                    "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
-                    "blockedReasons": ["diagnostic-review", "review-only-plan"],
-                    "confidence": "medium",
-                    "evidence": str(finding.get("evidence") or "CrashLoopBackOff 진단 확인 필요"),
-                    "evidenceRefs": [
-                        {
-                            "evidenceType": str(finding.get("source") or "pods"),
-                            "findingId": f"{source_id}-diagnostic",
-                            "sourceType": "pod_diagnostic_review",
-                            "status": "collected",
-                        }
-                    ],
-                    "executable": False,
-                    "executionPolicy": {
-                        "executionEnabled": False,
-                        "mode": "review-only",
-                        "mutationVerbsDisabled": True,
-                        "proposalOnly": True,
-                    },
-                    "expectedImpact": "로그와 Pod 상세, Event 확인 결과를 검토하는 계획입니다. Pod 삭제나 재시작은 실행하지 않습니다.",
-                    "id": f"action-candidate-{source_id}-diagnostic",
-                    "mutationSubmitted": False,
-                    "priority": max(1, int(finding.get("priority") or 10) - 1),
-                    "prerequisiteChecks": diagnostic_steps,
-                    "recommendationSteps": [
-                        "이전 로그와 describe 결과를 먼저 확인",
-                        "OOMKilled, command/env/config, probe, dependency 문제를 분리",
-                        "원인이 확인된 뒤 수정/롤백/재생성 유도 중 하나를 선택",
-                    ],
-                    "riskLevel": "low",
-                    "riskLabel": "낮음",
-                    "severity": str(finding.get("severity") or "확인 필요"),
-                    "sourceFindingId": f"{source_id}-diagnostic",
-                    "sourceType": "pod_diagnostic_review",
-                    "statusLabel": "원인 확인 플랜",
-                    "target": finding_resource,
-                    "title": "원인 확인 플랜",
-                    "verificationChecks": ["로그/describe/Event 확인 결과가 정리되었는지 확인", "승인 전 mutation 없음 확인"],
-                }
-            )
-            candidates.append(
-                {
-                    "approvalRequired": True,
-                    "blockedActions": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
-                    "blockedReasons": ["requires-root-cause", "review-only-plan"],
-                    "confidence": "medium",
-                    "evidence": str(finding.get("evidence") or "CrashLoopBackOff 원인별 수정 방향 검토 필요"),
-                    "evidenceRefs": [
-                        {
-                            "evidenceType": str(finding.get("source") or "pods"),
-                            "findingId": f"{source_id}-fix-review",
-                            "sourceType": "pod_fix_or_rollback_review",
-                            "status": "collected",
-                        }
-                    ],
-                    "executable": False,
-                    "executionPolicy": {
-                        "executionEnabled": False,
-                        "mode": "review-only",
-                        "mutationVerbsDisabled": True,
-                        "proposalOnly": True,
-                    },
-                    "expectedImpact": "원인 확인 후 Deployment template 수정, 이전 정상 revision rollback, config/env 수정 중 하나를 선택하는 계획입니다.",
-                    "id": f"action-candidate-{source_id}-fix-review",
-                    "mutationSubmitted": False,
-                    "priority": int(finding.get("priority") or 10) + 1,
-                    "prerequisiteChecks": [
-                        "상위 ReplicaSet/Deployment owner chain 확인",
-                        "최근 rollout/change cause 확인",
-                        "ConfigMap/Secret/env/image/command 변경 이력 확인",
-                    ],
-                    "recommendationSteps": [
-                        "원인이 command/env/config이면 Deployment template 수정 계획 작성",
-                        "최근 배포가 원인이면 이전 정상 revision rollback 계획 작성",
-                        "수정 전 영향 범위와 rollback 조건을 승인 게이트에 포함",
-                    ],
-                    "riskLevel": "medium",
-                    "riskLabel": "보통",
-                    "severity": str(finding.get("severity") or "확인 필요"),
-                    "sourceFindingId": f"{source_id}-fix-review",
-                    "sourceType": "pod_fix_or_rollback_review",
-                    "statusLabel": "근본 조치 검토",
-                    "target": finding_resource,
-                    "title": "수정/롤백 검토 플랜",
-                    "verificationChecks": ["rollout status 확인", "Ready Pod 수 확인", "restart 증가 중단 확인"],
-                }
-            )
-        prerequisite_checks, recommendation_steps, verification_checks, expected_impact, risk_level = (
-            action_candidate_template(finding)
-        )
-        source_id = str(
-            finding.get("id")
-            or hashlib.sha256(json.dumps(finding, sort_keys=True, default=str).encode()).hexdigest()[:16]
-        )
-        blocked_reasons = ["approval-required"]
-        if not action_execution_enabled:
-            blocked_reasons.append("execution-gate-disabled")
-        if not MUTATIONS_ENABLED:
-            blocked_reasons.append("mutation-disabled")
-        if not ACTION_EXECUTOR_URL:
-            blocked_reasons.append("action-executor-not-configured")
-        if required_gaps:
-            blocked_reasons.append("required-data-source-gap")
-        candidates.append(
-            {
-                "approvalRequired": True,
-                "blockedActions": blocked_actions,
-                "blockedReasons": blocked_reasons,
-                "confidence": "limited" if required_gaps else "medium",
-                "evidence": str(finding.get("evidence") or finding.get("message") or "확인 중"),
-                "evidenceRefs": [
-                    {
-                        "evidenceType": str(finding.get("source") or "anomaly"),
-                        "findingId": source_id,
-                        "sourceType": str(finding.get("type") or "unknown"),
-                        "status": "collected",
-                    }
-                ],
-                "executable": action_execution_enabled,
-                "executionPolicy": {
-                    "executionEnabled": action_execution_enabled,
-                    "mode": action_candidate_mode,
-                    "mutationVerbsDisabled": not action_execution_enabled,
-                    "proposalOnly": proposal_only,
-                },
-                "expectedImpact": expected_impact,
-                "id": f"action-candidate-{source_id}",
-                "mutationSubmitted": False,
-                "priority": int(finding.get("priority") or 999),
-                "prerequisiteChecks": prerequisite_checks,
-                "recommendationSteps": recommendation_steps,
-                "riskLevel": risk_level,
-                "riskLabel": "높음" if risk_level == "high" else "중간",
-                "severity": str(finding.get("severity") or "확인 필요"),
-                "sourceFindingId": source_id,
-                "sourceType": str(finding.get("type") or "unknown"),
-                "statusLabel": "승인 후 실행 계획 생성 가능" if action_execution_enabled else "제안만 함 / 실행 안 함",
-                "target": finding_resource,
-                "title": (
-                    "Pod 재생성 유도"
-                    if finding_type in {"pod_crashloop", "pod_restart_spike", "pod_restart_history"}
-                    else f"{finding.get('title') or '이상 징후'} 조치 후보"
-                ),
-                "verificationChecks": verification_checks,
-            }
-        )
-
-    candidates = sorted(candidates, key=lambda item: (item["priority"], item["sourceType"], item["id"]))
-    if required_gaps:
-        status = "blocked"
-        status_label = "필수 데이터 소스 실패로 조치 후보 신뢰 제한"
-    elif candidates:
-        status = "candidates"
-        status_label = (
-            f"승인 기반 조치 후보 {len(candidates)}건"
-            if action_execution_enabled
-            else f"승인 기반 조치 후보 {len(candidates)}건"
-        )
-    elif anomaly_spec.get("status") == "normal":
-        status = "normal"
-        status_label = "현재 수집 범위에서 제안할 조치 후보 없음"
-    else:
-        status = "unknown"
-        status_label = "조치 후보 생성을 위한 이상 징후 데이터 확인 중"
-
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "AIOpsActionCandidateSummary",
-        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-action-candidates"},
-        "spec": {
-            "candidates": candidates[:8],
-            "dataSources": list(data_sources),
-            "safety": {
-                "forbiddenMutationVerbs": list(ACTION_CANDIDATE_FORBIDDEN_VERBS),
-                "methodsUsed": ["GET", "POST"] if action_execution_enabled else ["GET"],
-                "mode": action_candidate_mode,
-                "mutationsEnabled": MUTATIONS_ENABLED,
-                "proposalOnly": proposal_only,
-                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
-            },
-            "source": {
-                "anomalySummaryName": str(
-                    (anomaly_summary or {}).get("metadata", {}).get("name")
-                    if isinstance((anomaly_summary or {}).get("metadata"), Mapping)
-                    else "kugnus-anomaly-summary"
-                ),
-                "requiredDataSourceGaps": required_gaps,
-            },
-            "status": status,
-            "statusLabel": status_label,
-            "totals": {
-                "approvalRequired": len(candidates),
-                "blockedByRequiredSourceGap": len(required_gaps),
-                "highRisk": len([candidate for candidate in candidates if candidate.get("riskLevel") == "high"]),
-                "shown": min(len(candidates), 8),
-                "total": len(candidates),
-            },
-        },
-    }
 
 
 def build_aiops_overview(
@@ -4401,29 +3904,18 @@ def build_aiops_overview(
                 },
             },
             "safety": {
-                "mutationsEnabled": MUTATIONS_ENABLED,
-                "executionDefault": MUTATIONS_ENABLED,
+                "mutationsEnabled": ACTION_PLAN_CAPABILITY_ENABLED,
+                "executionDefault": ACTION_PLAN_CAPABILITY_ENABLED,
                 "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
             },
         },
     }
 
 
-def read_secret_value(value: str | None, file_path: str | None) -> str | None:
-    if value:
-        return value
-    if not file_path:
-        return None
-
-    try:
-        with open(file_path, encoding="utf-8") as secret_file:
-            return secret_file.read().strip()
-    except OSError:
-        return None
-
-
 def should_forward_image_attachments_to_ols() -> bool:
-    return parse_bool(os.getenv("KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS"), default=True)
+    # OLS 1.1.x rejects attachment_type=image. Do not allow a stale runtime
+    # environment value to break the entire Lightspeed request with HTTP 422.
+    return False
 
 
 def build_ols_gateway_context(
@@ -4450,7 +3942,7 @@ def build_ols_payload(
     conversation_id: str | None,
     attachments: list[ImageAttachment],
     *,
-    forward_image_attachments: bool = True,
+    forward_image_attachments: bool = False,
     gateway_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return build_ols_payload_for_context(
@@ -4481,21 +3973,7 @@ def build_ols_context_handoff(
 
 
 def get_vision_config() -> dict[str, str] | None:
-    base_url = os.getenv("KOMSCO_AI_VISION_BASE_URL", "").rstrip("/")
-    model = os.getenv("KOMSCO_AI_VISION_MODEL", "").strip()
-    api_key = read_secret_value(
-        os.getenv("KOMSCO_AI_VISION_API_KEY"),
-        os.getenv("KOMSCO_AI_VISION_API_KEY_FILE"),
-    )
-
-    if not base_url or not model:
-        return None
-
-    config = {"base_url": base_url, "model": model}
-    if api_key:
-        config["api_key"] = api_key
-
-    return config
+    return get_image_analysis_config()
 
 
 def should_collect_pod_status_evidence(message: str) -> bool:
@@ -4980,72 +4458,15 @@ async def collect_test_pod_create_preflight(
     user_auth_header: str,
     request: Mapping[str, Any],
 ) -> dict[str, Any]:
-    namespace = str(request.get("namespace") or "").strip()
-    count = request.get("count")
-    if not TEST_POD_CREATE_ENABLED:
-        return {
-            "error": "CrashLoop test Pod creation is disabled in product mode",
-            "namespace": namespace,
-            "ok": False,
-            "server": OPENSHIFT_API_URL,
-            "status": "test_pod_create_disabled",
-        }
-    if not namespace:
-        return {
-            "error": "namespace is required for test Pod creation",
-            "namespace": "",
-            "ok": False,
-            "server": OPENSHIFT_API_URL,
-            "status": "missing_namespace_for_test_pod_create",
-        }
-    if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
-        return {
-            "error": "test Pod count must be explicitly set between 1 and 5",
-            "namespace": namespace,
-            "ok": False,
-            "server": OPENSHIFT_API_URL,
-            "status": "missing_or_invalid_count_for_test_pod_create",
-        }
-    if namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
-        return {
-            "error": f"namespace `{namespace}` is outside the test Pod creation allowlist",
-            "namespace": namespace,
-            "ok": False,
-            "server": OPENSHIFT_API_URL,
-            "status": "unsupported_namespace_for_test_pod_create",
-        }
-    if not OPENSHIFT_API_URL:
-        return {
-            "error": "OPENSHIFT_API_URL is not configured",
-            "namespace": namespace,
-            "ok": False,
-            "server": "",
-            "status": "missing_api_url",
-        }
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(15.0, connect=5.0),
-    ) as client:
-        namespace_payload = await fetch_ocp_json(
-            client,
-            f"/api/v1/namespaces/{path_segment(namespace)}",
-            user_auth_header,
-        )
-
-    metadata = (
-        namespace_payload.get("metadata", {})
-        if isinstance(namespace_payload, Mapping) and isinstance(namespace_payload.get("metadata"), Mapping)
-        else {}
+    return await collect_test_pod_create_preflight_for_settings(
+        request,
+        api_ca_file=OPENSHIFT_API_CA_FILE,
+        api_url=OPENSHIFT_API_URL,
+        fetch_ocp_json=fetch_ocp_json,
+        path_segment=path_segment,
+        settings=test_pod_create_settings(),
+        user_auth_header=user_auth_header,
     )
-    exists = bool(metadata.get("name"))
-    return {
-        "namespace": namespace,
-        "ok": exists,
-        "server": OPENSHIFT_API_URL,
-        "status": "namespace_ready" if exists else "namespace_missing",
-        "uid": str(metadata.get("uid") or ""),
-    }
 
 
 def test_pod_create_candidate_from_preflight(
@@ -6604,11 +6025,16 @@ def build_ols_query(
         redact_sensitive(image_analysis) if image_analysis else None,
         forwarded_to_ols=forwarded_to_ols,
     )
+    model_message = (
+        build_grounded_image_question(req.message, image_analysis or "")
+        if image_analysis
+        else req.message
+    )
 
     return render_ols_query(
         OlsQueryRenderInput(
             profile=OLS_QUERY_PROFILE,
-            message=req.message,
+            message=model_message,
             page_context=page_context,
             policy=effective_policy if isinstance(effective_policy, Mapping) else {},
             subject_metadata=subject_metadata if isinstance(subject_metadata, Mapping) else {},
@@ -6630,73 +6056,7 @@ async def analyze_image_attachments(
     attachments: list[ImageAttachment],
     user_message: str,
 ) -> str | None:
-    if not attachments:
-        return None
-
-    config = get_vision_config()
-    if not config:
-        return None
-
-    content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                f"{VISION_SYSTEM_PROMPT}\n\n"
-                f"User request: {user_message.strip() or 'Analyze the attached OpenShift image.'}"
-            ),
-        }
-    ]
-    for attachment in attachments:
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{attachment.mimeType};base64,{attachment.data}",
-                },
-            }
-        )
-
-    headers = {"Content-Type": "application/json"}
-    api_key = config.get("api_key")
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    payload = {
-        "model": config["model"],
-        "messages": [{"role": "user", "content": content}],
-        "temperature": 0,
-        "max_tokens": 800,
-    }
-
-    async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0)) as client:
-        response = await client.post(
-            f"{config['base_url']}/chat/completions",
-            headers=headers,
-            json=payload,
-        )
-        if response.status_code >= 400:
-            body = response.text[:500]
-            return f"비전 분석 실패: provider returned HTTP {response.status_code}: {body}"
-
-        result = response.json()
-
-    choices = result.get("choices") if isinstance(result, Mapping) else None
-    if not isinstance(choices, list) or not choices:
-        return "비전 분석 실패: provider response did not include choices"
-
-    first_choice = choices[0]
-    if not isinstance(first_choice, Mapping):
-        return "비전 분석 실패: provider response choice format is invalid"
-
-    message = first_choice.get("message")
-    if not isinstance(message, Mapping):
-        return "비전 분석 실패: provider response message format is invalid"
-
-    content_text = message.get("content")
-    if isinstance(content_text, str) and content_text.strip():
-        return content_text.strip()
-
-    return "비전 분석 실패: provider response content is empty"
+    return await analyze_image_attachments_with_model(attachments, user_message)
 
 
 async def stream_with_heartbeats(
@@ -9798,6 +9158,7 @@ def build_pod_list_fallback(req: ChatRequest, gateway_evidence: str | None) -> s
         "### 요약",
         summary,
         f"- 수집 row: {total_rows}" + (f" (수집 표시: `{rows_shown}`)" if rows_shown else ""),
+        f"- 문제 의심 Pod/Container: {len(selected_rows)}건",
         f"- 즉시 장애 상태(CrashLoopBackOff/ImagePullBackOff/Pending/NotReady): {len(current_failure_rows)}건",
         f"- 최근 Error 종료 이력: {len(error_exit_rows)}건",
         f"- 재시작 관찰 항목(Completed/0 포함): {len(restart_observation_rows)}건",
@@ -10041,6 +9402,7 @@ def build_image_answer_fallback(
     image_analysis: str | None = None,
     image_forwarded_to_ols: bool = False,
 ) -> str:
+    _ = image_forwarded_to_ols
     image_count = len(req.attachments)
     evidence_excerpt = public_gateway_evidence_excerpt(gateway_evidence, max_lines=6)
     failed_tools = [
@@ -10071,7 +9433,6 @@ def build_image_answer_fallback(
                 "",
                 "## 확인 상태",
                 f"- 이미지 수신: {image_count}건",
-                f"- 모델 전달: {'Lightspeed attachments로 전달 시도' if image_forwarded_to_ols else '전달 비활성'}",
                 "- 화면 판독 결과: 아직 확보하지 못함",
             ]
         )
@@ -10106,6 +9467,7 @@ def build_ols_required_failure_answer(
     image_analysis: str | None = None,
     image_forwarded_to_ols: bool = False,
 ) -> str:
+    _ = image_forwarded_to_ols
     failed_steps = [
         str(item.get("name") or item.get("evidenceType") or "확인 단계")
         for item in tool_results
@@ -10124,9 +9486,7 @@ def build_ols_required_failure_answer(
         "- Gateway 역할: Tool Plan/Evidence/RCA Context를 준비하고 모델에 전달",
     ]
     if req.attachments:
-        lines.append(
-            f"- 이미지 첨부: {'Lightspeed attachments로 전달 시도' if image_forwarded_to_ols else '모델 전달 비활성'}"
-        )
+        lines.append(f"- 이미지 첨부: {len(req.attachments)}건 수신")
         if image_analysis:
             lines.append("- 화면 분석 보조 결과: 확보됨")
     if failed_steps:
@@ -10444,20 +9804,48 @@ def unrestricted_command_response(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def action_execution_config() -> ActionExecutionConfig:
+    return ActionExecutionConfig(
+        openshift_api_url=OPENSHIFT_API_URL,
+        openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+        action_executor_token_file=ACTION_EXECUTOR_TOKEN_FILE,
+        action_executor_field_manager=ACTION_EXECUTOR_FIELD_MANAGER,
+        action_executor_url=ACTION_EXECUTOR_URL,
+        action_executor_shared_token=ACTION_EXECUTOR_SHARED_TOKEN,
+        test_pod_create_enabled=TEST_POD_CREATE_ENABLED,
+        test_pod_create_default_image=TEST_POD_CREATE_DEFAULT_IMAGE,
+        test_pod_create_name_prefix=TEST_POD_CREATE_NAME_PREFIX,
+        test_pod_create_app_label=TEST_POD_CREATE_APP_LABEL,
+        test_pod_create_allowed_namespaces=frozenset(str(item) for item in TEST_POD_CREATE_ALLOWED_NAMESPACES),
+        test_pod_create_failure_command=tuple(TEST_POD_CREATE_FAILURE_COMMAND),
+    )
+
+
 def append_query(path: str, query: Mapping[str, str]) -> str:
-    separator = "&" if "?" in path else "?"
-    encoded = "&".join(f"{key}={value}" for key, value in query.items())
-    return f"{path}{separator}{encoded}"
+    return action_execution_append_query(path, query)
 
 
 def executor_auth_header() -> str:
-    token = read_secret_value(
-        os.getenv("KOMSCO_AI_ACTION_EXECUTOR_BEARER_TOKEN"),
-        ACTION_EXECUTOR_TOKEN_FILE,
-    )
-    if not token:
-        raise HTTPException(status_code=503, detail="Action Executor service account token is not configured")
-    return f"Bearer {token}"
+    return action_execution_executor_auth_header(action_execution_config())
+
+
+def natural_action_executor_fallback_authorization() -> str:
+    try:
+        return executor_auth_header()
+    except HTTPException:
+        return "Bearer token"
+
+
+async def _fetch_ocp_json_for_action_execution(
+    client: httpx.AsyncClient,
+    path: str,
+    authorization: str,
+    *,
+    required: bool = False,
+    config: ActionExecutionConfig | None = None,
+) -> dict[str, Any] | None:
+    _ = config
+    return await fetch_ocp_json(client, path, authorization, required=required)
 
 
 async def fetch_executor_live_state(
@@ -10465,36 +9853,13 @@ async def fetch_executor_live_state(
     authorization: str,
     plan: Mapping[str, Any],
 ) -> dict[str, Any]:
-    target = target_from_plan(plan)
-    action = action_from_plan(plan)
-    live_target = await fetch_ocp_json(
+    return await action_execution_fetch_executor_live_state(
         client,
-        target_path(target),
         authorization,
-        required=True,
+        plan,
+        config=action_execution_config(),
+        fetch_ocp_json_func=_fetch_ocp_json_for_action_execution,
     )
-    live_state: dict[str, Any] = {"target": live_target or {}}
-    namespace = str(target.get("namespace") or "")
-    tool_name = str(action.get("toolName") or "")
-    if tool_name == "set_replicas_within_bounds":
-        hpas = await fetch_ocp_json(
-            client,
-            f"/apis/autoscaling/v2/namespaces/{namespace}/horizontalpodautoscalers",
-            authorization,
-        )
-        items = hpas.get("items") if isinstance(hpas, Mapping) else []
-        live_state["hpas"] = [item for item in items if isinstance(item, Mapping)] if isinstance(items, list) else []
-    if tool_name == "rollback_deployment_to_revision":
-        replica_sets = await fetch_ocp_json(
-            client,
-            f"/apis/apps/v1/namespaces/{namespace}/replicasets",
-            authorization,
-        )
-        items = replica_sets.get("items") if isinstance(replica_sets, Mapping) else []
-        live_state["replicaSets"] = (
-            [item for item in items if isinstance(item, Mapping)] if isinstance(items, list) else []
-        )
-    return live_state
 
 
 async def submit_ocp_request(
@@ -10506,15 +9871,14 @@ async def submit_ocp_request(
     content_type: str,
     body: Mapping[str, Any],
 ) -> httpx.Response:
-    return await client.request(
-        method,
-        f"{OPENSHIFT_API_URL}{path}",
-        headers={
-            "Accept": "application/json",
-            "Authorization": authorization,
-            "Content-Type": content_type,
-        },
-        json=body,
+    return await action_execution_submit_ocp_request(
+        client,
+        authorization,
+        method=method,
+        path=path,
+        content_type=content_type,
+        body=body,
+        config=action_execution_config(),
     )
 
 
@@ -10523,140 +9887,21 @@ async def verify_typed_action_postcondition(
     authorization: str,
     sealed_plan: Mapping[str, Any],
 ) -> dict[str, Any]:
-    action = action_from_plan(sealed_plan)
-    target = target_from_plan(sealed_plan)
-    parameters = parameters_from_plan(sealed_plan)
-    tool_name = str(action.get("toolName") or "")
-    target_resource = await fetch_ocp_json(client, target_path(target), authorization)
-
-    if tool_name == "evict_one_unhealthy_controller_owned_pod":
-        if target_resource is None:
-            return {"status": "verified", "reason": "target_pod_removed"}
-        deletion_timestamp = target_resource.get("metadata", {}).get("deletionTimestamp")
-        if deletion_timestamp:
-            return {
-                "status": "verified",
-                "reason": "target_pod_deleting",
-                "deletionTimestamp": deletion_timestamp,
-            }
-        observed_uid = str(target_resource.get("metadata", {}).get("uid") or "")
-        if observed_uid != str(target.get("uid") or ""):
-            return {"status": "verified", "reason": "target_pod_replaced"}
-        return {"status": "verification_failed", "reason": "target_pod_still_present"}
-
-    if target_resource is None:
-        return {"status": "verification_failed", "reason": "target_resource_unavailable"}
-
-    if tool_name == "rollout_restart_deployment":
-        annotations = (
-            target_resource.get("spec", {})
-            .get("template", {})
-            .get("metadata", {})
-            .get("annotations", {})
-        )
-        restarted_at = str(parameters.get("restartedAt") or "")
-        if isinstance(annotations, Mapping) and annotations.get("kubectl.kubernetes.io/restartedAt") == restarted_at:
-            return {"status": "verified", "reason": "restart_annotation_observed"}
-        return {"status": "verification_failed", "reason": "restart_annotation_not_observed"}
-
-    if tool_name == "set_replicas_within_bounds":
-        scale = await fetch_ocp_json(client, deployment_scale_path(target), authorization)
-        replicas = parameters.get("replicas")
-        observed = scale.get("spec", {}).get("replicas") if isinstance(scale, Mapping) else None
-        if observed == replicas:
-            return {"status": "verified", "reason": "scale_spec_matches", "observedReplicas": observed}
-        return {
-            "status": "verification_failed",
-            "reason": "scale_spec_mismatch",
-            "observedReplicas": observed,
-        }
-
-    if tool_name == "rollback_deployment_to_revision":
-        annotations = (
-            target_resource.get("spec", {})
-            .get("template", {})
-            .get("metadata", {})
-            .get("annotations", {})
-        )
-        if isinstance(annotations, Mapping) and annotations.get("aiops.komsco/rollback-revision"):
-            return {
-                "status": "verified",
-                "reason": "rollback_template_annotation_observed",
-                "rollbackRevision": annotations.get("aiops.komsco/rollback-revision"),
-            }
-        return {"status": "verification_failed", "reason": "rollback_annotation_not_observed"}
-
-    if tool_name == "set_hpa_bounds":
-        spec = target_resource.get("spec", {}) if isinstance(target_resource.get("spec"), Mapping) else {}
-        if spec.get("minReplicas") == parameters.get("minReplicas") and spec.get("maxReplicas") == parameters.get("maxReplicas"):
-            return {"status": "verified", "reason": "hpa_bounds_match"}
-        return {
-            "status": "verification_failed",
-            "reason": "hpa_bounds_mismatch",
-            "observed": {
-                "minReplicas": spec.get("minReplicas"),
-                "maxReplicas": spec.get("maxReplicas"),
-            },
-        }
-
-    if tool_name == "set_deployment_container_command":
-        container_name = str(parameters.get("containerName") or "")
-        command = parameters.get("command") if isinstance(parameters.get("command"), list) else []
-        containers = (
-            target_resource.get("spec", {})
-            .get("template", {})
-            .get("spec", {})
-            .get("containers", [])
-        )
-        observed_command = None
-        if isinstance(containers, list):
-            for container in containers:
-                if isinstance(container, Mapping) and container.get("name") == container_name:
-                    observed_command = container.get("command")
-                    break
-        if observed_command == command:
-            return {
-                "status": "verified",
-                "reason": "deployment_container_command_matches",
-                "containerName": container_name,
-            }
-        return {
-            "status": "verification_failed",
-            "reason": "deployment_container_command_mismatch",
-            "containerName": container_name,
-            "observedCommand": observed_command,
-        }
-
-    return {"status": "inconclusive", "reason": "no_postcondition_for_tool"}
+    return await action_execution_verify_typed_action_postcondition(
+        client,
+        authorization,
+        sealed_plan,
+        config=action_execution_config(),
+        fetch_ocp_json_func=_fetch_ocp_json_for_action_execution,
+    )
 
 
 def namespace_cleanup_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
-    target = target_from_plan(sealed_plan)
-    target_name = str(target.get("name") or target.get("namespace") or "namespace")
-    return {
-        "mutationOutcome": {
-            "status": "review_recorded",
-            "reason": f"namespace cleanup review recorded for {target_name}; no namespace deletion executed",
-            "httpStatus": 200,
-        },
-        "remediationOutcome": {
-            "status": "verified",
-            "reason": f"{target_name} namespace cleanup review recorded without mutation",
-        },
-        "executorTrace": {
-            "mutationSubmitted": False,
-            "reviewOnly": True,
-            "toolName": "namespace_cleanup_review",
-            "target": target,
-        },
-    }
+    return action_execution_namespace_cleanup_review_execution_result(sealed_plan)
 
 
 def test_pod_create_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
-    target = target_from_plan(sealed_plan)
-    action = action_from_plan(sealed_plan)
-    parameters = action.get("parameters") if isinstance(action.get("parameters"), Mapping) else {}
-    return build_test_pod_create_review_execution_result(target, parameters)
+    return action_execution_test_pod_create_review_execution_result(sealed_plan)
 
 
 def crashloop_test_pod_name(prefix: str, request_id: str, index: int) -> str:
@@ -10686,327 +9931,50 @@ async def create_crashloop_test_pods_execution_result(
     client: httpx.AsyncClient,
     authorization: str,
 ) -> dict[str, Any]:
-    target = target_from_plan(sealed_plan)
-    parameters = parameters_from_plan(sealed_plan)
-    namespace = str(target.get("namespace") or target.get("name") or "")
-    count = int(parameters.get("count") or 0)
-    image = str(parameters.get("image") or TEST_POD_CREATE_DEFAULT_IMAGE)
-    name_prefix = str(parameters.get("namePrefix") or TEST_POD_CREATE_NAME_PREFIX)
-
-    if not TEST_POD_CREATE_ENABLED:
-        return {
-            "mutationOutcome": {
-                "status": "mutation_rejected",
-                "reason": "CrashLoop test Pod creation is disabled in product mode",
-                "httpStatus": 403,
-            },
-            "remediationOutcome": {"status": "not_remediated"},
-            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
-        }
-    if count < 1 or count > 5:
-        return {
-            "mutationOutcome": {
-                "status": "mutation_rejected",
-                "reason": "test Pod count must be explicitly set between 1 and 5",
-                "httpStatus": 400,
-            },
-            "remediationOutcome": {"status": "not_remediated"},
-            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
-        }
-    if namespace not in TEST_POD_CREATE_ALLOWED_NAMESPACES:
-        return {
-            "mutationOutcome": {
-                "status": "mutation_rejected",
-                "reason": f"namespace `{namespace}` is outside the test Pod creation allowlist",
-                "httpStatus": 403,
-            },
-            "remediationOutcome": {"status": "not_remediated"},
-            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
-        }
-    if image != TEST_POD_CREATE_DEFAULT_IMAGE:
-        return {
-            "mutationOutcome": {
-                "status": "mutation_rejected",
-                "reason": "test Pod image is fixed by policy",
-                "httpStatus": 400,
-            },
-            "remediationOutcome": {"status": "not_remediated"},
-            "executorTrace": {"mutationSubmitted": False, "toolName": "create_crashloop_test_pods", "target": target},
-        }
-
-    plan_digest = ""
-    if isinstance(sealed_plan.get("digest"), Mapping):
-        plan_digest = str(sealed_plan["digest"].get("planDigest") or "")
-    request_id = canonical_digest(
-        {
-            "idempotencyKey": sealed_plan.get("metadata", {}).get("idempotencyKey")
-            if isinstance(sealed_plan.get("metadata"), Mapping)
-            else "",
-            "planDigest": plan_digest,
-        }
-    ).removeprefix("sha256:")[:10]
-    manifests = [
-        crashloop_test_pod_manifest(
-            image=image,
-            index=index,
-            namespace=namespace,
-            pod_name=crashloop_test_pod_name(name_prefix, request_id, index),
-            request_id=request_id,
-        )
-        for index in range(1, count + 1)
-    ]
-    pods_path = f"/api/v1/namespaces/{path_segment(namespace)}/pods"
-    dry_run_path = append_query(
-        pods_path,
-        {"dryRun": "All", "fieldManager": ACTION_EXECUTOR_FIELD_MANAGER},
-    )
-    mutation_path = append_query(
-        pods_path,
-        {"fieldManager": ACTION_EXECUTOR_FIELD_MANAGER},
-    )
-
-    dry_run_errors: list[str] = []
-    for manifest in manifests:
-        response = await submit_ocp_request(
-            client,
-            authorization,
-            method="POST",
-            path=dry_run_path,
-            content_type="application/json",
-            body=manifest,
-        )
-        if response.status_code not in {200, 201}:
-            dry_run_errors.append(f"{manifest['metadata']['name']}: HTTP {response.status_code} {response.text[:300]}")
-    increment_metric("aiops_execution_dry_run_total")
-    if dry_run_errors:
-        return {
-            "mutationOutcome": {
-                "status": "mutation_failed",
-                "reason": "server_side_dry_run_failed",
-                "httpStatus": 400,
-                "body": "; ".join(dry_run_errors)[:1000],
-            },
-            "remediationOutcome": {"status": "mutation_failed"},
-            "executorTrace": {
-                "dryRunPath": dry_run_path,
-                "mutationSubmitted": False,
-                "toolName": "create_crashloop_test_pods",
-                "target": target,
-            },
-        }
-
-    created: list[str] = []
-    mutation_errors: list[str] = []
-    for manifest in manifests:
-        response = await submit_ocp_request(
-            client,
-            authorization,
-            method="POST",
-            path=mutation_path,
-            content_type="application/json",
-            body=manifest,
-        )
-        if response.status_code in {200, 201}:
-            created.append(str(manifest["metadata"]["name"]))
-        else:
-            mutation_errors.append(f"{manifest['metadata']['name']}: HTTP {response.status_code} {response.text[:300]}")
-
-    label_selector = quote(f"app={TEST_POD_CREATE_APP_LABEL},aiops.komsco/request-id={request_id}", safe="")
-    observed_payload = await fetch_ocp_json(
+    return await action_execution_create_crashloop_test_pods_execution_result(
+        sealed_plan,
         client,
-        f"/api/v1/namespaces/{path_segment(namespace)}/pods?labelSelector={label_selector}",
         authorization,
+        config=action_execution_config(),
+        submit_ocp_request_func=submit_ocp_request,
+        fetch_ocp_json_func=_fetch_ocp_json_for_action_execution,
     )
-    observed = len(resource_items(observed_payload))
-    ok = not mutation_errors and observed == count
-    if ok:
-        increment_metric("aiops_execution_mutation_succeeded_total")
-    else:
-        increment_metric("aiops_execution_mutation_failed_total")
-    return {
-        "mutationOutcome": {
-            "status": "mutation_succeeded" if ok else "mutation_partial" if created else "mutation_failed",
-            "reason": (
-                f"created {observed}/{count} intentional CrashLoopBackOff test Pods"
-                if ok
-                else f"created {len(created)}/{count}; {'; '.join(mutation_errors)[:700]}"
-            ),
-            "httpStatus": 201 if ok else 207 if created else 500,
-        },
-        "remediationOutcome": {
-            "status": "verified" if ok else "verification_failed",
-            "reason": f"observed {observed}/{count} Pods with app={TEST_POD_CREATE_APP_LABEL} and request-id={request_id}",
-        },
-        "executorTrace": {
-            "createdPods": created,
-            "dryRunPath": dry_run_path,
-            "mutationPath": mutation_path,
-            "mutationSubmitted": bool(created),
-            "requestId": request_id,
-            "target": target,
-            "toolName": "create_crashloop_test_pods",
-            "verificationSelector": f"app={TEST_POD_CREATE_APP_LABEL},aiops.komsco/request-id={request_id}",
-        },
-    }
 
 
 def pod_diagnostic_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
-    target = target_from_plan(sealed_plan)
-    target_label = "/".join(
-        part for part in [str(target.get("namespace") or ""), str(target.get("name") or "")] if part
-    ) or "pod"
-    return {
-        "mutationOutcome": {
-            "status": "review_recorded",
-            "reason": f"pod diagnostic review recorded for {target_label}; no Pod eviction or restart was executed",
-            "httpStatus": 200,
-        },
-        "remediationOutcome": {
-            "status": "verified",
-            "reason": f"{target_label} diagnostic/fix review recorded without mutation",
-        },
-        "executorTrace": {
-            "mutationSubmitted": False,
-            "reviewOnly": True,
-            "target": target,
-            "toolName": "pod_diagnostic_review",
-        },
-    }
+    return action_execution_pod_diagnostic_review_execution_result(sealed_plan)
 
 
 def pod_fix_or_rollback_review_execution_result(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
-    target = target_from_plan(sealed_plan)
-    target_label = "/".join(
-        part for part in [str(target.get("namespace") or ""), str(target.get("name") or "")] if part
-    ) or "pod"
-    return {
-        "mutationOutcome": {
-            "status": "review_recorded",
-            "reason": f"pod fix/rollback review recorded for {target_label}; no Pod restart, eviction, patch, or rollback was executed",
-            "httpStatus": 200,
-        },
-        "remediationOutcome": {
-            "status": "verified",
-            "reason": f"{target_label} fix/rollback review recorded without mutation",
-        },
-        "executorTrace": {
-            "mutationSubmitted": False,
-            "reviewOnly": True,
-            "target": target,
-            "toolName": "pod_fix_or_rollback_review",
-        },
-    }
+    return action_execution_pod_fix_or_rollback_review_execution_result(sealed_plan)
+
+
+REVIEW_ONLY_ACTION_TOOLS = {
+    "namespace_cleanup_review",
+    "test_pod_create_review",
+    "pod_diagnostic_review",
+    "pod_fix_or_rollback_review",
+}
+
+
+def sealed_plan_is_review_only(sealed_plan: Mapping[str, Any]) -> bool:
+    action = sealed_plan.get("action") if isinstance(sealed_plan.get("action"), Mapping) else {}
+    tool_name = str(action.get("toolName") or "")
+    normalized_parameters = (
+        action.get("normalizedParameters")
+        if isinstance(action.get("normalizedParameters"), Mapping)
+        else {}
+    )
+    return tool_name in REVIEW_ONLY_ACTION_TOOLS or bool(normalized_parameters.get("reviewOnly"))
 
 
 async def execute_typed_action_plan(sealed_plan: Mapping[str, Any]) -> dict[str, Any]:
-    if not OPENSHIFT_API_URL:
-        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
-
-    action = action_from_plan(sealed_plan)
-    if str(action.get("toolName") or "") == "namespace_cleanup_review":
-        return namespace_cleanup_review_execution_result(sealed_plan)
-    if str(action.get("toolName") or "") == "test_pod_create_review":
-        return test_pod_create_review_execution_result(sealed_plan)
-    if str(action.get("toolName") or "") == "pod_diagnostic_review":
-        return pod_diagnostic_review_execution_result(sealed_plan)
-    if str(action.get("toolName") or "") == "pod_fix_or_rollback_review":
-        return pod_fix_or_rollback_review_execution_result(sealed_plan)
-
-    executor_auth = executor_auth_header()
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(30.0, connect=5.0),
-    ) as client:
-        if str(action.get("toolName") or "") == "create_crashloop_test_pods":
-            return await create_crashloop_test_pods_execution_result(sealed_plan, client, executor_auth)
-
-        live_state = await fetch_executor_live_state(client, executor_auth, sealed_plan)
-        try:
-            mutation = build_mutation_request(
-                sealed_plan,
-                live_target=live_state["target"],
-                hpas=live_state.get("hpas") or (),
-                replica_sets=live_state.get("replicaSets") or (),
-            )
-        except AiopsCoreError as exc:
-            raise HTTPException(status_code=409, detail={"reason": exc.reason, "message": str(exc)}) from exc
-
-        dry_run_path = append_query(
-            mutation.path,
-            {
-                "dryRun": "All",
-                "fieldManager": ACTION_EXECUTOR_FIELD_MANAGER,
-            },
-        )
-        dry_run_response = await submit_ocp_request(
-            client,
-            executor_auth,
-            method=mutation.method,
-            path=dry_run_path,
-            content_type=mutation.content_type,
-            body=mutation.body,
-        )
-        increment_metric("aiops_execution_dry_run_total")
-        if dry_run_response.status_code not in mutation.expected_statuses:
-            return {
-                "mutationOutcome": {
-                    "status": "mutation_failed",
-                    "reason": "server_side_dry_run_failed",
-                    "httpStatus": dry_run_response.status_code,
-                    "body": dry_run_response.text[:1000],
-                },
-                "remediationOutcome": {"status": "mutation_failed"},
-                "executorTrace": {"dryRunPath": dry_run_path, "mutationSubmitted": False},
-            }
-
-        mutate_path = append_query(
-            mutation.path,
-            {
-                "fieldManager": ACTION_EXECUTOR_FIELD_MANAGER,
-            },
-        )
-        mutation_response = await submit_ocp_request(
-            client,
-            executor_auth,
-            method=mutation.method,
-            path=mutate_path,
-            content_type=mutation.content_type,
-            body=mutation.body,
-        )
-        if mutation_response.status_code not in mutation.expected_statuses:
-            increment_metric("aiops_execution_mutation_failed_total")
-            return {
-                "mutationOutcome": {
-                    "status": "mutation_failed",
-                    "reason": "kubernetes_api_request_failed",
-                    "httpStatus": mutation_response.status_code,
-                    "body": mutation_response.text[:1000],
-                },
-                "remediationOutcome": {"status": "mutation_failed"},
-                "executorTrace": {
-                    "dryRunPath": dry_run_path,
-                    "mutationPath": mutate_path,
-                    "mutationSubmitted": True,
-                },
-            }
-
-        postcondition = await verify_typed_action_postcondition(client, executor_auth, sealed_plan)
-        increment_metric("aiops_execution_mutation_succeeded_total")
-        return {
-            "mutationOutcome": {
-                "status": "mutation_succeeded",
-                "reason": "typed_action_executed",
-                "httpStatus": mutation_response.status_code,
-            },
-            "remediationOutcome": postcondition,
-            "executorTrace": {
-                "dryRunPath": dry_run_path,
-                "mutationPath": mutate_path,
-                "mutationSubmitted": True,
-                "toolName": action_from_plan(sealed_plan).get("toolName"),
-                "target": target_from_plan(sealed_plan),
-            },
-        }
+    return await action_execution_execute_typed_action_plan(
+        sealed_plan,
+        config=action_execution_config(),
+        fetch_ocp_json_func=_fetch_ocp_json_for_action_execution,
+        submit_ocp_request_func=submit_ocp_request,
+    )
 
 
 async def execute_action_with_executor(
@@ -11015,75 +9983,14 @@ async def execute_action_with_executor(
     *,
     fallback_authorization: str | None = None,
 ) -> dict[str, Any]:
-    action = action_from_plan(sealed_plan)
-    if str(action.get("toolName") or "") == "namespace_cleanup_review":
-        return namespace_cleanup_review_execution_result(sealed_plan)
-    if str(action.get("toolName") or "") == "test_pod_create_review":
-        return test_pod_create_review_execution_result(sealed_plan)
-    if str(action.get("toolName") or "") == "pod_diagnostic_review":
-        return pod_diagnostic_review_execution_result(sealed_plan)
-    if str(action.get("toolName") or "") == "pod_fix_or_rollback_review":
-        return pod_fix_or_rollback_review_execution_result(sealed_plan)
-
-    if str(action.get("toolName") or "") == "create_crashloop_test_pods":
-        action_auth = fallback_authorization or executor_auth_header()
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(30.0, connect=5.0),
-        ) as client:
-            return await create_crashloop_test_pods_execution_result(sealed_plan, client, action_auth)
-
-    if not ACTION_EXECUTOR_URL:
-        return await execute_typed_action_plan(sealed_plan)
-
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    if ACTION_EXECUTOR_SHARED_TOKEN:
-        headers["Authorization"] = f"Bearer {ACTION_EXECUTOR_SHARED_TOKEN}"
-
-    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
-        response = await client.post(
-            f"{ACTION_EXECUTOR_URL}/v1/executor/actions/execute",
-            headers=headers,
-            json={
-                "sealedActionPlan": redact_sensitive(dict(sealed_plan)),
-                "executionGrantRef": redact_sensitive(dict(grant_reference)),
-            },
-        )
-
-    if response.status_code >= 400:
-        return {
-            "mutationOutcome": {
-                "status": "mutation_failed",
-                "reason": "action_executor_request_failed",
-                "httpStatus": response.status_code,
-                "body": response.text[:1000],
-            },
-            "remediationOutcome": {"status": "mutation_failed"},
-            "executorTrace": {
-                "executorUrlConfigured": True,
-                "mutationSubmitted": False,
-            },
-        }
-
-    payload = response.json()
-    spec = payload.get("spec") if isinstance(payload, Mapping) else {}
-    if isinstance(spec, Mapping):
-        return dict(spec)
-
-    return {
-        "mutationOutcome": {
-            "status": "indeterminate",
-            "reason": "action_executor_response_invalid",
-        },
-        "remediationOutcome": {"status": "inconclusive"},
-        "executorTrace": {
-            "executorUrlConfigured": True,
-            "mutationSubmitted": True,
-        },
-    }
+    return await action_execution_execute_action_with_executor(
+        sealed_plan,
+        grant_reference,
+        config=action_execution_config(),
+        fallback_authorization=fallback_authorization,
+        fetch_ocp_json_func=_fetch_ocp_json_for_action_execution,
+        submit_ocp_request_func=submit_ocp_request,
+    )
 
 
 @app.get("/v1/cluster/summary")
@@ -11538,1207 +10445,6 @@ def latest_readable_audit_records(
 
 
 
-RAG_DEMO_RUNBOOKS: tuple[dict[str, Any], ...] = (
-    {
-        "chunkId": "komsco-runbook-pod-restart-oom-v1:chunk:0",
-        "documentId": "komsco-runbook-pod-restart-oom-v1",
-        "title": "Pod restart / OOMKilled RCA runbook",
-        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#pod-restart-rca",
-        "sourceType": "runbook",
-        "customer": "komsco",
-        "namespace": "default",
-        "version": "v0.1.3",
-        "aclGroups": ["cluster-admins", "aiops-admins"],
-        "labels": {"scenario": "pod_restart_rca", "severity": "warning", "domain": "openshift"},
-        "content": (
-            "Pod 재시작 RCA는 Event, previous container log, restart metric, Pod snapshot 순서로 확인 자료를 수집한다. "
-            "OOMKilled, Evicted, CrashLoopBackOff, readiness/liveness probe 실패를 구분하고, 메모리 limit 변경과 배포 변경 이력을 확인한다. "
-            "답변은 RCA, 즉시 조치, 재발 방지책, 참고 증적 순서로 작성한다."
-        ),
-    },
-    {
-        "chunkId": "komsco-runbook-image-pull-v1:chunk:0",
-        "documentId": "komsco-runbook-image-pull-v1",
-        "title": "ImagePullBackOff triage runbook",
-        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#image-pull",
-        "sourceType": "runbook",
-        "customer": "komsco",
-        "namespace": "openshift-marketplace",
-        "version": "v0.1.3",
-        "aclGroups": ["cluster-admins", "aiops-admins"],
-        "labels": {"scenario": "image_pull", "severity": "warning", "domain": "openshift"},
-        "content": (
-            "ImagePullBackOff는 image 경로, tag 존재 여부, registry 연결성, pull secret, mirror registry 정책을 확인한다. "
-            "CatalogSource 또는 marketplace Pod라면 관련 CatalogSource, Pod event, registry route 상태를 함께 본다."
-        ),
-    },
-    {
-        "chunkId": "komsco-runbook-etcd-fragmentation-v1:chunk:0",
-        "documentId": "komsco-runbook-etcd-fragmentation-v1",
-        "title": "etcd high fragmentation review runbook",
-        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#etcd-fragmentation",
-        "sourceType": "runbook",
-        "customer": "komsco",
-        "namespace": "openshift-etcd",
-        "version": "v0.1.3",
-        "aclGroups": ["cluster-admins", "aiops-admins"],
-        "labels": {"scenario": "etcd_fragmentation", "severity": "warning", "domain": "openshift"},
-        "content": (
-            "etcdDatabaseHighFragmentationRatio 경고는 즉시 defrag를 실행하지 않는다. "
-            "먼저 etcd member 상태, leader, DB size, fragmentation ratio, backup 상태, 운영 영향도를 확인하고 승인된 절차로만 defrag를 수행한다."
-        ),
-    },
-    {
-        "chunkId": "komsco-runbook-operator-degraded-v1:chunk:0",
-        "documentId": "komsco-runbook-operator-degraded-v1",
-        "title": "ClusterOperator degraded RCA runbook",
-        "sourceUri": "docs/Ver.0.1.3/Komsco_ai_agent_final.converted.md#operator",
-        "sourceType": "runbook",
-        "customer": "komsco",
-        "namespace": "cluster-scoped",
-        "version": "v0.1.3",
-        "aclGroups": ["cluster-admins", "aiops-admins"],
-        "labels": {"scenario": "operator_degraded", "severity": "warning", "domain": "openshift"},
-        "content": (
-            "ClusterOperator degraded/progressing/unavailable 상태는 ClusterOperator condition, relatedObjects, 최근 Warning event, operand Pod 상태를 함께 확인한다. "
-            "Upgradeable=False 또는 AdminAckRequired는 장애와 업데이트 정책 신호를 분리해서 설명한다."
-        ),
-    },
-    {
-        "chunkId": "komsco-runbook-bounded-action-v1:chunk:0",
-        "documentId": "komsco-runbook-bounded-action-v1",
-        "title": "Approved bounded action runbook",
-        "sourceUri": "docs/Ver.0.1.1/rag-storage-contract.md#runbook-plan",
-        "sourceType": "sop",
-        "customer": "komsco",
-        "namespace": "komsco-ai-dev",
-        "version": "v0.1.3",
-        "aclGroups": ["cluster-admins", "aiops-admins"],
-        "labels": {"scenario": "approved_action", "severity": "controlled", "domain": "execution"},
-        "content": (
-            "실행 가능한 조치는 자연어에서 직접 patch/delete/scale을 수행하지 않는다. "
-            "Gateway는 ActionProposal, SealedActionPlan, Approval, Action Executor 순서로 처리하고, 실행 전 fresh evidence와 namespace/owner/HPA/PDB 정책을 확인한다."
-        ),
-    },
-)
-
-
-def split_rag_upload_chunks(
-    content: str,
-    *,
-    max_chars: int | None = None,
-    overlap_chars: int | None = None,
-) -> list[str]:
-    limit = max_chars or RAG_UPLOAD_MAX_CHUNK_CHARS
-    effective_overlap = overlap_chars if overlap_chars is not None else RAG_UPLOAD_CHUNK_OVERLAP_CHARS
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
-    chunks: list[str] = []
-    current = ""
-    for paragraph in paragraphs or [content.strip()]:
-        candidate = f"{current}\n\n{paragraph}".strip() if current else paragraph
-        if len(candidate) <= limit:
-            current = candidate
-            continue
-        if current:
-            chunks.append(current)
-        if len(paragraph) <= limit:
-            current = paragraph
-            continue
-        for start in range(0, len(paragraph), limit):
-            chunk = paragraph[start : start + limit].strip()
-            if chunk:
-                chunks.append(chunk)
-        current = ""
-    if current:
-        chunks.append(current)
-    result = chunks[:RAG_UPLOAD_MAX_CHUNKS]
-    if effective_overlap <= 0 or len(result) <= 1:
-        return result
-    overlapped: list[str] = [result[0]]
-    for i in range(1, len(result)):
-        body = result[i]
-        available = limit - len(body) - 2  # reserve 2 for "\n\n" separator
-        raw_tail = result[i - 1][-effective_overlap:].strip()
-        tail = raw_tail[:available] if available > 0 and raw_tail else ""
-        overlapped.append(f"{tail}\n\n{body}" if tail else body)
-    return overlapped
-
-
-def sanitize_rag_upload_text(content: str) -> str:
-    """Remove control characters that cannot be persisted as PostgreSQL text."""
-    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", content)
-    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
-    cleaned = re.sub(r"\n{4,}", "\n\n\n", cleaned)
-    return cleaned.strip()
-
-
-def xml_local_name(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1] if "}" in tag else tag
-
-
-def xml_text_content(node: ET.Element) -> str:
-    parts = [
-        str(element.text or "").strip()
-        for element in node.iter()
-        if xml_local_name(str(element.tag)) == "t" and str(element.text or "").strip()
-    ]
-    return " ".join(parts).strip()
-
-
-def parse_rag_upload_form_labels(raw_labels: str | None) -> dict[str, str]:
-    if not raw_labels or not raw_labels.strip():
-        return {}
-
-    try:
-        parsed = json.loads(raw_labels)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail="RAG upload labels must be a JSON object") from exc
-
-    if not isinstance(parsed, Mapping):
-        raise HTTPException(status_code=400, detail="RAG upload labels must be a JSON object")
-
-    return {
-        str(key)[:80]: str(value)[:240]
-        for key, value in parsed.items()
-        if str(key).strip()
-    }
-
-
-def detect_rag_upload_file_format(name: str, mime_type: str, raw: bytes) -> str:
-    suffix = os.path.splitext(name.lower())[1]
-    normalized_mime = mime_type.lower()
-    if raw.startswith(b"%PDF-") or suffix == ".pdf" or normalized_mime == "application/pdf":
-        return "pdf"
-    if suffix == ".docx" or normalized_mime.endswith("wordprocessingml.document"):
-        return "docx"
-    if suffix == ".pptx" or normalized_mime.endswith("presentationml.presentation"):
-        return "pptx"
-    if suffix == ".xlsx" or normalized_mime.endswith("spreadsheetml.sheet"):
-        return "xlsx"
-    if normalized_mime.startswith("text/") or suffix in {".md", ".markdown", ".txt", ".yaml", ".yml", ".log"}:
-        return "text"
-    if suffix == ".json" or normalized_mime == "application/json":
-        return "text"
-    return "unknown"
-
-
-def extract_pdf_text(raw: bytes) -> tuple[str, dict[str, Any]]:
-    if PdfReader is None:
-        raise HTTPException(status_code=503, detail="PDF upload parser dependency is not installed")
-
-    try:
-        reader = PdfReader(io.BytesIO(raw))
-        if getattr(reader, "is_encrypted", False):
-            try:
-                reader.decrypt("")
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=400, detail="Encrypted PDF uploads are not supported") from exc
-
-        pages: list[str] = []
-        for page_number, page in enumerate(reader.pages, start=1):
-            text = str(page.extract_text() or "").strip()
-            if text:
-                pages.append(f"<!-- page: {page_number} -->\n{text}")
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"PDF text extraction failed: {type(exc).__name__}") from exc
-
-    content = "\n\n".join(pages).strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="PDF text extraction produced no text")
-    return content, {"parser": "pypdf", "documentFormat": "pdf", "pageCount": len(pages)}
-
-
-def extract_docx_text(raw: bytes) -> tuple[str, dict[str, Any]]:
-    try:
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            xml_bytes = archive.read("word/document.xml")
-    except (KeyError, zipfile.BadZipFile) as exc:
-        raise HTTPException(status_code=400, detail="DOCX text extraction failed") from exc
-
-    root = ET.fromstring(xml_bytes)
-    paragraphs = [xml_text_content(node) for node in root.iter() if xml_local_name(str(node.tag)) == "p"]
-    content = "\n\n".join(part for part in paragraphs if part).strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="DOCX text extraction produced no text")
-    return content, {"parser": "office-xml", "documentFormat": "docx", "paragraphCount": len(paragraphs)}
-
-
-def extract_pptx_text(raw: bytes) -> tuple[str, dict[str, Any]]:
-    try:
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            slide_names = sorted(
-                name for name in archive.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", name)
-            )
-            slides: list[str] = []
-            for slide_number, name in enumerate(slide_names, start=1):
-                root = ET.fromstring(archive.read(name))
-                texts = [
-                    str(element.text or "").strip()
-                    for element in root.iter()
-                    if xml_local_name(str(element.tag)) == "t" and str(element.text or "").strip()
-                ]
-                if texts:
-                    slides.append(f"<!-- slide: {slide_number} -->\n" + "\n".join(texts))
-    except (zipfile.BadZipFile, ET.ParseError) as exc:
-        raise HTTPException(status_code=400, detail="PPTX text extraction failed") from exc
-
-    content = "\n\n".join(slides).strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="PPTX text extraction produced no text")
-    return content, {"parser": "office-xml", "documentFormat": "pptx", "slideCount": len(slides)}
-
-
-def extract_xlsx_text(raw: bytes) -> tuple[str, dict[str, Any]]:
-    try:
-        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            shared_strings: list[str] = []
-            if "xl/sharedStrings.xml" in archive.namelist():
-                shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
-                shared_strings = [
-                    xml_text_content(item)
-                    for item in shared_root.iter()
-                    if xml_local_name(str(item.tag)) == "si"
-                ]
-
-            sheet_names = sorted(
-                name for name in archive.namelist() if re.match(r"xl/worksheets/sheet\d+\.xml$", name)
-            )
-            sheets: list[str] = []
-            for sheet_number, name in enumerate(sheet_names, start=1):
-                root = ET.fromstring(archive.read(name))
-                values: list[str] = []
-                for cell in (node for node in root.iter() if xml_local_name(str(node.tag)) == "c"):
-                    cell_type = str(cell.attrib.get("t") or "")
-                    raw_value = ""
-                    for child in cell:
-                        if xml_local_name(str(child.tag)) == "v":
-                            raw_value = str(child.text or "").strip()
-                            break
-                    if not raw_value:
-                        continue
-                    if cell_type == "s":
-                        try:
-                            values.append(shared_strings[int(raw_value)])
-                        except (ValueError, IndexError):
-                            values.append(raw_value)
-                    else:
-                        values.append(raw_value)
-                if values:
-                    sheets.append(f"<!-- sheet: {sheet_number} -->\n" + "\n".join(values))
-    except (zipfile.BadZipFile, ET.ParseError) as exc:
-        raise HTTPException(status_code=400, detail="XLSX text extraction failed") from exc
-
-    content = "\n\n".join(sheets).strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="XLSX text extraction produced no text")
-    return content, {"parser": "office-xml", "documentFormat": "xlsx", "sheetCount": len(sheets)}
-
-
-def extract_rag_upload_file_content(name: str, mime_type: str, raw: bytes) -> tuple[str, dict[str, Any]]:
-    if not raw:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    if len(raw) > RAG_UPLOAD_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="RAG upload file is too large")
-
-    document_format = detect_rag_upload_file_format(name, mime_type, raw)
-    if document_format == "pdf":
-        content, report = extract_pdf_text(raw)
-    elif document_format == "docx":
-        content, report = extract_docx_text(raw)
-    elif document_format == "pptx":
-        content, report = extract_pptx_text(raw)
-    elif document_format == "xlsx":
-        content, report = extract_xlsx_text(raw)
-    elif document_format == "text":
-        try:
-            content = raw.decode("utf-8-sig")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Text upload must be UTF-8 encoded") from exc
-        report = {"parser": "utf-8-text", "documentFormat": "text"}
-    else:
-        guessed = mimetypes.guess_type(name)[0] or mime_type or "application/octet-stream"
-        raise HTTPException(status_code=400, detail=f"Unsupported RAG upload file type: {guessed}")
-
-    content = sanitize_rag_upload_text(content)
-    if not content:
-        raise HTTPException(status_code=400, detail="RAG upload parser produced empty content")
-
-    truncated = False
-    if len(content) > RAG_UPLOAD_MAX_CHARS:
-        content = content[:RAG_UPLOAD_MAX_CHARS].rstrip()
-        truncated = True
-
-    report.update(
-        {
-            "originalFileName": name,
-            "originalMimeType": mime_type or "application/octet-stream",
-            "originalBytes": len(raw),
-            "extractedChars": len(content),
-            "truncated": truncated,
-        }
-    )
-    return content, report
-
-
-def decode_rag_upload_content(req: RagDocumentUploadCreate) -> str:
-    if req.content and req.data:
-        raise HTTPException(status_code=400, detail="Provide either content or base64 data, not both")
-    if req.content is not None:
-        content = req.content
-        byte_size = len(content.encode("utf-8"))
-    elif req.data is not None:
-        try:
-            raw = base64.b64decode(req.data, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise HTTPException(status_code=400, detail="Invalid upload base64 data") from exc
-        byte_size = len(raw)
-        try:
-            content = raw.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise HTTPException(status_code=400, detail="Only UTF-8 text/markdown uploads are supported in Ver.0.1.4") from exc
-    else:
-        raise HTTPException(status_code=400, detail="Upload content is required")
-
-    if byte_size > RAG_UPLOAD_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="RAG upload is too large")
-    if not content.strip():
-        raise HTTPException(status_code=400, detail="Upload content is empty")
-    return content
-
-
-def subject_acl_principals(subject: Mapping[str, Any]) -> set[str]:
-    principals: set[str] = set()
-    groups = subject.get("groups")
-    if isinstance(groups, list):
-        principals.update(
-            str(group).strip()
-            for group in groups
-            if str(group).strip() and str(group).strip() not in RAG_BROAD_SYSTEM_GROUPS
-        )
-
-    username = str(subject.get("username") or "")
-    uid = str(subject.get("uid") or "")
-    if username and username != "unknown":
-        principals.add(f"user:{username}")
-    if uid and uid != "unknown":
-        principals.add(f"uid:{uid}")
-    return principals
-
-
-def upload_acl_groups_for_subject(req: RagDocumentUploadCreate, subject: Mapping[str, Any]) -> list[str]:
-    principals = subject_acl_principals(subject)
-    if not principals:
-        raise HTTPException(status_code=403, detail="Authenticated subject has no usable RAG ACL principals")
-
-    if req.aclGroups:
-        requested = {str(group) for group in req.aclGroups if str(group).strip()}
-        allowed = sorted(requested.intersection(principals))
-        if not allowed:
-            raise HTTPException(status_code=403, detail="Requested RAG ACL groups are not owned by the current subject")
-        return allowed
-
-    return sorted(principals)
-
-
-def classify_rag_upload_safety(content: str, labels: Mapping[str, str]) -> str:
-    if RAG_DANGEROUS_CONTENT_RE.search(content):
-        return "dangerous"
-
-    requested = str(labels.get("safetyClass") or labels.get("safety_class") or "").strip()
-    if requested in {"approved-exec", "dangerous"}:
-        return requested
-    return "approved-exec"
-
-
-def classify_rag_upload_freshness(labels: Mapping[str, str]) -> str:
-    requested = str(labels.get("freshness") or "").strip()
-    if requested in {"fresh", "stale", "unknown"}:
-        return requested
-    return "fresh"
-
-
-def build_rag_upload_document(req: RagDocumentUploadCreate, subject: Mapping[str, Any]) -> dict[str, Any]:
-    content = sanitize_rag_upload_text(decode_rag_upload_content(req))
-    redacted_content = redact_sensitive(content)
-    if not isinstance(redacted_content, str):
-        redacted_content = str(redacted_content)
-    chunks = split_rag_upload_chunks(redacted_content)
-    if not chunks:
-        raise HTTPException(status_code=400, detail="No upload chunks were produced")
-
-    checksum = canonical_digest(content)
-    document_id = f"user-upload:{checksum.removeprefix('sha256:')[:16]}"
-    generated_at = now_rfc3339()
-    safety_class = classify_rag_upload_safety(redacted_content, req.labels)
-    freshness = classify_rag_upload_freshness(req.labels)
-    labels = {
-        "source": "user-upload",
-        "version": req.version,
-        **req.labels,
-        "freshness": freshness,
-        "safetyClass": safety_class,
-    }
-    source_uri = req.sourceUri or f"upload://{document_id}/{req.name}"
-    acl_groups = upload_acl_groups_for_subject(req, subject)
-    return {
-        "document": {
-            "documentId": document_id,
-            "name": req.name,
-            "title": req.name,
-            "mimeType": req.mimeType,
-            "sourceUri": source_uri,
-            "sourceType": req.sourceType,
-            "customer": req.customer,
-            "namespace": req.namespace,
-            "version": req.version,
-            "aclGroups": acl_groups,
-            "labels": labels,
-            "checksum": checksum,
-            "contentBytes": len(content.encode("utf-8")),
-            "chunkCount": len(chunks),
-            "ingestedAt": generated_at,
-            "uploadedBy": str(subject.get("username") or "unknown"),
-            "runId": req.runId or "",
-        },
-        "chunks": [
-            {
-                "chunkId": f"{document_id}:chunk:{index}",
-                "documentId": document_id,
-                "chunkIndex": index,
-                "title": req.name,
-                "sourceUri": f"{source_uri}#chunk-{index}",
-                "sourceType": req.sourceType,
-                "customer": req.customer,
-                "namespace": req.namespace,
-                "version": req.version,
-                "aclGroups": acl_groups,
-                "labels": {**labels, "chunkIndex": str(index)},
-                "content": chunk,
-                "textHash": canonical_digest(chunk),
-                "checksum": canonical_digest({"documentId": document_id, "chunkIndex": index, "content": chunk}),
-            }
-            for index, chunk in enumerate(chunks)
-        ],
-    }
-
-
-def rag_tokenize(value: str) -> list[str]:
-    return re.findall(r"[0-9a-zA-Z가-힣_./:-]+", value.lower())
-
-
-_rag_embedding_model_warned = False
-_rag_embedding_fallback_warned = False
-
-
-def _warn_embedding_fallback(raw_vec: list[float] | None) -> None:
-    """Emit a one-time warning when the embedding service result cannot be used."""
-    global _rag_embedding_fallback_warned
-    if not RAG_EMBEDDING_SERVICE_URL or _rag_embedding_fallback_warned:
-        return
-    import warnings
-    reason = (
-        f"expected {RAG_EFFECTIVE_VECTOR_DIMENSIONS}-dim but got {len(raw_vec)}-dim; "
-        "set KOMSCO_AI_EMBEDDING_DIMENSIONS to match the service output dimensions"
-        if raw_vec
-        else "embedding service returned None (connection error or bad response)"
-    )
-    warnings.warn(
-        f"RAG embedding service fallback active — {reason}. "
-        "Chunks will be stored with hashing-bow-v1 until this is resolved.",
-        RuntimeWarning,
-        stacklevel=3,
-    )
-    _rag_embedding_fallback_warned = True
-
-
-def build_rag_embedding(value: str, dimensions: int | None = None) -> list[float]:
-    global _rag_embedding_model_warned
-    if RAG_EMBEDDING_MODEL and not _rag_embedding_model_warned:
-        import warnings
-        warnings.warn(
-            f"KOMSCO_AI_EMBEDDING_MODEL={RAG_EMBEDDING_MODEL!r} is configured "
-            "but hashing-bow-v1 fallback is being used for this embedding call. "
-            "Check the embedding service URL, response dimensions, or timeout if semantic-service was expected.",
-            stacklevel=2,
-        )
-        _rag_embedding_model_warned = True
-    size = int(dimensions or RAG_EFFECTIVE_VECTOR_DIMENSIONS or 64)
-    vector = [0.0 for _ in range(size)]
-    tokens = rag_tokenize(value)
-    if not tokens:
-        return vector
-    for token in tokens:
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        bucket = int.from_bytes(digest[:4], "big") % size
-        sign = 1.0 if digest[4] % 2 == 0 else -1.0
-        vector[bucket] += sign
-    norm = math.sqrt(sum(item * item for item in vector)) or 1.0
-    return [round(item / norm, 6) for item in vector]
-
-
-async def call_embedding_service_async(text: str) -> list[float] | None:
-    """Call external embedding service; returns None on failure (caller falls back to hashing).
-
-    Supports embedding API formats used by company and local model providers:
-    - Ollama native       : POST /api/embed       {"model": ..., "input": text}
-    - OpenAI-compat TEI  : POST /v1/embeddings  {"input": text, "model": ...}
-    - TEI native         : POST /embed           {"inputs": text}
-    - Ollama legacy      : POST /api/embeddings  {"model": ..., "prompt": text}
-    """
-    if not RAG_EMBEDDING_SERVICE_URL:
-        return None
-
-    # Resolve endpoint URL and request payload.
-    # _has_version_path: URL contains a versioned path segment (/v1, /v2, …) — indicates OpenAI-compat.
-    # Bare-hostname + model name also implies OpenAI-compat; in that case append the standard path.
-    url = RAG_EMBEDDING_SERVICE_URL.rstrip("/")
-    _has_version_path = bool(re.search(r"/v\d+(?:/|$)", url))
-    style = RAG_EMBEDDING_API_STYLE
-    if style == "ollama":
-        if url.endswith("/api/embed"):
-            pass
-        elif url.endswith("/api"):
-            url = url + "/embed"
-        else:
-            url = url + "/api/embed"
-        payload = {"input": text}
-        if RAG_EMBEDDING_MODEL:
-            payload["model"] = RAG_EMBEDDING_MODEL
-    elif style in {"openai", "openai-compatible", "tei-openai"} or (
-        not style and (bool(RAG_EMBEDDING_MODEL) or _has_version_path)
-    ):
-        if re.search(r"/v\d+$", url):
-            url = url + "/embeddings"
-        elif not _has_version_path:
-            url = url + "/v1/embeddings"
-        payload: dict[str, Any] = {"input": text}
-        if RAG_EMBEDDING_MODEL:
-            payload["model"] = RAG_EMBEDDING_MODEL
-    else:
-        if style == "tei" and not url.endswith("/embed"):
-            url = url + "/embed"
-        payload = {"inputs": text}
-
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(RAG_EMBEDDING_TIMEOUT_SECONDS, connect=5.0)
-        ) as client:
-            resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
-            resp.raise_for_status()
-            data = resp.json()
-            # OpenAI-compat: {"data": [{"embedding": [...]}]}
-            if isinstance(data, dict) and "data" in data:
-                items = data["data"]
-                if items and isinstance(items[0], dict) and "embedding" in items[0]:
-                    return [float(v) for v in items[0]["embedding"]]
-            # TEI native: [[...]] or [...]
-            if isinstance(data, list) and data:
-                vec = data[0] if isinstance(data[0], list) else data
-                return [float(v) for v in vec]
-            # Ollama: {"embedding": [...]}
-            if isinstance(data, dict) and "embedding" in data:
-                return [float(v) for v in data["embedding"]]
-            # Ollama /api/embed: {"embeddings": [[...]]}
-            if isinstance(data, dict) and "embeddings" in data:
-                embeddings = data["embeddings"]
-                if isinstance(embeddings, list) and embeddings:
-                    vec = embeddings[0] if isinstance(embeddings[0], list) else embeddings
-                    return [float(v) for v in vec]
-            return None
-    except Exception:
-        return None
-
-
-def pgvector_literal(vector: list[float]) -> str:
-    return "[" + ",".join(f"{item:.6f}" for item in vector) + "]"
-
-
-RAG_MIGRATIONS: list[tuple[int, str, str]] = [
-    (1, "initial schema", ""),
-    (
-        2,
-        "add content_chars to chunks",
-        "ALTER TABLE aiops_rag_chunks ADD COLUMN IF NOT EXISTS content_chars integer",
-    ),
-    (
-        3,
-        "add embedding_model to chunks",
-        "ALTER TABLE aiops_rag_chunks ADD COLUMN IF NOT EXISTS embedding_model text NOT NULL DEFAULT 'hashing-bow-v1'",
-    ),
-]
-
-
-def apply_rag_migrations(conn: Any) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS aiops_rag_schema_version (
-          version integer PRIMARY KEY,
-          description text NOT NULL,
-          applied_at timestamptz NOT NULL DEFAULT now()
-        )
-        """
-    )
-    applied = {
-        row["version"]
-        for row in conn.execute("SELECT version FROM aiops_rag_schema_version").fetchall()
-    }
-    for version, description, sql in RAG_MIGRATIONS:
-        if version in applied:
-            continue
-        if sql:
-            conn.execute(sql)
-        conn.execute(
-            "INSERT INTO aiops_rag_schema_version (version, description) VALUES (%s, %s)",
-            (version, description),
-        )
-
-
-def ensure_pgvector_schema(conn: Any) -> None:
-    dimensions = int(RAG_EFFECTIVE_VECTOR_DIMENSIONS or 64)
-    conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS aiops_rag_documents (
-          document_id text PRIMARY KEY,
-          collection text NOT NULL,
-          title text NOT NULL,
-          source_uri text NOT NULL,
-          source_type text NOT NULL,
-          customer text NOT NULL,
-          namespace text NOT NULL,
-          version text NOT NULL,
-          mime_type text NOT NULL DEFAULT 'text/plain',
-          acl_groups text[] NOT NULL,
-          labels jsonb NOT NULL DEFAULT '{}'::jsonb,
-          checksum text NOT NULL,
-          chunk_count integer NOT NULL DEFAULT 0,
-          content_bytes integer NOT NULL DEFAULT 0,
-          uploaded_by text NOT NULL DEFAULT 'unknown',
-          run_id text NOT NULL DEFAULT '',
-          lifecycle text NOT NULL DEFAULT 'active',
-          ingested_at timestamptz NOT NULL DEFAULT now(),
-          updated_at timestamptz NOT NULL DEFAULT now()
-        )
-        """
-    )
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS aiops_rag_chunks (
-          chunk_id text PRIMARY KEY,
-          collection text NOT NULL,
-          document_id text NOT NULL,
-          title text NOT NULL,
-          source_uri text NOT NULL,
-          source_type text NOT NULL,
-          customer text NOT NULL,
-          namespace text NOT NULL,
-          version text NOT NULL,
-          acl_groups text[] NOT NULL,
-          labels jsonb NOT NULL DEFAULT '{{}}'::jsonb,
-          lifecycle text NOT NULL DEFAULT 'active',
-          content_redacted text NOT NULL,
-          text_hash text NOT NULL,
-          checksum text NOT NULL,
-          embedding vector({dimensions}) NOT NULL,
-          updated_at timestamptz NOT NULL DEFAULT now()
-        )
-        """
-    )
-    apply_rag_migrations(conn)
-
-
-def seed_pgvector_runbooks(conn: Any) -> None:
-    if not RAG_DEMO_SEED_ENABLED:
-        return
-    for doc in RAG_DEMO_RUNBOOKS:
-        content = str(doc["content"])
-        embedding = pgvector_literal(build_rag_embedding(f"{doc['title']} {content}"))
-        text_hash = canonical_digest(content)
-        checksum = canonical_digest({"chunkId": doc["chunkId"], "content": content, "version": doc["version"]})
-        conn.execute(
-            """
-            INSERT INTO aiops_rag_chunks (
-              chunk_id, collection, document_id, title, source_uri, source_type, customer,
-              namespace, version, acl_groups, labels, lifecycle, content_redacted,
-              text_hash, checksum, embedding, updated_at
-            ) VALUES (
-              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s::vector, now()
-            )
-            ON CONFLICT (chunk_id) DO UPDATE SET
-              collection = EXCLUDED.collection,
-              title = EXCLUDED.title,
-              source_uri = EXCLUDED.source_uri,
-              source_type = EXCLUDED.source_type,
-              customer = EXCLUDED.customer,
-              namespace = EXCLUDED.namespace,
-              version = EXCLUDED.version,
-              acl_groups = EXCLUDED.acl_groups,
-              labels = EXCLUDED.labels,
-              lifecycle = EXCLUDED.lifecycle,
-              content_redacted = EXCLUDED.content_redacted,
-              text_hash = EXCLUDED.text_hash,
-              checksum = EXCLUDED.checksum,
-              embedding = EXCLUDED.embedding,
-              updated_at = now()
-            """,
-            (
-                doc["chunkId"],
-                RAG_COLLECTION,
-                doc["documentId"],
-                doc["title"],
-                doc["sourceUri"],
-                doc["sourceType"],
-                doc["customer"],
-                doc["namespace"],
-                doc["version"],
-                doc["aclGroups"],
-                Jsonb(doc["labels"]) if Jsonb else json.dumps(doc["labels"]),
-                content,
-                text_hash,
-                checksum,
-                embedding,
-            ),
-        )
-
-
-async def persist_rag_upload_document(record: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
-    if not RAG_BACKEND_URL:
-        return (
-            "not_configured",
-            "KOMSCO_AI_RAG_BACKEND_URL is not configured; upload ingestion was validated but not persisted.",
-            {},
-        )
-    if psycopg is None or dict_row is None:
-        return ("unavailable", "psycopg is not installed in the Gateway runtime.", {})
-
-    document = record["document"]
-    try:
-        with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
-            ensure_pgvector_schema(conn)
-            conn.execute(
-                """
-                INSERT INTO aiops_rag_documents (
-                  document_id, collection, title, source_uri, source_type, customer, namespace,
-                  version, mime_type, acl_groups, labels, checksum, chunk_count, content_bytes,
-                  uploaded_by, run_id, lifecycle, ingested_at, updated_at
-                ) VALUES (
-                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', now(), now()
-                )
-                ON CONFLICT (document_id) DO UPDATE SET
-                  title = EXCLUDED.title,
-                  source_uri = EXCLUDED.source_uri,
-                  source_type = EXCLUDED.source_type,
-                  customer = EXCLUDED.customer,
-                  namespace = EXCLUDED.namespace,
-                  version = EXCLUDED.version,
-                  mime_type = EXCLUDED.mime_type,
-                  acl_groups = EXCLUDED.acl_groups,
-                  labels = EXCLUDED.labels,
-                  checksum = EXCLUDED.checksum,
-                  chunk_count = EXCLUDED.chunk_count,
-                  content_bytes = EXCLUDED.content_bytes,
-                  uploaded_by = EXCLUDED.uploaded_by,
-                  run_id = EXCLUDED.run_id,
-                  lifecycle = EXCLUDED.lifecycle,
-                  updated_at = now()
-                """,
-                (
-                    document["documentId"],
-                    RAG_COLLECTION,
-                    document["title"],
-                    document["sourceUri"],
-                    document["sourceType"],
-                    document["customer"],
-                    document["namespace"],
-                    document["version"],
-                    document["mimeType"],
-                    document["aclGroups"],
-                    Jsonb(document["labels"]) if Jsonb else json.dumps(document["labels"]),
-                    document["checksum"],
-                    document["chunkCount"],
-                    document["contentBytes"],
-                    document["uploadedBy"],
-                    document["runId"],
-                ),
-            )
-            for chunk in record["chunks"]:
-                chunk_text = f"{chunk['title']} {chunk['content']}"
-                raw_vec = await call_embedding_service_async(chunk_text)
-                if raw_vec and len(raw_vec) == RAG_EFFECTIVE_VECTOR_DIMENSIONS:
-                    embedding = pgvector_literal(raw_vec)
-                else:
-                    _warn_embedding_fallback(raw_vec)
-                    embedding = pgvector_literal(build_rag_embedding(chunk_text))
-                conn.execute(
-                    """
-                    INSERT INTO aiops_rag_chunks (
-                      chunk_id, collection, document_id, title, source_uri, source_type, customer,
-                      namespace, version, acl_groups, labels, lifecycle, content_redacted,
-                      text_hash, checksum, embedding, updated_at
-                    ) VALUES (
-                      %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s, %s, %s, %s::vector, now()
-                    )
-                    ON CONFLICT (chunk_id) DO UPDATE SET
-                      collection = EXCLUDED.collection,
-                      title = EXCLUDED.title,
-                      source_uri = EXCLUDED.source_uri,
-                      source_type = EXCLUDED.source_type,
-                      customer = EXCLUDED.customer,
-                      namespace = EXCLUDED.namespace,
-                      version = EXCLUDED.version,
-                      acl_groups = EXCLUDED.acl_groups,
-                      labels = EXCLUDED.labels,
-                      lifecycle = EXCLUDED.lifecycle,
-                      content_redacted = EXCLUDED.content_redacted,
-                      text_hash = EXCLUDED.text_hash,
-                      checksum = EXCLUDED.checksum,
-                      embedding = EXCLUDED.embedding,
-                      updated_at = now()
-                    """,
-                    (
-                        chunk["chunkId"],
-                        RAG_COLLECTION,
-                        chunk["documentId"],
-                        chunk["title"],
-                        chunk["sourceUri"],
-                        chunk["sourceType"],
-                        chunk["customer"],
-                        chunk["namespace"],
-                        chunk["version"],
-                        chunk["aclGroups"],
-                        Jsonb(chunk["labels"]) if Jsonb else json.dumps(chunk["labels"]),
-                        chunk["content"],
-                        chunk["textHash"],
-                        chunk["checksum"],
-                        embedding,
-                    ),
-                )
-        return ("persisted", "Uploaded document chunks were persisted to pgvector.", document)
-    except Exception as exc:
-        return ("unavailable", f"pgvector upload ingestion failed: {exc}", {})
-
-
-async def sync_rag_directory_on_startup() -> None:
-    """Ingest all .md/.txt/.pdf files in RAG_SYNC_DIR into pgvector on startup."""
-    sync_dir = Path(RAG_SYNC_DIR)
-    if not sync_dir.is_dir():
-        return
-
-    _RAG_SYNC_EXTS = {".md", ".txt", ".pdf"}
-    synced, skipped = 0, 0
-    for path in sorted(sync_dir.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in _RAG_SYNC_EXTS:
-            continue
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-
-        checksum = canonical_digest(content)
-        document_id = f"sync:{checksum.removeprefix('sha256:')[:16]}"
-        chunks = split_rag_upload_chunks(content)
-        if not chunks:
-            continue
-
-        generated_at = now_rfc3339()
-        source_uri = path.as_posix()
-        name = path.name
-        record: dict[str, Any] = {
-            "document": {
-                "documentId": document_id,
-                "name": name,
-                "title": name,
-                "mimeType": "text/plain",
-                "sourceUri": source_uri,
-                "sourceType": RAG_SYNC_SOURCE_TYPE,
-                "customer": RAG_SYNC_CUSTOMER,
-                "namespace": RAG_SYNC_NAMESPACE,
-                "version": RAG_SYNC_VERSION,
-                "aclGroups": RAG_SYNC_ACL_GROUPS,
-                "labels": {"source": "rag-sync-dir"},
-                "checksum": checksum,
-                "contentBytes": len(content.encode("utf-8")),
-                "chunkCount": len(chunks),
-                "ingestedAt": generated_at,
-                "uploadedBy": "rag-sync",
-                "runId": "",
-            },
-            "chunks": [
-                {
-                    "chunkId": f"{document_id}:chunk:{i}",
-                    "documentId": document_id,
-                    "chunkIndex": i,
-                    "title": name,
-                    "sourceUri": f"{source_uri}#chunk-{i}",
-                    "sourceType": RAG_SYNC_SOURCE_TYPE,
-                    "customer": RAG_SYNC_CUSTOMER,
-                    "namespace": RAG_SYNC_NAMESPACE,
-                    "version": RAG_SYNC_VERSION,
-                    "aclGroups": RAG_SYNC_ACL_GROUPS,
-                    "labels": {"source": "rag-sync-dir"},
-                    "content": chunk,
-                    "textHash": canonical_digest(chunk),
-                    "checksum": canonical_digest(f"{document_id}:{i}:{chunk}"),
-                }
-                for i, chunk in enumerate(chunks)
-            ],
-        }
-        status, _, _ = await persist_rag_upload_document(record)
-        if status == "persisted":
-            synced += 1
-        else:
-            skipped += 1
-
-
-def list_pgvector_upload_documents(subject: Mapping[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
-    if not RAG_BACKEND_URL:
-        return ("not_configured", "KOMSCO_AI_RAG_BACKEND_URL is not configured.", [])
-    if psycopg is None or dict_row is None:
-        return ("unavailable", "psycopg is not installed in the Gateway runtime.", [])
-    subject_principals = subject_acl_principals(subject)
-    if not subject_principals:
-        return ("empty", "Current subject has no RAG ACL principals.", [])
-    try:
-        with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
-            ensure_pgvector_schema(conn)
-            rows = conn.execute(
-                """
-                SELECT
-                  document_id, title, source_uri, source_type, customer, namespace, version,
-                  mime_type, acl_groups, labels, checksum, chunk_count, content_bytes,
-                  uploaded_by, run_id, lifecycle, ingested_at, updated_at
-                FROM aiops_rag_documents
-                WHERE collection = %s
-                  AND source_type = 'user-upload'
-                  AND lifecycle = 'active'
-                  AND acl_groups && %s::text[]
-                ORDER BY updated_at DESC
-                LIMIT 50
-                """,
-                (RAG_COLLECTION, sorted(subject_principals)),
-            ).fetchall()
-    except Exception as exc:
-        return ("unavailable", f"pgvector upload list failed: {exc}", [])
-
-    documents = [
-        redact_sensitive(
-            {
-                "documentId": row.get("document_id"),
-                "title": row.get("title"),
-                "sourceUri": row.get("source_uri"),
-                "sourceType": row.get("source_type"),
-                "customer": row.get("customer"),
-                "namespace": row.get("namespace"),
-                "version": row.get("version"),
-                "mimeType": row.get("mime_type"),
-                "aclGroups": row.get("acl_groups") or [],
-                "labels": row.get("labels") or {},
-                "checksum": row.get("checksum"),
-                "chunkCount": row.get("chunk_count"),
-                "contentBytes": row.get("content_bytes"),
-                "uploadedBy": row.get("uploaded_by"),
-                "runId": row.get("run_id"),
-                "ingestedAt": row.get("ingested_at").isoformat() if row.get("ingested_at") else "",
-                "updatedAt": row.get("updated_at").isoformat() if row.get("updated_at") else "",
-            }
-        )
-        for row in rows
-        if set(row.get("acl_groups") or []).intersection(subject_principals)
-    ]
-    return ("collected" if documents else "empty", "Uploaded RAG documents retrieved from pgvector.", documents)
-
-
-def row_matches_rag_filters(
-    row: Mapping[str, Any],
-    filters: RagSearchFilters,
-    subject_principals: set[str],
-) -> bool:
-    if filters.sourceTypes and row.get("source_type") not in filters.sourceTypes:
-        return False
-    if filters.namespaces and row.get("namespace") not in filters.namespaces:
-        return False
-    if filters.customers and row.get("customer") not in filters.customers:
-        return False
-    if filters.runbookIds and row.get("document_id") not in filters.runbookIds:
-        return False
-    if filters.versions and row.get("version") not in filters.versions:
-        return False
-    acl_groups = set(row.get("acl_groups") or [])
-    if not acl_groups.intersection(subject_principals):
-        return False
-    if filters.aclGroups and not set(filters.aclGroups).intersection(acl_groups.intersection(subject_principals)):
-        return False
-    labels = row.get("labels") if isinstance(row.get("labels"), Mapping) else {}
-    for key, expected in filters.labels.items():
-        if str(labels.get(key) or "") != str(expected):
-            return False
-    if labels.get("safetyClass") == "dangerous" and filters.labels.get("safetyClass") != "dangerous":
-        return False
-    if labels.get("freshness") == "stale" and filters.labels.get("freshness") != "stale":
-        return False
-    return bool(acl_groups)
-
-
-async def search_pgvector_runbooks(
-    req: RagSearchCreate,
-    subject: Mapping[str, Any] | None = None,
-) -> tuple[str, str, list[dict[str, Any]]]:
-    if not RAG_BACKEND_URL:
-        return (
-            "not_configured",
-            "KOMSCO_AI_RAG_BACKEND_URL is not configured; search returns no retrieved runbook evidence.",
-            [],
-        )
-    if psycopg is None or dict_row is None:
-        return ("unavailable", "psycopg is not installed in the Gateway runtime.", [])
-
-    subject_principals = subject_acl_principals(subject or safe_subject(None))
-    if not subject_principals:
-        return ("empty", "Current subject has no RAG ACL principals.", [])
-
-    raw_query_vec = await call_embedding_service_async(req.query)
-    if raw_query_vec and len(raw_query_vec) == RAG_EFFECTIVE_VECTOR_DIMENSIONS:
-        query_vector = pgvector_literal(raw_query_vec)
-    else:
-        _warn_embedding_fallback(raw_query_vec)
-        query_vector = pgvector_literal(build_rag_embedding(req.query))
-    try:
-        with psycopg.connect(RAG_BACKEND_URL, row_factory=dict_row) as conn:
-            ensure_pgvector_schema(conn)
-            seed_pgvector_runbooks(conn)
-            rows = conn.execute(
-                """
-                SELECT
-                  chunk_id, document_id, title, source_uri, source_type, customer, namespace,
-                  version, acl_groups, labels, content_redacted, text_hash, checksum,
-                  1 - (embedding <=> %s::vector) AS score
-                FROM aiops_rag_chunks
-                WHERE collection = %s
-                  AND lifecycle = 'active'
-                  AND acl_groups && %s::text[]
-                ORDER BY embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (query_vector, RAG_COLLECTION, sorted(subject_principals), query_vector, max(req.topK * 4, 20)),
-            ).fetchall()
-    except Exception as exc:  # pragma: no cover - depends on local DB state
-        return ("unavailable", f"pgvector search failed: {exc}", [])
-
-    results: list[dict[str, Any]] = []
-    for row in rows:
-        if not row_matches_rag_filters(row, req.filters, subject_principals):
-            continue
-        content = str(row.get("content_redacted") or "")
-        result = {
-            "id": row.get("chunk_id"),
-            "documentId": row.get("document_id"),
-            "title": row.get("title"),
-            "score": round(float(row.get("score") or 0.0), 6),
-            "sourceUri": row.get("source_uri"),
-            "sourceType": row.get("source_type"),
-            "customer": row.get("customer"),
-            "namespace": row.get("namespace"),
-            "version": row.get("version"),
-            "contentPreview": content[:260],
-            "content": content if req.includeContent else "",
-            "metadata": row.get("labels") or {},
-            "safety": {
-                "freshness": (row.get("labels") or {}).get("freshness", "unknown"),
-                "safetyClass": (row.get("labels") or {}).get("safetyClass", "unknown"),
-            },
-            "evidenceRef": {
-                "type": "runbook",
-                "evidenceType": "runbook",
-                "status": "collected",
-                "summary": row.get("title"),
-                "sourceUri": row.get("source_uri"),
-                "checksum": row.get("checksum"),
-                "freshness": (row.get("labels") or {}).get("freshness", "unknown"),
-                "safetyClass": (row.get("labels") or {}).get("safetyClass", "unknown"),
-            },
-        }
-        results.append(redact_sensitive(result))
-        if len(results) >= req.topK:
-            break
-
-    if results:
-        return ("collected", "pgvector runbook evidence retrieved from local Gateway-controlled backend.", results)
-    return ("empty", "pgvector backend is configured but no runbook matched the query and filters.", [])
-
-
-def build_rag_context_detail(results: Sequence[Mapping[str, Any]], reason: str) -> str:
-    if not results:
-        return f"RAG evidence unavailable: {reason}"
-
-    lines = [
-        "Gateway-collected local document evidence from `/v1/rag/search`.",
-        "Use only the retrieved titles and previews below. Do not expose source URIs, public web URLs, or similarity scores in the user-facing answer.",
-        "",
-        "| Document | Type | Preview |",
-        "| - | - | - |",
-    ]
-    for result in results[:5]:
-        title = str(result.get("title") or result.get("documentId") or "untitled")
-        source_type = str(result.get("sourceType") or "runbook")
-        preview = str(result.get("contentPreview") or result.get("content") or "").replace("\n", " ")
-        lines.append(f"| {title} | {source_type} | {preview[:180]} |")
-    return "\n".join(lines)
-
-
-def build_rag_answer_citation_text(results: Sequence[Mapping[str, Any]]) -> str:
-    if not results:
-        return ""
-
-    lines = ["\n\n[ 참고 자료 ]"]
-    for index, result in enumerate(results[:3], start=1):
-        title = str(result.get("title") or result.get("documentId") or "untitled")
-        source_type = str(result.get("sourceType") or "runbook")
-        lines.append(f"{index}. {title} ({source_type})")
-    lines.append("문서 위치와 원문은 상세 보기에서 확인하세요.")
-    return "\n".join(lines)
-
-
-def build_rag_backend_status() -> dict[str, Any]:
-    backend_configured = bool(RAG_BACKEND_URL)
-    embedding_service_configured = bool(RAG_EMBEDDING_SERVICE_URL and backend_configured)
-    return {
-        "status": "configured" if backend_configured else "not_configured",
-        "backendType": RAG_BACKEND_TYPE,
-        "collection": RAG_COLLECTION,
-        "endpointConfigured": backend_configured,
-        "embeddingModel": RAG_EMBEDDING_MODEL if backend_configured else "not_configured",
-        "embeddingProvider": RAG_EMBEDDING_PROVIDER or ("ollama" if RAG_EMBEDDING_API_STYLE == "ollama" else ""),
-        "embeddingApiStyle": RAG_EMBEDDING_API_STYLE or "auto",
-        "embeddingModelConfiguredButIgnored": bool(
-            RAG_EMBEDDING_MODEL and backend_configured and not embedding_service_configured
-        ),
-        "embeddingModelSentToService": bool(RAG_EMBEDDING_MODEL and embedding_service_configured),
-        "embeddingServiceConfigured": embedding_service_configured,
-        "activeEmbeddingAlgorithm": "semantic-service" if embedding_service_configured else "hashing-bow-v1",
-        "vectorDimensions": RAG_EFFECTIVE_VECTOR_DIMENSIONS if backend_configured else RAG_VECTOR_DIMENSIONS,
-        "chunkOverlapChars": RAG_UPLOAD_CHUNK_OVERLAP_CHARS,
-        "olsStaticGuidelinesChars": 21203,
-        "accessPath": "gateway-only",
-        "directDatabaseAccess": False,
-        "aclRequired": True,
-        "demoSeedEnabled": RAG_DEMO_SEED_ENABLED,
-        "requiredMetadata": [
-            "documentId",
-            "sourceUri",
-            "sourceType",
-            "customer",
-            "namespace",
-            "checksum",
-            "version",
-            "aclGroups",
-            "ingestedAt",
-        ],
-        "reason": ""
-        if backend_configured
-        else "KOMSCO_AI_RAG_BACKEND_URL is not configured; search returns no retrieved runbook evidence.",
-    }
 
 
 def build_status_access_review_failure(exc: HTTPException) -> dict[str, Any]:
@@ -13540,7 +11246,8 @@ async def _execute_action_impl(
         )
     )
     execution_id = f"execution-{uuid.uuid4()}"
-    if MUTATIONS_ENABLED:
+    review_only_execution = sealed_plan_is_review_only(sealed_plan)
+    if MUTATIONS_ENABLED or review_only_execution:
         executor_result = await execute_action_with_executor(
             sealed_plan,
             grant_reference,
@@ -13591,7 +11298,7 @@ async def _execute_action_impl(
     approval_decision["executedAt"] = record["metadata"]["createdAt"]
     await bounded_put_record("approvalDecisions", req.approvalId, approval)
     increment_metric("aiops_execution_requests_total")
-    if not MUTATIONS_ENABLED:
+    if not MUTATIONS_ENABLED and not review_only_execution:
         raise HTTPException(status_code=403, detail=record["spec"])
     return {
         "apiVersion": "aiops.komsco/v1",
@@ -15655,7 +13362,6 @@ async def chat_stream(
                     return
 
             if req.attachments:
-                image_forwarded_to_ols = should_forward_image_attachments_to_ols()
                 yield sse({"type": "tool_call", "name": "attachment_check"})
                 yield sse(
                     {
@@ -15664,13 +13370,9 @@ async def chat_stream(
                         "result": {
                             "images": len(req.attachments),
                             "totalBytes": sum(item.size for item in req.attachments),
-                            "forwardedToLightspeed": image_forwarded_to_ols,
+                            "forwardedToLightspeed": False,
                         },
-                        "summary": (
-                            "첨부 이미지를 Lightspeed attachments로 전달합니다"
-                            if image_forwarded_to_ols
-                            else "첨부 이미지 수신 완료, Lightspeed attachment 전달은 비활성입니다"
-                        ),
+                        "summary": "첨부 이미지 수신 및 형식 확인 완료",
                     }
                 )
 

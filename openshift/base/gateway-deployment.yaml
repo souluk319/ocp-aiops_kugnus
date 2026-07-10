@@ -55,8 +55,6 @@ spec:
               value: "get"
             - name: KOMSCO_AI_PRODUCT_ACCESS_REVIEW_NAME
               value: "komsco-ai-console-plugin"
-            - name: KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS
-              value: "true"
           readinessProbe:
             httpGet:
               path: /healthz

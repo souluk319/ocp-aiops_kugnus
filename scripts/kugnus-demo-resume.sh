@@ -12,6 +12,9 @@ CONSOLE_HEALTH_URL="${KUGNUS_CONSOLE_HEALTH_URL:-http://127.0.0.1:9000/api/kuber
 PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 PLUGIN_BASE_URL="${KUGNUS_PLUGIN_BASE_URL:-http://127.0.0.1:9001/api/plugins/${PLUGIN_NAME}}"
 PLUGIN_MANIFEST_URL="${KUGNUS_PLUGIN_MANIFEST_URL:-${PLUGIN_BASE_URL}/plugin-manifest.json}"
+FIXTURE_HOST="${AIOPS_LOCAL_FIXTURE_HOST:-0.0.0.0}"
+FIXTURE_PORT="${AIOPS_LOCAL_FIXTURE_PORT:-5174}"
+FIXTURE_URL="http://127.0.0.1:${FIXTURE_PORT}"
 STARTUP_ATTEMPTS="${KUGNUS_RESUME_STARTUP_ATTEMPTS:-160}"
 RUN_STRICT_GATE="${KUGNUS_RESUME_RUN_STRICT_GATE:-true}"
 ENSURE_RAG_BACKEND="${KUGNUS_RESUME_ENSURE_RAG_BACKEND:-true}"
@@ -111,6 +114,12 @@ plugin_assets_healthy() {
   return 0
 }
 
+fixture_healthy() {
+  http_ok "${FIXTURE_URL}/healthz" &&
+    http_ok "${FIXTURE_URL}/v1/cluster/summary" &&
+    http_ok "${FIXTURE_URL}/dashboards/aiops"
+}
+
 port_forward_healthy() {
   local label="$1"
   local local_port="$2"
@@ -149,9 +158,9 @@ start_detached() {
   shift 2
 
   if command -v setsid >/dev/null 2>&1; then
-    setsid "$@" </dev/null >>"$log_file" 2>&1 &
+    setsid "$@" 9>&- </dev/null >>"$log_file" 2>&1 &
   else
-    nohup "$@" </dev/null >>"$log_file" 2>&1 &
+    nohup "$@" 9>&- </dev/null >>"$log_file" 2>&1 &
   fi
   printf -v "$__pid_var" '%s' "$!"
   disown "${!__pid_var}" >/dev/null 2>&1 || true
@@ -191,6 +200,38 @@ stop_matching_port_forward() {
       sleep 0.25
     done
   fi
+}
+
+find_matching_port_forward_supervisor() {
+  local label="$1"
+  local namespace="$2"
+  local service="$3"
+  local bind_address="$4"
+  local local_port="$5"
+  local service_port="$6"
+  local line pid args
+
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    pid="${line%% *}"
+    args="${line#"$pid"}"
+    if [[ "$args" == *"kugnus-port-forward-supervisor.sh ${label} ${namespace} ${service} ${bind_address} ${local_port} ${service_port}" ]]; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(ps -eo pid=,args=)
+}
+
+stop_port_forward_supervisor() {
+  local pid="$1"
+
+  kill "$pid" >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  kill -KILL "$pid" >/dev/null 2>&1 || true
 }
 
 require_oc_login() {
@@ -235,38 +276,92 @@ ensure_port_forward() {
   local service_port="$5"
   local log_file="${LOG_DIR}/${label}.log"
   local pid_file="${LOG_DIR}/${label}.pid"
+  local supervisor_script="${ROOT_DIR}/scripts/kugnus-port-forward-supervisor.sh"
+  local saved_pid=""
+  local saved_args=""
+  local matching_supervisor_pid=""
+  local matching_supervisor_pids=()
+  local extra_supervisor_pid=""
 
-  if port_open "127.0.0.1" "$local_port"; then
-    if port_forward_healthy "$label" "$local_port"; then
-      log "${label} already healthy on 127.0.0.1:${local_port}"
-      return
-    fi
-    log "${label} is listening on 127.0.0.1:${local_port}, but its service probe failed; restarting matching port-forward"
-    stop_matching_port_forward "$namespace" "$service" "$local_port" "$service_port"
-    if port_open "127.0.0.1" "$local_port"; then
-      ss -ltnp | grep ":${local_port}" >&2 || true
-      fail "${label} port ${local_port} is still occupied but failed its service probe. Stop the stale listener, then rerun."
-    fi
+  if [ -s "$pid_file" ]; then
+    saved_pid="$(tr -dc '0-9' <"$pid_file")"
+  fi
+  if [ -n "$saved_pid" ] && kill -0 "$saved_pid" >/dev/null 2>&1; then
+    saved_args="$(ps -p "$saved_pid" -o args= 2>/dev/null || true)"
+  fi
+
+  mapfile -t matching_supervisor_pids < <(find_matching_port_forward_supervisor \
+    "$label" "$namespace" "$service" "0.0.0.0" "$local_port" "$service_port")
+  if [ "${#matching_supervisor_pids[@]}" -gt 0 ]; then
+    matching_supervisor_pid="${matching_supervisor_pids[0]}"
+    for extra_supervisor_pid in "${matching_supervisor_pids[@]:1}"; do
+      log "stopping duplicate ${label} supervisor pid=${extra_supervisor_pid}"
+      stop_port_forward_supervisor "$extra_supervisor_pid"
+    done
+    saved_pid="$matching_supervisor_pid"
+    saved_args="$(ps -p "$saved_pid" -o args= 2>/dev/null || true)"
+    printf '%s\n' "$saved_pid" >"$pid_file"
+  elif [[ "$saved_args" == *"kugnus-port-forward-supervisor.sh"* ]]; then
+    log "stopping mismatched ${label} supervisor pid=${saved_pid}"
+    stop_port_forward_supervisor "$saved_pid"
+    saved_pid=""
+    saved_args=""
+    rm -f "$pid_file"
   fi
 
   if ! timeout "$OC_TIMEOUT" oc -n "$namespace" get "svc/${service}" >/dev/null 2>"${LOG_DIR}/${label}-oc-get.err"; then
+    if [[ "$saved_args" == *"kugnus-port-forward-supervisor.sh"* ]]; then
+      stop_port_forward_supervisor "$saved_pid"
+      rm -f "$pid_file"
+    fi
     sed -n '1,20p' "${LOG_DIR}/${label}-oc-get.err" >&2 || true
     fail "cannot read ${namespace}/${service}. Check oc login, VPN, RBAC, and namespace/service name."
   fi
+
+  if [[ "$saved_args" == *"kugnus-port-forward-supervisor.sh"* ]]; then
+    if wait_for_port_forward_health "$label" "$local_port" 40; then
+      log "${label} supervisor already healthy on 127.0.0.1:${local_port}"
+      return
+    fi
+    log "${label} supervisor did not recover in time; restarting supervisor pid=${saved_pid}"
+    stop_port_forward_supervisor "$saved_pid"
+    rm -f "$pid_file"
+  fi
+
+  if port_open "127.0.0.1" "$local_port"; then
+    if port_forward_healthy "$label" "$local_port"; then
+      log "${label} is healthy but not supervised; replacing it with an auto-recovering port-forward"
+      stop_matching_port_forward "$namespace" "$service" "$local_port" "$service_port"
+      if port_open "127.0.0.1" "$local_port"; then
+        ss -ltnp | grep ":${local_port}" >&2 || true
+        fail "${label} port ${local_port} is still occupied after stopping the one-shot port-forward."
+      fi
+    else
+      log "${label} is listening on 127.0.0.1:${local_port}, but its service probe failed; restarting matching port-forward"
+      stop_matching_port_forward "$namespace" "$service" "$local_port" "$service_port"
+      if port_open "127.0.0.1" "$local_port"; then
+        ss -ltnp | grep ":${local_port}" >&2 || true
+        fail "${label} port ${local_port} is still occupied but failed its service probe. Stop the stale listener, then rerun."
+      fi
+    fi
+  fi
+
   log "starting ${label}: ${namespace}/${service} ${local_port}:${service_port}"
   : >"$log_file"
   local pid=""
-  start_detached pid "$log_file" oc -n "$namespace" port-forward \
-    --address 0.0.0.0 \
-    "svc/${service}" \
-    "${local_port}:${service_port}"
+  start_detached pid "$log_file" bash "$supervisor_script" \
+    "$label" "$namespace" "$service" "0.0.0.0" "$local_port" "$service_port"
   printf '%s\n' "$pid" >"$pid_file"
 
   if ! wait_for_port "127.0.0.1" "$local_port" 80; then
+    stop_port_forward_supervisor "$pid"
+    rm -f "$pid_file"
     sed -n '1,80p' "$log_file" >&2 || true
     fail "${label} did not become ready on port ${local_port}"
   fi
   if ! wait_for_port_forward_health "$label" "$local_port" 40; then
+    stop_port_forward_supervisor "$pid"
+    rm -f "$pid_file"
     sed -n '1,120p' "$log_file" >&2 || true
     fail "${label} opened port ${local_port}, but the service probe did not answer"
   fi
@@ -348,6 +443,42 @@ ensure_plugin_manifest_state() {
   log "Plugin assets are not healthy yet; frontend task will start webpack."
 }
 
+ensure_fixture() {
+  local log_file="${LOG_DIR}/fixture-${FIXTURE_PORT}.log"
+
+  if fixture_healthy; then
+    log "Standalone fixture already healthy: ${FIXTURE_URL}"
+    return
+  fi
+
+  if port_open "127.0.0.1" "$FIXTURE_PORT"; then
+    ss -ltnp | grep ":${FIXTURE_PORT}" >&2 || true
+    fail "port ${FIXTURE_PORT} is listening, but the standalone fixture probes failed. Stop the stale listener, then rerun."
+  fi
+
+  if [ ! -f "${ROOT_DIR}/komsco-ai-portal/dist/index.html" ]; then
+    fail "standalone fixture portal build is missing: komsco-ai-portal/dist/index.html. Run the portal build first."
+  fi
+
+  start_background "fixture-${FIXTURE_PORT}" \
+    env \
+    AIOPS_LOCAL_FIXTURE_HOST="$FIXTURE_HOST" \
+    AIOPS_LOCAL_FIXTURE_PORT="$FIXTURE_PORT" \
+    AIOPS_LOCAL_SERVE_PORTAL=1 \
+    node scripts/serve-v0281-local-aiops-gateway.cjs
+
+  for _ in $(seq 1 "$STARTUP_ATTEMPTS"); do
+    if fixture_healthy; then
+      log "Standalone fixture ready: ${FIXTURE_URL}"
+      return
+    fi
+    sleep 0.5
+  done
+
+  sed -n '1,120p' "$log_file" >&2 || true
+  fail "standalone fixture did not become healthy at ${FIXTURE_URL}"
+}
+
 run_verification() {
   log "running doctor"
   KUGNUS_DOCTOR_OC_TIMEOUT_SECONDS="$OC_TIMEOUT" task kugnus:dev:doctor
@@ -380,9 +511,16 @@ main() {
   need_cmd bash
   need_cmd curl
   need_cmd docker
+  need_cmd flock
+  need_cmd node
   need_cmd oc
   need_cmd task
   need_cmd timeout
+
+  exec 9>"${LOG_DIR}/resume.lock"
+  if ! flock -n 9; then
+    fail "another Kugnus resume process is already running"
+  fi
 
   cd "$ROOT_DIR"
   log "Kugnus local demo resume started"
@@ -393,6 +531,7 @@ main() {
   ensure_port_forward "lightspeed-port-forward" "$OLS_NAMESPACE" "$OLS_SERVICE" "$OLS_LOCAL_PORT" "$OLS_SERVICE_PORT"
   ensure_port_forward "action-executor-port-forward" "$ACTION_EXECUTOR_NAMESPACE" "$ACTION_EXECUTOR_SERVICE" "$ACTION_EXECUTOR_LOCAL_PORT" "$ACTION_EXECUTOR_SERVICE_PORT"
   ensure_gateway
+  ensure_fixture
 
   ensure_plugin_manifest_state
   ensure_console

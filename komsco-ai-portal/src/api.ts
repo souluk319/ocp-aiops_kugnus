@@ -1,11 +1,34 @@
 import type { AiopsEventFeed, AiopsRuntimeStatus, ClusterSummary } from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_AIOPS_API_BASE_URL ?? '').replace(/\/$/, '');
+const PORTAL_TOKEN_STORAGE_KEY = 'komsco-ai-portal-token';
 
 const readAuthHeader = (): string => {
-  const token = window.localStorage.getItem('komsco-ai-portal-token');
+  const token = window.localStorage.getItem(PORTAL_TOKEN_STORAGE_KEY);
   return token ? `Bearer ${token}` : '';
 };
+
+const normalizeBearerToken = (value: string): string => value.trim().replace(/^Bearer\s+/i, '');
+
+export async function connectOpenShiftToken(value: string): Promise<void> {
+  const token = normalizeBearerToken(value);
+  if (!token) {
+    throw new Error('OpenShift 토큰을 입력하세요.');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/v1/aiops/status`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('토큰을 확인할 수 없습니다. OpenShift에서 새 토큰을 복사해 다시 입력하세요.');
+  }
+
+  window.localStorage.setItem(PORTAL_TOKEN_STORAGE_KEY, token);
+}
 
 async function requestJson<T>(path: string): Promise<T> {
   const headers: HeadersInit = {

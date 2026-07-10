@@ -1,5 +1,38 @@
 import type { AiopsActionCandidate } from '../services/aiGateway';
 
+const ACTIONABLE_MESSAGE_RE =
+  /(Action\s*Plan|조치|승인|실행|검증|롤백|RCA|원인\s*분석|원인\s*후보|위험|경고|이슈|장애|실패|대기|재시작|CrashLoopBackOff|ImagePullBackOff|OOMKilled|PodNotReady|BackOff|Failed|Readiness|Liveness|probe)/i;
+
+const NON_ACTION_LOOKUP_RE =
+  /(몇\s*개|개수|수가\s*제일|가장\s*많|있었|있어\?|조회할\s*수\s*있|어디|뭐야|무엇|목록|리스트|namespace.*확인|네임스페이스.*확인)/i;
+
+const CLEANUP_CLARIFICATION_RE =
+  /정리 대상 범위 확인|범위가 아직 넓습니다|이 범위\(.+\)로 정리 검토를 진행할까요|범위를 확인하면/i;
+
+const CLEANUP_REVIEW_RE = /테스트 Pod 정리 검토|정리 검토 후보|삭제 검토 후보/i;
+
+const ISSUE_TOKENS = [
+  'crashloopbackoff',
+  'imagepullbackoff',
+  'oomkilled',
+  'podnotready',
+  'backoff',
+  'failed',
+  'readiness',
+  'liveness',
+  'probe',
+  'pending',
+  'error',
+  '재시작',
+  '이미지',
+  '실패',
+  '대기',
+  '준비',
+  '경고',
+  '위험',
+  '프로브',
+];
+
 export const candidateActionType = (candidate: AiopsActionCandidate): string => {
   const sourceType = String(candidate.sourceType || '').trim();
   if (sourceType) {
@@ -62,4 +95,84 @@ export const dedupeActionCandidates = (
       (b.priority ?? 0) - (a.priority ?? 0) ||
       candidateSpecificityScore(b) - candidateSpecificityScore(a),
   );
+};
+
+const candidateText = (candidate: AiopsActionCandidate): string =>
+  [
+    candidate.id,
+    candidate.sourceType,
+    candidate.sourceFindingId,
+    candidate.title,
+    candidate.statusLabel,
+    candidate.severity,
+    candidate.evidence,
+    candidate.expectedImpact,
+    candidate.target?.namespace,
+    candidate.target?.kind,
+    candidate.target?.name,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+const candidateSharesIssueToken = (content: string, candidate: AiopsActionCandidate): boolean => {
+  const normalizedContent = content.toLowerCase();
+  const normalizedCandidate = candidateText(candidate);
+  return ISSUE_TOKENS.some(
+    (token) => normalizedContent.includes(token) && normalizedCandidate.includes(token),
+  );
+};
+
+export const messageLooksActionableForCandidates = (content: string): boolean => {
+  const normalized = content.trim();
+  if (!normalized) {
+    return false;
+  }
+  if (!ACTIONABLE_MESSAGE_RE.test(normalized)) {
+    return false;
+  }
+  if (NON_ACTION_LOOKUP_RE.test(normalized) && !/(Action\s*Plan|조치|승인|실행|RCA|원인)/i.test(normalized)) {
+    return false;
+  }
+  return true;
+};
+
+export const matchActionCandidatesForMessage = (
+  content: string,
+  candidates: AiopsActionCandidate[],
+): AiopsActionCandidate[] => {
+  if (CLEANUP_CLARIFICATION_RE.test(content)) {
+    return [];
+  }
+
+  const cleanupReviewAnswer = CLEANUP_REVIEW_RE.test(content);
+  if (cleanupReviewAnswer) {
+    const cleanupMatches = candidates.filter((candidate) => {
+      const sourceType = String(candidate.sourceType || '');
+      const targetName = candidate.target?.name;
+      const namespace = candidate.target?.namespace;
+      return Boolean(
+        /cleanup_review/i.test(sourceType) &&
+          ((targetName && content.includes(targetName)) ||
+            (namespace && content.includes(namespace))),
+      );
+    });
+    return dedupeActionCandidates(cleanupMatches);
+  }
+
+  if (!messageLooksActionableForCandidates(content)) {
+    return [];
+  }
+
+  const matched = candidates.filter((candidate) => {
+    const targetName = candidate.target?.name;
+    const namespace = candidate.target?.namespace;
+    const exactTargetMatch = Boolean(
+      (targetName && content.includes(targetName)) ||
+        (targetName && targetName.includes(',') && targetName.split(',').some((name) => content.includes(name.trim()))) ||
+        (namespace && content.includes(namespace) && candidateSharesIssueToken(content, candidate)),
+    );
+    return exactTargetMatch || candidateSharesIssueToken(content, candidate);
+  });
+  return dedupeActionCandidates(matched);
 };

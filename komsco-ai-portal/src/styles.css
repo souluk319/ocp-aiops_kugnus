@@ -226,7 +226,10 @@ button:disabled {
 }
 
 .portal-nav {
+  min-height: 0;
   padding: 14px 10px 0;
+  overflow-y: auto;
+  flex: 1 1 auto;
 }
 
 .portal-nav__title {
@@ -275,11 +278,48 @@ button:disabled {
 }
 
 .portal-sidebar__bottom {
+  flex: 0 0 auto;
   padding: 18px 18px 20px;
   margin-top: auto;
   font-size: 12px;
   color: #8aa0bc;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.portal-sidebar__bottom-head {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.portal-sidebar__demo-toggle {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #8aa0bc;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 6px;
+  place-items: center;
+}
+
+.portal-sidebar__demo-toggle:hover {
+  color: #d8e8ff;
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(125, 211, 252, 0.42);
+}
+
+.portal-sidebar__demo-toggle:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 2px;
+}
+
+.portal-sidebar__demo-toggle svg {
+  width: 15px;
+  height: 15px;
 }
 
 .portal-sidebar__status {

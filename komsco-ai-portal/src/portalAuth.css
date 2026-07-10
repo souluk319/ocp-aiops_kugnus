@@ -1,0 +1,151 @@
+.portal-auth-trigger {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.portal-auth-trigger svg,
+.portal-auth-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+.portal-auth-backdrop {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  padding: 20px;
+  background: rgb(2 8 23 / 72%);
+  inset: 0;
+  place-items: center;
+}
+
+.portal-auth-dialog {
+  width: min(440px, 100%);
+  padding: 20px;
+  color: #dbeafe;
+  background: #0b1628;
+  border: 1px solid rgb(100 116 139 / 72%);
+  border-radius: 8px;
+  box-shadow: 0 24px 64px rgb(2 8 23 / 42%);
+}
+
+.portal-auth-dialog header,
+.portal-auth-dialog footer {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.portal-auth-dialog header span {
+  font-size: 12px;
+  color: #93c5fd;
+}
+
+.portal-auth-dialog h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+}
+
+.portal-auth-dialog p {
+  margin: 16px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b8c7dc;
+}
+
+.portal-auth-dialog label,
+.portal-auth-dialog small {
+  display: block;
+}
+
+.portal-auth-dialog label {
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.portal-auth-dialog input {
+  width: 100%;
+  height: 38px;
+  padding: 0 11px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: #f8fafc;
+  background: #111f35;
+  border: 1px solid #64748b;
+  border-radius: 6px;
+  outline: none;
+}
+
+.portal-auth-dialog input:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 3px rgb(96 165 250 / 18%);
+}
+
+.portal-auth-dialog small {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: #94a3b8;
+}
+
+.portal-auth-dialog code {
+  color: #bfdbfe;
+}
+
+.portal-auth-close,
+.portal-auth-cancel,
+.portal-auth-submit {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.portal-auth-close {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  color: #cbd5e1;
+  background: transparent;
+  border: 1px solid #475569;
+  place-items: center;
+}
+
+.portal-auth-dialog footer {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.portal-auth-cancel,
+.portal-auth-submit {
+  height: 34px;
+  padding: 0 14px;
+  font-weight: 700;
+}
+
+.portal-auth-cancel {
+  color: #cbd5e1;
+  background: transparent;
+  border: 1px solid #475569;
+}
+
+.portal-auth-submit {
+  color: #07111f;
+  background: #67e8f9;
+  border: 1px solid #67e8f9;
+}
+
+.portal-auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.portal-auth-error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #fecaca;
+  background: rgb(127 29 29 / 28%);
+  border: 1px solid rgb(248 113 113 / 45%);
+  border-radius: 6px;
+}

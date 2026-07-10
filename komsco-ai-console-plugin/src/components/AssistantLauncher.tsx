@@ -6,6 +6,7 @@ import AssistantComposer from './AssistantComposer';
 import AssistantCreateActionPlanButtons from './AssistantCreateActionPlanButtons';
 import AssistantEvidenceFooter from './AssistantEvidenceFooter';
 import AssistantEmptyState from './AssistantEmptyState';
+import AssistantFollowupMessageContent from './AssistantFollowupChoices';
 import AssistantHeader from './AssistantHeader';
 import AssistantHistoryPanel from './AssistantHistoryPanel';
 import AssistantImageLightbox from './AssistantImageLightbox';
@@ -13,7 +14,6 @@ import AssistantInsightRail from './AssistantInsightRail';
 import AssistantMessageHeader from './AssistantMessageHeader';
 import AssistantResizeHandles from './AssistantResizeHandles';
 import AssistantSurfacePortal from './AssistantSurfacePortal';
-import { renderFormattedContent } from './AssistantMessageContent';
 import AssistantToolPlanFooter from './AssistantToolPlanFooter';
 import ProgressTimeline, {
   formatToolTitle,
@@ -53,7 +53,10 @@ import {
   highestLifecycleRecordForPlanDigest,
   latestAnswerActionRecords,
 } from './assistant.actionDisplay';
-import { dedupeActionCandidates } from './assistant.actionCandidates';
+import {
+  dedupeActionCandidates,
+  matchActionCandidatesForMessage,
+} from './assistant.actionCandidates';
 import { TASK_MODE_EMPTY_COPY, UI_COPY } from './assistant.copy';
 import { useAssistantConversations } from './assistant.conversations';
 import {
@@ -145,47 +148,11 @@ import {
 import { redactSensitiveText } from '../utils/evidenceDisplay';
 import aiopsIcon from '../assets/aiops_icon.svg';
 import './assistant.css';
+import './assistant.followups.css';
 
 const conversationHistoryMergeFns = {
   actionRefs: mergeConversationActionRefs,
 } as const;
-
-const matchActionCandidatesForMessage = (
-  content: string,
-  candidates: AiopsActionCandidate[],
-): AiopsActionCandidate[] => {
-  const cleanupClarification = /정리 대상 범위 확인|범위가 아직 넓습니다|이 범위\(.+\)로 정리 검토를 진행할까요|범위를 확인하면/i.test(
-    content,
-  );
-  if (cleanupClarification) {
-    return [];
-  }
-
-  const cleanupReviewAnswer = /테스트 Pod 정리 검토|정리 검토 후보/.test(content);
-  if (cleanupReviewAnswer) {
-    const cleanupMatches = candidates.filter((candidate) => {
-      const sourceType = String(candidate.sourceType || '');
-      const targetName = candidate.target?.name;
-      const namespace = candidate.target?.namespace;
-      return Boolean(
-        /cleanup_review/i.test(sourceType) &&
-          ((targetName && content.includes(targetName)) ||
-            (namespace && content.includes(namespace))),
-      );
-    });
-    return dedupeActionCandidates(cleanupMatches);
-  }
-
-  const matched = candidates.filter((candidate) => {
-    const targetName = candidate.target?.name;
-    const namespace = candidate.target?.namespace;
-    return Boolean(
-      (targetName && content.includes(targetName)) ||
-        (namespace && content.includes(namespace)),
-    );
-  });
-  return dedupeActionCandidates(matched);
-};
 
 const draftExecutionMode = (pageContext?: Record<string, unknown>): AiopsExecutionMode | null => {
   const value = String(pageContext?.aiopsExecutionMode ?? '')
@@ -725,79 +692,6 @@ const formatMessageTime = (timestamp: number | undefined, language: UiLanguage):
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp));
-};
-
-type AssistantFollowupPrompt = {
-  index: number;
-  label: string;
-  prompt: string;
-};
-
-const FOLLOWUP_ANCHOR_RE =
-  /(다음\s*단계|무엇을\s*도와|원하시면|이어(?:서)?\s*진행|선택해\s*주세요|어떤\s*것을)/i;
-const NUMBERED_FOLLOWUP_RE = /^\s*(\d{1,2})[\.)]\s+(.+?)\s*$/;
-const BOLD_HEADING_RE = /^\*\*(.+?)\*\*\s*[:：]?\s*(.*)$/;
-
-const cleanFollowupPrompt = (raw: string): string => {
-  let text = raw.trim().replace(/^[-•]\s*/, '');
-  const headingMatch = text.match(BOLD_HEADING_RE);
-  if (headingMatch) {
-    const heading = headingMatch[1].trim();
-    const tail = headingMatch[2].trim();
-    text = tail ? `${heading}: ${tail}` : heading;
-  }
-  return text
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-const followupLabel = (prompt: string): string => {
-  const [head] = prompt.split(/[:：]/);
-  return (head || prompt).trim().slice(0, 42);
-};
-
-const extractAssistantFollowupPrompts = (content: string): AssistantFollowupPrompt[] => {
-  const prompts: AssistantFollowupPrompt[] = [];
-  let inFollowupSection = false;
-
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-    if (FOLLOWUP_ANCHOR_RE.test(trimmed)) {
-      inFollowupSection = true;
-      continue;
-    }
-    if (!inFollowupSection) {
-      continue;
-    }
-    if (trimmed.startsWith('---') && prompts.length > 0) {
-      break;
-    }
-    const match = trimmed.match(NUMBERED_FOLLOWUP_RE);
-    if (!match) {
-      if (prompts.length > 0 && /^(#{1,6}\s+|\*\*[^*]+\*\*)/.test(trimmed)) {
-        break;
-      }
-      continue;
-    }
-    const prompt = cleanFollowupPrompt(match[2]);
-    if (prompt) {
-      prompts.push({
-        index: Number(match[1]),
-        label: followupLabel(prompt),
-        prompt,
-      });
-    }
-    if (prompts.length >= 5) {
-      break;
-    }
-  }
-
-  return prompts;
 };
 
 const getAssistantConnectionState = (
@@ -3413,6 +3307,17 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     ],
   );
 
+  const sendFollowupChoice = React.useCallback(
+    (prompt: string): boolean => {
+      if (loading || !prompt.trim()) {
+        return false;
+      }
+      void send(prompt);
+      return true;
+    },
+    [loading, send],
+  );
+
   const cancelAssistantResponse = React.useCallback(() => {
     if (!loading || !chatAbortControllerRef.current) {
       return;
@@ -3670,10 +3575,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                           message.role === 'assistant' && message.streaming === true;
                         const canShowAssistantPostAnswer =
                           message.role === 'assistant' && hasContent && !assistantStillStreaming;
-                        const followupPrompts =
-                          canShowAssistantPostAnswer && isLatestAssistantMessage
-                            ? extractAssistantFollowupPrompts(message.content)
-                            : [];
                         const messageTime = formatMessageTime(message.timestamp, uiLanguage);
                         return (
                           <div
@@ -3692,37 +3593,16 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                               />
                               {(hasContent || (!hasProgress && !waitingForContent)) && (
                                 <div className="komsco-ai__message-content">
-                                  {renderFormattedContent(
-                                    message,
-                                    setPreviewAttachment,
-                                    uiLanguage,
-                                  )}
-                                </div>
-                              )}
-                              {followupPrompts.length > 0 && (
-                                <div
-                                  aria-label={
-                                    uiLanguage === 'en'
-                                      ? 'Suggested next questions'
-                                      : '제안된 다음 질문'
-                                  }
-                                  className="komsco-ai__followup-prompts"
-                                >
-                                  {followupPrompts.map((prompt) => (
-                                    <button
-                                      className="komsco-ai__followup-prompt"
-                                      key={`${prompt.index}-${prompt.label}`}
-                                      onClick={() => void send(prompt.prompt)}
-                                      type="button"
-                                    >
-                                      <span className="komsco-ai__followup-prompt-index">
-                                        {prompt.index}
-                                      </span>
-                                      <span className="komsco-ai__followup-prompt-label">
-                                        {prompt.label}
-                                      </span>
-                                    </button>
-                                  ))}
+                                  <AssistantFollowupMessageContent
+                                    enabled={
+                                      canShowAssistantPostAnswer && isLatestAssistantMessage
+                                    }
+                                    language={uiLanguage}
+                                    message={message}
+                                    onPreviewAttachment={setPreviewAttachment}
+                                    onSelect={sendFollowupChoice}
+                                    visible={isLatestAssistantMessage && hasContent}
+                                  />
                                 </div>
                               )}
                               {canShowAssistantPostAnswer &&

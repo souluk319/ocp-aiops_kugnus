@@ -8,6 +8,27 @@ type AssistantTableWrapProps = {
 const tableScrollPositions = new Map<string, number>();
 let generatedTableWrapId = 0;
 
+const reactNodeText = (node: React.ReactNode): string => {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(reactNodeText).join(' ');
+  }
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return reactNodeText(node.props.children);
+  }
+  return '';
+};
+
+const shortTextHash = (value: string): string => {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+};
+
 const clampScrollLeft = (element: HTMLDivElement, value: number): number => {
   const maxScrollLeft = Math.max(element.scrollWidth - element.clientWidth, 0);
   return Math.min(Math.max(value, 0), maxScrollLeft);
@@ -22,7 +43,12 @@ export const AssistantTableWrap = ({
     generatedTableWrapId += 1;
     generatedScrollKeyRef.current = `assistant-table-${generatedTableWrapId}`;
   }
-  const effectiveScrollKey = scrollKey ?? generatedScrollKeyRef.current;
+  const tableSignature = reactNodeText(children).replace(/\s+/g, ' ').trim().slice(0, 96);
+  const effectiveScrollKey =
+    scrollKey ??
+    (tableSignature
+      ? `assistant-table-content-${shortTextHash(tableSignature)}`
+      : generatedScrollKeyRef.current);
   const wrapRef = React.useRef<HTMLDivElement | null>(null);
   const scrollLeftRef = React.useRef(tableScrollPositions.get(effectiveScrollKey) ?? 0);
   const userScrollingRef = React.useRef(false);

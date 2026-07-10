@@ -1,6 +1,7 @@
 import React from 'react';
-import { Bell, RefreshCw } from 'lucide-react';
+import { Bell, PanelsTopLeft, RefreshCw } from 'lucide-react';
 import aiopsIconUrl from './assets/aiops_icon.svg';
+import { PortalAuthDialog } from './PortalAuthDialog';
 import { navGroupLabel, navItems } from './portalNavigation';
 import { compactCount, formatTime, isOpenShiftAuthError, portalConnectionLabel } from './portalModel';
 import type { ClusterSummary, NavView } from './types';
@@ -32,7 +33,7 @@ export const Sidebar: React.FC<{
         <React.Fragment key={group}>
           <div className="portal-nav__title">{navGroupLabel[group]}</div>
           {navItems
-            .filter((item) => item.group === group)
+            .filter((item) => item.group === group && !item.hiddenFromSidebar)
             .map((item) => (
               <button
                 className={`portal-nav__item ${activeView === item.id ? 'is-active' : ''}`}
@@ -49,7 +50,18 @@ export const Sidebar: React.FC<{
     </nav>
 
     <div className="portal-sidebar__bottom">
-      시스템 상태
+      <div className="portal-sidebar__bottom-head">
+        <span>시스템 상태</span>
+        <button
+          aria-label="UI DEMO 2"
+          className="portal-sidebar__demo-toggle"
+          onClick={() => setActiveView('v2')}
+          title="UI DEMO 2"
+          type="button"
+        >
+          <PanelsTopLeft aria-hidden="true" />
+        </button>
+      </div>
       <div className="portal-sidebar__status">
         <span className="portal-sidebar__dot" />
         {summary.healthScore >= 90 ? '정상 상태' : '확인 필요'}
@@ -143,6 +155,7 @@ export const ClusterSignalStrip: React.FC<{
       <button onClick={() => void onRefresh()} type="button">
         연결 재시도
       </button>
+      {authRequired && <PortalAuthDialog onConnected={onRefresh} />}
       <button onClick={() => onNavigate('alerts')} type="button">
         게이트웨이 이벤트
       </button>

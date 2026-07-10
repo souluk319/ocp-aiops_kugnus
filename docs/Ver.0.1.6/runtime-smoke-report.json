@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-09T01:28:25.791490+00:00",
+  "generatedAt": "2026-07-10T08:12:04.104975+00:00",
   "gatewayUrl": "http://127.0.0.1:18080",
   "result": "pass",
   "checks": [
@@ -48,7 +48,7 @@
       "summary": {
         "controlTower": {
           "status": "risk",
-          "statusLabel": "위험 이상 징후 1건",
+          "statusLabel": "위험 이상 징후 3건",
           "healthScore": 92
         },
         "dataSources": [
@@ -120,15 +120,14 @@
       "ok": true,
       "statusCode": 200,
       "summary": {
-        "digest": "sha256:413cc914d8965ea8e1c8fda19d675579651791bf2ed2d61b50bbbc4b10992b39",
-        "entryCount": 6,
+        "digest": "sha256:5b0d139a015e39fc9df8ecd7311739ecc714bd64f86a52b8362f37c095596257",
+        "entryCount": 5,
         "runbookIds": [
           "deployment_rollout_restart_v1",
           "deployment_bounded_scale_v1",
           "controller_owned_unhealthy_pod_eviction_v1",
           "deployment_rollout_rollback_v1",
-          "hpa_bounds_adjustment_v1",
-          "deployment_container_command_fix_v1"
+          "hpa_bounds_adjustment_v1"
         ]
       }
     },

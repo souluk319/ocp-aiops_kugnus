@@ -132,7 +132,7 @@ class TextReferenceFilter:
 
     def filter(self, content: str, *, final: bool = False) -> str:
         content = self.filter_private_reasoning(content, final=final)
-        if not content:
+        if not content and not final:
             return ""
         if (
             not self.filter_gateway_api_references

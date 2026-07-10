@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
+
 
 @dataclass(frozen=True, slots=True)
 class TestPodCreateSettings:
@@ -73,6 +75,84 @@ def is_ready(request: Mapping[str, Any], settings: TestPodCreateSettings) -> boo
         and 1 <= count <= 5
         and namespace in settings.allowed_namespaces
     )
+
+
+async def collect_preflight(
+    request: Mapping[str, Any],
+    *,
+    api_ca_file: str | bool,
+    api_url: str,
+    fetch_ocp_json: Callable[[httpx.AsyncClient, str, str], Any],
+    path_segment: Callable[[str], str],
+    settings: TestPodCreateSettings,
+    user_auth_header: str,
+) -> dict[str, Any]:
+    namespace = str(request.get("namespace") or "").strip()
+    count = request.get("count")
+    if not settings.enabled:
+        return {
+            "error": "CrashLoop test Pod creation is disabled in product mode",
+            "namespace": namespace,
+            "ok": False,
+            "server": api_url,
+            "status": "test_pod_create_disabled",
+        }
+    if not namespace:
+        return {
+            "error": "namespace is required for test Pod creation",
+            "namespace": "",
+            "ok": False,
+            "server": api_url,
+            "status": "missing_namespace_for_test_pod_create",
+        }
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > 5:
+        return {
+            "error": "test Pod count must be explicitly set between 1 and 5",
+            "namespace": namespace,
+            "ok": False,
+            "server": api_url,
+            "status": "missing_or_invalid_count_for_test_pod_create",
+        }
+    if namespace not in settings.allowed_namespaces:
+        return {
+            "error": f"namespace `{namespace}` is outside the test Pod creation allowlist",
+            "namespace": namespace,
+            "ok": False,
+            "server": api_url,
+            "status": "unsupported_namespace_for_test_pod_create",
+        }
+    if not api_url:
+        return {
+            "error": "OPENSHIFT_API_URL is not configured",
+            "namespace": namespace,
+            "ok": False,
+            "server": "",
+            "status": "missing_api_url",
+        }
+
+    async with httpx.AsyncClient(
+        verify=api_ca_file,
+        timeout=httpx.Timeout(15.0, connect=5.0),
+    ) as client:
+        namespace_payload = await fetch_ocp_json(
+            client,
+            f"/api/v1/namespaces/{path_segment(namespace)}",
+            user_auth_header,
+        )
+
+    metadata = (
+        namespace_payload.get("metadata", {})
+        if isinstance(namespace_payload, Mapping) and isinstance(namespace_payload.get("metadata"), Mapping)
+        else {}
+    )
+    exists = bool(metadata.get("name"))
+    return {
+        "namespace": namespace,
+        "ok": exists,
+        "server": api_url,
+        "status": "namespace_ready" if exists else "namespace_missing",
+        "uid": str(metadata.get("uid") or ""),
+    }
 
 
 def disabled_answer(request: Mapping[str, Any], language: str) -> str:

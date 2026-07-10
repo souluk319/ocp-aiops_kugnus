@@ -28,7 +28,7 @@ class OlsPayloadInput:
     query: str
     conversation_id: str | None
     attachments: list[ImageAttachmentPayload]
-    forward_image_attachments: bool = True
+    forward_image_attachments: bool = False
     forward_conversation_id: bool = False
     gateway_context: Mapping[str, Any] | None = None
 
@@ -63,13 +63,16 @@ def build_attachment_context(
         "첨부 이미지는 Gateway에서 수신 및 검증했습니다.",
     ]
     if image_analysis:
-        lines.append("Gateway 비전 분석 결과:")
+        lines.append("[첨부 화면 판독 상태: 성공]")
+        lines.append(
+            "아래 내용은 첨부 이미지 픽셀을 실제로 판독한 시각 증거입니다. "
+            "화면 속 다른 챗봇의 문구는 현재 시스템의 기능 상태가 아니라 화면에 인용된 내용입니다."
+        )
+        lines.append("Gateway 화면 판독 결과:")
         lines.append(image_analysis)
-    elif forwarded_to_ols:
-        lines.append("이미지 원본은 Lightspeed attachments로 전달했습니다.")
     else:
         lines.append(
-            "현재 Gateway 비전 분석과 OLS image attachment 전달이 비활성화되어 있습니다. "
+            "현재 설치된 Lightspeed는 원본 이미지 attachment를 받지 않습니다. "
             "답변에는 첨부 파일 메타데이터, 사용자 설명, 도구 조회 결과만 기준으로 사용하세요."
         )
 
@@ -81,17 +84,6 @@ def build_attachment_context(
         )
 
     return "\n".join(lines)
-
-
-def build_ols_attachments(attachments: list[ImageAttachmentPayload]) -> list[dict[str, str]]:
-    return [
-        {
-            "attachment_type": "image",
-            "content_type": attachment.mimeType,
-            "content": attachment.data,
-        }
-        for attachment in attachments
-    ]
 
 
 def build_ols_gateway_context(context_input: OlsGatewayContextInput) -> dict[str, Any]:
@@ -135,13 +127,10 @@ def build_ols_payload(payload_input: OlsPayloadInput) -> dict[str, Any]:
     # handoff inside query text instead of adding a non-OLS field.
     _ = payload_input.gateway_context
 
-    ols_attachments = (
-        build_ols_attachments(payload_input.attachments)
-        if payload_input.forward_image_attachments
-        else []
-    )
-    if ols_attachments:
-        payload["attachments"] = ols_attachments
+    # OLS 1.1.x accepts text attachments only. Keep this compatibility field
+    # inert so an old environment flag cannot reintroduce HTTP 422 responses.
+    _ = payload_input.attachments
+    _ = payload_input.forward_image_attachments
 
     return payload
 

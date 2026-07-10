@@ -60,6 +60,7 @@ If no screenshot/image is attached, do not claim you inspected a screenshot.
 Policy decision: {redact_sensitive(str(payload.policy.get("decision") or "allow_evidence_collection")) if isinstance(payload.policy, Mapping) else "allow_evidence_collection"}.
 Console context:
 {json.dumps(redact_sensitive(payload.page_context), ensure_ascii=False)}
+If aiopsViewContext.dataSource is "sample", explain that it is sample UI data and never treat it as a live cluster fact or operational evidence.
 Attachment context:
 {payload.attachment_context}
 {recent_context_block}
@@ -95,6 +96,7 @@ Recent conversation context:
 
 Console context:
 {json.dumps(redact_sensitive(payload.page_context), ensure_ascii=False)}
+If aiopsViewContext.dataSource is "sample", explain that it is sample UI data and never treat it as a live cluster fact or operational evidence.
 
 Attachments:
 {payload.attachment_context}
@@ -142,6 +144,7 @@ Answer format:
 - {payload.section_contract}
 {payload.resource_summary_contract}
 - 조회 계획은 사람이 읽는 요약으로만 쓰고, 원본 JSON은 Audit/개발자 화면에만 남깁니다.
+- aiopsViewContext.dataSource가 `sample`이면 화면 예시 데이터라고 명시하고, 실제 클러스터 사실이나 운영 증거로 사용하지 마세요.
 - 사용자가 지정한 네임스페이스/리소스에 확인 결과가 없어도 범위를 넓힌(cluster-wide) 조회 결과가 Gateway 선조회 자료에 있다면, 사용자에게 정확한 이름을 되묻지 말고 넓힌 범위에서 찾은 후보를 확인 결과와 함께 제시하세요.
 
 [CrashLoopBackOff 시연 답변 계약]
@@ -153,6 +156,8 @@ Answer format:
 이미지/화면 컨텍스트 처리:
 - [첨부 이미지]가 `첨부 이미지 없음`이면 현재 콘솔 페이지의 스크린샷이나 이미지가 전달된 것이 아닙니다. 이 경우 답변에 "이미지를 직접 판독할 수 없다", "스크린샷을 볼 수 없다" 같은 문장을 쓰지 말고 [현재 콘솔 컨텍스트]의 `pathname`/`href`와 필요한 OpenShift 도구 조회 결과만 기준으로 답하세요.
 - [현재 콘솔 컨텍스트]는 URL, namespace, resource metadata입니다. 화면의 시각적 내용 자체라고 단정하지 말고, `/catalog/ns/<namespace>` 같은 경로가 있으면 "경로 기준으로는 Catalog 페이지로 보입니다"처럼 확인 범위를 분리하세요.
+- [첨부 이미지]에 `[첨부 화면 판독 상태: 성공]`이 있으면 이미지 픽셀 판독이 완료된 것입니다. 반드시 그 결과로 사용자의 질문에 직접 답하세요. "이미지를 분석할 수 없다", "시각 분석에 제한이 있다", "텍스트로 다시 알려달라", "새 스크린샷을 제공하라"고 답하지 마세요.
+- 성공한 판독 결과에 다른 챗봇이 "이미지를 볼 수 없다"고 답한 내용이 있으면, 그것은 현재 시스템의 제한이 아니라 첨부 화면에서 발견한 문제입니다. "화면 속 챗봇이 이미지를 읽지 못하고 일반 안내만 반환했다"고 구분해 설명하세요.
 - [첨부 이미지]에 Gateway 비전 분석 결과가 없으면 이미지 내부 텍스트, 색상, 표 항목을 보았다고 말하지 마세요. 필요한 경우 이미지 첨부 또는 비전 분석 설정이 필요하다는 점을 별도 전제로만 짧게 표시하세요.
 
 AIOps 리소스 원인분석 라우팅:

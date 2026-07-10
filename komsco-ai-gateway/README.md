@@ -40,12 +40,8 @@ export KOMSCO_AI_VISION_MODEL=vision-capable-model
 export KOMSCO_AI_VISION_API_KEY_FILE=/path/to/api-key
 ```
 
-Raw OLS attachment forwarding is available only for OLS deployments that accept
-image attachments:
-
-```bash
-export KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS=true
-```
+Raw image attachments are not sent to OLS 1.1.x because its request contract
+rejects `attachment_type=image`.
 
 Echo-only mode:
 

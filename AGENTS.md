@@ -197,6 +197,22 @@ Avoid:
 - Do not claim something is likely. Verify it or say what exact command is needed.
 - Do not praise your own plan. Execute, verify, and report.
 
+## File Size And Structural Health
+
+Treat file size as an early warning for responsibility and coupling, not as a cosmetic score. Do not let a working file grow until it becomes the next `main.py`.
+
+- Before planning a substantial code change, measure the touched production and test files. Include the largest relevant files, their responsibilities, and their current line counts in the plan.
+- At 800 lines, review whether the file owns more than one cohesive responsibility. At 1,500 lines, treat the file as oversized. At 2,500 lines, treat it as critical and do not add substantial feature branches until the directly related responsibility is extracted.
+- Generated code, vendored code, migrations, fixtures, and static data may be exempt from size thresholds, but the exception must be named explicitly. Hand-written runtime and test code is not exempt.
+- Keep entrypoints such as `main.py`, app factories, CLI entrypoints, and route registration modules focused on configuration, lifecycle, dependency wiring, and router composition. Business rules, answer rendering, evidence collection, provider clients, persistence, and action execution belong in domain modules.
+- Do not add another branch to a legacy oversized function just because it is the fastest local patch. If the task touches that behavior, extract the directly related cohesive unit in the same task and verify behavior before continuing.
+- Necessary, directly related structural cleanup is part of the current task. Do not defer it as unspecified "later work." If immediate extraction would create a larger product or state-migration risk, report the exact risk and stop at a tested compatibility boundary.
+- Apply the same rule to tests. Split oversized test files by domain, patch the owning module instead of `main`, and keep end-to-end contract tests separate from unit tests.
+- Refactor in reversible stages: capture a passing baseline, move pure logic first, make state ownership explicit, avoid duplicate configuration or mutable stores, preserve public API/SSE contracts, check for import cycles, and run the closest tests after every extraction.
+- A compatibility shim is temporary. State which caller or test still needs it and remove it when those references move; do not let forwarding wrappers become the permanent architecture.
+- In Plan mode, a structural refactor plan must include: oversized-file inventory, responsibility map, proposed module boundaries, state ownership, dependency/import-cycle risk, test migration, commit boundaries, and measurable acceptance criteria.
+- Structural completion evidence must include before/after line counts, largest remaining functions, import-cycle result, relevant test results, `git diff --check`, branch, and head SHA. A lower line count without equivalent behavior proof is not completion.
+
 ## Engineering Workflow
 
 Use this order for code changes:

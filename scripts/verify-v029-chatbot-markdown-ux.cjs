@@ -38,7 +38,12 @@ const actionState = readFile('komsco-ai-console-plugin/src/components/assistant.
 const commandDetection = readFile('komsco-ai-console-plugin/src/components/assistant.commandDetection.ts');
 const markdownPrepare = readFile('komsco-ai-console-plugin/src/components/assistant.markdownPrepare.ts');
 const css = readFile('komsco-ai-console-plugin/src/components/assistant.css');
+const followupComponent = readFile('komsco-ai-console-plugin/src/components/AssistantFollowupChoices.tsx');
+const followupParser = readFile('komsco-ai-console-plugin/src/components/assistant.followups.ts');
+const followupCss = readFile('komsco-ai-console-plugin/src/components/assistant.followups.css');
 const gateway = readFile('komsco-ai-gateway/komsco_ai_gateway/main.py');
+const gatewayAnswerContracts = readFile('komsco-ai-gateway/komsco_ai_gateway/answer_contracts.py');
+const gatewayActionExecution = readFile('komsco-ai-gateway/komsco_ai_gateway/action_execution.py');
 const contracts = readFile('komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py');
 const assistantConstantsSource = readFile('komsco-ai-console-plugin/src/components/assistant.constants.tsx');
 
@@ -73,6 +78,19 @@ assert(
 );
 assert(launcher.includes('streaming: true'), 'Assistant stream start must mark the assistant message as streaming');
 assert(launcher.includes('markLastAssistantStreaming(prev, false)'), 'Assistant stream completion must clear streaming state');
+assert(launcher.includes('AssistantFollowupMessageContent'), 'Latest completed answers must use the integrated follow-up renderer');
+assert(launcher.includes('visible={isLatestAssistantMessage && hasContent}'), 'Latest streamed follow-up lists must not expose raw markdown headings');
+assert(!launcher.includes('komsco-ai__followup-prompts'), 'Detached duplicate follow-up pills must not remain');
+assert(followupParser.includes('parseAssistantFollowupBlock'), 'Follow-up parsing must live in a dedicated module');
+assert(followupComponent.includes('selectionLockRef.current'), 'Follow-up selection must block duplicate sends');
+assert(followupComponent.includes('if (!accepted)'), 'Rejected follow-up sends must unlock the choices');
+assert(followupComponent.includes('<button'), 'Follow-up number toggles must be native buttons');
+assert(followupComponent.includes('rewriteAssistantFollowupQuery(option.prompt)'), 'Follow-up selections must be rewritten as user commands before sending');
+assert(followupCss.includes('grid-template-columns: 26px minmax(0, 1fr)'), 'Follow-up rows must use a stable number/text layout');
+assert(followupCss.includes('font-size: 14px') && followupCss.includes('white-space: normal'), 'Follow-up text must remain readable and wrap naturally');
+assert(!css.includes('.komsco-ai__followup-prompt {'), 'Legacy pill styling must be removed from the oversized stylesheet');
+assert(gatewayAnswerContracts.includes("### 다음으로 무엇을 확인할까요?"), 'Gateway answer contract must use the exact Korean follow-up heading');
+assert(gatewayAnswerContracts.includes('최대 3개'), 'Gateway answer contract must cap follow-up choices at three');
 assert(launcher.includes('dedupeActionCandidates(matched)'), 'Action candidates must be deduped before rendering buttons');
 assert(
   !launcher.includes('hasContent &&\n                          executionModeAllowsActions(executionMode)'),
@@ -104,11 +122,11 @@ assert(
   'Frontend must not synthesize Action Plan candidates from assistant answer text',
 );
 assert(
-  launcher.includes('candidate.target?.name') &&
-    launcher.includes('candidate.target?.namespace') &&
-    launcher.includes('content.includes(targetName)') &&
-    launcher.includes('content.includes(namespace)'),
-  'Frontend Action Plan matching must only filter Gateway-provided candidates by target text',
+  actionCandidatesSource.includes('candidate.target?.name') &&
+    actionCandidatesSource.includes('candidate.target?.namespace') &&
+    actionCandidatesSource.includes('candidateSharesIssueToken') &&
+    actionCandidatesSource.includes('messageLooksActionableForCandidates'),
+  'Frontend Action Plan matching must filter Gateway-provided candidates by target or operational issue token',
 );
 assert(launcher.includes('.filter((candidate) => !candidate.planDisabledReason)'), 'Auto-propose must not submit target-required disabled candidates');
 assert(gatewayTypes.includes('planDisabledReason?: string;'), 'Action candidate type must carry a visible disabled reason');
@@ -185,6 +203,34 @@ assert(
   differentActionCandidates.length === 2,
   'Different action types on the same target must remain separate candidates',
   differentActionCandidates,
+);
+const actionableCandidates = [
+  {
+    id: 'imagepull-openshift-marketplace-appscan360',
+    sourceType: 'pod_image_pull',
+    target: {
+      apiVersion: 'v1',
+      kind: 'Pod',
+      name: 'appscan360-catalog-dqfdb',
+      namespace: 'openshift-marketplace',
+    },
+    title: 'ImagePullBackOff: openshift-marketplace/appscan360-catalog-dqfdb',
+    evidence: 'Back-off pulling image registry.ocp.cywell.server:5000/appscan360',
+  },
+];
+assert(
+  actionCandidates.matchActionCandidatesForMessage(
+    '현재 화면의 대상에 대해 가능한 AIOps 조치 후보, 승인 필요 여부, 실행 전 검증 조건을 정리합니다. ImagePullBackOff Pod는 registry 권한과 pull secret 확인이 필요합니다.',
+    actionableCandidates,
+  ).length === 1,
+  'Action-oriented operational answers must show a matching Action Plan candidate card',
+);
+assert(
+  actionCandidates.matchActionCandidatesForMessage(
+    '현재 클러스터에서 파드 수가 가장 많은 네임스페이스는 openshift-marketplace입니다.',
+    actionableCandidates,
+  ).length === 0,
+  'Simple inventory answers must not show Action Plan candidate cards just because a namespace matches',
 );
 
 const repairedScreenshotMarkdown = prepare.prepareMarkdownContent(
@@ -484,8 +530,8 @@ assert(gateway.includes('현재 판단`, `원인 후보`, `확인 결과`, `조�
 assert(gateway.includes('CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고'), 'CrashLoopBackOff fallback must start with a plain definition before RCA sections');
 assert(gateway.includes('첫 문장에 "컨테이너가 시작 후 곧바로 종료되고 Kubernetes가 재시작을 반복하다가 대기 시간을 늘리는 상태"'), 'Gateway prompt must require a first-sentence CrashLoopBackOff definition');
 assert(gateway.includes('"set_deployment_container_command"'), 'Gateway action registry must include Deployment command mutation');
-assert(gateway.includes('"deployment_container_command_fix_v1"'), 'Gateway runbook registry must include Deployment command fix runbook');
-assert(gateway.includes('deployment_container_command_matches'), 'Gateway postcondition must verify Deployment command mutation');
+assert(!gateway.includes('"deployment_container_command_fix_v1"'), 'Gateway runbook registry must not expose unapproved command-fix runbook');
+assert(gatewayActionExecution.includes('deployment_container_command_matches'), 'Gateway postcondition must verify Deployment command mutation');
 assert(gateway.includes('공용 웹 URL은 기본 답변에 출력하지 마세요'), 'Gateway prompt must forbid public web URLs in default closed-network answers');
 assert(contracts.includes('"확인 결과"'), 'RCA contract must use 확인 결과');
 assert(contracts.includes('"조치 방법"'), 'RCA contract must use 조치 방법');

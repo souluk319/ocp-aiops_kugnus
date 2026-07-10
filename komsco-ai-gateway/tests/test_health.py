@@ -80,6 +80,7 @@ from komsco_ai_gateway.main import (
     build_ols_context_handoff,
     build_ols_payload,
     build_ols_query,
+    should_forward_image_attachments_to_ols,
     build_conversation_cleanup_review_candidate,
     build_node_status_rca_evidence,
     build_product_access_review_request,
@@ -265,16 +266,16 @@ def test_embedding_service_uses_role_based_ollama_api(monkeypatch) -> None:
             return FakeResponse()
 
     monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeAsyncClient)
-    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_SERVICE_URL", "http://home.example:11435")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_SERVICE_URL", "http://ollama.example:11434")
     monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_API_STYLE", "ollama")
-    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_MODEL", "embeddinggemma:latest")
+    monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_MODEL", "nomic-embed-text:latest")
     monkeypatch.setattr(gateway_main, "RAG_EMBEDDING_TIMEOUT_SECONDS", 1.0)
 
     vec = asyncio.run(gateway_main.call_embedding_service_async("DB 인증 실패 로그"))
 
-    assert captured["url"] == "http://home.example:11435/api/embed"
+    assert captured["url"] == "http://ollama.example:11434/api/embed"
     assert captured["json"] == {
-        "model": "embeddinggemma:latest",
+        "model": "nomic-embed-text:latest",
         "input": "DB 인증 실패 로그",
     }
     assert vec == [0.1, 0.2, 0.3]
@@ -1063,8 +1064,8 @@ def test_olm_operator_can_wire_rag_backend_url_from_secret() -> None:
                     "backendUrlKey": "database-url",
                     "embeddingProvider": "ollama",
                     "embeddingApiStyle": "ollama",
-                    "embeddingBaseUrl": "http://100.99.152.52:11435",
-                    "embeddingModel": "embeddinggemma:latest",
+                    "embeddingBaseUrl": "http://ollama.example:11434",
+                    "embeddingModel": "nomic-embed-text:latest",
                     "embeddingTimeoutSeconds": 120,
                     "vectorDimensions": 768,
                 },
@@ -1084,11 +1085,11 @@ def test_olm_operator_can_wire_rag_backend_url_from_secret() -> None:
     }
     assert env["KOMSCO_AI_EMBEDDING_PROVIDER"]["value"] == "ollama"
     assert env["KOMSCO_AI_EMBEDDING_API_STYLE"]["value"] == "ollama"
-    assert env["KOMSCO_AI_EMBEDDING_BASE_URL"]["value"] == "http://100.99.152.52:11435"
-    assert env["KOMSCO_AI_EMBEDDING_MODEL"]["value"] == "embeddinggemma:latest"
+    assert env["KOMSCO_AI_EMBEDDING_BASE_URL"]["value"] == "http://ollama.example:11434"
+    assert env["KOMSCO_AI_EMBEDDING_MODEL"]["value"] == "nomic-embed-text:latest"
     assert env["KOMSCO_AI_EMBEDDING_TIMEOUT_SECONDS"]["value"] == "120"
     assert env["KOMSCO_AI_EMBEDDING_DIMENSIONS"]["value"] == "768"
-    assert env["KOMSCO_AI_RAG_EMBEDDING_MODEL"]["value"] == "embeddinggemma:latest"
+    assert env["KOMSCO_AI_RAG_EMBEDDING_MODEL"]["value"] == "nomic-embed-text:latest"
     assert env["KOMSCO_AI_RAG_VECTOR_DIMENSIONS"]["value"] == "768"
 
 
@@ -1441,8 +1442,8 @@ def test_call_ols_stream_uses_role_based_ollama_chat(monkeypatch) -> None:
 
     monkeypatch.setattr(gateway_main.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(gateway_main, "LLM_API_STYLE", "ollama")
-    monkeypatch.setattr(gateway_main, "LLM_BASE_URL", "http://home.example:11434")
-    monkeypatch.setattr(gateway_main, "LLM_MODEL", "gemma4:12b-it-qat")
+    monkeypatch.setattr(gateway_main, "LLM_BASE_URL", "http://ollama.example:11434")
+    monkeypatch.setattr(gateway_main, "LLM_MODEL", "qwen2.5:7b-instruct")
     monkeypatch.setattr(gateway_main, "LLM_TIMEOUT_SECONDS", 1.0)
     monkeypatch.setattr(gateway_main, "DEV_ECHO", False)
 
@@ -1459,8 +1460,8 @@ def test_call_ols_stream_uses_role_based_ollama_chat(monkeypatch) -> None:
 
     events = asyncio.run(run())
 
-    assert captured["url"] == "http://home.example:11434/api/chat"
-    assert captured["json"]["model"] == "gemma4:12b-it-qat"
+    assert captured["url"] == "http://ollama.example:11434/api/chat"
+    assert captured["json"]["model"] == "qwen2.5:7b-instruct"
     assert captured["json"]["stream"] is False
     assert captured["json"]["think"] is False
     assert events[0]["type"] == "text"
@@ -2876,14 +2877,14 @@ def test_build_attachment_context_without_vision_uses_metadata_only_language() -
 
     context = build_attachment_context([attachment])
 
-    assert "비활성화" in context
+    assert "원본 이미지 attachment를 받지 않습니다" in context
     assert "첨부 파일 메타데이터" in context
     assert "사용자 설명" in context
     assert "도구 조회 결과" in context
     assert "이미지 원본 판독은 수행하지 않았습니다" not in context
 
 
-def test_build_ols_payload_forwards_image_attachments_by_default() -> None:
+def test_build_ols_payload_does_not_forward_image_attachments_by_default() -> None:
     attachment = ImageAttachment(
         data="iVBORw0KGgo=",
         id="image-1",
@@ -2894,16 +2895,7 @@ def test_build_ols_payload_forwards_image_attachments_by_default() -> None:
 
     payload = build_ols_payload("이미지 분석해줘", "conversation-1", [attachment])
 
-    assert payload == {
-        "query": "이미지 분석해줘",
-        "attachments": [
-            {
-                "attachment_type": "image",
-                "content_type": "image/png",
-                "content": "iVBORw0KGgo=",
-            }
-        ],
-    }
+    assert payload == {"query": "이미지 분석해줘"}
 
 
 def test_build_ols_payload_can_disable_image_attachment_forwarding() -> None:
@@ -2927,7 +2919,7 @@ def test_build_ols_payload_can_disable_image_attachment_forwarding() -> None:
     }
 
 
-def test_build_ols_payload_forwards_image_attachments_when_enabled() -> None:
+def test_build_ols_payload_never_forwards_unsupported_image_attachments() -> None:
     attachment = ImageAttachment(
         data="iVBORw0KGgo=",
         id="image-1",
@@ -2943,16 +2935,13 @@ def test_build_ols_payload_forwards_image_attachments_when_enabled() -> None:
         forward_image_attachments=True,
     )
 
-    assert payload == {
-        "query": "이미지 분석해줘",
-        "attachments": [
-            {
-                "attachment_type": "image",
-                "content_type": "image/png",
-                "content": "iVBORw0KGgo=",
-            }
-        ],
-    }
+    assert payload == {"query": "이미지 분석해줘"}
+
+
+def test_image_attachment_forwarding_stays_disabled_with_stale_env(monkeypatch) -> None:
+    monkeypatch.setenv("KOMSCO_AI_FORWARD_IMAGE_ATTACHMENTS_TO_OLS", "true")
+
+    assert should_forward_image_attachments_to_ols() is False
 
 
 def test_build_ols_payload_keeps_gateway_context_out_of_ols_body() -> None:
@@ -3343,7 +3332,7 @@ def test_numeric_followup_selection_resolves_effective_message_from_recent_answe
     assert selection.index == 2
     assert "원인 분석 (RCA) 시작" in selection.effective_message
     assert "2\n" not in selection.effective_message
-    assert "바로 이어서 진행" in selection.effective_message
+    assert selection.effective_message.endswith("찾아봐줘")
 
 
 def test_cleanup_followup_clarifies_recent_test_pod_scope() -> None:
@@ -3832,7 +3821,7 @@ def test_empty_answer_fallback_includes_gateway_evidence_when_ols_fails() -> Non
     assert "### 원인 후보" in fallback
 
 
-def test_image_empty_answer_fallback_hides_internal_diagnostics_and_reports_forwarding() -> None:
+def test_image_empty_answer_fallback_hides_internal_diagnostics_and_unverified_forwarding() -> None:
     attachment = ImageAttachment(
         data="iVBORw0KGgo=",
         id="image-1",
@@ -3861,7 +3850,8 @@ def test_image_empty_answer_fallback_hides_internal_diagnostics_and_reports_forw
 
     assert "첨부 화면 분석 답변을 완성하지 못했습니다" in fallback
     assert "이미지 수신: 1건" in fallback
-    assert "Lightspeed attachments로 전달 시도" in fallback
+    assert "Lightspeed attachments로 전달 시도" not in fallback
+    assert "전달했습니다" not in fallback
     assert "Gateway-collected Pod status evidence" in fallback
     assert "pgvector" not in fallback
     assert "expected 768 dimensions" not in fallback

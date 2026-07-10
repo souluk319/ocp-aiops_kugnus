@@ -656,6 +656,14 @@ def rbac_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]
 def action_executor_condition(config: Mapping[str, Any], generation: int) -> dict[str, Any]:
     mode = str(config["mode"])
     if not bool(config["mutationsEnabled"]):
+        if mode == "evidence-check":
+            return condition(
+                "ActionExecutorReady",
+                "True",
+                "DisabledByReadOnly",
+                "Action executor is intentionally disabled in read-only evidence-check mode.",
+                generation,
+            )
         return condition(
             "ActionExecutorReady",
             "False",
@@ -748,6 +756,14 @@ def safety_mode_condition(config: Mapping[str, Any], generation: int) -> dict[st
             "False",
             "UnrestrictedCommandsEnabled",
             "Unrestricted command mode is not part of the 0.1.1 default install readiness contract.",
+            generation,
+        )
+    if mode == "evidence-check" and not mutations_enabled:
+        return condition(
+            "SafetyModeReady",
+            "True",
+            "ReadOnlyLocked",
+            "Read-only evidence-check mode is locked by capabilities.mutations=false.",
             generation,
         )
     return condition(
@@ -888,6 +904,8 @@ def inferred_mode(spec: Mapping[str, Any], capabilities: Mapping[str, Any]) -> s
     unrestricted_enabled = bool(capabilities.get("unrestrictedCommands", False))
     if unrestricted_enabled:
         return "unrestricted"
+    if not mutations_enabled:
+        return "evidence-check"
     return "execute"
 
 
@@ -1588,7 +1606,10 @@ def network_policies(
         policy(
             "komsco-ai-gateway-ingress",
             "komsco-ai-gateway",
-            [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-console"}}}],
+            [
+                {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-console"}}},
+                {"podSelector": {"matchLabels": {"app": "komsco-ai-standalone"}}},
+            ],
             8443,
         ),
         {

@@ -18,6 +18,7 @@ export type NavItem = {
   label: string;
   group: 'MONITORING' | 'OPERATIONS';
   icon: React.ReactNode;
+  hiddenFromSidebar?: boolean;
 };
 
 export const navItems: NavItem[] = [
@@ -30,7 +31,7 @@ export const navItems: NavItem[] = [
   { id: 'wiki', label: '위키 문서 관리', group: 'OPERATIONS', icon: <BookOpen /> },
   { id: 'reports', label: '보고서', group: 'OPERATIONS', icon: <FileText /> },
   { id: 'settings', label: '설정', group: 'OPERATIONS', icon: <Settings /> },
-  { id: 'v2', label: 'AIOps Console', group: 'OPERATIONS', icon: <Sparkles /> },
+  { id: 'v2', label: 'AIOps Console', group: 'OPERATIONS', icon: <Sparkles />, hiddenFromSidebar: true },
 ];
 
 export const navGroupLabel: Record<NavItem['group'], string> = {

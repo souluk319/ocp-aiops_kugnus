@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+from .chat_turn_routing import classify_chat_turn_intent
+
 PRODUCT_CONTRACT = {
     "name": "Cywell AI",
     "mode": "evidence_first_execution",
@@ -592,6 +594,8 @@ def build_rca_context(
     phase: str = "pre_answer",
 ) -> dict[str, Any]:
     plan = tool_plan or {}
+    task_type = str(plan.get("task_type") or "generic_openshift_question")
+    non_operational_turn = task_type in {"product_feedback", "ui_explanation"}
     refs = [_normalize_evidence_ref(ref) for ref in evidence_refs or []]
     collected_refs = [ref for ref in refs if _evidence_ref_status_bucket(ref) == "collected"]
     partial_refs = [ref for ref in refs if _evidence_ref_status_bucket(ref) == "partial"]
@@ -620,7 +624,7 @@ def build_rca_context(
                 "type": ref_type,
             }
         )
-    if not collected_refs and not partial_refs:
+    if not non_operational_turn and not collected_refs and not partial_refs:
         missing_evidence.append(
             {
                 "type": "openshift",
@@ -715,7 +719,6 @@ def build_rca_context(
         for step in tool_steps
         if isinstance(step.get("official_tool"), str) and str(step.get("official_tool")).strip()
     ]
-    task_type = str(plan.get("task_type") or "generic_openshift_question")
     target_namespace = str(
         target.get("namespace")
         or target.get("name")
@@ -762,7 +765,10 @@ def build_rca_context(
             "title": "원인 확정 전 rollout/delete/patch/scale 실행 금지",
         },
     ]
-    if task_type == "test_pod_create":
+    if non_operational_turn:
+        cause_candidates = []
+        action_candidates = []
+    elif task_type == "test_pod_create":
         cause_candidates: list[dict[str, Any]] = []
         action_candidates: list[dict[str, Any]] = [
             {
@@ -801,6 +807,39 @@ def build_rca_context(
         )
         if demo_cycle_context.get(key) is not None and demo_cycle_context.get(key) != ""
     }
+    if task_type == "product_feedback":
+        answer_contract = {
+            "format": "product_feedback_response",
+            "requiredSections": ["현재 판단", "개선 판단", "다음 행동"],
+            "mustNotInventEvidence": True,
+            "mustSeparateUnknowns": True,
+            "mustNotExecuteWithoutApproval": True,
+        }
+    elif task_type == "ui_explanation":
+        answer_contract = {
+            "format": "ui_explanation",
+            "requiredSections": ["화면 목적", "현재 표시 내용", "읽는 순서", "다음 행동"],
+            "mustNotInventEvidence": True,
+            "mustSeparateUnknowns": True,
+            "mustNotExecuteWithoutApproval": True,
+        }
+    else:
+        answer_contract = {
+            "format": "operations_rca_report",
+            "requiredSections": [
+                "원인 후보",
+                "확인 결과",
+                "조치 방법",
+                "추가 확인",
+                "재발 방지",
+            ],
+            "mustNotInventEvidence": True,
+            "mustSeparateUnknowns": True,
+            "mustNotExposeRawToolPlanInDefaultAnswer": True,
+            "mustNotExecuteWithoutApproval": True,
+            "supportedExecutionModes": ["evidence_check", "controlled_execution", "unrestricted"],
+        }
+
     context: dict[str, Any] = {
         "apiVersion": "aiops.komsco/v1alpha1",
         "kind": "RcaContext",
@@ -832,21 +871,7 @@ def build_rca_context(
             "mode": "evidence_first",
             "evidenceCollectionSteps": evidence_collection_steps,
             "queryPlan": query_plan,
-            "answerContract": {
-                "format": "operations_rca_report",
-                "requiredSections": [
-                    "원인 후보",
-                    "확인 결과",
-                    "조치 방법",
-                    "추가 확인",
-                    "재발 방지",
-                ],
-                "mustNotInventEvidence": True,
-                "mustSeparateUnknowns": True,
-                "mustNotExposeRawToolPlanInDefaultAnswer": True,
-                "mustNotExecuteWithoutApproval": True,
-                "supportedExecutionModes": ["evidence_check", "controlled_execution", "unrestricted"],
-            },
+            "answerContract": answer_contract,
             "stopConditions": [
                 "required evidence source failed",
                 "user token lacks requested read permission",
@@ -909,13 +934,17 @@ def build_rca_context(
             "validation": plan.get("validation", {"ok": False, "violations": ["tool plan missing"]}),
         },
         "confidence": {
-            "level": "evidence_based"
+            "level": "context_based"
+            if non_operational_turn
+            else "evidence_based"
             if collected_refs
             else "partial_evidence"
             if partial_refs
             else "insufficient_evidence",
             "reason": (
-                "runtime evidence references are attached"
+                "cluster evidence is not required for this product or screen explanation"
+                if non_operational_turn
+                else "runtime evidence references are attached"
                 if collected_refs
                 else "partial runtime evidence references are attached"
                 if partial_refs
@@ -1104,7 +1133,17 @@ def build_runtime_tool_plan(
         ),
     )
 
-    if _is_resource_summary_rca_message(message):
+    turn_intent = classify_chat_turn_intent(message, page_context=page_context)
+
+    if turn_intent == "product_feedback":
+        task_type = "product_feedback"
+        tool_steps = []
+        missing = []
+    elif turn_intent == "ui_explanation":
+        task_type = "ui_explanation"
+        tool_steps = []
+        missing = []
+    elif _is_resource_summary_rca_message(message):
         task_type = "resource_summary_rca"
         tool_steps = [
             {

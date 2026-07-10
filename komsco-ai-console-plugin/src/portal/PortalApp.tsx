@@ -29,6 +29,7 @@ import {
   standaloneRouteByView,
   viewFromLocation,
 } from './portalNavigation';
+import { buildRcaViewPageContext } from './aiopsPageContext';
 import { severityClass, severityLabel, StatusBadge } from './portalBadges';
 import { aiopsAlarmCount, formatTime } from './portalModel';
 import { useLiveClock, usePortalRuntime } from './portalRuntime';
@@ -4602,9 +4603,10 @@ const RcaView: React.FC<{
   onAssistantLaunch?: AssistantLaunchHandler;
   onNavigate: (view: NavView) => void;
   onOpenItem: (item: QueueItem) => void;
+  onPageContextChange?: (context: Record<string, unknown>) => void;
   status: AiopsRuntimeStatus;
   summary: ClusterSummary;
-}> = ({ onAssistantLaunch, onNavigate, onOpenItem, status, summary }) => {
+}> = ({ onAssistantLaunch, onNavigate, onOpenItem, onPageContextChange, status, summary }) => {
   const liveQueues = buildQueues(summary, status);
   const sampleMode = liveQueues.length === 0;
   const queues = sampleMode ? sampleRcaQueues : liveQueues;
@@ -4627,6 +4629,36 @@ const RcaView: React.FC<{
   React.useEffect(() => {
     setSelectedId((current) => (queues.some((item) => item.id === current) ? current : defaultRcaSelection(queues)));
   }, [queues]);
+
+  const rcaPageContext = React.useMemo(
+    () => buildRcaViewPageContext({
+      caseHeader,
+      caseId,
+      cluster: clusterLabel(summary),
+      dataSource: sampleMode ? 'sample' : 'live',
+      evidence: evidencePack,
+      findings,
+      issueType: selectedIssueType,
+      runbookGates,
+      selectedIssue: selected ? {
+        category: selected.category,
+        detail: selected.detail,
+        evidence: selected.evidence,
+        id: selected.id,
+        severity: selected.severity,
+        source: selected.source,
+        target: selected.target,
+        title: selected.title,
+        updatedAt: selected.updatedAt,
+      } : undefined,
+      timeline,
+    }),
+    [caseHeader, caseId, evidencePack, findings, runbookGates, sampleMode, selected, selectedIssueType, summary, timeline],
+  );
+
+  React.useEffect(() => {
+    onPageContextChange?.(rcaPageContext);
+  }, [onPageContextChange, rcaPageContext]);
 
   const copyCommands = React.useCallback(() => {
     const commands = commandBundle.map((command) => `# ${command.title}\n${command.command}`).join('\n\n');
@@ -7735,6 +7767,7 @@ const AppContent: React.FC<{
         onAssistantLaunch={onAssistantLaunch}
         onNavigate={onNavigate}
         onOpenItem={onOpenItem}
+        onPageContextChange={onPageContextChange}
         status={status}
         summary={summary}
       />

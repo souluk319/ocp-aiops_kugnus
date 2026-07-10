@@ -52,30 +52,18 @@ def parse_float_env(*names: str, default: float) -> float:
         return default
 
 
-def parse_millis_env_as_seconds(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None or value.strip() == "":
-        return default
-    try:
-        return float(value) / 1000.0
-    except ValueError:
-        return default
-
-
-def infer_llm_api_style(provider: str, base_url: str, legacy_home_url: str) -> str:
+def infer_llm_api_style(provider: str, base_url: str) -> str:
     normalized_provider = provider.strip().lower()
     if normalized_provider in {"ollama", "ollama-native"}:
         return "ollama"
     if normalized_provider in {"lightspeed", "ols", "openshift-lightspeed"}:
         return "lightspeed"
-    if legacy_home_url:
-        return "ollama"
     if ":11434" in base_url:
         return "ollama"
     return "lightspeed"
 
 
-def infer_embedding_api_style(provider: str, base_url: str, legacy_home_url: str) -> str:
+def infer_embedding_api_style(provider: str, base_url: str) -> str:
     normalized_provider = provider.strip().lower()
     if normalized_provider in {"ollama", "ollama-native"}:
         return "ollama"
@@ -83,8 +71,6 @@ def infer_embedding_api_style(provider: str, base_url: str, legacy_home_url: str
         return "openai"
     if normalized_provider == "tei":
         return "tei"
-    if legacy_home_url:
-        return "ollama"
     if ":11435" in base_url or base_url.rstrip("/").endswith("/api/embed"):
         return "ollama"
     if re.search(r"/v\d+(?:/|$)", base_url):
