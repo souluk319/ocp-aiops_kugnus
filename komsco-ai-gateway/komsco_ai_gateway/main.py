@@ -135,6 +135,11 @@ from .chat_rag_evidence_flow import (
     RagEvidenceFlowDependencies,
     stream_rag_evidence,
 )
+from .chat_ols_answer_flow import (
+    OlsAnswerFlowDependencies,
+    OlsAnswerState,
+    stream_ols_answer_attempts,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1999,6 +2004,24 @@ def rag_evidence_flow_dependencies() -> RagEvidenceFlowDependencies:
         build_citation_text=build_rag_answer_citation_text,
         append_gateway_evidence=append_gateway_evidence,
         safe_exception_text=safe_exception_text,
+        build_evidence_reference_events=build_evidence_reference_events,
+        sse=sse,
+    )
+
+
+def ols_answer_flow_dependencies() -> OlsAnswerFlowDependencies:
+    return OlsAnswerFlowDependencies(
+        empty_answer_retries=OLS_EMPTY_ANSWER_RETRIES,
+        require_final_answer=REQUIRE_OLS_FINAL_ANSWER,
+        call_ols_stream=call_ols_stream,
+        stream_with_heartbeats=stream_with_heartbeats,
+        normalize_ols_event=normalize_ols_event,
+        redact_sensitive=redact_sensitive,
+        answer_language_contract=answer_language_contract,
+        safe_exception_text=safe_exception_text,
+        update_ols_stream_status=update_ols_stream_status,
+        active_llm_stage=active_llm_stage,
+        active_llm_label=active_llm_label,
         build_evidence_reference_events=build_evidence_reference_events,
         sse=sse,
     )
@@ -8595,132 +8618,26 @@ async def chat_stream(
                 gateway_context=ols_gateway_context,
                 gateway_evidence=gateway_evidence,
             )
-            emitted_answer_text = False
-            ols_tool_results: list[Mapping[str, Any]] = []
-            ols_attempt_count = 0
-            _accumulated_answer_chunks: list[str] = []
-            for ols_attempt in range(OLS_EMPTY_ANSWER_RETRIES + 1):
-                attempt_emitted_answer_text = False
-                ols_attempt_count = ols_attempt + 1
-                active_ols_query = ols_query
-                if ols_attempt > 0:
-                    active_ols_query = (
-                        f"{redact_sensitive(req.message).strip()}\n\n"
-                        "Previous OpenShift Lightspeed response ended before final answer text. "
-                        "Do not call tools again in this retry. "
-                        f"{answer_language_contract(req)} "
-                        "Return a concise final answer using the OpenShift evidence already observed in this conversation. "
-                        "If the available facts do not confirm the cause, say exactly what is unconfirmed. "
-                        "Do not print secrets or raw credentials."
-                    )
-
-                try:
-                    async for ols_event in stream_with_heartbeats(
-                        call_ols_stream(
-                            authorization,
-                            active_ols_query,
-                            req.conversationId,
-                            req.attachments,
-                            ols_gateway_context,
-                        ),
-                        run_id,
-                    ):
-                        normalized_event = normalize_ols_event(ols_event)
-                        if normalized_event.get("type") == "text":
-                            filtered_content = text_reference_filter.filter(
-                                str(normalized_event.get("content") or "")
-                            )
-                            if filtered_content:
-                                if filtered_content.strip():
-                                    emitted_answer_text = True
-                                    attempt_emitted_answer_text = True
-                                    _accumulated_answer_chunks.append(filtered_content)
-                                    transcript_answer_chunks.append(filtered_content)
-                                text_event: dict[str, Any] = {"type": "text", "content": filtered_content}
-                                for key in (
-                                    "fallbackAnswer",
-                                    "gatewayContextDigest",
-                                    "source",
-                                    "streamProbe",
-                                ):
-                                    if key in normalized_event:
-                                        text_event[key] = normalized_event[key]
-                                yield sse(text_event)
-                            continue
-
-                        if normalized_event.get("type") == "end":
-                            final_text = text_reference_filter.flush()
-                            if final_text:
-                                if final_text.strip():
-                                    emitted_answer_text = True
-                                    attempt_emitted_answer_text = True
-                                    _accumulated_answer_chunks.append(final_text)
-                                    transcript_answer_chunks.append(final_text)
-                                yield sse({"type": "text", "content": final_text})
-                            if not attempt_emitted_answer_text and ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
-                                continue
-
-                        yield sse(normalized_event)
-                        if normalized_event.get("type") == "tool_result":
-                            ols_tool_results.append(dict(normalized_event))
-                            for evidence_event in build_evidence_reference_events(
-                                event=normalized_event,
-                                incident_id=incident_id,
-                                run_id=run_id,
-                                source_type="ols-tool-result",
-                                subject=subject,
-                            ):
-                                yield sse(evidence_event)
-                except Exception as exc:
-                    safe_detail = safe_exception_text(exc)
-                    update_ols_stream_status(
-                        "failed",
-                        context_digest=ols_gateway_context["metadata"]["digest"],
-                        fallback_active=(
-                            not REQUIRE_OLS_FINAL_ANSWER and ols_attempt >= OLS_EMPTY_ANSWER_RETRIES
-                        ),
-                        reason=safe_detail,
-                    )
-                    ols_error_event = {
-                        "type": "tool_result",
-                        "detail": safe_detail,
-                        "id": f"{request_id}-{active_llm_stage()}-stream",
-                        "name": f"{active_llm_stage()}_stream",
-                        "status": "error",
-                        "summary": f"{active_llm_label()} request failed; final answer was not generated",
-                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                        "finalAnswerUnavailable": True,
-                    }
-                    ols_tool_results.append(ols_error_event)
-                    if ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
-                        yield sse(
-                            {
-                                "type": "run_status",
-                                "runId": run_id,
-                                "stage": f"{active_llm_stage()}_retry",
-                                "message": f"{active_llm_label()} 오류로 원 질문만 사용해 재시도",
-                                "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                                "attempt": ols_attempt + 2,
-                            }
-                        )
-                        continue
-                    yield sse(ols_error_event)
-                    break
-
-                if emitted_answer_text:
-                    break
-
-                if ols_attempt < OLS_EMPTY_ANSWER_RETRIES:
-                    yield sse(
-                        {
-                            "type": "run_status",
-                            "runId": run_id,
-                            "stage": f"{active_llm_stage()}_retry",
-                            "message": f"{active_llm_label()}가 빈 응답으로 종료되어 같은 증거로 재시도",
-                            "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                            "attempt": ols_attempt + 2,
-                        }
-                    )
+            ols_answer_state = OlsAnswerState()
+            async for payload in stream_ols_answer_attempts(
+                authorization=authorization,
+                dependencies=ols_answer_flow_dependencies(),
+                gateway_context=ols_gateway_context,
+                incident_id=incident_id,
+                ols_query=ols_query,
+                request=req,
+                request_id=request_id,
+                run_id=run_id,
+                state=ols_answer_state,
+                subject=subject,
+                text_reference_filter=text_reference_filter,
+            ):
+                yield payload
+            transcript_answer_chunks.extend(ols_answer_state.answer_chunks)
+            emitted_answer_text = ols_answer_state.emitted_answer_text
+            ols_tool_results = ols_answer_state.tool_results
+            ols_attempt_count = ols_answer_state.attempt_count
+            _accumulated_answer_chunks = ols_answer_state.answer_chunks
             if not emitted_answer_text:
                 fallback_reason = (
                     f"{active_llm_label()} ended without answer text; final answer was not generated"
