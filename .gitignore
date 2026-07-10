@@ -20,6 +20,7 @@ komsco-ai-gateway/var/aiops/
 .DS_Store
 .claude/
 .codex/
+.agents/
 .omo/
 /AGENTS.md
 /DESIGN.md
