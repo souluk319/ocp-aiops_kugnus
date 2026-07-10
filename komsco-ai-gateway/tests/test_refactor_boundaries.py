@@ -90,3 +90,29 @@ def test_main_composite_helpers_follow_current_main_monkeypatches(monkeypatch) -
         )
         == "patched empty fallback"
     )
+
+
+def test_namespace_cleanup_uses_current_main_parser_binding(monkeypatch) -> None:
+    monkeypatch.setattr(
+        gateway_main,
+        "parse_gateway_current_pod_list_rows",
+        lambda _evidence: (
+            [
+                {
+                    "namespace": "gpu-test-kugnus",
+                    "pod": "aiops-test-pod-latest",
+                    "podStart": "2026-07-10T10:00:00Z",
+                }
+            ],
+            "gpu-test-kugnus",
+            "1 / 1",
+        ),
+    )
+
+    selected = gateway_main.select_latest_cleanup_pod_rows(
+        {"namespace": "gpu-test-kugnus", "podPattern": "aiops-test-pod-*"},
+        "ignored by patched parser",
+        1,
+    )
+
+    assert [row["pod"] for row in selected] == ["aiops-test-pod-latest"]
