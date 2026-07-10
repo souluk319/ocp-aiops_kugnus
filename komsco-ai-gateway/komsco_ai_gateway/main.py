@@ -8,7 +8,7 @@ import os
 import re
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -105,6 +105,7 @@ from .chat_pod_count_flow import (
     stream_direct_pod_count,
     stream_top_pod_namespace_count,
 )
+from .chat_cleanup_flow import CleanupChatFlowDependencies, start_cleanup_chat_flow
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1831,6 +1832,24 @@ def remember_conversation_cleanup_review_candidate(
 
 cleanup_latest_delete_review_response = namespace_cleanup_runtime.cleanup_latest_delete_review_response
 cleanup_review_candidate_response = namespace_cleanup_runtime.cleanup_review_candidate_response
+
+
+def cleanup_chat_flow_dependencies(
+    current_rca_context_event_callback: Callable[[str], dict[str, Any]],
+) -> CleanupChatFlowDependencies:
+    return CleanupChatFlowDependencies(
+        should_create_latest_candidate=should_create_latest_cleanup_delete_review_candidate,
+        should_create_candidate=should_create_cleanup_review_candidate,
+        should_clarify_scope=should_clarify_cleanup_scope,
+        delete_count_from_message=cleanup_delete_count_from_message,
+        select_latest_rows=select_latest_cleanup_pod_rows,
+        remember_candidate=remember_conversation_cleanup_review_candidate,
+        candidate_response=cleanup_review_candidate_response,
+        clarification_response=cleanup_scope_clarification_response,
+        redact_sensitive=redact_sensitive,
+        current_rca_context_event=current_rca_context_event_callback,
+        sse=sse,
+    )
 
 
 
@@ -8108,169 +8127,20 @@ async def chat_stream(
                 return
 
             cleanup_focus = conversation_focus_from_request(req)
-            if should_create_latest_cleanup_delete_review_candidate(req, cleanup_focus):
-                requested_count = cleanup_delete_count_from_message(req.message or "")
-                selected_rows = select_latest_cleanup_pod_rows(
-                    cleanup_focus,
-                    gateway_evidence,
-                    requested_count,
-                )
-                cleanup_candidate = remember_conversation_cleanup_review_candidate(
-                    cleanup_focus,
-                    incident_id=incident_id,
-                    run_id=run_id,
-                    selected_rows=selected_rows,
-                    requested_count=requested_count,
-                )
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(
-                            redact_sensitive(
-                                {
-                                    "candidate": {
-                                        "id": cleanup_candidate.get("id"),
-                                        "parameters": cleanup_candidate.get("parameters"),
-                                        "sourceType": cleanup_candidate.get("sourceType"),
-                                        "target": cleanup_candidate.get("target"),
-                                        "title": cleanup_candidate.get("title"),
-                                    },
-                                    "status": "action_candidate_ready",
-                                }
-                            ),
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        "id": f"{request_id}-conversation-cleanup-latest-delete-review-candidate",
-                        "name": "conversation_cleanup_latest_delete_review_candidate",
-                        "result": {
-                            "candidateCount": 1,
-                            "selectedPodCount": len(selected_rows),
-                            "status": "action_candidate_ready",
-                        },
-                        "status": "success",
-                        "summary": "최신 테스트 Pod 삭제 검토 Action Plan 후보 1건 준비",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": cleanup_review_candidate_response(cleanup_candidate),
-                        "source": "copilot_clarification",
-                        "answerContract": "cleanup-latest-delete-review-candidate-v0.2.9",
-                    }
-                )
-                rca_context_event = current_rca_context_event("post_answer")
-                LAST_RCA_CONTEXT = rca_context_event["context"]
-                yield sse(rca_context_event)
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed",
-                        "message": "Gateway 최신 테스트 Pod 삭제 검토 후보 준비 완료",
-                    }
-                )
-                yield sse("[DONE]")
-                return
-
-            if should_create_cleanup_review_candidate(req, cleanup_focus):
-                cleanup_candidate = remember_conversation_cleanup_review_candidate(
-                    cleanup_focus,
-                    incident_id=incident_id,
-                    run_id=run_id,
-                )
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(
-                            redact_sensitive(
-                                {
-                                    "candidate": {
-                                        "id": cleanup_candidate.get("id"),
-                                        "sourceType": cleanup_candidate.get("sourceType"),
-                                        "target": cleanup_candidate.get("target"),
-                                        "title": cleanup_candidate.get("title"),
-                                    },
-                                    "status": "action_candidate_ready",
-                                }
-                            ),
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        "id": f"{request_id}-conversation-cleanup-review-candidate",
-                        "name": "conversation_cleanup_review_candidate",
-                        "result": {
-                            "candidateCount": 1,
-                            "status": "action_candidate_ready",
-                        },
-                        "status": "success",
-                        "summary": "테스트 Pod 정리 검토 Action Plan 후보 1건 준비",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": cleanup_review_candidate_response(cleanup_candidate),
-                        "source": "copilot_clarification",
-                        "answerContract": "cleanup-review-candidate-v0.2.9",
-                    }
-                )
-                rca_context_event = current_rca_context_event("post_answer")
-                LAST_RCA_CONTEXT = rca_context_event["context"]
-                yield sse(rca_context_event)
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed",
-                        "message": "Gateway 테스트 Pod 정리 검토 후보 준비 완료",
-                    }
-                )
-                yield sse("[DONE]")
-                return
-
-            if should_clarify_cleanup_scope(req, cleanup_focus):
-                clarification_result = {
-                    "conversationFocus": cleanup_focus,
-                    "reason": "ambiguous_cleanup_scope",
-                    "status": "clarification_required",
-                }
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(
-                            redact_sensitive(clarification_result),
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        "id": f"{request_id}-cleanup-scope-clarification",
-                        "name": "cleanup_scope_clarification",
-                        "result": clarification_result,
-                        "status": "skipped",
-                        "summary": "정리 대상 범위 확인 필요",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": cleanup_scope_clarification_response(req, cleanup_focus),
-                        "source": "copilot_clarification",
-                        "answerContract": "cleanup-scope-clarification-v0.2.9",
-                    }
-                )
-                rca_context_event = current_rca_context_event("post_answer")
-                LAST_RCA_CONTEXT = rca_context_event["context"]
-                yield sse(rca_context_event)
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed",
-                        "message": "Gateway 정리 대상 범위 확인 요청 완료",
-                    }
-                )
-                yield sse("[DONE]")
+            cleanup_flow = start_cleanup_chat_flow(
+                cleanup_focus=cleanup_focus,
+                dependencies=cleanup_chat_flow_dependencies(current_rca_context_event),
+                gateway_evidence=gateway_evidence,
+                incident_id=incident_id,
+                request=req,
+                request_id=request_id,
+                run_id=run_id,
+            )
+            if cleanup_flow.handled:
+                for stream_event in cleanup_flow.events:
+                    if stream_event.latest_rca_context is not None:
+                        LAST_RCA_CONTEXT = stream_event.latest_rca_context
+                    yield stream_event.payload
                 return
 
             if (
