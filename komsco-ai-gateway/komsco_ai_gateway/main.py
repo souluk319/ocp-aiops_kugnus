@@ -118,6 +118,10 @@ from .chat_pod_evidence_flow import (
     PodEvidenceFlowDependencies,
     stream_pod_status_evidence,
 )
+from .chat_attachment_cronjob_flow import (
+    AttachmentCronjobFlowDependencies,
+    stream_attachment_and_cronjob_preflight,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1907,6 +1911,19 @@ def pod_evidence_flow_dependencies() -> PodEvidenceFlowDependencies:
         page_context_is_pod_workload=page_context_is_pod_workload,
         pod_list_namespace=pod_list_namespace,
         collect_pod_status_evidence=collect_pod_status_evidence,
+        append_gateway_evidence=append_gateway_evidence,
+        safe_exception_text=safe_exception_text,
+        evidence_summary=_evidence_summary,
+        build_evidence_reference_events=build_evidence_reference_events,
+        sse=sse,
+    )
+
+
+def attachment_cronjob_flow_dependencies() -> AttachmentCronjobFlowDependencies:
+    return AttachmentCronjobFlowDependencies(
+        analyze_image_attachments=analyze_image_attachments,
+        should_collect_cronjob_activity_evidence=should_collect_cronjob_activity_evidence,
+        collect_cronjob_activity_evidence=collect_cronjob_activity_evidence,
         append_gateway_evidence=append_gateway_evidence,
         safe_exception_text=safe_exception_text,
         evidence_summary=_evidence_summary,
@@ -8251,103 +8268,22 @@ async def chat_stream(
                 if handled:
                     return
 
-            if req.attachments:
-                yield sse({"type": "tool_call", "name": "attachment_check"})
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "name": "attachment_check",
-                        "result": {
-                            "images": len(req.attachments),
-                            "totalBytes": sum(item.size for item in req.attachments),
-                            "forwardedToLightspeed": False,
-                        },
-                        "summary": "첨부 이미지 수신 및 형식 확인 완료",
-                    }
-                )
-
             image_analysis = None
-            if req.attachments:
-                yield sse({"type": "tool_call", "name": "vision_analysis"})
-                image_analysis = await analyze_image_attachments(req.attachments, req.message)
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "name": "vision_analysis",
-                        "result": "ok" if image_analysis else "not_configured",
-                    }
-                )
-
-            if should_collect_cronjob_activity_evidence(req.message, image_analysis):
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-cronjob-activity-evidence",
-                        "name": "cronjob_activity_evidence",
-                        "summary": "CronJob/Activity 주기 조회 결과 수집",
-                    }
-                )
-                try:
-                    cronjob_context = "\n".join(
-                        item for item in [req.message, image_analysis] if item
-                    )
-                    cronjob_evidence = await collect_cronjob_activity_evidence(
-                        authorization,
-                        cronjob_context,
-                    )
-                    evidence_status = (
-                        "skipped"
-                        if cronjob_evidence.startswith("CronJob activity evidence unavailable:")
-                        else "success"
-                    )
-                    gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
-                    cronjob_event = {
-                        "type": "tool_result",
-                        "detail": cronjob_evidence,
-                        "evidenceType": "cronjob",
-                        "id": f"{request_id}-cronjob-activity-evidence",
-                        "missingReason": cronjob_evidence
-                        if evidence_status != "success"
-                        else "",
-                        "name": "cronjob_activity_evidence",
-                        "sourcePath": "/apis/batch/v1/cronjobs,/apis/batch/v1/jobs?limit=500",
-                        "status": evidence_status,
-                        "summary": _evidence_summary(
-                            "CronJob/Activity 주기 증거",
-                            evidence_status,
-                        ),
-                    }
-                    yield sse(cronjob_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=cronjob_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
-                except Exception as exc:
-                    cronjob_evidence = f"CronJob activity evidence unavailable: {safe_exception_text(exc)}"
-                    gateway_evidence = append_gateway_evidence(gateway_evidence, cronjob_evidence)
-                    cronjob_event = {
-                        "type": "tool_result",
-                        "detail": cronjob_evidence,
-                        "id": f"{request_id}-cronjob-activity-evidence",
-                        "name": "cronjob_activity_evidence",
-                        "evidenceType": "cronjob",
-                        "missingReason": safe_exception_text(exc),
-                        "status": "error",
-                        "summary": "CronJob/Activity 주기 조회 결과 수집 실패",
-                    }
-                    yield sse(cronjob_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=cronjob_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
+            async for stream_event in stream_attachment_and_cronjob_preflight(
+                authorization=authorization,
+                dependencies=attachment_cronjob_flow_dependencies(),
+                gateway_evidence=gateway_evidence,
+                incident_id=incident_id,
+                request=req,
+                request_id=request_id,
+                run_id=run_id,
+                subject=subject,
+            ):
+                if stream_event.gateway_evidence is not None:
+                    gateway_evidence = stream_event.gateway_evidence
+                if stream_event.image_analysis_updated:
+                    image_analysis = stream_event.image_analysis
+                yield stream_event.payload
 
             if should_collect_pod_status_evidence_for_request(req):
                 async for stream_event in stream_pod_status_evidence(
