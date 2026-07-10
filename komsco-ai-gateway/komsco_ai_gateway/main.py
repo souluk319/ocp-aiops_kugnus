@@ -106,6 +106,10 @@ from .chat_pod_count_flow import (
     stream_top_pod_namespace_count,
 )
 from .chat_cleanup_flow import CleanupChatFlowDependencies, start_cleanup_chat_flow
+from .chat_natural_action_followup_flow import (
+    NaturalActionFollowupFlowDependencies,
+    stream_chat_natural_action_followup,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1847,6 +1851,23 @@ def cleanup_chat_flow_dependencies(
         candidate_response=cleanup_review_candidate_response,
         clarification_response=cleanup_scope_clarification_response,
         redact_sensitive=redact_sensitive,
+        current_rca_context_event=current_rca_context_event_callback,
+        sse=sse,
+    )
+
+
+def natural_action_followup_flow_dependencies(
+    current_rca_context_event_callback: Callable[[str], dict[str, Any]],
+) -> NaturalActionFollowupFlowDependencies:
+    return NaturalActionFollowupFlowDependencies(
+        latest_pending_action_plan_result=latest_pending_action_plan_result,
+        recent_natural_action_request=recent_natural_action_request,
+        create_natural_action_plan=create_natural_action_plan,
+        execute_natural_action_plan_result=execute_natural_action_plan_result,
+        redact_sensitive=redact_sensitive,
+        natural_action_execution_response=natural_action_execution_response,
+        natural_action_plan_response=natural_action_plan_response,
+        no_pending_action_plan_response=no_pending_action_plan_response,
         current_rca_context_event=current_rca_context_event_callback,
         sse=sse,
     )
@@ -8147,188 +8168,21 @@ async def chat_stream(
                 execution_mode_allows_immediate_actions(req)
                 and is_followup_execution_request(req.message)
             ):
-                pending_plan_result = latest_pending_action_plan_result(subject)
-                if not pending_plan_result:
-                    contextual_request = recent_natural_action_request(req)
-                    if contextual_request:
-                        contextual_plan_result = await create_natural_action_plan(
-                            contextual_request,
-                            authorization,
-                            subject,
-                            incident_id=incident_id,
-                            run_id=run_id,
-                        )
-                        if contextual_plan_result:
-                            if contextual_plan_result.get("status") == "planned":
-                                yield sse(
-                                    {
-                                        "type": "tool_call",
-                                        "id": f"{request_id}-natural-action-followup",
-                                        "name": "natural_action_followup",
-                                        "summary": "최근 대화의 AIOps 조치 요청 후속 실행",
-                                    }
-                                )
-                                followup_execution_result = await execute_natural_action_plan_result(
-                                    contextual_plan_result,
-                                    authorization,
-                                    subject,
-                                )
-                                yield sse(
-                                    {
-                                        "type": "tool_result",
-                                        "detail": json.dumps(
-                                            redact_sensitive(followup_execution_result),
-                                            ensure_ascii=False,
-                                            indent=2,
-                                        ),
-                                        "id": f"{request_id}-natural-action-followup",
-                                        "name": "natural_action_followup",
-                                        "result": followup_execution_result,
-                                        "status": (
-                                            "success"
-                                            if followup_execution_result.get("status") == "executed"
-                                            else "failed"
-                                        ),
-                                        "summary": "최근 대화의 AIOps 조치 후속 실행 완료",
-                                    }
-                                )
-                                yield sse(
-                                    {
-                                        "type": "text",
-                                        "content": natural_action_execution_response(
-                                            followup_execution_result
-                                        ),
-                                    }
-                                )
-                                yield sse(
-                                    {
-                                        "type": "run_status",
-                                        "runId": run_id,
-                                        "stage": "completed",
-                                        "message": "Gateway 최근 맥락 조치 실행 완료",
-                                    }
-                                )
-                                rca_context_event = current_rca_context_event("post_answer")
-                                LAST_RCA_CONTEXT = rca_context_event["context"]
-                                yield sse(rca_context_event)
-                                yield sse("[DONE]")
-                                return
-
-                            yield sse(
-                                {
-                                    "type": "tool_result",
-                                    "detail": json.dumps(
-                                        redact_sensitive(contextual_plan_result),
-                                        ensure_ascii=False,
-                                        indent=2,
-                                    ),
-                                    "id": f"{request_id}-natural-action-followup",
-                                    "name": "natural_action_followup",
-                                    "result": contextual_plan_result,
-                                    "status": "failed",
-                                    "summary": "최근 대화의 AIOps 조치 대상 확인 실패",
-                                }
-                            )
-                            yield sse(
-                                {
-                                    "type": "text",
-                                    "content": natural_action_plan_response(contextual_plan_result),
-                                }
-                            )
-                            rca_context_event = current_rca_context_event("post_answer")
-                            LAST_RCA_CONTEXT = rca_context_event["context"]
-                            yield sse(rca_context_event)
-                            yield sse(
-                                {
-                                    "type": "run_status",
-                                    "runId": run_id,
-                                    "stage": "completed",
-                                    "message": "Gateway 최근 맥락 조치 대상 확인 실패",
-                                }
-                            )
-                            yield sse("[DONE]")
-                            return
-
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": json.dumps(
-                                {"status": "not_found", "reason": "no_pending_action_plan"},
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                            "id": f"{request_id}-natural-action-followup",
-                            "name": "natural_action_followup",
-                            "result": {"status": "not_found", "reason": "no_pending_action_plan"},
-                            "status": "skipped",
-                            "summary": "실행할 Gateway Action Plan 없음",
-                        }
-                    )
-                    yield sse({"type": "text", "content": no_pending_action_plan_response()})
-                    rca_context_event = current_rca_context_event("post_answer")
-                    LAST_RCA_CONTEXT = rca_context_event["context"]
-                    yield sse(rca_context_event)
-                    yield sse(
-                        {
-                            "type": "run_status",
-                            "runId": run_id,
-                            "stage": "completed",
-                            "message": "Gateway 후속 실행 대상 없음",
-                        }
-                    )
-                    yield sse("[DONE]")
-                    return
-
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-natural-action-followup",
-                        "name": "natural_action_followup",
-                        "summary": "최근 AIOps Action Plan 후속 실행",
-                    }
+                followup_flow = stream_chat_natural_action_followup(
+                    authorization=authorization,
+                    dependencies=natural_action_followup_flow_dependencies(
+                        current_rca_context_event
+                    ),
+                    incident_id=incident_id,
+                    request=req,
+                    request_id=request_id,
+                    run_id=run_id,
+                    subject=subject,
                 )
-                followup_execution_result = await execute_natural_action_plan_result(
-                    pending_plan_result,
-                    authorization,
-                    subject,
-                )
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(
-                            redact_sensitive(followup_execution_result),
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                        "id": f"{request_id}-natural-action-followup",
-                        "name": "natural_action_followup",
-                        "result": followup_execution_result,
-                        "status": (
-                            "success"
-                            if followup_execution_result.get("status") == "executed"
-                            else "failed"
-                        ),
-                        "summary": "최근 AIOps Action Plan 후속 실행 완료",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": natural_action_execution_response(followup_execution_result),
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed",
-                        "message": "Gateway 후속 조치 실행 완료",
-                    }
-                )
-                rca_context_event = current_rca_context_event("post_answer")
-                LAST_RCA_CONTEXT = rca_context_event["context"]
-                yield sse(rca_context_event)
-                yield sse("[DONE]")
+                async for stream_event in followup_flow:
+                    if stream_event.latest_rca_context is not None:
+                        LAST_RCA_CONTEXT = stream_event.latest_rca_context
+                    yield stream_event.payload
                 return
 
             if (
