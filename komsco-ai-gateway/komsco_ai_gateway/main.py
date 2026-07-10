@@ -140,6 +140,11 @@ from .chat_ols_answer_flow import (
     OlsAnswerState,
     stream_ols_answer_attempts,
 )
+from .chat_answer_postprocess_flow import (
+    AnswerPostprocessDependencies,
+    AnswerPostprocessState,
+    stream_answer_postprocess,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -2023,6 +2028,20 @@ def ols_answer_flow_dependencies() -> OlsAnswerFlowDependencies:
         active_llm_stage=active_llm_stage,
         active_llm_label=active_llm_label,
         build_evidence_reference_events=build_evidence_reference_events,
+        sse=sse,
+    )
+
+
+def answer_postprocess_dependencies() -> AnswerPostprocessDependencies:
+    return AnswerPostprocessDependencies(
+        require_final_answer=REQUIRE_OLS_FINAL_ANSWER,
+        active_llm_label=active_llm_label,
+        update_ols_stream_status=update_ols_stream_status,
+        build_required_failure_answer=build_ols_required_failure_answer,
+        build_empty_answer_fallback=build_empty_answer_fallback,
+        should_forward_image_attachments_to_ols=should_forward_image_attachments_to_ols,
+        build_crashloop_answer_contract_text=build_crashloop_demo_answer_contract_text,
+        build_aiops_answer_contract_text=build_aiops_answer_contract_text,
         sse=sse,
     )
 
@@ -8638,100 +8657,26 @@ async def chat_stream(
             ols_tool_results = ols_answer_state.tool_results
             ols_attempt_count = ols_answer_state.attempt_count
             _accumulated_answer_chunks = ols_answer_state.answer_chunks
-            if not emitted_answer_text:
-                fallback_reason = (
-                    f"{active_llm_label()} ended without answer text; final answer was not generated"
-                    if ols_attempt_count <= 1
-                    else f"{active_llm_label()} ended without answer text after {ols_attempt_count} attempts; final answer was not generated"
-                )
-                update_ols_stream_status(
-                    "failed",
-                    context_digest=ols_gateway_context["metadata"]["digest"],
-                    fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-                    reason=fallback_reason,
-                )
-                if REQUIRE_OLS_FINAL_ANSWER:
-                    fallback_answer = build_ols_required_failure_answer(
-                        req,
-                        ols_tool_results,
-                        image_analysis=image_analysis,
-                        image_forwarded_to_ols=should_forward_image_attachments_to_ols(),
-                    )
-                    fallback_source = "ols_required_notice"
-                    fallback_event_extra: dict[str, Any] = {
-                        "finalAnswerUnavailable": True,
-                    }
-                else:
-                    fallback_answer = build_empty_answer_fallback(
-                        req,
-                        policy,
-                        ols_tool_results,
-                        gateway_evidence,
-                        image_analysis=image_analysis,
-                        image_forwarded_to_ols=should_forward_image_attachments_to_ols(),
-                    )
-                    fallback_source = "gateway_fallback"
-                    fallback_event_extra = {
-                        "fallbackAnswer": True,
-                    }
-                transcript_answer_chunks.append(fallback_answer)
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": fallback_answer,
-                        "source": fallback_source,
-                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                        "streamProbe": "failed",
-                        **fallback_event_extra,
-                    }
-                )
-
-            can_append_gateway_contract_text = emitted_answer_text or not REQUIRE_OLS_FINAL_ANSWER
-
-            if can_append_gateway_contract_text and rag_answer_citation_text:
-                transcript_answer_chunks.append(rag_answer_citation_text)
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": rag_answer_citation_text,
-                        "source": "gateway_rag_citation",
-                        "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                    }
-                )
-
-            if can_append_gateway_contract_text:
-                crashloop_answer_contract = build_crashloop_demo_answer_contract_text(req, run_id)
-                if crashloop_answer_contract:
-                    transcript_answer_chunks.append(crashloop_answer_contract)
-                    transcript_answer_contracts.append("crashloop-v0.1.3")
-                    yield sse(
-                        {
-                            "type": "text",
-                            "content": crashloop_answer_contract,
-                            "source": "gateway_answer_contract",
-                            "answerContract": "crashloop-v0.1.3",
-                            "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                        }
-                    )
-                else:
-                    aiops_answer_contract = build_aiops_answer_contract_text(
-                        policy=policy,
-                        rca_context=rca_context_event["context"],
-                        runtime_tool_plan=runtime_tool_plan,
-                    )
-                    if aiops_answer_contract:
-                        transcript_answer_chunks.append(aiops_answer_contract)
-                        transcript_answer_contracts.append("aiops-action-v0.1.9")
-                        yield sse(
-                            {
-                                "type": "text",
-                                "content": aiops_answer_contract,
-                                "source": "gateway_answer_contract",
-                                "answerContract": "aiops-action-v0.1.9",
-                                "gatewayContextDigest": ols_gateway_context["metadata"]["digest"],
-                            }
-                        )
-
+            postprocess_state = AnswerPostprocessState()
+            async for payload in stream_answer_postprocess(
+                attempt_count=ols_attempt_count,
+                dependencies=answer_postprocess_dependencies(),
+                emitted_answer_text=emitted_answer_text,
+                gateway_context=ols_gateway_context,
+                gateway_evidence=gateway_evidence,
+                image_analysis=image_analysis,
+                ols_tool_results=ols_tool_results,
+                policy=policy,
+                pre_answer_rca_context=rca_context_event["context"],
+                rag_citation_text=rag_answer_citation_text,
+                request=req,
+                run_id=run_id,
+                runtime_tool_plan=runtime_tool_plan,
+                state=postprocess_state,
+            ):
+                yield payload
+            transcript_answer_chunks.extend(postprocess_state.transcript_chunks)
+            transcript_answer_contracts.extend(postprocess_state.answer_contracts)
             rca_context_event = current_rca_context_event("post_answer")
             rca_result = parse_rca_result(
                 "".join(_accumulated_answer_chunks),
