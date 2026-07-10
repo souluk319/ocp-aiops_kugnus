@@ -99,6 +99,10 @@ from .cluster_evidence_runtime import (
 )
 from .cluster_summary import build_cluster_summary as build_cluster_summary_read_model
 from .chat_feedback import ChatFeedbackInputError, build_chat_feedback_record
+from .chat_pod_count_flow import (
+    TopPodNamespaceFlowDependencies,
+    stream_top_pod_namespace_count,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -8041,73 +8045,28 @@ async def chat_stream(
                 return
 
             if is_top_pod_namespace_query(req.message or "") and policy.get("decision") != "action_proposal_only":
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-top-pod-namespace-count",
-                        "name": "top_pod_namespace_count_lookup",
-                        "summary": "namespace별 Pod 수 집계",
-                    }
+                dependencies = TopPodNamespaceFlowDependencies(
+                    openshift_api_url=OPENSHIFT_API_URL,
+                    openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+                    async_client_factory=httpx.AsyncClient,
+                    timeout_factory=httpx.Timeout,
+                    fetch_ocp_json=fetch_ocp_json,
+                    build_result=build_top_pod_namespace_count_result,
+                    build_response=top_pod_namespace_count_response,
+                    build_evidence_events=build_evidence_reference_events,
+                    current_rca_context_event=current_rca_context_event,
                 )
-                pods_payload: Mapping[str, Any] | None = None
-                top_namespace_result: dict[str, Any]
-                if not OPENSHIFT_API_URL:
-                    top_namespace_result = {
-                        "reason": "OPENSHIFT_API_URL is not configured",
-                        "rows": [],
-                        "status": "unavailable",
-                    }
-                else:
-                    async with httpx.AsyncClient(
-                        verify=OPENSHIFT_API_CA_FILE,
-                        timeout=httpx.Timeout(20.0, connect=5.0),
-                    ) as client:
-                        pods_payload = await fetch_ocp_json(client, "/api/v1/pods", authorization)
-                    top_namespace_result = build_top_pod_namespace_count_result(pods_payload)
-
-                top_namespace_text = top_pod_namespace_count_response(top_namespace_result)
-                top_namespace_event = {
-                    "type": "tool_result",
-                    "detail": top_namespace_text,
-                    "id": f"{request_id}-top-pod-namespace-count",
-                    "name": "top_pod_namespace_count_lookup",
-                    "result": top_namespace_result,
-                    "status": "success" if top_namespace_result.get("status") == "found" else "skipped",
-                    "summary": (
-                        f"{top_namespace_result.get('topNamespace')} namespace가 Pod {top_namespace_result.get('topPodCount')}개로 최다"
-                        if top_namespace_result.get("status") == "found"
-                        else "namespace별 Pod 수 집계 실패"
-                    ),
-                }
-                yield sse(top_namespace_event)
-                for evidence_event in build_evidence_reference_events(
-                    event=top_namespace_event,
+                async for stream_event in stream_top_pod_namespace_count(
+                    authorization=authorization,
+                    dependencies=dependencies,
                     incident_id=incident_id,
+                    request_id=request_id,
                     run_id=run_id,
-                    source_type="gateway-direct-evidence",
                     subject=subject,
                 ):
-                    yield sse(evidence_event)
-                rca_context_event = current_rca_context_event("post_answer")
-                LAST_RCA_CONTEXT = rca_context_event["context"]
-                yield sse(rca_context_event)
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": top_namespace_text,
-                        "source": "gateway_direct_lookup",
-                        "answerContract": "top-pod-namespace-count-v0.2.9",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed",
-                        "message": "Gateway namespace별 Pod 수 집계 완료",
-                    }
-                )
-                yield sse("[DONE]")
+                    if stream_event.latest_rca_context is not None:
+                        LAST_RCA_CONTEXT = stream_event.latest_rca_context
+                    yield stream_event.payload
                 return
 
             pod_count_query = parse_pod_count_query(req)
