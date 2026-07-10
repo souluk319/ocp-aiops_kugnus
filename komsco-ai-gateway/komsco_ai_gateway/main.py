@@ -145,6 +145,10 @@ from .chat_answer_postprocess_flow import (
     AnswerPostprocessState,
     stream_answer_postprocess,
 )
+from .chat_test_pod_flow import (
+    TestPodFlowDependencies,
+    stream_test_pod_create,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -2042,6 +2046,28 @@ def answer_postprocess_dependencies() -> AnswerPostprocessDependencies:
         should_forward_image_attachments_to_ols=should_forward_image_attachments_to_ols,
         build_crashloop_answer_contract_text=build_crashloop_demo_answer_contract_text,
         build_aiops_answer_contract_text=build_aiops_answer_contract_text,
+        sse=sse,
+    )
+
+
+def remember_test_pod_candidate(candidate: dict[str, Any]) -> None:
+    NAMESPACE_CLEANUP_CHAT_CANDIDATES[str(candidate["id"])] = candidate
+
+
+def test_pod_flow_dependencies() -> TestPodFlowDependencies:
+    return TestPodFlowDependencies(
+        execution_mode=page_context_aiops_execution_mode,
+        answer_language=answer_language,
+        parse_request=test_pod_create_request_from_message,
+        request_is_ready=test_pod_create_is_ready,
+        collect_preflight=collect_test_pod_create_preflight,
+        disabled_answer=test_pod_create_disabled_answer,
+        action_capable_mode=action_capable_execution_mode,
+        candidate_from_preflight=test_pod_create_candidate_from_preflight,
+        remember_candidate=remember_test_pod_candidate,
+        answer=test_pod_create_answer,
+        tool_plan=test_pod_create_tool_plan,
+        redact_sensitive=redact_sensitive,
         sse=sse,
     )
 
@@ -7965,131 +7991,18 @@ async def chat_stream(
             )
 
             if is_test_pod_create_request(req):
-                execution_mode = page_context_aiops_execution_mode(req)
-                language = answer_language(req)
-                request = test_pod_create_request_from_message(req.message)
-                if not test_pod_create_is_ready(request):
-                    preflight = await collect_test_pod_create_preflight(authorization, request)
-                    answer_text = test_pod_create_disabled_answer(request, language)
-                    transcript_answer_chunks.append(answer_text)
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": json.dumps(redact_sensitive(preflight), ensure_ascii=False, indent=2),
-                            "id": f"{request_id}-test-pod-create-disabled",
-                            "name": "test_pod_create_guard",
-                            "result": redact_sensitive(preflight),
-                            "status": "skipped",
-                            "summary": "테스트 Pod 생성은 현재 제품 조건에서 비활성",
-                        }
-                    )
-                    yield sse(
-                        {
-                            "type": "text",
-                            "content": answer_text,
-                            "source": "gateway_direct",
-                            "answerContract": "test-pod-create-guard-v1",
-                        }
-                    )
-                    yield sse(
-                        {
-                            "type": "run_status",
-                            "runId": run_id,
-                            "stage": "completed",
-                            "message": "Gateway 테스트 Pod 생성 가드 확인 완료",
-                        }
-                    )
-                    yield sse("[DONE]")
-                    return
-                action_mode = action_capable_execution_mode(execution_mode)
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "started",
-                        "message": (
-                            "Test Pod creation preflight started"
-                            if language == "en"
-                            else "테스트 Pod 생성 사전 확인 시작"
-                        ),
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-test-pod-create-preflight",
-                        "name": "oc_test_pod_create_preflight",
-                        "summary": (
-                            "Target namespace and server check"
-                            if language == "en"
-                            else "대상 namespace 및 서버 확인"
-                        ),
-                    }
-                )
-                preflight = await collect_test_pod_create_preflight(authorization, request)
-                can_propose = action_mode and bool(preflight.get("ok"))
-                if can_propose:
-                    candidate = test_pod_create_candidate_from_preflight(request, preflight, run_id, incident_id)
-                    NAMESPACE_CLEANUP_CHAT_CANDIDATES[str(candidate["id"])] = candidate
-                answer_text = test_pod_create_answer(request, preflight, execution_mode, language)
-                transcript_answer_chunks.append(answer_text)
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(redact_sensitive(preflight), ensure_ascii=False, indent=2),
-                        "id": f"{request_id}-test-pod-create-preflight",
-                        "name": "oc_test_pod_create_preflight",
-                        "result": redact_sensitive(preflight),
-                        "status": "success" if preflight.get("ok") else "failed",
-                        "summary": (
-                            f"{request.get('namespace')} namespace preflight"
-                            if language == "en"
-                            else f"{request.get('namespace')} namespace 사전 확인"
-                        ),
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "tool_plan",
-                        "plan": {
-                            **test_pod_create_tool_plan(request, execution_mode, can_propose=can_propose),
-                            "validation": {
-                                "ok": bool(preflight.get("ok")),
-                                "status": (
-                                    "action_candidate_ready"
-                                    if can_propose
-                                    else "read_only_preflight_collected"
-                                    if preflight.get("ok")
-                                    else preflight.get("status")
-                                ),
-                            },
-                        },
-                        "runId": run_id,
-                        "status": "success" if preflight.get("ok") else "failed",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": answer_text,
-                        "source": "gateway_direct" if preflight.get("ok") else "gateway_fallback",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed" if preflight.get("ok") else "failed",
-                        "message": (
-                            "Test Pod creation preflight completed"
-                            if language == "en"
-                            else "테스트 Pod 생성 사전 확인 완료"
-                        ),
-                    }
-                )
-                yield sse("[DONE]")
+                async for stream_event in stream_test_pod_create(
+                    authorization=authorization,
+                    dependencies=test_pod_flow_dependencies(),
+                    incident_id=incident_id,
+                    request=req,
+                    request_id=request_id,
+                    run_id=run_id,
+                ):
+                    if stream_event.answer_chunk is not None:
+                        transcript_answer_chunks.append(stream_event.answer_chunk)
+                    yield stream_event.payload
                 return
-
             if is_namespace_cleanup_request(req):
                 execution_mode = page_context_aiops_execution_mode(req)
                 language = answer_language(req)
