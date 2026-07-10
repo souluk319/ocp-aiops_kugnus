@@ -168,12 +168,22 @@ from .action_execution import (
     verify_typed_action_postcondition as action_execution_verify_typed_action_postcondition,
 )
 from .action_records import (
+    SpecialActionRecordConfig,
     build_action_proposal_record as build_action_proposal_record_for_context,
+    build_break_glass_request_record as build_break_glass_request_record_for_context,
     build_candidate_action_request as build_candidate_action_request_for_context,
+    build_preapproved_patch_record as build_preapproved_patch_record_for_context,
+    build_runbook_plan_record as build_runbook_plan_record_for_context,
     build_sealed_action_plan_record as build_sealed_action_plan_record_for_context,
     candidate_action_request_digest,
     default_policy_binding,
+    evaluate_runbook_policy as evaluate_runbook_policy_for_context,
+    get_break_glass_profile as get_break_glass_profile_for_context,
+    get_preapproved_patch_schema as get_preapproved_patch_schema_for_context,
+    get_runbook_entry as get_runbook_entry_for_context,
+    platform_namespace_requires_explicit_policy,
     sealed_action_plan_digest,
+    validate_preapproved_patch_value,
 )
 from .action_registry import (
     ACTION_REGISTRY_DIGEST,
@@ -1451,15 +1461,20 @@ def build_execution_grant_reference(
         )
     )
 
+def special_action_record_config() -> SpecialActionRecordConfig:
+    return SpecialActionRecordConfig(
+        cluster_id=CLUSTER_ID,
+        runbook_registry_entries=RUNBOOK_REGISTRY_ENTRIES,
+        runbook_registry_digest=RUNBOOK_REGISTRY_DIGEST,
+        preapproved_patch_field_schemas=PREAPPROVED_PATCH_FIELD_SCHEMAS,
+        preapproved_patch_field_digest=PREAPPROVED_PATCH_FIELD_DIGEST,
+        break_glass_profiles=BREAK_GLASS_PROFILES,
+        break_glass_profile_digest=BREAK_GLASS_PROFILE_DIGEST,
+    )
+
+
 def get_runbook_entry(runbook_id: str) -> dict[str, Any]:
-    entry = RUNBOOK_REGISTRY_ENTRIES.get(runbook_id)
-    if not entry:
-        raise HTTPException(status_code=400, detail="Runbook is not in the configured registry")
-    return entry
-
-
-def platform_namespace_requires_explicit_policy(namespace: str) -> bool:
-    return namespace.startswith(("kube-", "openshift-"))
+    return get_runbook_entry_for_context(runbook_id, special_action_record_config())
 
 
 def evaluate_runbook_policy(
@@ -1467,278 +1482,57 @@ def evaluate_runbook_policy(
     target: "ActionTarget",
     policy: Mapping[str, Any],
 ) -> dict[str, Any]:
-    checks = runbook.get("policyChecks") if isinstance(runbook.get("policyChecks"), Mapping) else {}
-    failures: list[str] = []
-    warnings: list[str] = []
-    if checks.get("namespaceRequired") and not target.namespace:
-        failures.append("namespace is required")
-    if checks.get("targetUidRequired") and not target.uid:
-        failures.append("target uid is required")
-    if target.kind != runbook.get("targetKind"):
-        failures.append(f"target kind must be {runbook.get('targetKind')}")
-    if checks.get("platformNamespaceRequiresExplicitPolicy") and platform_namespace_requires_explicit_policy(
-        target.namespace
-    ):
-        if policy.get("allowPlatformNamespace") is not True:
-            failures.append("platform namespace requires explicit policy allowPlatformNamespace=true")
-    if checks.get("ownerReviewRequired"):
-        warnings.append("owner, GitOps, Operator, and external controller review required before execution")
-    if checks.get("hpaReviewRequired"):
-        warnings.append("HPA ownership review required before bounded scale execution")
-    if checks.get("hpaPolicyReviewRequired"):
-        warnings.append("HPA min/max bounds and targetRef review required before execution")
-    if checks.get("rollbackRevisionReviewRequired"):
-        warnings.append("ReplicaSet revision, image digest, and template diff review required before rollback")
-    if checks.get("controllerOwnerRequired"):
-        warnings.append("controller owner reference must be verified before eviction execution")
-    if checks.get("pdbReviewRequired"):
-        warnings.append("PDB allowance must be verified before eviction execution")
-    return {
-        "decision": "denied" if failures else "requires_approval",
-        "failures": failures,
-        "warnings": warnings,
-    }
+    return evaluate_runbook_policy_for_context(
+        runbook, target, policy, platform_namespace_requires_explicit_policy
+    )
 
 
 def build_runbook_plan_record(
     request: "RunbookPlanCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    runbook = get_runbook_entry(request.runbookId)
-    policy = default_policy_binding(request.policy)
-    policy_result = evaluate_runbook_policy(runbook, request.target, request.policy)
-    step_plans: list[dict[str, Any]] = []
-    for step in runbook["allowedSteps"]:
-        action_request = ActionProposalCreate(
-            incidentId=request.incidentId,
-            runId=request.runId,
-            toolName=step["toolName"],
-            toolVersion=step["toolVersion"],
-            target=request.target,
-            parameters=request.parameters,
-            evidenceRefs=request.evidenceRefs,
-            runbookRefs=[
-                {
-                    "id": runbook["runbookId"],
-                    "version": runbook["runbookVersion"],
-                    "contentDigest": RUNBOOK_REGISTRY_DIGEST,
-                }
-            ],
-            policy=policy,
-        )
-        candidate = build_candidate_action_request(action_request, subject)
-        step_plans.append(
-            {
-                "stepId": step["stepId"],
-                "toolName": step["toolName"],
-                "toolVersion": step["toolVersion"],
-                "candidateActionRequest": candidate,
-                "candidateRequestDigest": candidate_action_request_digest(candidate),
-            }
-        )
-
-    plan_digest = canonical_digest(
-        {
-            "runbook": {
-                "runbookId": runbook["runbookId"],
-                "runbookVersion": runbook["runbookVersion"],
-                "registryDigest": RUNBOOK_REGISTRY_DIGEST,
-            },
-            "stepPlans": step_plans,
-            "target": request.target.model_dump(),
-            "policy": policy,
-        }
+    return build_runbook_plan_record_for_context(
+        request,
+        subject,
+        special_action_record_config(),
+        runbook_lookup=get_runbook_entry,
+        policy_evaluator=evaluate_runbook_policy,
+        action_proposal_factory=ActionProposalCreate,
+        candidate_builder=build_candidate_action_request,
     )
-    plan_id = f"runbook-plan-{plan_digest.removeprefix('sha256:')[:16]}"
-    created_at = now_rfc3339()
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RunbookPlanRecord",
-        "metadata": {"name": plan_id, "createdAt": created_at},
-        "spec": {
-            "runbook": {
-                "runbookId": runbook["runbookId"],
-                "runbookVersion": runbook["runbookVersion"],
-                "incidentClass": runbook["incidentClass"],
-                "registryDigest": RUNBOOK_REGISTRY_DIGEST,
-            },
-            "target": request.target.model_dump(),
-            "stepPlans": step_plans,
-            "policy": policy,
-            "policyResult": policy_result,
-            "evidenceRefs": redact_sensitive(request.evidenceRefs),
-            "incidentId": request.incidentId,
-            "runId": request.runId,
-            "digest": {
-                "runbookPlanDigest": plan_digest,
-                "canonicalization": "stable-json-sort-keys",
-            },
-            "status": {"phase": "denied" if policy_result["failures"] else "waiting_for_approval"},
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
 
 
 def get_preapproved_patch_schema(field_schema_id: str) -> dict[str, Any]:
-    schema = PREAPPROVED_PATCH_FIELD_SCHEMAS.get(field_schema_id)
-    if not schema:
-        raise HTTPException(status_code=400, detail="Field schema is not preapproved")
-    return schema
-
-
-def validate_preapproved_patch_value(schema: Mapping[str, Any], target: "ActionTarget", value: Any) -> None:
-    if target.kind != schema.get("targetKind"):
-        raise HTTPException(status_code=400, detail=f"Patch target kind must be {schema.get('targetKind')}")
-    if target.apiVersion != schema.get("apiVersion"):
-        raise HTTPException(status_code=400, detail=f"Patch target apiVersion must be {schema.get('apiVersion')}")
-    if schema.get("valueType") == "integer":
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise HTTPException(status_code=400, detail="Preapproved patch value must be an integer")
-        minimum = schema.get("minimum")
-        maximum = schema.get("maximum")
-        if isinstance(minimum, int) and value < minimum:
-            raise HTTPException(status_code=400, detail="Preapproved patch value is below the documented minimum")
-        if isinstance(maximum, int) and value > maximum:
-            raise HTTPException(status_code=400, detail="Preapproved patch value exceeds the documented maximum")
+    return get_preapproved_patch_schema_for_context(field_schema_id, special_action_record_config())
 
 
 def build_preapproved_patch_record(
     request: "PatchPreapprovedFieldCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    schema = get_preapproved_patch_schema(request.fieldSchemaId)
-    validate_preapproved_patch_value(schema, request.target, request.value)
-    policy = default_policy_binding(request.policy)
-    request_projection = {
-        "schemaVersion": "v1",
-        "clusterId": CLUSTER_ID,
-        "requester": redact_sensitive(dict(subject)),
-        "target": request.target.model_dump(),
-        "fieldSchema": schema,
-        "value": redact_sensitive(request.value),
-        "policy": policy,
-        "evidenceRefs": redact_sensitive(request.evidenceRefs),
-    }
-    request_digest = canonical_digest(request_projection)
-    request_id = f"prepatch-{request_digest.removeprefix('sha256:')[:16]}"
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "PatchPreapprovedFieldRequestRecord",
-        "metadata": {"name": request_id, "createdAt": now_rfc3339()},
-        "spec": {
-            "fieldSchema": schema,
-            "target": request.target.model_dump(),
-            "value": redact_sensitive(request.value),
-            "patch": {
-                "op": "replace",
-                "path": schema["jsonPointer"],
-                "value": redact_sensitive(request.value),
-            },
-            "policy": policy,
-            "evidenceRefs": redact_sensitive(request.evidenceRefs),
-            "incidentId": request.incidentId,
-            "runId": request.runId,
-            "digest": {
-                "patchRequestDigest": request_digest,
-                "schemaBundleDigest": PREAPPROVED_PATCH_FIELD_DIGEST,
-                "canonicalization": "stable-json-sort-keys",
-            },
-            "status": {
-                "phase": "waiting_for_approval",
-                "mutationSubmitted": False,
-                "reason": "patch_preapproved_field is a documented request only until Action Executor integration.",
-            },
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
+    return build_preapproved_patch_record_for_context(
+        request,
+        subject,
+        special_action_record_config(),
+        schema_lookup=get_preapproved_patch_schema,
+        value_validator=validate_preapproved_patch_value,
+    )
 
 
 def get_break_glass_profile(profile_id: str) -> dict[str, Any]:
-    profile = BREAK_GLASS_PROFILES.get(profile_id)
-    if not profile:
-        raise HTTPException(status_code=400, detail="Break-glass profile is not configured")
-    return profile
+    return get_break_glass_profile_for_context(profile_id, special_action_record_config())
 
 
 def build_break_glass_request_record(
     request: "BreakGlassRequestCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    profile = get_break_glass_profile(request.profileId)
-    policy = default_policy_binding(request.policy)
-    request_projection = {
-        "schemaVersion": "v1",
-        "clusterId": CLUSTER_ID,
-        "requester": redact_sensitive(dict(subject)),
-        "profile": {
-            "profileId": profile["profileId"],
-            "profileVersion": profile["profileVersion"],
-            "profileDigest": BREAK_GLASS_PROFILE_DIGEST,
-            "imageDigest": profile["imageDigest"],
-            "fixedEntrypoint": profile["fixedEntrypoint"],
-        },
-        "targetNode": request.targetNode.model_dump(),
-        "justificationDigest": canonical_digest(redact_sensitive(request.justification)),
-        "policy": policy,
-        "evidenceRefs": redact_sensitive(request.evidenceRefs),
-    }
-    request_digest = canonical_digest(request_projection)
-    request_id = f"breakglass-{request_digest.removeprefix('sha256:')[:16]}"
-    enabled = bool(profile.get("enabled"))
-    phase = "pending_privileged_job_controller" if enabled else "disabled"
-    reason = (
-        "Break-glass profile is enabled and ready for a dedicated controller."
-        if enabled
-        else "Break-glass host operations are disabled by configuration or missing fixed image digest."
+    return build_break_glass_request_record_for_context(
+        request,
+        subject,
+        special_action_record_config(),
+        profile_lookup=get_break_glass_profile,
     )
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "BreakGlassRequestRecord",
-        "metadata": {"name": request_id, "createdAt": now_rfc3339()},
-        "spec": {
-            "profile": {
-                "profileId": profile["profileId"],
-                "profileVersion": profile["profileVersion"],
-                "profileDigest": BREAK_GLASS_PROFILE_DIGEST,
-                "enabled": enabled,
-                "imageDigest": profile["imageDigest"],
-                "fixedEntrypoint": profile["fixedEntrypoint"],
-                "arbitraryCommandInputAllowed": False,
-            },
-            "targetNode": request.targetNode.model_dump(),
-            "justificationDigest": canonical_digest(redact_sensitive(request.justification)),
-            "policy": policy,
-            "evidenceRefs": redact_sensitive(request.evidenceRefs),
-            "incidentId": request.incidentId,
-            "runId": request.runId,
-            "jobTemplateConstraints": {
-                "privilegedJob": profile["privilegedJob"],
-                "scheduling": {
-                    **profile["scheduling"],
-                    "targetNodeName": request.targetNode.name,
-                    "targetNodeUid": request.targetNode.uid,
-                },
-                "network": profile["network"],
-                "cleanup": profile["cleanup"],
-            },
-            "digest": {
-                "breakGlassRequestDigest": request_digest,
-                "profileBundleDigest": BREAK_GLASS_PROFILE_DIGEST,
-                "canonicalization": "stable-json-sort-keys",
-            },
-            "audit": profile["audit"],
-            "status": {
-                "phase": phase,
-                "jobSubmitted": False,
-                "arbitraryCommandRejected": True,
-                "reason": reason,
-            },
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
 
 
 class ImageAttachment(BaseModel):
