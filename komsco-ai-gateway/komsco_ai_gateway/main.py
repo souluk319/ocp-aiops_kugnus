@@ -50,7 +50,6 @@ from .answer_streaming import (
     parse_tool_text_line,
     split_plain_text_events,
     sse,
-    truncate_detail,
 )
 from .app_factory import create_app
 from .cluster_anomalies import (
@@ -58,13 +57,22 @@ from .cluster_anomalies import (
     build_aiops_anomaly_summary as build_aiops_anomaly_summary_read_model,
 )
 from .cluster_evidence import (
+    CRONJOB_POLICY_ENV_RE,
+    SECRET_ENV_RE,
     _prometheus_probe_reason,
     build_active_alerts_rca_evidence,
+    build_cluster_operator_status_evidence,
+    build_cronjob_activity_evidence,
     build_deployment_rollout_evidence,
     build_node_status_rca_evidence,
     build_pod_status_evidence,
     build_restart_metric_rca_evidence,
+    cluster_operator_condition,
     container_spec_index,
+    cron_minute_interval,
+    cronjob_container_summary,
+    cronjob_matches_context,
+    format_seconds_duration,
     json_list_summary,
     last_termination_summary,
     markdown_table_cell,
@@ -74,6 +82,9 @@ from .cluster_evidence import (
     pod_ready_summary,
     rca_probe_event_status,
     replicaset_owner_index,
+    requested_minute_interval,
+    safe_env_value,
+    schedule_interval_summary,
     state_summary,
 )
 from . import cluster_evidence_runtime
@@ -157,7 +168,6 @@ from .action_approvals import (
     build_approval_decision_record as build_approval_decision_record_for_context,
     build_execution_grant_reference as build_execution_grant_reference_for_context,
     find_approval_by_plan_status,
-    parse_rfc3339,
     plan_has_approval_status,
     record_created_at,
     validate_approval_is_active,
@@ -538,11 +548,6 @@ RCA_SIGNAL_ANALYSIS_RE = re.compile(
     r"metric|metrics|메트릭|prometheus|thanos|cpu|memory|메모리|restart|재시작|"
     r"crashloop|crashloopbackoff|backoff)"
 )
-CRONJOB_POLICY_ENV_RE = re.compile(
-    r"(?i)(workspace|notebook|sandbox|hibernate|suspend|sleep|idle|delete|ttl|"
-    r"expire|expiration|cleanup|retention|prune|archive|max[_-]?age|timeout|gc)"
-)
-SECRET_ENV_RE = re.compile(r"(?i)(secret|token|password|passwd|private|credential|key)")
 K8S_NAME_RE = r"[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?"
 NAMESPACE_MENTION_RE = re.compile(
     rf"(?:\b(?P<namespace>{K8S_NAME_RE})\s*(?:namespace|네임스페이스)|"
@@ -4138,383 +4143,6 @@ def pod_count_investigation_response(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-
-
-def cluster_operator_condition(
-    operator: Mapping[str, Any],
-    condition_type: str,
-) -> tuple[str, str, str]:
-    conditions = operator.get("status", {}).get("conditions", [])
-    if not isinstance(conditions, list):
-        return "-", "-", "-"
-
-    for condition in conditions:
-        if not isinstance(condition, Mapping) or condition.get("type") != condition_type:
-            continue
-        return (
-            str(condition.get("status") or "-"),
-            str(condition.get("reason") or "-"),
-            str(condition.get("message") or "-"),
-        )
-
-    return "-", "-", "-"
-
-
-def build_cluster_operator_status_evidence(cluster_operators_payload: Mapping[str, Any]) -> str:
-    items = cluster_operators_payload.get("items")
-    if not isinstance(items, list):
-        return "ClusterOperator evidence unavailable: API response did not include an items list."
-
-    rows: list[dict[str, str]] = []
-    for operator in items:
-        if not isinstance(operator, Mapping):
-            continue
-
-        metadata = operator.get("metadata", {}) if isinstance(operator.get("metadata"), Mapping) else {}
-        status = operator.get("status", {}) if isinstance(operator.get("status"), Mapping) else {}
-        available, available_reason, available_message = cluster_operator_condition(
-            operator,
-            "Available",
-        )
-        degraded, degraded_reason, degraded_message = cluster_operator_condition(
-            operator,
-            "Degraded",
-        )
-        progressing, progressing_reason, progressing_message = cluster_operator_condition(
-            operator,
-            "Progressing",
-        )
-        rows.append(
-            {
-                "name": str(metadata.get("name") or "unknown"),
-                "version": str(status.get("versions", [{}])[0].get("version") or "-")
-                if isinstance(status.get("versions"), list) and status.get("versions")
-                else "-",
-                "available": available,
-                "degraded": degraded,
-                "progressing": progressing,
-                "reason": next(
-                    (
-                        value
-                        for value in [
-                            degraded_reason if degraded == "True" else "",
-                            progressing_reason if progressing == "True" else "",
-                            available_reason if available != "True" else "",
-                        ]
-                        if value and value != "-"
-                    ),
-                    "-",
-                ),
-                "message": truncate_detail(
-                    next(
-                        (
-                            value
-                            for value in [
-                                degraded_message if degraded == "True" else "",
-                                progressing_message if progressing == "True" else "",
-                                available_message if available != "True" else "",
-                            ]
-                            if value and value != "-"
-                        ),
-                        "-",
-                    ),
-                    300,
-                ),
-            }
-        )
-
-    issue_rows = [
-        row
-        for row in rows
-        if row["available"] != "True" or row["degraded"] == "True" or row["progressing"] == "True"
-    ]
-    selected_rows = issue_rows or rows[:10]
-    lines = [
-        "Gateway-collected ClusterOperator status evidence from Kubernetes API `/apis/config.openshift.io/v1/clusteroperators`.",
-        "Use this to avoid treating historical Failed control-plane/operator installer pods as current outages when operators are healthy.",
-        "| ClusterOperator | Version | Available | Degraded | Progressing | Reason | Message |",
-        "| :--- | :--- | :---: | :---: | :---: | :--- | :--- |",
-    ]
-    for row in selected_rows[:15]:
-        lines.append(
-            "| {name} | {version} | {available} | {degraded} | {progressing} | {reason} | {message} |".format(
-                **row
-            )
-        )
-    if not selected_rows:
-        lines.append("| - | - | - | - | - | - | - |")
-
-    return "\n".join(lines)
-
-
-def cron_minute_interval(schedule: str) -> int | None:
-    fields = schedule.split()
-    if len(fields) < 5:
-        return None
-
-    minute_field = fields[0]
-    match = re.fullmatch(r"(?:\*|0)/(\d+)", minute_field)
-    if not match:
-        return None
-
-    interval = int(match.group(1))
-    return interval if interval > 0 else None
-
-
-def requested_minute_interval(context_text: str) -> int | None:
-    cron_match = re.search(r"(?:\*|0)/(\d+)", context_text)
-    if cron_match:
-        interval = int(cron_match.group(1))
-        return interval if interval > 0 else None
-
-    minute_match = re.search(r"(?i)(\d+)\s*(분|minute|min)", context_text)
-    if minute_match:
-        interval = int(minute_match.group(1))
-        return interval if interval > 0 else None
-
-    return None
-
-
-def schedule_interval_summary(schedule: str) -> str:
-    interval = cron_minute_interval(schedule)
-    if interval is None:
-        return "-"
-
-    return f"{interval}분마다"
-
-
-def format_seconds_duration(value: str) -> str:
-    try:
-        seconds = int(value)
-    except ValueError:
-        return value
-
-    if seconds <= 0:
-        return f"{seconds}초"
-    if seconds % 86400 == 0:
-        days = seconds // 86400
-        return f"{seconds}초 ({days}일)"
-    if seconds % 3600 == 0:
-        hours = seconds // 3600
-        return f"{seconds}초 ({hours}시간)"
-    if seconds % 60 == 0:
-        minutes = seconds // 60
-        return f"{seconds}초 ({minutes}분)"
-
-    return f"{seconds}초"
-
-
-def safe_env_value(env_item: Mapping[str, Any]) -> str:
-    name = str(env_item.get("name") or "")
-    if SECRET_ENV_RE.search(name):
-        return "[REDACTED]"
-
-    value = env_item.get("value")
-    if value is not None:
-        return str(value)
-
-    value_from = env_item.get("valueFrom")
-    if isinstance(value_from, Mapping):
-        if "secretKeyRef" in value_from:
-            return "[REDACTED:valueFrom.secretKeyRef]"
-        return f"valueFrom.{next(iter(value_from.keys()), 'unknown')}"
-
-    return "-"
-
-
-def cronjob_container_summary(cronjob: Mapping[str, Any]) -> tuple[str, list[Mapping[str, Any]]]:
-    containers = (
-        cronjob.get("spec", {})
-        .get("jobTemplate", {})
-        .get("spec", {})
-        .get("template", {})
-        .get("spec", {})
-        .get("containers", [])
-    )
-    if not isinstance(containers, list):
-        return "-", []
-
-    images = []
-    env_items: list[Mapping[str, Any]] = []
-    for container in containers:
-        if not isinstance(container, Mapping):
-            continue
-        image = container.get("image")
-        if image:
-            images.append(str(image))
-        env = container.get("env", [])
-        if isinstance(env, list):
-            env_items.extend(item for item in env if isinstance(item, Mapping))
-
-    return ", ".join(images) if images else "-", env_items
-
-
-def cronjob_matches_context(cronjob: Mapping[str, Any], context_text: str) -> bool:
-    metadata = cronjob.get("metadata", {}) if isinstance(cronjob.get("metadata"), Mapping) else {}
-    spec = cronjob.get("spec", {}) if isinstance(cronjob.get("spec"), Mapping) else {}
-    name = str(metadata.get("name") or "")
-    namespace = str(metadata.get("namespace") or "")
-    schedule = str(spec.get("schedule") or "")
-    context = context_text.lower()
-    requested_interval = requested_minute_interval(context_text)
-
-    if name and name.lower() in context:
-        return True
-    if namespace and namespace.lower() in context and ("cron" in context or "크론" in context):
-        return True
-    if requested_interval is not None and cron_minute_interval(schedule) == requested_interval:
-        return True
-    if cron_minute_interval(schedule) is not None and re.search(
-        r"(?i)(주기|반복|활동|이벤트|activity|schedule|스케줄)",
-        context_text,
-    ):
-        return True
-
-    return False
-
-
-def build_cronjob_activity_evidence(
-    cronjobs_payload: Mapping[str, Any],
-    jobs_payload: Mapping[str, Any] | None = None,
-    *,
-    context_text: str = "",
-) -> str:
-    cronjobs = cronjobs_payload.get("items")
-    if not isinstance(cronjobs, list):
-        return "CronJob activity evidence unavailable: API response did not include an items list."
-
-    matched: list[Mapping[str, Any]] = [
-        item for item in cronjobs if isinstance(item, Mapping) and cronjob_matches_context(item, context_text)
-    ]
-    if not matched:
-        requested_interval = requested_minute_interval(context_text)
-        matched = [
-            item
-            for item in cronjobs
-            if isinstance(item, Mapping)
-            and requested_interval is not None
-            and cron_minute_interval(str(item.get("spec", {}).get("schedule") or ""))
-            == requested_interval
-        ]
-    if not matched:
-        matched = [item for item in cronjobs if isinstance(item, Mapping)][:10]
-
-    matched = sorted(
-        matched,
-        key=lambda item: (
-            str(item.get("metadata", {}).get("namespace") or ""),
-            str(item.get("metadata", {}).get("name") or ""),
-        ),
-    )[:10]
-    matched_keys = {
-        (
-            str(item.get("metadata", {}).get("namespace") or ""),
-            str(item.get("metadata", {}).get("name") or ""),
-        )
-        for item in matched
-    }
-
-    lines = [
-        "Gateway-collected CronJob activity evidence from Kubernetes API `/apis/batch/v1/cronjobs`.",
-        "Use this as primary evidence for scheduled Activity/CronJob questions.",
-        "If a matched CronJob uses an interval schedule, answer first whether the observed interval is expected by configuration.",
-        "Do not overstate intent from the name alone; use env/settings as policy hints and say when behavior needs log confirmation.",
-        "Env seconds are threshold values only; do not infer created-time or idle-time basis unless logs or source confirm it.",
-        "",
-        "Matched CronJobs:",
-        "| Namespace | CronJob | Schedule | Derived interval | Concurrency | Suspend | Successful history | Failed history | Image |",
-        "| :--- | :--- | :--- | :--- | :--- | :---: | ---: | ---: | :--- |",
-    ]
-
-    policy_env_rows: list[str] = []
-    for cronjob in matched:
-        metadata = cronjob.get("metadata", {}) if isinstance(cronjob.get("metadata"), Mapping) else {}
-        spec = cronjob.get("spec", {}) if isinstance(cronjob.get("spec"), Mapping) else {}
-        namespace = str(metadata.get("namespace") or "unknown")
-        name = str(metadata.get("name") or "unknown")
-        schedule = str(spec.get("schedule") or "-")
-        concurrency_policy = str(spec.get("concurrencyPolicy") or "-")
-        suspend = str(spec.get("suspend", False))
-        success_history = str(spec.get("successfulJobsHistoryLimit", "-"))
-        failed_history = str(spec.get("failedJobsHistoryLimit", "-"))
-        image_summary, env_items = cronjob_container_summary(cronjob)
-        interval_summary = schedule_interval_summary(schedule)
-        lines.append(
-            f"| {namespace} | `{name}` | `{schedule}` | {interval_summary} | "
-            f"{concurrency_policy} | {suspend} | {success_history} | {failed_history} | "
-            f"`{image_summary}` |"
-        )
-
-        for env_item in env_items:
-            env_name = str(env_item.get("name") or "")
-            if not CRONJOB_POLICY_ENV_RE.search(env_name):
-                continue
-            raw_value = safe_env_value(env_item)
-            interpreted = format_seconds_duration(raw_value) if raw_value.isdigit() else raw_value
-            policy_env_rows.append(f"| {namespace} | `{name}` | `{env_name}` | `{raw_value}` | {interpreted} |")
-
-    lines.extend(
-        [
-            "",
-            "Policy-related environment hints:",
-            "| Namespace | CronJob | Env | Raw value | Interpreted value |",
-            "| :--- | :--- | :--- | :--- | :--- |",
-        ]
-    )
-    lines.extend(policy_env_rows or ["| - | - | - | - | 관련 env 힌트 없음 |"])
-
-    jobs = jobs_payload.get("items") if isinstance(jobs_payload, Mapping) else None
-    recent_job_rows: list[dict[str, Any]] = []
-    if isinstance(jobs, list):
-        for job in jobs:
-            if not isinstance(job, Mapping):
-                continue
-            metadata = job.get("metadata", {}) if isinstance(job.get("metadata"), Mapping) else {}
-            status = job.get("status", {}) if isinstance(job.get("status"), Mapping) else {}
-            namespace = str(metadata.get("namespace") or "")
-            owner_name = "-"
-            owners = metadata.get("ownerReferences", [])
-            if isinstance(owners, list):
-                for owner in owners:
-                    if isinstance(owner, Mapping) and owner.get("kind") == "CronJob":
-                        owner_name = str(owner.get("name") or "-")
-                        break
-            if (namespace, owner_name) not in matched_keys:
-                continue
-
-            created_at = str(metadata.get("creationTimestamp") or "")
-            recent_job_rows.append(
-                {
-                    "namespace": namespace,
-                    "name": str(metadata.get("name") or "unknown"),
-                    "owner": owner_name,
-                    "createdAt": created_at,
-                    "startTime": str(status.get("startTime") or "-"),
-                    "completionTime": str(status.get("completionTime") or "-"),
-                    "succeeded": int(status.get("succeeded") or 0),
-                    "failed": int(status.get("failed") or 0),
-                    "active": int(status.get("active") or 0),
-                    "createdSort": parse_rfc3339(created_at) or datetime.min.replace(tzinfo=UTC),
-                }
-            )
-
-    lines.extend(
-        [
-            "",
-            "Recent Jobs owned by matched CronJobs:",
-            "| Namespace | Job | Owner CronJob | Created | Started | Completed | Succeeded | Failed | Active |",
-            "| :--- | :--- | :--- | :--- | :--- | :--- | ---: | ---: | ---: |",
-        ]
-    )
-    for row in sorted(recent_job_rows, key=lambda item: item["createdSort"], reverse=True)[:10]:
-        lines.append(
-            "| {namespace} | `{name}` | `{owner}` | {createdAt} | {startTime} | {completionTime} | "
-            "{succeeded} | {failed} | {active} |".format(**row)
-        )
-    if not recent_job_rows:
-        lines.append("| - | - | - | - | - | - | 0 | 0 | 0 |")
-
-    return "\n".join(lines)
 
 
 def trim_context_content(content: str, limit: int = 700) -> str:

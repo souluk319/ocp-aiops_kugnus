@@ -3,9 +3,138 @@ import pytest
 import komsco_ai_gateway.cluster_evidence as cluster_evidence
 import komsco_ai_gateway.main as gateway_main
 from komsco_ai_gateway.cluster_evidence import (
+    build_cluster_operator_status_evidence,
+    build_cronjob_activity_evidence,
     build_deployment_rollout_evidence,
     build_pod_status_evidence,
 )
+def test_build_cronjob_activity_evidence_includes_schedule_env_and_recent_jobs() -> None:
+    evidence = build_cronjob_activity_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"namespace": "tools-dev", "name": "notebook-cleaner"},
+                    "spec": {
+                        "schedule": "*/15 * * * *",
+                        "concurrencyPolicy": "Forbid",
+                        "successfulJobsHistoryLimit": 2,
+                        "failedJobsHistoryLimit": 3,
+                        "jobTemplate": {
+                            "spec": {
+                                "template": {
+                                    "spec": {
+                                        "containers": [
+                                            {
+                                                "image": (
+                                                    "ghcr.io/jungyuoo/"
+                                                    "ocpops-playbookstudio-sandbox:dev"
+                                                ),
+                                                "env": [
+                                                    {
+                                                        "name": (
+                                                            "NOTEBOOK_HIBERNATE_AFTER_SECONDS"
+                                                        ),
+                                                        "value": "1800",
+                                                    },
+                                                    {
+                                                        "name": "NOTEBOOK_RETENTION_DELETE_AFTER_SECONDS",
+                                                        "value": "1209600",
+                                                    },
+                                                ],
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                    },
+                }
+            ]
+        },
+        {
+            "items": [
+                {
+                    "metadata": {
+                        "namespace": "tools-dev",
+                        "name": "notebook-cleaner-29147292",
+                        "creationTimestamp": "2026-06-21T03:00:00Z",
+                        "ownerReferences": [{"kind": "CronJob", "name": "notebook-cleaner"}],
+                    },
+                    "status": {
+                        "startTime": "2026-06-21T03:00:01Z",
+                        "completionTime": "2026-06-21T03:00:05Z",
+                        "succeeded": 1,
+                    },
+                }
+            ]
+        },
+        context_text="notebook-cleaner가 15분마다 보여",
+    )
+
+    assert "`notebook-cleaner`" in evidence
+    assert "`*/15 * * * *`" in evidence
+    assert "15분마다" in evidence
+    assert "Forbid" in evidence
+    assert "2 | 3 |" in evidence
+    assert "`NOTEBOOK_HIBERNATE_AFTER_SECONDS`" in evidence
+    assert "1800초 (30분)" in evidence
+    assert "1209600초 (14일)" in evidence
+    assert "threshold values only" in evidence
+    assert "`notebook-cleaner-29147292`" in evidence
+
+
+
+def test_build_cronjob_activity_evidence_matches_arbitrary_requested_interval() -> None:
+    evidence = build_cronjob_activity_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"namespace": "ops", "name": "fifteen-minute-cleaner"},
+                    "spec": {"schedule": "*/15 * * * *"},
+                },
+                {
+                    "metadata": {"namespace": "ops", "name": "backup-cleaner"},
+                    "spec": {"schedule": "*/30 * * * *"},
+                },
+            ]
+        },
+        context_text="backup-cleaner가 30분마다 보여",
+    )
+
+    assert "`backup-cleaner`" in evidence
+    assert "30분마다" in evidence
+    assert "`fifteen-minute-cleaner`" not in evidence
+
+
+
+
+
+def test_build_cluster_operator_status_evidence_summarizes_operator_health() -> None:
+    evidence = build_cluster_operator_status_evidence(
+        {
+            "items": [
+                {
+                    "metadata": {"name": "example-operator"},
+                    "status": {
+                        "versions": [{"version": "4.20.23"}],
+                        "conditions": [
+                            {"type": "Available", "status": "True"},
+                            {"type": "Degraded", "status": "False"},
+                            {"type": "Progressing", "status": "False"},
+                        ],
+                    },
+                }
+            ]
+        }
+    )
+
+    assert "ClusterOperator status evidence" in evidence
+    assert "example-operator" in evidence
+    assert "Available | Degraded | Progressing" in evidence
+    assert "True | False | False" in evidence
+
+
+
 
 
 def test_build_pod_status_evidence_sorts_container_restart_counts() -> None:
@@ -318,6 +447,12 @@ def test_evidence_builders_preserve_malformed_items_contracts() -> None:
     assert build_deployment_rollout_evidence(None, None, {}) == (
         "Deployment rollout evidence unavailable: deployments API response did not include an items list."
     )
+    assert build_cluster_operator_status_evidence({"items": "invalid"}) == (
+        "ClusterOperator evidence unavailable: API response did not include an items list."
+    )
+    assert build_cronjob_activity_evidence({"items": "invalid"}) == (
+        "CronJob activity evidence unavailable: API response did not include an items list."
+    )
 
 
 def test_pod_helpers_preserve_malformed_nested_payload_errors() -> None:
@@ -386,6 +521,18 @@ def test_build_pod_status_evidence_sorts_malformed_timestamp_as_oldest() -> None
 
 def test_main_reexports_cluster_evidence_public_symbols() -> None:
     public_symbols = (
+        "CRONJOB_POLICY_ENV_RE",
+        "SECRET_ENV_RE",
+        "cluster_operator_condition",
+        "build_cluster_operator_status_evidence",
+        "cron_minute_interval",
+        "requested_minute_interval",
+        "schedule_interval_summary",
+        "format_seconds_duration",
+        "safe_env_value",
+        "cronjob_container_summary",
+        "cronjob_matches_context",
+        "build_cronjob_activity_evidence",
         "state_summary",
         "last_termination_summary",
         "pod_ready_summary",
