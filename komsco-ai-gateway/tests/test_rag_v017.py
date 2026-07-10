@@ -14,8 +14,8 @@ import pytest
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _import_gateway_main():
-    import komsco_ai_gateway.main as m
+def _import_rag_module():
+    import komsco_ai_gateway.rag_pgvector as m
     return m
 
 
@@ -35,7 +35,7 @@ def _load_sync_module():
 # ---------------------------------------------------------------------------
 
 def test_call_embedding_service_async_returns_none_when_not_configured() -> None:
-    m = _import_gateway_main()
+    m = _import_rag_module()
     original = m.RAG_EMBEDDING_SERVICE_URL
     try:
         m.RAG_EMBEDDING_SERVICE_URL = ""
@@ -49,7 +49,7 @@ def test_call_embedding_service_async_falls_back_on_http_error() -> None:
     """If the embedding service returns an error, call_embedding_service_async returns None."""
     import httpx
 
-    m = _import_gateway_main()
+    m = _import_rag_module()
     original = m.RAG_EMBEDDING_SERVICE_URL
 
     async def run():
@@ -65,7 +65,7 @@ def test_call_embedding_service_async_falls_back_on_http_error() -> None:
 
 
 def test_build_rag_embedding_still_works_without_service() -> None:
-    m = _import_gateway_main()
+    m = _import_rag_module()
     original = m.RAG_EMBEDDING_SERVICE_URL
     try:
         m.RAG_EMBEDDING_SERVICE_URL = ""
@@ -102,7 +102,7 @@ def _make_mock_conn(existing_versions: list[int] | None = None):
 
 
 def test_apply_rag_migrations_creates_version_table() -> None:
-    m = _import_gateway_main()
+    m = _import_rag_module()
     conn = _make_mock_conn()
     m.apply_rag_migrations(conn)
     sqls = [e[0] for e in conn._executed]
@@ -110,7 +110,7 @@ def test_apply_rag_migrations_creates_version_table() -> None:
 
 
 def test_apply_rag_migrations_inserts_all_migrations_on_fresh_db() -> None:
-    m = _import_gateway_main()
+    m = _import_rag_module()
     conn = _make_mock_conn(existing_versions=[])
     m.apply_rag_migrations(conn)
     inserts = [e for e in conn._executed if e[1] is not None and isinstance(e[1], tuple) and len(e[1]) == 2]
@@ -120,7 +120,7 @@ def test_apply_rag_migrations_inserts_all_migrations_on_fresh_db() -> None:
 
 
 def test_apply_rag_migrations_skips_already_applied() -> None:
-    m = _import_gateway_main()
+    m = _import_rag_module()
     all_versions = [v for v, _, _ in m.RAG_MIGRATIONS]
     conn = _make_mock_conn(existing_versions=all_versions)
     m.apply_rag_migrations(conn)
@@ -129,7 +129,7 @@ def test_apply_rag_migrations_skips_already_applied() -> None:
 
 
 def test_apply_rag_migrations_idempotent_on_second_run() -> None:
-    m = _import_gateway_main()
+    m = _import_rag_module()
     conn1 = _make_mock_conn(existing_versions=[])
     m.apply_rag_migrations(conn1)
 
