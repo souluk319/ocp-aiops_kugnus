@@ -110,6 +110,10 @@ from .chat_natural_action_followup_flow import (
     NaturalActionFollowupFlowDependencies,
     stream_chat_natural_action_followup,
 )
+from .chat_natural_action_proposal_flow import (
+    NaturalActionProposalFlowDependencies,
+    stream_chat_natural_action_proposal,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1868,6 +1872,26 @@ def natural_action_followup_flow_dependencies(
         natural_action_execution_response=natural_action_execution_response,
         natural_action_plan_response=natural_action_plan_response,
         no_pending_action_plan_response=no_pending_action_plan_response,
+        current_rca_context_event=current_rca_context_event_callback,
+        sse=sse,
+    )
+
+
+def natural_action_proposal_flow_dependencies(
+    current_rca_context_event_callback: Callable[[str], dict[str, Any]],
+) -> NaturalActionProposalFlowDependencies:
+    return NaturalActionProposalFlowDependencies(
+        parse_intent=parse_natural_action_intent,
+        execution_mode=page_context_aiops_execution_mode,
+        allows_actions=execution_mode_allows_actions,
+        allows_immediate_actions=execution_mode_allows_immediate_actions,
+        create_plan=create_natural_action_plan,
+        execute_plan=execute_natural_action_plan_result,
+        unresolved_response=unresolved_natural_action_response,
+        evidence_check_response=natural_action_evidence_check_response,
+        plan_response=natural_action_plan_response,
+        execution_response=natural_action_execution_response,
+        redact_sensitive=redact_sensitive,
         current_rca_context_event=current_rca_context_event_callback,
         sse=sse,
     )
@@ -8189,186 +8213,24 @@ async def chat_stream(
                 policy.get("decision") == "action_proposal_only"
                 and not crashloop_demo_target_from_request(req)
             ):
-                natural_action_intent = parse_natural_action_intent(req)
-                if not natural_action_intent:
-                    unresolved_result = {
-                        "executionMode": page_context_aiops_execution_mode(req),
-                        "message": req.message,
-                        "status": "unresolved",
-                    }
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": json.dumps(
-                                redact_sensitive(unresolved_result),
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                            "id": f"{request_id}-natural-action-unresolved",
-                            "name": "natural_action_unresolved",
-                            "result": unresolved_result,
-                            "status": "skipped",
-                            "summary": "변경 요청 대상 해석 실패",
-                        }
-                    )
-                    yield sse({"type": "text", "content": unresolved_natural_action_response(req)})
-                    rca_context_event = current_rca_context_event("post_answer")
-                    LAST_RCA_CONTEXT = rca_context_event["context"]
-                    yield sse(rca_context_event)
-                    yield sse(
-                        {
-                            "type": "run_status",
-                            "runId": run_id,
-                            "stage": "completed",
-                            "message": "Gateway 변경 요청 해석 실패",
-                        }
-                    )
-                    yield sse("[DONE]")
-                    return
-
-                if natural_action_intent and not execution_mode_allows_actions(req):
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": json.dumps(
-                                redact_sensitive(
-                                    {
-                                        "executionMode": page_context_aiops_execution_mode(req),
-                                        "intent": natural_action_intent,
-                                        "status": "skipped",
-                                    }
-                                ),
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                            "id": f"{request_id}-natural-action-execute-gate",
-                            "name": "natural_action_plan",
-                            "result": {
-                                "executionMode": page_context_aiops_execution_mode(req),
-                                "intent": natural_action_intent,
-                                "status": "skipped",
-                            },
-                            "status": "skipped",
-                            "summary": "읽기 전용 모드로 조치 계획 생성 생략",
-                        }
-                    )
-                    yield sse({"type": "text", "content": natural_action_evidence_check_response(natural_action_intent)})
-                    rca_context_event = current_rca_context_event("post_answer")
-                    LAST_RCA_CONTEXT = rca_context_event["context"]
-                    yield sse(rca_context_event)
-                    yield sse(
-                        {
-                            "type": "run_status",
-                            "runId": run_id,
-                            "stage": "completed",
-                            "message": "Gateway 읽기 전용 모드 안내 완료",
-                        }
-                    )
-                    yield sse("[DONE]")
-                    return
-
-                natural_action_result = await create_natural_action_plan(
-                    req,
-                    authorization,
-                    subject,
+                proposal_flow = stream_chat_natural_action_proposal(
+                    authorization=authorization,
+                    dependencies=natural_action_proposal_flow_dependencies(
+                        current_rca_context_event
+                    ),
                     incident_id=incident_id,
+                    request=req,
+                    request_id=request_id,
                     run_id=run_id,
+                    subject=subject,
                 )
-                if natural_action_result:
-                    yield sse(
-                        {
-                            "type": "tool_result",
-                            "detail": json.dumps(
-                                redact_sensitive(natural_action_result),
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                            "id": f"{request_id}-natural-action-plan",
-                            "name": "natural_action_plan",
-                            "result": natural_action_result,
-                            "status": (
-                                "success"
-                                if natural_action_result.get("status") == "planned"
-                                else "failed"
-                            ),
-                            "summary": "자연어 조치 요청을 Action Plan으로 변환",
-                        }
-                    )
-                    if (
-                        execution_mode_allows_immediate_actions(req)
-                        and natural_action_result.get("status") == "planned"
-                    ):
-                        yield sse(
-                            {
-                                "type": "tool_call",
-                                "id": f"{request_id}-natural-action-execute",
-                                "name": "natural_action_execute",
-                                "summary": "실험용 자연어 AIOps 조치 즉시 실행",
-                            }
-                        )
-                        natural_execution_result = await execute_natural_action_plan_result(
-                            natural_action_result,
-                            authorization,
-                            subject,
-                        )
-                        yield sse(
-                            {
-                                "type": "tool_result",
-                                "detail": json.dumps(
-                                    redact_sensitive(natural_execution_result),
-                                    ensure_ascii=False,
-                                    indent=2,
-                                ),
-                                "id": f"{request_id}-natural-action-execute",
-                                "name": "natural_action_execute",
-                                "result": natural_execution_result,
-                                "status": (
-                                    "success"
-                                    if natural_execution_result.get("status") == "executed"
-                                    else "failed"
-                                ),
-                                "summary": "자연어 AIOps 조치 실행 완료",
-                            }
-                        )
-                        yield sse(
-                            {
-                                "type": "text",
-                                "content": natural_action_execution_response(natural_execution_result),
-                            }
-                        )
-                        yield sse(
-                            {
-                                "type": "run_status",
-                                "runId": run_id,
-                                "stage": "completed",
-                                "message": "Gateway 자연어 조치 실행 완료",
-                            }
-                        )
-                        rca_context_event = current_rca_context_event("post_answer")
-                        LAST_RCA_CONTEXT = rca_context_event["context"]
-                        yield sse(rca_context_event)
-                        yield sse("[DONE]")
-                        return
-
-                    natural_action_text_event = {
-                        "type": "text",
-                        "content": natural_action_plan_response(natural_action_result),
-                    }
-                    if natural_action_result.get("status") == "planned":
-                        natural_action_text_event["answerContract"] = "natural-action-plan-v0.2.1"
-                    yield sse(natural_action_text_event)
-                    yield sse(
-                        {
-                            "type": "run_status",
-                            "runId": run_id,
-                            "stage": "completed",
-                            "message": "Gateway 자연어 조치 계획 생성 완료",
-                        }
-                    )
-                    rca_context_event = current_rca_context_event("post_answer")
-                    LAST_RCA_CONTEXT = rca_context_event["context"]
-                    yield sse(rca_context_event)
-                    yield sse("[DONE]")
+                handled = False
+                async for stream_event in proposal_flow:
+                    handled = True
+                    if stream_event.latest_rca_context is not None:
+                        LAST_RCA_CONTEXT = stream_event.latest_rca_context
+                    yield stream_event.payload
+                if handled:
                     return
 
             if req.attachments:
