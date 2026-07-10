@@ -131,6 +131,10 @@ from .chat_rca_preflight_flow import (
     RcaPreflightFlowDependencies,
     stream_rca_preflight_evidence,
 )
+from .chat_rag_evidence_flow import (
+    RagEvidenceFlowDependencies,
+    stream_rag_evidence,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1980,6 +1984,19 @@ def rca_preflight_flow_dependencies() -> RcaPreflightFlowDependencies:
                 collect_restart_metric_rca_evidence,
             ),
         ),
+        append_gateway_evidence=append_gateway_evidence,
+        safe_exception_text=safe_exception_text,
+        build_evidence_reference_events=build_evidence_reference_events,
+        sse=sse,
+    )
+
+
+def rag_evidence_flow_dependencies() -> RagEvidenceFlowDependencies:
+    return RagEvidenceFlowDependencies(
+        make_request=RagSearchCreate,
+        search_runbooks=search_pgvector_runbooks,
+        build_context_detail=build_rag_context_detail,
+        build_citation_text=build_rag_answer_citation_text,
         append_gateway_evidence=append_gateway_evidence,
         safe_exception_text=safe_exception_text,
         build_evidence_reference_events=build_evidence_reference_events,
@@ -8410,81 +8427,20 @@ async def chat_stream(
                         gateway_evidence = stream_event.gateway_evidence
                     yield stream_event.payload
 
-            yield sse(
-                {
-                    "type": "tool_call",
-                    "id": f"{request_id}-rag-context-evidence",
-                    "name": "rag_context_evidence",
-                    "summary": "RAG 참고 문서 검색",
-                }
-            )
-            try:
-                rag_request = RagSearchCreate(
-                    query=req.message,
-                    topK=3,
-                    includeContent=False,
-                    runId=run_id,
-                )
-                rag_status, rag_reason, rag_results = await search_pgvector_runbooks(
-                    rag_request,
-                    subject=subject,
-                )
-                rag_detail = build_rag_context_detail(rag_results, rag_reason)
-                gateway_evidence = append_gateway_evidence(gateway_evidence, rag_detail)
-                rag_answer_citation_text = build_rag_answer_citation_text(rag_results)
-                rag_event = {
-                    "type": "tool_result",
-                    "detail": rag_detail,
-                    "evidenceType": "runbook",
-                    "id": f"{request_id}-rag-context-evidence",
-                    "missingReason": "" if rag_results else rag_reason,
-                    "name": "rag_context_evidence",
-                    "result": {
-                        "query": req.message,
-                        "resultCount": len(rag_results),
-                        "results": [
-                            {
-                                "documentId": result.get("documentId"),
-                                "score": result.get("score"),
-                                "sourceType": result.get("sourceType"),
-                                "sourceUri": result.get("sourceUri"),
-                                "title": result.get("title"),
-                            }
-                            for result in rag_results
-                        ],
-                        "status": rag_status,
-                    },
-                    "sourcePath": "/v1/rag/search",
-                    "status": "success" if rag_results else "skipped",
-                    "summary": (
-                        f"RAG 참고 문서 {len(rag_results)}건 검색"
-                        if rag_results
-                        else "RAG 참고 문서 검색 결과 없음"
-                    ),
-                }
-            except Exception as exc:
-                rag_detail = f"RAG evidence unavailable: {safe_exception_text(exc)}"
-                gateway_evidence = append_gateway_evidence(gateway_evidence, rag_detail)
-                rag_event = {
-                    "type": "tool_result",
-                    "detail": rag_detail,
-                    "evidenceType": "runbook",
-                    "id": f"{request_id}-rag-context-evidence",
-                    "missingReason": safe_exception_text(exc),
-                    "name": "rag_context_evidence",
-                    "sourcePath": "/v1/rag/search",
-                    "status": "error",
-                    "summary": "RAG 참고 문서 검색 실패",
-                }
-            yield sse(rag_event)
-            for evidence_ref_event in build_evidence_reference_events(
-                event=rag_event,
+            async for stream_event in stream_rag_evidence(
+                dependencies=rag_evidence_flow_dependencies(),
+                gateway_evidence=gateway_evidence,
                 incident_id=incident_id,
+                message=req.message,
+                request_id=request_id,
                 run_id=run_id,
-                source_type="gateway-rag-evidence",
                 subject=subject,
             ):
-                yield sse(evidence_ref_event)
+                if stream_event.gateway_evidence is not None:
+                    gateway_evidence = stream_event.gateway_evidence
+                if stream_event.citation_text_updated:
+                    rag_answer_citation_text = stream_event.citation_text or ""
+                yield stream_event.payload
 
             pod_inventory_candidates: list[dict[str, Any]] = []
             if (
