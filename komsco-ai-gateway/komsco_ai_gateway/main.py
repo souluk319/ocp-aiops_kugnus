@@ -149,6 +149,10 @@ from .chat_test_pod_flow import (
     TestPodFlowDependencies,
     stream_test_pod_create,
 )
+from .chat_namespace_cleanup_inventory_flow import (
+    NamespaceCleanupInventoryDependencies,
+    stream_namespace_cleanup_inventory,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -2067,6 +2071,21 @@ def test_pod_flow_dependencies() -> TestPodFlowDependencies:
         remember_candidate=remember_test_pod_candidate,
         answer=test_pod_create_answer,
         tool_plan=test_pod_create_tool_plan,
+        redact_sensitive=redact_sensitive,
+        sse=sse,
+    )
+
+
+def namespace_cleanup_inventory_dependencies() -> NamespaceCleanupInventoryDependencies:
+    return NamespaceCleanupInventoryDependencies(
+        execution_mode=page_context_aiops_execution_mode,
+        answer_language=answer_language,
+        namespace_names=namespace_names_from_message,
+        collect_inventory=collect_namespace_cleanup_inventory,
+        cleanup_candidates=namespace_cleanup_candidates_from_inventory,
+        action_capable_mode=action_capable_execution_mode,
+        remember_candidates=remember_namespace_cleanup_candidates,
+        answer=namespace_cleanup_answer,
         redact_sensitive=redact_sensitive,
         sse=sse,
     )
@@ -8004,131 +8023,18 @@ async def chat_stream(
                     yield stream_event.payload
                 return
             if is_namespace_cleanup_request(req):
-                execution_mode = page_context_aiops_execution_mode(req)
-                language = answer_language(req)
-                requested_names = namespace_names_from_message(req.message)
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "started",
-                        "message": (
-                            "Namespace usage check started"
-                            if language == "en"
-                            else "네임스페이스 사용 여부 확인 시작"
-                        ),
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-namespace-cleanup-inventory",
-                        "name": "namespace_cleanup_inventory",
-                        "summary": (
-                            "Namespace usage read-only inventory"
-                            if language == "en"
-                            else "namespace 사용 여부 read-only 조회"
-                        ),
-                    }
-                )
-                inventory = await collect_namespace_cleanup_inventory(authorization, requested_names)
-                cleanup_candidates = namespace_cleanup_candidates_from_inventory(inventory)
-                if action_capable_execution_mode(execution_mode) and cleanup_candidates:
-                    remember_namespace_cleanup_candidates(inventory, run_id, incident_id)
-                answer_text = namespace_cleanup_answer(inventory, execution_mode, language)
-                transcript_answer_chunks.append(answer_text)
-                yield sse(
-                    {
-                        "type": "tool_result",
-                        "detail": json.dumps(redact_sensitive(inventory), ensure_ascii=False, indent=2),
-                        "id": f"{request_id}-namespace-cleanup-inventory",
-                        "name": "namespace_cleanup_inventory",
-                        "result": redact_sensitive(inventory),
-                        "status": "success" if inventory.get("ok") else "failed",
-                        "summary": (
-                            f"namespace {len(inventory.get('inspected') or [])} read-only checks"
-                            if language == "en"
-                            else f"namespace {len(inventory.get('inspected') or [])}개 read-only 조회"
-                        ),
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "tool_plan",
-                        "plan": {
-                            "task_type": "namespace_cleanup_review",
-                            "execution_policy": {
-                                "mode": execution_mode,
-                                "mutations_enabled": False,
-                                "proposal_only": True,
-                                "review_only": True,
-                            },
-                            "tool_plan": [
-                                {
-                                    "step": 1,
-                                    "adapter": "oc",
-                                    "tool": "oc_get_namespaces",
-                                    "verb": "list",
-                                    "purpose": "접근 가능한 namespace 목록 확인",
-                                },
-                                {
-                                    "step": 2,
-                                    "adapter": "oc",
-                                    "tool": "oc_get_namespace_inventory",
-                                    "verb": "get",
-                                    "purpose": "workload, PVC, Route, Event 잔존 확인",
-                                },
-                                *(
-                                    [
-                                        {
-                                            "step": 3,
-                                            "adapter": "aiops-gateway",
-                                            "tool": "namespace_cleanup_review_plan",
-                                            "verb": "propose",
-                                            "purpose": "승인 필요 Namespace 정리 검토 Action Plan 후보 생성",
-                                        }
-                                    ]
-                                    if action_capable_execution_mode(execution_mode) and cleanup_candidates
-                                    else []
-                                ),
-                            ],
-                            "validation": {
-                                "ok": bool(inventory.get("ok")),
-                                "status": (
-                                    "action_candidate_ready"
-                                    if action_capable_execution_mode(execution_mode) and cleanup_candidates
-                                    else "read_only_inventory_collected"
-                                    if inventory.get("ok")
-                                    else inventory.get("status")
-                                ),
-                            },
-                        },
-                        "runId": run_id,
-                        "status": "success" if inventory.get("ok") else "failed",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "text",
-                        "content": answer_text,
-                        "source": "gateway_direct" if inventory.get("ok") else "gateway_fallback",
-                    }
-                )
-                yield sse(
-                    {
-                        "type": "run_status",
-                        "runId": run_id,
-                        "stage": "completed" if inventory.get("ok") else "failed",
-                        "message": (
-                            "Namespace usage check completed"
-                            if language == "en"
-                            else "네임스페이스 사용 여부 확인 완료"
-                        ),
-                    }
-                )
-                yield sse("[DONE]")
+                async for stream_event in stream_namespace_cleanup_inventory(
+                    authorization=authorization,
+                    dependencies=namespace_cleanup_inventory_dependencies(),
+                    incident_id=incident_id,
+                    request=req,
+                    request_id=request_id,
+                    run_id=run_id,
+                ):
+                    if stream_event.answer_chunk is not None:
+                        transcript_answer_chunks.append(stream_event.answer_chunk)
+                    yield stream_event.payload
                 return
-
             unrestricted_command = parse_unrestricted_chat_command(req.message)
             if execution_mode_allows_immediate_actions(req) and unrestricted_command:
                 yield sse(
