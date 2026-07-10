@@ -21,6 +21,8 @@ komsco-ai-gateway/var/aiops/
 .claude/
 .codex/
 .omo/
+/AGENTS.md
+/DESIGN.md
 *:Zone.Identifier
 docs/aiops-beginner-guide.html
 docs/Ver.0.1.9/JK_AIOps.png
