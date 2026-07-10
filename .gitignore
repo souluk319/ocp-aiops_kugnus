@@ -19,6 +19,8 @@ komsco-ai-gateway/var/aiops/
 .dev-*.pid
 .DS_Store
 .claude/
+.codex/
+.omo/
 *:Zone.Identifier
 docs/aiops-beginner-guide.html
 docs/Ver.0.1.9/JK_AIOps.png
