@@ -7081,6 +7081,10 @@
     border-color 190ms ease;
 }
 
+.komsco-ai--portal .komsco-ai__surface {
+  --komsco-floating-panel-width: 620px;
+}
+
 .komsco-ai__surface:not(.komsco-ai__surface--fullscreen) {
   grid-template-columns: minmax(0, 0) minmax(0, var(--komsco-floating-panel-width));
   width: min(var(--komsco-floating-panel-width), calc(100vw - 32px));
