@@ -126,6 +126,11 @@ from .chat_restart_evidence_flow import (
     RestartEvidenceFlowDependencies,
     stream_restart_evidence,
 )
+from .chat_rca_preflight_flow import (
+    RcaPreflightCollector,
+    RcaPreflightFlowDependencies,
+    stream_rca_preflight_evidence,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1943,6 +1948,38 @@ def restart_evidence_flow_dependencies() -> RestartEvidenceFlowDependencies:
         collect_official=collect_official_namespace_restart_evidence_events,
         official_fallback=official_namespace_restart_skipped_evidence_events,
         collect_crashloop=collect_crashloop_demo_evidence_events,
+        append_gateway_evidence=append_gateway_evidence,
+        safe_exception_text=safe_exception_text,
+        build_evidence_reference_events=build_evidence_reference_events,
+        sse=sse,
+    )
+
+
+def rca_preflight_flow_dependencies() -> RcaPreflightFlowDependencies:
+    return RcaPreflightFlowDependencies(
+        collectors=(
+            RcaPreflightCollector(
+                "node-status-rca-evidence",
+                "node_status_evidence",
+                "Node 상태 RCA 조회 결과 수집",
+                "node",
+                collect_node_status_rca_evidence,
+            ),
+            RcaPreflightCollector(
+                "active-alerts-rca-evidence",
+                "active_alerts_evidence",
+                "Active Alert RCA 조회 결과 수집",
+                "alert",
+                collect_active_alerts_rca_evidence,
+            ),
+            RcaPreflightCollector(
+                "restart-metric-rca-evidence",
+                "restart_metric_evidence",
+                "Restart metric RCA 조회 결과 수집",
+                "metric",
+                collect_restart_metric_rca_evidence,
+            ),
+        ),
         append_gateway_evidence=append_gateway_evidence,
         safe_exception_text=safe_exception_text,
         build_evidence_reference_events=build_evidence_reference_events,
@@ -8360,82 +8397,18 @@ async def chat_stream(
                 str(policy.get("decision") or "") == "allow_evidence_collection"
                 and should_collect_rca_signal_evidence_for_request(req)
             ):
-                rca_preflight_collectors = [
-                    (
-                        "node-status-rca-evidence",
-                        "node_status_evidence",
-                        "Node 상태 RCA 조회 결과 수집",
-                        collect_node_status_rca_evidence,
-                    ),
-                    (
-                        "active-alerts-rca-evidence",
-                        "active_alerts_evidence",
-                        "Active Alert RCA 조회 결과 수집",
-                        collect_active_alerts_rca_evidence,
-                    ),
-                    (
-                        "restart-metric-rca-evidence",
-                        "restart_metric_evidence",
-                        "Restart metric RCA 조회 결과 수집",
-                        collect_restart_metric_rca_evidence,
-                    ),
-                ]
-                for suffix, event_name, call_summary, collector in rca_preflight_collectors:
-                    event_id = f"{request_id}-{suffix}"
-                    yield sse(
-                        {
-                            "type": "tool_call",
-                            "id": event_id,
-                            "name": event_name,
-                            "summary": call_summary,
-                        }
-                    )
-                    try:
-                        evidence_result = await collector(authorization)
-                        evidence_detail = str(evidence_result.get("detail") or "")
-                        gateway_evidence = append_gateway_evidence(gateway_evidence, evidence_detail)
-                        evidence_event = {
-                            "type": "tool_result",
-                            "detail": evidence_detail,
-                            "evidenceType": evidence_result.get("evidenceType"),
-                            "id": event_id,
-                            "missingReason": evidence_result.get("missingReason"),
-                            "name": event_name,
-                            "sourcePath": evidence_result.get("sourcePath"),
-                            "status": evidence_result.get("status") or "error",
-                            "summary": evidence_result.get("summary") or f"{call_summary} 완료",
-                        }
-                    except Exception as exc:
-                        safe_detail = safe_exception_text(exc)
-                        evidence_type = (
-                            "node"
-                            if event_name == "node_status_evidence"
-                            else "alert"
-                            if event_name == "active_alerts_evidence"
-                            else "metric"
-                        )
-                        evidence_detail = f"{call_summary} unavailable: {safe_detail}"
-                        gateway_evidence = append_gateway_evidence(gateway_evidence, evidence_detail)
-                        evidence_event = {
-                            "type": "tool_result",
-                            "detail": evidence_detail,
-                            "evidenceType": evidence_type,
-                            "id": event_id,
-                            "missingReason": safe_detail,
-                            "name": event_name,
-                            "status": "error",
-                            "summary": f"{call_summary} 실패",
-                        }
-
-                    yield sse(evidence_event)
-                    for evidence_ref_event in build_evidence_reference_events(
-                        event=evidence_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_ref_event)
+                async for stream_event in stream_rca_preflight_evidence(
+                    authorization=authorization,
+                    dependencies=rca_preflight_flow_dependencies(),
+                    gateway_evidence=gateway_evidence,
+                    incident_id=incident_id,
+                    request_id=request_id,
+                    run_id=run_id,
+                    subject=subject,
+                ):
+                    if stream_event.gateway_evidence is not None:
+                        gateway_evidence = stream_event.gateway_evidence
+                    yield stream_event.payload
 
             yield sse(
                 {
