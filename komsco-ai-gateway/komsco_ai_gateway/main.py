@@ -114,6 +114,10 @@ from .chat_natural_action_proposal_flow import (
     NaturalActionProposalFlowDependencies,
     stream_chat_natural_action_proposal,
 )
+from .chat_pod_evidence_flow import (
+    PodEvidenceFlowDependencies,
+    stream_pod_status_evidence,
+)
 from .followup_selection import resolve_numeric_followup_message
 from .ols_payloads import (
     OlsContextHandoffInput,
@@ -1893,6 +1897,20 @@ def natural_action_proposal_flow_dependencies(
         execution_response=natural_action_execution_response,
         redact_sensitive=redact_sensitive,
         current_rca_context_event=current_rca_context_event_callback,
+        sse=sse,
+    )
+
+
+def pod_evidence_flow_dependencies() -> PodEvidenceFlowDependencies:
+    return PodEvidenceFlowDependencies(
+        is_pod_list_request=is_pod_list_request,
+        page_context_is_pod_workload=page_context_is_pod_workload,
+        pod_list_namespace=pod_list_namespace,
+        collect_pod_status_evidence=collect_pod_status_evidence,
+        append_gateway_evidence=append_gateway_evidence,
+        safe_exception_text=safe_exception_text,
+        evidence_summary=_evidence_summary,
+        build_evidence_reference_events=build_evidence_reference_events,
         sse=sse,
     )
 
@@ -8332,108 +8350,19 @@ async def chat_stream(
                         yield sse(evidence_event)
 
             if should_collect_pod_status_evidence_for_request(req):
-                yield sse(
-                    {
-                        "type": "tool_call",
-                        "id": f"{request_id}-pod-status-evidence",
-                        "name": "pod_status_evidence",
-                        "summary": "Pod 상태/재시작 조회 결과 수집",
-                    }
-                )
-                try:
-                    pod_list_requested = is_pod_list_request(req.message) or page_context_is_pod_workload(req)
-                    pod_evidence = await collect_pod_status_evidence(
-                        authorization,
-                        include_pod_list=pod_list_requested,
-                        list_namespace=pod_list_namespace(req) if pod_list_requested else "",
-                    )
-                    evidence_status = (
-                        "skipped"
-                        if pod_evidence.startswith("Pod status evidence unavailable:")
-                        else "success"
-                    )
-                    gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
-                    pod_event = {
-                        "type": "tool_result",
-                        "detail": pod_evidence,
-                        "evidenceType": "pod_status",
-                        "id": f"{request_id}-pod-status-evidence",
-                        "missingReason": pod_evidence if evidence_status != "success" else "",
-                        "name": "pod_status_evidence",
-                        "sourcePath": "/api/v1/pods,/apis/apps/v1/deployments,/apis/config.openshift.io/v1/clusteroperators",
-                        "status": evidence_status,
-                        "summary": _evidence_summary("Pod 상태/재시작 증거", evidence_status),
-                    }
-                    pod_snapshot_event = {
-                        "type": "tool_result",
-                        "detail": pod_evidence,
-                        "evidenceType": "snapshot",
-                        "id": f"{request_id}-pod-snapshot-evidence",
-                        "missingReason": pod_evidence if evidence_status != "success" else "",
-                        "name": "pod_snapshot_evidence",
-                        "sourcePath": "/api/v1/pods,/apis/apps/v1/deployments,/apis/config.openshift.io/v1/clusteroperators",
-                        "status": evidence_status,
-                        "summary": _evidence_summary("Pod snapshot 증거", evidence_status),
-                    }
-                    yield sse(pod_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=pod_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
-                    yield sse(pod_snapshot_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=pod_snapshot_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
-                except Exception as exc:
-                    pod_evidence = f"Pod status evidence unavailable: {safe_exception_text(exc)}"
-                    gateway_evidence = append_gateway_evidence(gateway_evidence, pod_evidence)
-                    pod_event = {
-                        "type": "tool_result",
-                        "detail": pod_evidence,
-                        "id": f"{request_id}-pod-status-evidence",
-                        "name": "pod_status_evidence",
-                        "evidenceType": "pod_status",
-                        "missingReason": safe_exception_text(exc),
-                        "status": "error",
-                        "summary": "Pod 상태/재시작 조회 결과 수집 실패",
-                    }
-                    pod_snapshot_event = {
-                        "type": "tool_result",
-                        "detail": pod_evidence,
-                        "id": f"{request_id}-pod-snapshot-evidence",
-                        "name": "pod_snapshot_evidence",
-                        "evidenceType": "snapshot",
-                        "missingReason": safe_exception_text(exc),
-                        "status": "error",
-                        "summary": "Pod snapshot 조회 결과 수집 실패",
-                    }
-                    yield sse(pod_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=pod_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
-                    yield sse(pod_snapshot_event)
-                    for evidence_event in build_evidence_reference_events(
-                        event=pod_snapshot_event,
-                        incident_id=incident_id,
-                        run_id=run_id,
-                        source_type="gateway-preflight-evidence",
-                        subject=subject,
-                    ):
-                        yield sse(evidence_event)
+                async for stream_event in stream_pod_status_evidence(
+                    authorization=authorization,
+                    dependencies=pod_evidence_flow_dependencies(),
+                    gateway_evidence=gateway_evidence,
+                    incident_id=incident_id,
+                    request=req,
+                    request_id=request_id,
+                    run_id=run_id,
+                    subject=subject,
+                ):
+                    if stream_event.gateway_evidence is not None:
+                        gateway_evidence = stream_event.gateway_evidence
+                    yield stream_event.payload
 
             crashloop_demo_target = crashloop_demo_target_from_request(req)
             official_restart_namespace = official_namespace_restart_namespace(runtime_tool_plan)
