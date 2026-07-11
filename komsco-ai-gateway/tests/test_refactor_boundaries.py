@@ -1,9 +1,12 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from komsco_ai_gateway import main as gateway_main
+from komsco_ai_gateway import gateway_state
+from komsco_ai_gateway import namespace_cleanup_runtime_support
 from komsco_ai_gateway import pod_answering
 from komsco_ai_gateway.cluster_evidence_runtime import (
     ClusterEvidenceRuntimeConfig,
@@ -116,3 +119,65 @@ def test_namespace_cleanup_uses_current_main_parser_binding(monkeypatch) -> None
     )
 
     assert [row["pod"] for row in selected] == ["aiops-test-pod-latest"]
+
+
+def test_namespace_cleanup_runtime_support_does_not_import_main() -> None:
+    module_path = (
+        Path(__file__).parents[1]
+        / "komsco_ai_gateway"
+        / "namespace_cleanup_runtime_support.py"
+    )
+    source = module_path.read_text(encoding="utf-8")
+
+    assert "from .main import" not in source
+    assert "import komsco_ai_gateway.main" not in source
+
+
+def test_namespace_cleanup_wrappers_keep_current_dependencies(monkeypatch) -> None:
+    fetch = object()
+    observed = {}
+
+    async def collect(_auth, _names, config, deps):
+        observed["config"] = config
+        observed["fetch"] = deps.fetch_ocp_json
+        return {"ok": True}
+
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fetch)
+    monkeypatch.setattr(
+        namespace_cleanup_runtime_support,
+        "collect_namespace_cleanup_inventory",
+        collect,
+    )
+
+    result = asyncio.run(
+        gateway_main.collect_namespace_cleanup_inventory("Bearer test", ["team-a"])
+    )
+
+    assert result == {"ok": True}
+    assert observed["fetch"] is fetch
+    assert observed["config"].api_url == gateway_main.OPENSHIFT_API_URL
+
+
+def test_namespace_cleanup_candidate_store_preserves_state_identity(monkeypatch) -> None:
+    assert (
+        gateway_main.NAMESPACE_CLEANUP_CHAT_CANDIDATES
+        is gateway_state.NAMESPACE_CLEANUP_CHAT_CANDIDATES
+    )
+    observed = {}
+
+    def remember(_inventory, _run_id, _incident_id, deps):
+        observed["cache"] = deps.candidate_cache
+        observed["builder"] = deps.build_candidate
+
+    builder = lambda *_args: {}  # noqa: E731
+    monkeypatch.setattr(gateway_main, "namespace_cleanup_candidate_from_item", builder)
+    monkeypatch.setattr(
+        namespace_cleanup_runtime_support,
+        "remember_namespace_cleanup_candidates",
+        remember,
+    )
+
+    gateway_main.remember_namespace_cleanup_candidates({}, "run", "incident")
+
+    assert observed["cache"] is gateway_state.NAMESPACE_CLEANUP_CHAT_CANDIDATES
+    assert observed["builder"] is builder
