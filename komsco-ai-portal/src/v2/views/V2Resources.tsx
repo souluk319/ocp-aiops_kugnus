@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, Boxes, Cpu, Server } from 'lucide-react';
-import type { V2Runtime } from '../V2App';
+import type { V2Runtime } from '../runtime';
 import { Card, CountUp, Donut, KpiStat, ProgressBar } from '../components/primitives';
 import { V2EndpointTable } from '../components/V2EndpointTable';
 import { buildEndpoints, localizeTelemetryText, resourceNameLabel } from '../lib/model';

@@ -1,12 +1,6 @@
 import React from 'react';
 import './v2.css';
-import type {
-  AiopsEventFeed,
-  AiopsRuntimeStatus,
-  ClusterSummary,
-  NavView,
-  QueueItem,
-} from '../types';
+import type { NavView, QueueItem } from '../types';
 import { V2Shell } from './components/V2Shell';
 import { useV2Theme } from './theme';
 import { v2ViewFromHash, writeV2Hash, type V2View } from './router';
@@ -21,16 +15,9 @@ import { V2Alerts } from './views/V2Alerts';
 import { V2Wiki } from './views/V2Wiki';
 import { V2Reports } from './views/V2Reports';
 import { V2Settings } from './views/V2Settings';
+import type { V2Runtime } from './runtime';
 
-export type V2Runtime = {
-  error: string;
-  events: AiopsEventFeed;
-  isLive: boolean;
-  loading: boolean;
-  refresh: (options?: { silent?: boolean }) => Promise<void>;
-  status: AiopsRuntimeStatus;
-  summary: ClusterSummary;
-};
+export type { V2Runtime } from './runtime';
 
 const V2App: React.FC<{
   clock: string;
