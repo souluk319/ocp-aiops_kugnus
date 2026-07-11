@@ -57,6 +57,13 @@ from .answer_streaming import (
     sse,
 )
 from .app_factory import create_app
+from .aiops_read_router import create_aiops_read_router
+from .aiops_read_service import (
+    AiopsReadConfig,
+    AiopsReadDependencies,
+    AiopsRecordStores,
+)
+from . import aiops_read_service
 from .cluster_anomalies import (
     ClusterSafety,
     build_aiops_anomaly_summary as build_aiops_anomaly_summary_read_model,
@@ -5581,268 +5588,87 @@ async def execute_action_with_executor(
     )
 
 
-@app.get("/v1/cluster/summary")
+def aiops_read_dependencies() -> AiopsReadDependencies:
+    return AiopsReadDependencies(
+        config=AiopsReadConfig(
+            openshift_api_url=OPENSHIFT_API_URL,
+            openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+            mutations_enabled=MUTATIONS_ENABLED,
+            diagnostics_enabled=DIAGNOSTICS_ENABLED,
+            diagnostics_controller_url=HOST_DIAGNOSTICS_CONTROLLER_URL,
+            action_executor_url=ACTION_EXECUTOR_URL,
+            unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
+            record_store_enabled=RECORD_STORE_ENABLED,
+            record_store_configmap=RECORD_STORE_CONFIGMAP,
+            chat_transcript_jsonl_path=CHAT_TRANSCRIPT_JSONL_PATH,
+            latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
+            latest_rca_context=LAST_RCA_CONTEXT,
+        ),
+        stores=AiopsRecordStores(
+            chat_transcripts=CHAT_TRANSCRIPTS,
+            chat_feedback=CHAT_FEEDBACK,
+            diagnostic_requests=DIAGNOSTIC_REQUESTS,
+            action_proposals=ACTION_PROPOSALS,
+            sealed_action_plans=SEALED_ACTION_PLANS,
+            approval_decisions=APPROVAL_DECISIONS,
+            execution_records=EXECUTION_RECORDS,
+        ),
+        lightspeed_status=OLS_STREAM_STATUS,
+        verify_bearer_header=verify_bearer_header,
+        fetch_ocp_json=fetch_ocp_json,
+        fetch_ocp_json_observed=fetch_ocp_json_observed,
+        build_cluster_summary=build_cluster_summary,
+        monitoring_urls_from_config=monitoring_urls_from_config,
+        probe_thanos_query=probe_thanos_query,
+        query_thanos_instant=query_thanos_instant,
+        data_source_status=data_source_status,
+        build_aiops_anomaly_summary=build_aiops_anomaly_summary,
+        build_aiops_overview=build_aiops_overview,
+        aiops_overview=aiops_overview,
+        merge_recent_namespace_cleanup_candidates=merge_recent_namespace_cleanup_candidates,
+        fetch_self_subject_review=fetch_self_subject_review,
+        fetch_product_access_review=fetch_product_access_review,
+        build_kubernetes_event_items=build_kubernetes_event_items,
+        build_problem_pod_event_items=build_problem_pod_event_items,
+        build_aiops_record_event_items=build_aiops_record_event_items,
+        now_rfc3339=now_rfc3339,
+        safe_subject=safe_subject,
+        build_skipped_product_access_review=build_skipped_product_access_review,
+        build_status_access_review_failure=build_status_access_review_failure,
+        redact_sensitive=redact_sensitive,
+        build_rag_backend_status=build_rag_backend_status,
+        build_runtime_safety_contract=build_runtime_safety_contract,
+        latest_readable_audit_records=latest_readable_audit_records,
+        latest_readable_records=latest_readable_records,
+    )
+
+
 async def cluster_summary(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    if not OPENSHIFT_API_URL:
-        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        (
-            nodes_payload,
-            node_metrics_payload,
-            cluster_version_payload,
-            cluster_operators_payload,
-            pods_payload,
-            deployments_payload,
-            replicasets_payload,
-            daemonsets_payload,
-            statefulsets_payload,
-            services_payload,
-            routes_payload,
-            pvcs_payload,
-            namespaces_payload,
-        ) = await asyncio.gather(
-            fetch_ocp_json(
-                client,
-                "/api/v1/nodes",
-                user_auth_header,
-                required=True,
-            ),
-            fetch_ocp_json(
-                client,
-                "/apis/metrics.k8s.io/v1beta1/nodes",
-                user_auth_header,
-            ),
-            fetch_ocp_json(
-                client,
-                "/apis/config.openshift.io/v1/clusterversions/version",
-                user_auth_header,
-            ),
-            fetch_ocp_json(
-                client,
-                "/apis/config.openshift.io/v1/clusteroperators",
-                user_auth_header,
-            ),
-            fetch_ocp_json(client, "/api/v1/pods", user_auth_header),
-            fetch_ocp_json(client, "/apis/apps/v1/deployments", user_auth_header),
-            fetch_ocp_json(client, "/apis/apps/v1/replicasets", user_auth_header),
-            fetch_ocp_json(client, "/apis/apps/v1/daemonsets", user_auth_header),
-            fetch_ocp_json(client, "/apis/apps/v1/statefulsets", user_auth_header),
-            fetch_ocp_json(client, "/api/v1/services", user_auth_header),
-            fetch_ocp_json(client, "/apis/route.openshift.io/v1/routes", user_auth_header),
-            fetch_ocp_json(client, "/api/v1/persistentvolumeclaims", user_auth_header),
-            fetch_ocp_json(client, "/api/v1/namespaces", user_auth_header),
-        )
-
-    return build_cluster_summary(
-        nodes_payload or {"items": []},
-        node_metrics_payload,
-        cluster_version_payload,
-        cluster_operators_payload,
-        pods_payload,
-        deployments_payload,
-        replicasets_payload,
-        daemonsets_payload,
-        statefulsets_payload,
-        services_payload,
-        routes_payload,
-        pvcs_payload,
-        namespaces_payload,
-    )
+    return await aiops_read_service.cluster_summary(authorization, aiops_read_dependencies())
 
 
-@app.get("/v1/aiops/overview")
 async def aiops_overview(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    if not OPENSHIFT_API_URL:
-        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        nodes_payload, nodes_status = await fetch_ocp_json_observed(
-            client,
-            "/api/v1/nodes",
-            user_auth_header,
-            label="Node inventory",
-            name="nodes",
-            required=True,
-        )
-        node_metrics_payload, metrics_status = await fetch_ocp_json_observed(
-            client,
-            "/apis/metrics.k8s.io/v1beta1/nodes",
-            user_auth_header,
-            label="Node metrics",
-            name="metrics.k8s.io",
-        )
-        cluster_version_payload, version_status = await fetch_ocp_json_observed(
-            client,
-            "/apis/config.openshift.io/v1/clusterversions/version",
-            user_auth_header,
-            label="Cluster version",
-            name="clusterversion",
-        )
-        cluster_operators_payload, operators_status = await fetch_ocp_json_observed(
-            client,
-            "/apis/config.openshift.io/v1/clusteroperators",
-            user_auth_header,
-            label="Cluster operators",
-            name="clusteroperators",
-        )
-        monitoring_config_payload, monitoring_config_status = await fetch_ocp_json_observed(
-            client,
-            "/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
-            user_auth_header,
-            label="Monitoring public URLs",
-            name="monitoring-shared-config",
-        )
-        pods_payload, pods_status = await fetch_ocp_json_observed(
-            client,
-            "/api/v1/pods?limit=500",
-            user_auth_header,
-            label="Pod anomaly signals",
-            name="pods",
-            required=True,
-        )
-        events_payload, events_status = await fetch_ocp_json_observed(
-            client,
-            "/api/v1/events?limit=500",
-            user_auth_header,
-            label="Warning events",
-            name="events",
-            required=True,
-        )
-
-    monitoring_urls = monitoring_urls_from_config(monitoring_config_payload)
-    monitoring_probe = await probe_thanos_query(monitoring_urls.get("thanos", ""), user_auth_header)
-    alerts_probe = await query_thanos_instant(
-        monitoring_urls.get("thanos", ""),
-        user_auth_header,
-        'ALERTS{alertstate="firing"}',
-    )
-    restart_probe = await query_thanos_instant(
-        monitoring_urls.get("thanos", ""),
-        user_auth_header,
-        "increase(kube_pod_container_status_restarts_total[1h]) > 0",
-    )
-    monitoring_probe_status = data_source_status(
-        label="Thanos query probe",
-        name="thanos-query",
-        path="/api/v1/query?query=up",
-        payload=monitoring_probe if monitoring_probe.get("status") == "available" else None,
-        reason=str(monitoring_probe.get("reason") or ""),
-        status=str(monitoring_probe.get("status") or "unavailable"),
-        http_status=monitoring_probe.get("httpStatus")
-        if isinstance(monitoring_probe.get("httpStatus"), int)
-        else None,
-    )
-    alerts_probe_status = data_source_status(
-        label="Active alerts",
-        name="alerts",
-        path='/api/v1/query?query=ALERTS{alertstate="firing"}',
-        payload=alerts_probe if alerts_probe.get("status") == "available" else None,
-        reason=str(alerts_probe.get("reason") or ""),
-        status=str(alerts_probe.get("status") or "unavailable"),
-        http_status=alerts_probe.get("httpStatus")
-        if isinstance(alerts_probe.get("httpStatus"), int)
-        else None,
-    )
-    restart_probe_status = data_source_status(
-        label="Restart increase metric",
-        name="restart-metrics",
-        path="/api/v1/query?query=increase(kube_pod_container_status_restarts_total[1h]) > 0",
-        payload=restart_probe if restart_probe.get("status") == "available" else None,
-        reason=str(restart_probe.get("reason") or ""),
-        status=str(restart_probe.get("status") or "unavailable"),
-        http_status=restart_probe.get("httpStatus")
-        if isinstance(restart_probe.get("httpStatus"), int)
-        else None,
-    )
-
-    summary = build_cluster_summary(
-        nodes_payload or {"items": []},
-        node_metrics_payload,
-        cluster_version_payload,
-        cluster_operators_payload,
-    )
-    data_sources = [
-        nodes_status,
-        metrics_status,
-        version_status,
-        operators_status,
-        monitoring_config_status,
-        monitoring_probe_status,
-        pods_status,
-        events_status,
-        alerts_probe_status,
-        restart_probe_status,
-    ]
-    anomaly_summary = build_aiops_anomaly_summary(
-        summary,
-        pods_payload,
-        events_payload,
-        alerts_probe,
-        restart_probe,
-        data_sources,
-    )
-
-    return build_aiops_overview(
-        summary,
-        data_sources,
-        monitoring_urls,
-        monitoring_probe,
-        anomaly_summary,
-    )
+    return await aiops_read_service.aiops_overview(authorization, aiops_read_dependencies())
 
 
-@app.get("/v1/aiops/anomalies")
 async def aiops_anomalies(
     authorization: str | None = Header(default=None),
     namespace: str | None = Query(default=None),
     since_minutes: int = Query(default=60, alias="sinceMinutes", ge=1, le=1440),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
-    overview = await aiops_overview(authorization)
-    anomalies = overview.get("spec", {}).get("anomalies")
-    if not isinstance(anomalies, dict):
-        return {}
-
-    filtered = dict(anomalies)
-    spec = dict(filtered.get("spec", {})) if isinstance(filtered.get("spec"), Mapping) else {}
-    findings = spec.get("findings") if isinstance(spec.get("findings"), list) else []
-    if namespace:
-        findings = [
-            finding
-            for finding in findings
-            if isinstance(finding, Mapping)
-            and (
-                finding.get("namespace") == namespace
-                or not finding.get("namespace")
-                or str(finding.get("namespace")) == "cluster-scoped"
-            )
-        ]
-    spec["findings"] = findings[:limit]
-    spec["query"] = {
-        "limit": limit,
-        "namespace": namespace or "",
-        "sinceMinutes": since_minutes,
-    }
-    filtered["spec"] = spec
-    return filtered
+    return await aiops_read_service.aiops_anomalies(
+        authorization, namespace, since_minutes, limit, aiops_read_dependencies(),
+    )
 
 
-@app.get("/v1/aiops/action-candidates")
 async def aiops_action_candidates(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    overview = await aiops_overview(authorization)
-    action_candidates = overview.get("spec", {}).get("actionCandidates")
-    if not isinstance(action_candidates, dict):
-        return {}
-    return merge_recent_namespace_cleanup_candidates(action_candidates)
+    return await aiops_read_service.aiops_action_candidates(
+        authorization, aiops_read_dependencies(),
+    )
+
+
+app.include_router(create_aiops_read_router(aiops_read_dependencies))
 
 
 @app.get("/v1/auth/subject")
@@ -6155,164 +5981,19 @@ def build_aiops_record_event_items(
     return items[:limit]
 
 
-@app.get("/v1/aiops/events")
 async def get_aiops_events(
     authorization: str | None = Header(default=None),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    product_access_review = await fetch_product_access_review(user_auth_header)
-    product_access_allowed = bool(product_access_review.get("allowed"))
-
-    events_payload: Mapping[str, Any] | None = None
-    pods_payload: Mapping[str, Any] | None = None
-    sources = ["AIOps Gateway"]
-    if OPENSHIFT_API_URL:
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(20.0, connect=5.0),
-        ) as client:
-            events_payload, pods_payload = await asyncio.gather(
-                fetch_ocp_json(client, "/api/v1/events?limit=500", user_auth_header),
-                fetch_ocp_json(client, "/api/v1/pods", user_auth_header),
-            )
-        sources.extend(["Kubernetes Event", "Pod status"])
-
-    items = [
-        *build_kubernetes_event_items(events_payload, limit=limit),
-        *build_problem_pod_event_items(pods_payload, limit=limit),
-        *build_aiops_record_event_items(
-            subject,
-            product_access_allowed=product_access_allowed,
-            limit=limit,
-        ),
-    ]
-    items.sort(
-        key=lambda item: (
-            str(item.get("time") or ""),
-            str(item.get("source") or ""),
-        ),
-        reverse=True,
+    return await aiops_read_service.get_aiops_events(
+        authorization, limit, aiops_read_dependencies(),
     )
 
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "AIOpsEventFeed",
-        "metadata": {
-            "generatedAt": now_rfc3339(),
-            "name": "activity-feed",
-        },
-        "spec": {
-            "items": items[:limit],
-            "pollIntervalSeconds": 30,
-            "sources": sources,
-        },
-    }
 
-
-@app.get("/v1/aiops/status")
 async def get_aiops_status(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    access_review_status: dict[str, Any] = {
-        "status": "success",
-        "recordsVisible": True,
-        "reason": "",
-    }
-    try:
-        subject = await fetch_self_subject_review(user_auth_header)
-    except HTTPException as exc:
-        subject = safe_subject(None)
-        product_access_review = build_skipped_product_access_review(
-            "not evaluated because OpenShift subject review is unavailable"
-        )
-        product_access_allowed = False
-        access_review_status = build_status_access_review_failure(exc)
-    else:
-        product_access_review = await fetch_product_access_review(user_auth_header)
-        product_access_allowed = bool(product_access_review.get("allowed"))
-        if product_access_review.get("evaluationError"):
-            access_review_status = {
-                "status": "degraded",
-                "recordsVisible": product_access_allowed,
-                "reason": "OpenShift product access review returned an evaluation error.",
-                "productAccessReview": redact_sensitive(product_access_review),
-            }
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "AIOpsRuntimeStatus",
-        "metadata": {
-            "name": "runtime-status",
-            "generatedAt": now_rfc3339(),
-        },
-        "spec": {
-            "capabilities": {
-                "mutationsEnabled": MUTATIONS_ENABLED,
-                "diagnosticsEnabled": DIAGNOSTICS_ENABLED,
-                "diagnosticsControllerConfigured": bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
-                "actionExecutorConfigured": bool(ACTION_EXECUTOR_URL),
-                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
-                "recordStoreEnabled": RECORD_STORE_ENABLED,
-                "recordStoreConfigMap": RECORD_STORE_CONFIGMAP if RECORD_STORE_ENABLED else "",
-                "chatTranscriptJsonlPath": CHAT_TRANSCRIPT_JSONL_PATH,
-                "rag": build_rag_backend_status(),
-            },
-            "safetyContract": build_runtime_safety_contract(
-                mutations_enabled=MUTATIONS_ENABLED,
-                unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
-                diagnostics_enabled=DIAGNOSTICS_ENABLED,
-                record_store_enabled=RECORD_STORE_ENABLED,
-                diagnostics_controller_configured=bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
-                lightspeed_status=redact_sensitive(dict(OLS_STREAM_STATUS)),
-                latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
-                latest_rca_context=LAST_RCA_CONTEXT,
-            ),
-            "accessReviewStatus": access_review_status,
-            "productAccessReview": redact_sensitive(product_access_review),
-            "subject": redact_sensitive(dict(subject)),
-            "records": {
-                "auditRecords": latest_readable_audit_records(
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "chatTranscripts": latest_readable_records(
-                    CHAT_TRANSCRIPTS,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "chatFeedback": latest_readable_records(
-                    CHAT_FEEDBACK,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "diagnosticRequests": latest_readable_records(
-                    DIAGNOSTIC_REQUESTS,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "actionProposals": latest_readable_records(
-                    ACTION_PROPOSALS,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "sealedActionPlans": latest_readable_records(
-                    SEALED_ACTION_PLANS,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "approvalDecisions": latest_readable_records(
-                    APPROVAL_DECISIONS,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-                "executionRecords": latest_readable_records(
-                    EXECUTION_RECORDS,
-                    subject,
-                    product_access_allowed=product_access_allowed,
-                ),
-            },
-        },
-    }
+    return await aiops_read_service.get_aiops_status(
+        authorization, aiops_read_dependencies(),
+    )
 
 
 @app.get("/v1/actions/registry")
