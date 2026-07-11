@@ -104,6 +104,14 @@ from .cluster_evidence_runtime import (
 )
 from .cluster_summary import build_cluster_summary as build_cluster_summary_read_model
 from .chat_feedback import ChatFeedbackInputError, build_chat_feedback_record
+from .chat_models import (
+    MAX_IMAGE_ATTACHMENTS,
+    MAX_IMAGE_ATTACHMENT_BYTES,
+    MAX_IMAGE_ATTACHMENT_TOTAL_BYTES,
+    ChatContextMessage,
+    ChatRequest,
+    ImageAttachment,
+)
 from .chat_pod_count_flow import (
     DirectPodCountFlowDependencies,
     TopPodNamespaceFlowDependencies,
@@ -561,9 +569,6 @@ REQUIRE_OLS_FINAL_ANSWER = parse_bool(
     default=True,
 )
 RUN_HEARTBEAT_SECONDS = 5.0
-MAX_IMAGE_ATTACHMENTS = 4
-MAX_IMAGE_ATTACHMENT_BYTES = 2 * 1024 * 1024
-MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = 6 * 1024 * 1024
 ALLOWED_IMAGE_MIME_TYPES = {"image/gif", "image/jpeg", "image/png", "image/webp"}
 AIOPS_ANSWER_QUERY_PLAN_LABEL = "조회 계획:"
 POD_STATUS_ANALYSIS_RE = re.compile(
@@ -1641,29 +1646,6 @@ def build_break_glass_request_record(
         special_action_record_config(),
         profile_lookup=get_break_glass_profile,
     )
-
-
-class ImageAttachment(BaseModel):
-    id: str = Field(min_length=1, max_length=120)
-    name: str = Field(min_length=1, max_length=180)
-    mimeType: str = Field(min_length=1, max_length=80)
-    size: int = Field(ge=1, le=MAX_IMAGE_ATTACHMENT_BYTES)
-    data: str = Field(min_length=1)
-
-
-class ChatContextMessage(BaseModel):
-    role: str = Field(min_length=1, max_length=20)
-    content: str = Field(default="", max_length=4000)
-
-
-class ChatRequest(BaseModel):
-    message: str = Field(default="", max_length=4000)
-    pageContext: dict[str, Any] | None = None
-    conversationId: str | None = None
-    language: str | None = Field(default=None, max_length=16)
-    runId: str | None = None
-    recentMessages: list[ChatContextMessage] = Field(default_factory=list, max_length=8)
-    attachments: list[ImageAttachment] = Field(default_factory=list, max_length=MAX_IMAGE_ATTACHMENTS)
 
 
 class ChatFeedbackCreate(BaseModel):
