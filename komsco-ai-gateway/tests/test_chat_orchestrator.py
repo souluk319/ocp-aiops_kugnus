@@ -37,12 +37,27 @@ def test_chat_orchestrator_dependencies_capture_fresh_main_bindings(monkeypatch)
 
     monkeypatch.setattr(gateway_main, "general_concept_answer", first)
     first_dependencies = gateway_main._chat_orchestrator_dependencies()
+    binding = chat_orchestrator.ChatRuntimeBinding.GENERAL_CONCEPT_ANSWER
 
     monkeypatch.setattr(gateway_main, "general_concept_answer", second)
     second_dependencies = gateway_main._chat_orchestrator_dependencies()
 
-    assert first_dependencies.runtime_bindings["general_concept_answer"] is first
-    assert second_dependencies.runtime_bindings["general_concept_answer"] is second
+    assert first_dependencies.runtime.resolve(binding) is first
+    assert second_dependencies.runtime.resolve(binding) is second
+
+
+def test_chat_runtime_binding_contract_resolves_every_declared_main_symbol() -> None:
+    runtime = gateway_main._chat_orchestrator_dependencies().runtime
+
+    for binding in chat_orchestrator.ChatRuntimeBinding:
+        assert runtime.resolve(binding) is getattr(gateway_main, binding.value)
+
+
+def test_chat_orchestrator_has_no_function_rebinding_compatibility_hack() -> None:
+    source = Path(chat_orchestrator.__file__).read_text(encoding="utf-8")
+
+    assert "FunctionType" not in source
+    assert "dict(globals())" not in source
 
 
 def test_chat_latest_state_port_updates_main_globals() -> None:

@@ -5,10 +5,12 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from pathlib import Path
@@ -142,6 +144,8 @@ from .chat_orchestrator import (
     ChatLatestStatePort,
     ChatOrchestrator,
     ChatOrchestratorDependencies,
+    ChatRuntimeBinding,
+    ChatRuntimeBindings,
 )
 from .chat_pod_count_flow import (
     DirectPodCountFlowDependencies,
@@ -4866,10 +4870,22 @@ class _MainChatLatestStatePort:
         LAST_RCA_CONTEXT = value
 
 
+@dataclass(frozen=True, slots=True)
+class _MainChatRuntimeBindings:
+    values: Mapping[ChatRuntimeBinding, Any]
+
+    def resolve(self, binding: ChatRuntimeBinding) -> Any:
+        return self.values[binding]
+
+
 def _chat_orchestrator_dependencies() -> ChatOrchestratorDependencies:
     latest_state: ChatLatestStatePort = _MainChatLatestStatePort()
+    module = sys.modules[__name__]
+    runtime: ChatRuntimeBindings = _MainChatRuntimeBindings(
+        {binding: getattr(module, binding.value) for binding in ChatRuntimeBinding}
+    )
     return ChatOrchestratorDependencies(
-        runtime_bindings=dict(globals()),
+        runtime=runtime,
         latest_state=latest_state,
     )
 

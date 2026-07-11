@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from types import FunctionType
+from enum import Enum
 from typing import Any, Protocol
 
 
@@ -12,9 +12,136 @@ class ChatLatestStatePort(Protocol):
     def set_rca_context(self, value: dict[str, Any] | None) -> None: ...
 
 
+class ChatRuntimeBinding(str, Enum):
+    ANSWER_POSTPROCESS_STATE = "AnswerPostprocessState"
+    DIAGNOSTICS_ENABLED = "DIAGNOSTICS_ENABLED"
+    DIRECT_POD_COUNT_FLOW_DEPENDENCIES = "DirectPodCountFlowDependencies"
+    GATEWAY_DIRECT_ANSWER_ENABLED = "GATEWAY_DIRECT_ANSWER_ENABLED"
+    HOST_DIAGNOSTICS_CONTROLLER_URL = "HOST_DIAGNOSTICS_CONTROLLER_URL"
+    HTTP_EXCEPTION = "HTTPException"
+    HTTP_EXCEPTION_MESSAGE = "http_exception_message"
+    MUTATIONS_ENABLED = "MUTATIONS_ENABLED"
+    OLS_STREAM_STATUS = "OLS_STREAM_STATUS"
+    OPENSHIFT_API_CA_FILE = "OPENSHIFT_API_CA_FILE"
+    OPENSHIFT_API_URL = "OPENSHIFT_API_URL"
+    OLS_ANSWER_STATE = "OlsAnswerState"
+    RECORD_STORE_ENABLED = "RECORD_STORE_ENABLED"
+    TEST_POD_CREATE_ENABLED = "TEST_POD_CREATE_ENABLED"
+    TEXT_REFERENCE_FILTER = "TextReferenceFilter"
+    TOP_POD_NAMESPACE_FLOW_DEPENDENCIES = "TopPodNamespaceFlowDependencies"
+    UNRESTRICTED_COMMANDS_ENABLED = "UNRESTRICTED_COMMANDS_ENABLED"
+    UNRESTRICTED_COMMAND_EXECUTE_CREATE = "UnrestrictedCommandExecuteCreate"
+    ACTION_CAPABLE_EXECUTION_MODE = "action_capable_execution_mode"
+    ACTIVE_LLM_LABEL = "active_llm_label"
+    ACTIVE_LLM_STAGE = "active_llm_stage"
+    ANSWER_LANGUAGE = "answer_language"
+    ANSWER_POSTPROCESS_DEPENDENCIES = "answer_postprocess_dependencies"
+    APPEND_GATEWAY_EVIDENCE = "append_gateway_evidence"
+    ATTACHMENT_CRONJOB_FLOW_DEPENDENCIES = "attachment_cronjob_flow_dependencies"
+    BUILD_CHAT_TRANSCRIPT_RECORD = "build_chat_transcript_record"
+    BUILD_EVIDENCE_REFERENCE_EVENTS = "build_evidence_reference_events"
+    BUILD_GROUNDED_AIOPS_ANSWER = "build_grounded_aiops_answer"
+    BUILD_OLS_GATEWAY_CONTEXT = "build_ols_gateway_context"
+    BUILD_OLS_QUERY = "build_ols_query"
+    BUILD_POD_COUNT_INVESTIGATION = "build_pod_count_investigation"
+    BUILD_RCA_CONTEXT_STREAM_EVENT = "build_rca_context_stream_event"
+    BUILD_RUNTIME_SAFETY_CONTRACT = "build_runtime_safety_contract"
+    BUILD_RUNTIME_TOOL_PLAN = "build_runtime_tool_plan"
+    BUILD_TOP_POD_NAMESPACE_COUNT_RESULT = "build_top_pod_namespace_count_result"
+    BUILD_TRACE_RECORD = "build_trace_record"
+    CASUAL_IDENTITY_ANSWER = "casual_identity_answer"
+    CLASSIFY_REQUEST_POLICY = "classify_request_policy"
+    CLEANUP_CHAT_FLOW_DEPENDENCIES = "cleanup_chat_flow_dependencies"
+    COLLECT_PAST_POD_RESTART_DEMO_EVIDENCE_EVENTS = "collect_past_pod_restart_demo_evidence_events"
+    CONVERSATION_FOCUS_FROM_REQUEST = "conversation_focus_from_request"
+    CRASHLOOP_DEMO_TARGET_FROM_REQUEST = "crashloop_demo_target_from_request"
+    ENFORCE_PRODUCT_ACCESS_REVIEW = "enforce_product_access_review"
+    EXECUTE_UNRESTRICTED_COMMAND_REQUEST = "execute_unrestricted_command_request"
+    EXECUTION_MODE_ALLOWS_IMMEDIATE_ACTIONS = "execution_mode_allows_immediate_actions"
+    FETCH_OCP_JSON = "fetch_ocp_json"
+    FETCH_PRODUCT_ACCESS_REVIEW = "fetch_product_access_review"
+    FETCH_SELF_SUBJECT_REVIEW = "fetch_self_subject_review"
+    GENERAL_CONCEPT_ANSWER = "general_concept_answer"
+    HTTPX = "httpx"
+    INCREMENT_METRIC = "increment_metric"
+    IS_CASUAL_IDENTITY_REQUEST = "is_casual_identity_request"
+    IS_FOLLOWUP_EXECUTION_REQUEST = "is_followup_execution_request"
+    IS_GENERAL_CONCEPT_REQUEST = "is_general_concept_request"
+    IS_OPENSHIFT_USER_AUTH_FAILURE = "is_openshift_user_auth_failure"
+    IS_NAMESPACE_CLEANUP_REQUEST = "is_namespace_cleanup_request"
+    IS_POD_NAMESPACE_PATTERN_LOOKUP_REQUEST = "is_pod_namespace_pattern_lookup_request"
+    IS_TEST_POD_CREATE_REQUEST = "is_test_pod_create_request"
+    IS_TOP_POD_NAMESPACE_QUERY = "is_top_pod_namespace_query"
+    JSON = "json"
+    LOG_AUDIT_RECORD = "log_audit_record"
+    METADATA_NAME = "metadata_name"
+    METADATA_NAMESPACE = "metadata_namespace"
+    NAMESPACE_CLEANUP_INVENTORY_DEPENDENCIES = "namespace_cleanup_inventory_dependencies"
+    NATURAL_ACTION_FOLLOWUP_FLOW_DEPENDENCIES = "natural_action_followup_flow_dependencies"
+    NATURAL_ACTION_PROPOSAL_FLOW_DEPENDENCIES = "natural_action_proposal_flow_dependencies"
+    NORMALIZE_CONSOLE_PAGE_CONTEXT = "normalize_console_page_context"
+    NOW_RFC3339 = "now_rfc3339"
+    OLS_ANSWER_FLOW_DEPENDENCIES = "ols_answer_flow_dependencies"
+    PAGE_CONTEXT_AIOPS_EXECUTION_MODE = "page_context_aiops_execution_mode"
+    PARSE_POD_COUNT_QUERY = "parse_pod_count_query"
+    PARSE_RCA_RESULT = "parse_rca_result"
+    PARSE_UNRESTRICTED_CHAT_COMMAND = "parse_unrestricted_chat_command"
+    PAST_POD_RESTART_DEMO_ACTIVE = "past_pod_restart_demo_active"
+    PATH_SEGMENT = "path_segment"
+    PERSIST_CHAT_TRANSCRIPT_RECORD = "persist_chat_transcript_record"
+    POD_COUNT_INVESTIGATION_RESPONSE = "pod_count_investigation_response"
+    POD_EVIDENCE_FLOW_DEPENDENCIES = "pod_evidence_flow_dependencies"
+    POLICY_CHECK_SUMMARY = "policy_check_summary"
+    PRODUCT_ACCESS_REVIEW_STATUS = "product_access_review_status"
+    RAG_EVIDENCE_FLOW_DEPENDENCIES = "rag_evidence_flow_dependencies"
+    RCA_PREFLIGHT_FLOW_DEPENDENCIES = "rca_preflight_flow_dependencies"
+    RECORD_WORKFLOW = "record_workflow"
+    REDACT_SENSITIVE = "redact_sensitive"
+    REMEMBER_POD_INVENTORY_ACTION_CANDIDATES = "remember_pod_inventory_action_candidates"
+    RESOLVE_NUMERIC_FOLLOWUP_MESSAGE = "resolve_numeric_followup_message"
+    RESOURCE_ITEMS = "resource_items"
+    RESTART_EVIDENCE_FLOW_DEPENDENCIES = "restart_evidence_flow_dependencies"
+    SAFE_SUBJECT = "safe_subject"
+    SAFE_EXCEPTION_TEXT = "safe_exception_text"
+    SHOULD_COLLECT_POD_STATUS_EVIDENCE_FOR_REQUEST = "should_collect_pod_status_evidence_for_request"
+    SHOULD_COLLECT_RCA_SIGNAL_EVIDENCE_FOR_REQUEST = "should_collect_rca_signal_evidence_for_request"
+    SHOULD_FILTER_GATEWAY_API_REFERENCES = "should_filter_gateway_api_references"
+    SHOULD_FILTER_LOW_SIGNAL_REFERENCES = "should_filter_low_signal_references"
+    SSE = "sse"
+    START_CLEANUP_CHAT_FLOW = "start_cleanup_chat_flow"
+    STREAM_ANSWER_POSTPROCESS = "stream_answer_postprocess"
+    STREAM_ATTACHMENT_AND_CRONJOB_PREFLIGHT = "stream_attachment_and_cronjob_preflight"
+    STREAM_CHAT_NATURAL_ACTION_FOLLOWUP = "stream_chat_natural_action_followup"
+    STREAM_CHAT_NATURAL_ACTION_PROPOSAL = "stream_chat_natural_action_proposal"
+    STREAM_DIRECT_POD_COUNT = "stream_direct_pod_count"
+    STREAM_NAMESPACE_CLEANUP_INVENTORY = "stream_namespace_cleanup_inventory"
+    STREAM_OLS_ANSWER_ATTEMPTS = "stream_ols_answer_attempts"
+    STREAM_POD_STATUS_EVIDENCE = "stream_pod_status_evidence"
+    STREAM_RAG_EVIDENCE = "stream_rag_evidence"
+    STREAM_RCA_PREFLIGHT_EVIDENCE = "stream_rca_preflight_evidence"
+    STREAM_RESTART_EVIDENCE = "stream_restart_evidence"
+    STREAM_TEST_POD_CREATE = "stream_test_pod_create"
+    STREAM_TOP_POD_NAMESPACE_COUNT = "stream_top_pod_namespace_count"
+    SUMMARIZE_POLICY_DETAIL = "summarize_policy_detail"
+    SUMMARIZE_PRODUCT_ACCESS_REVIEW = "summarize_product_access_review"
+    SUMMARIZE_SUBJECT_DETAIL = "summarize_subject_detail"
+    TEST_POD_CREATE_REQUEST_FROM_MESSAGE = "test_pod_create_request_from_message"
+    TEST_POD_CREATE_TOOL_PLAN = "test_pod_create_tool_plan"
+    TEST_POD_FLOW_DEPENDENCIES = "test_pod_flow_dependencies"
+    TOP_POD_NAMESPACE_COUNT_RESPONSE = "top_pod_namespace_count_response"
+    UNRESTRICTED_COMMAND_RESPONSE = "unrestricted_command_response"
+    UUID = "uuid"
+    VALIDATE_IMAGE_ATTACHMENTS = "validate_image_attachments"
+    VERIFY_USER_ACCESS = "verify_user_access"
+
+
+class ChatRuntimeBindings(Protocol):
+    def resolve(self, binding: ChatRuntimeBinding) -> Any: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ChatOrchestratorDependencies:
-    runtime_bindings: Mapping[str, Any]
+    runtime: ChatRuntimeBindings
     latest_state: ChatLatestStatePort
 
 
@@ -27,20 +154,12 @@ class ChatOrchestrator:
         request: Any,
         authorization: str,
     ) -> AsyncIterator[str]:
-        runtime_globals = dict(_stream_impl.__globals__)
-        runtime_globals.update(self._dependencies.runtime_bindings)
-        bound_stream = FunctionType(
-            _stream_impl.__code__,
-            runtime_globals,
-            _stream_impl.__name__,
-            _stream_impl.__defaults__,
-            _stream_impl.__closure__,
-        )
-        async for payload in bound_stream(
+        async for payload in _stream_impl(
             request,
             authorization,
             self._dependencies.latest_state,
             self,
+            self._dependencies.runtime,
         ):
             yield payload
 
@@ -53,8 +172,13 @@ class ChatOrchestrator:
         run_id: str,
         subject: Mapping[str, Any],
     ) -> AsyncIterator[str]:
-        runtime = self._dependencies.runtime_bindings
-        yield runtime["sse"](
+        runtime = self._dependencies.runtime
+        sse = runtime.resolve(ChatRuntimeBinding.SSE)
+        build_trace_record = runtime.resolve(ChatRuntimeBinding.BUILD_TRACE_RECORD)
+        log_audit_record = runtime.resolve(ChatRuntimeBinding.LOG_AUDIT_RECORD)
+        increment_metric = runtime.resolve(ChatRuntimeBinding.INCREMENT_METRIC)
+        record_workflow = runtime.resolve(ChatRuntimeBinding.RECORD_WORKFLOW)
+        yield sse(
             {
                 "type": "run_status",
                 "runId": run_id,
@@ -62,7 +186,7 @@ class ChatOrchestrator:
                 "message": "Gateway 실행 루프 완료",
             }
         )
-        completed_audit_record = runtime["build_trace_record"](
+        completed_audit_record = build_trace_record(
             action="chat_request_completed",
             incident_id=incident_id,
             policy=policy,
@@ -70,9 +194,9 @@ class ChatOrchestrator:
             run_id=run_id,
             subject=subject,
         )
-        runtime["log_audit_record"](completed_audit_record)
-        runtime["increment_metric"]("aiops_chat_completed_total")
-        runtime["record_workflow"](
+        log_audit_record(completed_audit_record)
+        increment_metric("aiops_chat_completed_total")
+        record_workflow(
             run_id=run_id,
             incident_id=incident_id,
             policy=policy,
@@ -81,7 +205,7 @@ class ChatOrchestrator:
             status="completed",
             subject=subject,
         )
-        yield runtime["sse"]("[DONE]")
+        yield sse("[DONE]")
 
     async def _stream_failure(
         self,
@@ -95,19 +219,22 @@ class ChatOrchestrator:
         runtime_tool_plan: dict[str, Any] | None,
         subject: Mapping[str, Any],
     ) -> AsyncIterator[str]:
-        runtime = self._dependencies.runtime_bindings
-        is_http_error = isinstance(error, runtime["HTTPException"])
+        runtime = self._dependencies.runtime
+        resolve = runtime.resolve
+        sse = resolve(ChatRuntimeBinding.SSE)
+        http_exception = resolve(ChatRuntimeBinding.HTTP_EXCEPTION)
+        is_http_error = isinstance(error, http_exception)
         error_message = (
-            runtime["http_exception_message"](error)
+            resolve(ChatRuntimeBinding.HTTP_EXCEPTION_MESSAGE)(error)
             if is_http_error
-            else runtime["safe_exception_text"](error)
+            else resolve(ChatRuntimeBinding.SAFE_EXCEPTION_TEXT)(error)
         )
-        error_tool_plan = runtime_tool_plan or runtime["build_runtime_tool_plan"](
+        error_tool_plan = runtime_tool_plan or resolve(ChatRuntimeBinding.BUILD_RUNTIME_TOOL_PLAN)(
             request.message,
-            page_context=runtime["normalize_console_page_context"](request.pageContext),
-            execution_mode=runtime["page_context_aiops_execution_mode"](request),
+            page_context=resolve(ChatRuntimeBinding.NORMALIZE_CONSOLE_PAGE_CONTEXT)(request.pageContext),
+            execution_mode=resolve(ChatRuntimeBinding.PAGE_CONTEXT_AIOPS_EXECUTION_MODE)(request),
         )
-        rca_context_event = runtime["build_rca_context_stream_event"](
+        rca_context_event = resolve(ChatRuntimeBinding.BUILD_RCA_CONTEXT_STREAM_EVENT)(
             req=request,
             runtime_tool_plan=error_tool_plan,
             run_id=run_id,
@@ -115,13 +242,13 @@ class ChatOrchestrator:
             phase="failed",
         )
         self._dependencies.latest_state.set_rca_context(rca_context_event["context"])
-        yield runtime["sse"](rca_context_event)
+        yield sse(rca_context_event)
 
         failure_target = {"error": error_message}
         if is_http_error:
             failure_target["statusCode"] = error.status_code
-        runtime["log_audit_record"](
-            runtime["build_trace_record"](
+        resolve(ChatRuntimeBinding.LOG_AUDIT_RECORD)(
+            resolve(ChatRuntimeBinding.BUILD_TRACE_RECORD)(
                 action="chat_request_failed",
                 incident_id=incident_id,
                 policy=policy,
@@ -131,8 +258,8 @@ class ChatOrchestrator:
                 target=failure_target,
             )
         )
-        runtime["increment_metric"]("aiops_chat_failed_total")
-        runtime["record_workflow"](
+        resolve(ChatRuntimeBinding.INCREMENT_METRIC)("aiops_chat_failed_total")
+        resolve(ChatRuntimeBinding.RECORD_WORKFLOW)(
             run_id=run_id,
             incident_id=incident_id,
             policy=policy,
@@ -143,20 +270,20 @@ class ChatOrchestrator:
             target=failure_target,
         )
 
-        if is_http_error and runtime["is_openshift_user_auth_failure"](error):
-            yield runtime["sse"](
+        if is_http_error and resolve(ChatRuntimeBinding.IS_OPENSHIFT_USER_AUTH_FAILURE)(error):
+            yield sse(
                 {
                     "type": "tool_result",
                     "detail": error_message,
                     "id": f"{request_id}-subject-review",
                     "name": "subject_review",
-                    "result": runtime["redact_sensitive"](error.detail),
+                    "result": resolve(ChatRuntimeBinding.REDACT_SENSITIVE)(error.detail),
                     "status": "error",
                     "summary": "OpenShift 사용자 인증 갱신 필요",
                 }
             )
-            yield runtime["sse"]({"type": "text", "content": error_message})
-            yield runtime["sse"](
+            yield sse({"type": "text", "content": error_message})
+            yield sse(
                 {
                     "type": "run_status",
                     "runId": run_id,
@@ -164,10 +291,10 @@ class ChatOrchestrator:
                     "message": "OpenShift 사용자 인증 갱신 필요",
                 }
             )
-            yield runtime["sse"]("[DONE]")
+            yield sse("[DONE]")
             return
 
-        yield runtime["sse"](
+        yield sse(
             {
                 "type": "run_status",
                 "runId": run_id,
@@ -175,8 +302,8 @@ class ChatOrchestrator:
                 "message": error_message,
             }
         )
-        yield runtime["sse"]({"type": "error", "message": error_message})
-        yield runtime["sse"]("[DONE]")
+        yield sse({"type": "error", "message": error_message})
+        yield sse("[DONE]")
 
 
 async def _stream_impl(
@@ -184,7 +311,126 @@ async def _stream_impl(
     authorization: str,
     latest_state: ChatLatestStatePort,
     orchestrator: ChatOrchestrator,
+    runtime: ChatRuntimeBindings,
 ) -> AsyncIterator[str]:
+    # Bind once per request so main-module monkeypatches remain request scoped.
+    AnswerPostprocessState = runtime.resolve(ChatRuntimeBinding.ANSWER_POSTPROCESS_STATE)
+    DIAGNOSTICS_ENABLED = runtime.resolve(ChatRuntimeBinding.DIAGNOSTICS_ENABLED)
+    DirectPodCountFlowDependencies = runtime.resolve(ChatRuntimeBinding.DIRECT_POD_COUNT_FLOW_DEPENDENCIES)
+    GATEWAY_DIRECT_ANSWER_ENABLED = runtime.resolve(ChatRuntimeBinding.GATEWAY_DIRECT_ANSWER_ENABLED)
+    HOST_DIAGNOSTICS_CONTROLLER_URL = runtime.resolve(ChatRuntimeBinding.HOST_DIAGNOSTICS_CONTROLLER_URL)
+    HTTPException = runtime.resolve(ChatRuntimeBinding.HTTP_EXCEPTION)
+    MUTATIONS_ENABLED = runtime.resolve(ChatRuntimeBinding.MUTATIONS_ENABLED)
+    OLS_STREAM_STATUS = runtime.resolve(ChatRuntimeBinding.OLS_STREAM_STATUS)
+    OPENSHIFT_API_CA_FILE = runtime.resolve(ChatRuntimeBinding.OPENSHIFT_API_CA_FILE)
+    OPENSHIFT_API_URL = runtime.resolve(ChatRuntimeBinding.OPENSHIFT_API_URL)
+    OlsAnswerState = runtime.resolve(ChatRuntimeBinding.OLS_ANSWER_STATE)
+    RECORD_STORE_ENABLED = runtime.resolve(ChatRuntimeBinding.RECORD_STORE_ENABLED)
+    TEST_POD_CREATE_ENABLED = runtime.resolve(ChatRuntimeBinding.TEST_POD_CREATE_ENABLED)
+    TextReferenceFilter = runtime.resolve(ChatRuntimeBinding.TEXT_REFERENCE_FILTER)
+    TopPodNamespaceFlowDependencies = runtime.resolve(ChatRuntimeBinding.TOP_POD_NAMESPACE_FLOW_DEPENDENCIES)
+    UNRESTRICTED_COMMANDS_ENABLED = runtime.resolve(ChatRuntimeBinding.UNRESTRICTED_COMMANDS_ENABLED)
+    UnrestrictedCommandExecuteCreate = runtime.resolve(ChatRuntimeBinding.UNRESTRICTED_COMMAND_EXECUTE_CREATE)
+    action_capable_execution_mode = runtime.resolve(ChatRuntimeBinding.ACTION_CAPABLE_EXECUTION_MODE)
+    active_llm_label = runtime.resolve(ChatRuntimeBinding.ACTIVE_LLM_LABEL)
+    active_llm_stage = runtime.resolve(ChatRuntimeBinding.ACTIVE_LLM_STAGE)
+    answer_language = runtime.resolve(ChatRuntimeBinding.ANSWER_LANGUAGE)
+    answer_postprocess_dependencies = runtime.resolve(ChatRuntimeBinding.ANSWER_POSTPROCESS_DEPENDENCIES)
+    append_gateway_evidence = runtime.resolve(ChatRuntimeBinding.APPEND_GATEWAY_EVIDENCE)
+    attachment_cronjob_flow_dependencies = runtime.resolve(ChatRuntimeBinding.ATTACHMENT_CRONJOB_FLOW_DEPENDENCIES)
+    build_chat_transcript_record = runtime.resolve(ChatRuntimeBinding.BUILD_CHAT_TRANSCRIPT_RECORD)
+    build_evidence_reference_events = runtime.resolve(ChatRuntimeBinding.BUILD_EVIDENCE_REFERENCE_EVENTS)
+    build_grounded_aiops_answer = runtime.resolve(ChatRuntimeBinding.BUILD_GROUNDED_AIOPS_ANSWER)
+    build_ols_gateway_context = runtime.resolve(ChatRuntimeBinding.BUILD_OLS_GATEWAY_CONTEXT)
+    build_ols_query = runtime.resolve(ChatRuntimeBinding.BUILD_OLS_QUERY)
+    build_pod_count_investigation = runtime.resolve(ChatRuntimeBinding.BUILD_POD_COUNT_INVESTIGATION)
+    build_rca_context_stream_event = runtime.resolve(ChatRuntimeBinding.BUILD_RCA_CONTEXT_STREAM_EVENT)
+    build_runtime_safety_contract = runtime.resolve(ChatRuntimeBinding.BUILD_RUNTIME_SAFETY_CONTRACT)
+    build_runtime_tool_plan = runtime.resolve(ChatRuntimeBinding.BUILD_RUNTIME_TOOL_PLAN)
+    build_top_pod_namespace_count_result = runtime.resolve(ChatRuntimeBinding.BUILD_TOP_POD_NAMESPACE_COUNT_RESULT)
+    build_trace_record = runtime.resolve(ChatRuntimeBinding.BUILD_TRACE_RECORD)
+    casual_identity_answer = runtime.resolve(ChatRuntimeBinding.CASUAL_IDENTITY_ANSWER)
+    classify_request_policy = runtime.resolve(ChatRuntimeBinding.CLASSIFY_REQUEST_POLICY)
+    cleanup_chat_flow_dependencies = runtime.resolve(ChatRuntimeBinding.CLEANUP_CHAT_FLOW_DEPENDENCIES)
+    collect_past_pod_restart_demo_evidence_events = runtime.resolve(ChatRuntimeBinding.COLLECT_PAST_POD_RESTART_DEMO_EVIDENCE_EVENTS)
+    conversation_focus_from_request = runtime.resolve(ChatRuntimeBinding.CONVERSATION_FOCUS_FROM_REQUEST)
+    crashloop_demo_target_from_request = runtime.resolve(ChatRuntimeBinding.CRASHLOOP_DEMO_TARGET_FROM_REQUEST)
+    enforce_product_access_review = runtime.resolve(ChatRuntimeBinding.ENFORCE_PRODUCT_ACCESS_REVIEW)
+    execute_unrestricted_command_request = runtime.resolve(ChatRuntimeBinding.EXECUTE_UNRESTRICTED_COMMAND_REQUEST)
+    execution_mode_allows_immediate_actions = runtime.resolve(ChatRuntimeBinding.EXECUTION_MODE_ALLOWS_IMMEDIATE_ACTIONS)
+    fetch_ocp_json = runtime.resolve(ChatRuntimeBinding.FETCH_OCP_JSON)
+    fetch_product_access_review = runtime.resolve(ChatRuntimeBinding.FETCH_PRODUCT_ACCESS_REVIEW)
+    fetch_self_subject_review = runtime.resolve(ChatRuntimeBinding.FETCH_SELF_SUBJECT_REVIEW)
+    general_concept_answer = runtime.resolve(ChatRuntimeBinding.GENERAL_CONCEPT_ANSWER)
+    httpx = runtime.resolve(ChatRuntimeBinding.HTTPX)
+    increment_metric = runtime.resolve(ChatRuntimeBinding.INCREMENT_METRIC)
+    is_casual_identity_request = runtime.resolve(ChatRuntimeBinding.IS_CASUAL_IDENTITY_REQUEST)
+    is_followup_execution_request = runtime.resolve(ChatRuntimeBinding.IS_FOLLOWUP_EXECUTION_REQUEST)
+    is_general_concept_request = runtime.resolve(ChatRuntimeBinding.IS_GENERAL_CONCEPT_REQUEST)
+    is_namespace_cleanup_request = runtime.resolve(ChatRuntimeBinding.IS_NAMESPACE_CLEANUP_REQUEST)
+    is_pod_namespace_pattern_lookup_request = runtime.resolve(ChatRuntimeBinding.IS_POD_NAMESPACE_PATTERN_LOOKUP_REQUEST)
+    is_test_pod_create_request = runtime.resolve(ChatRuntimeBinding.IS_TEST_POD_CREATE_REQUEST)
+    is_top_pod_namespace_query = runtime.resolve(ChatRuntimeBinding.IS_TOP_POD_NAMESPACE_QUERY)
+    json = runtime.resolve(ChatRuntimeBinding.JSON)
+    log_audit_record = runtime.resolve(ChatRuntimeBinding.LOG_AUDIT_RECORD)
+    metadata_name = runtime.resolve(ChatRuntimeBinding.METADATA_NAME)
+    metadata_namespace = runtime.resolve(ChatRuntimeBinding.METADATA_NAMESPACE)
+    namespace_cleanup_inventory_dependencies = runtime.resolve(ChatRuntimeBinding.NAMESPACE_CLEANUP_INVENTORY_DEPENDENCIES)
+    natural_action_followup_flow_dependencies = runtime.resolve(ChatRuntimeBinding.NATURAL_ACTION_FOLLOWUP_FLOW_DEPENDENCIES)
+    natural_action_proposal_flow_dependencies = runtime.resolve(ChatRuntimeBinding.NATURAL_ACTION_PROPOSAL_FLOW_DEPENDENCIES)
+    normalize_console_page_context = runtime.resolve(ChatRuntimeBinding.NORMALIZE_CONSOLE_PAGE_CONTEXT)
+    now_rfc3339 = runtime.resolve(ChatRuntimeBinding.NOW_RFC3339)
+    ols_answer_flow_dependencies = runtime.resolve(ChatRuntimeBinding.OLS_ANSWER_FLOW_DEPENDENCIES)
+    page_context_aiops_execution_mode = runtime.resolve(ChatRuntimeBinding.PAGE_CONTEXT_AIOPS_EXECUTION_MODE)
+    parse_pod_count_query = runtime.resolve(ChatRuntimeBinding.PARSE_POD_COUNT_QUERY)
+    parse_rca_result = runtime.resolve(ChatRuntimeBinding.PARSE_RCA_RESULT)
+    parse_unrestricted_chat_command = runtime.resolve(ChatRuntimeBinding.PARSE_UNRESTRICTED_CHAT_COMMAND)
+    past_pod_restart_demo_active = runtime.resolve(ChatRuntimeBinding.PAST_POD_RESTART_DEMO_ACTIVE)
+    path_segment = runtime.resolve(ChatRuntimeBinding.PATH_SEGMENT)
+    persist_chat_transcript_record = runtime.resolve(ChatRuntimeBinding.PERSIST_CHAT_TRANSCRIPT_RECORD)
+    pod_count_investigation_response = runtime.resolve(ChatRuntimeBinding.POD_COUNT_INVESTIGATION_RESPONSE)
+    pod_evidence_flow_dependencies = runtime.resolve(ChatRuntimeBinding.POD_EVIDENCE_FLOW_DEPENDENCIES)
+    policy_check_summary = runtime.resolve(ChatRuntimeBinding.POLICY_CHECK_SUMMARY)
+    product_access_review_status = runtime.resolve(ChatRuntimeBinding.PRODUCT_ACCESS_REVIEW_STATUS)
+    rag_evidence_flow_dependencies = runtime.resolve(ChatRuntimeBinding.RAG_EVIDENCE_FLOW_DEPENDENCIES)
+    rca_preflight_flow_dependencies = runtime.resolve(ChatRuntimeBinding.RCA_PREFLIGHT_FLOW_DEPENDENCIES)
+    record_workflow = runtime.resolve(ChatRuntimeBinding.RECORD_WORKFLOW)
+    redact_sensitive = runtime.resolve(ChatRuntimeBinding.REDACT_SENSITIVE)
+    remember_pod_inventory_action_candidates = runtime.resolve(ChatRuntimeBinding.REMEMBER_POD_INVENTORY_ACTION_CANDIDATES)
+    resolve_numeric_followup_message = runtime.resolve(ChatRuntimeBinding.RESOLVE_NUMERIC_FOLLOWUP_MESSAGE)
+    resource_items = runtime.resolve(ChatRuntimeBinding.RESOURCE_ITEMS)
+    restart_evidence_flow_dependencies = runtime.resolve(ChatRuntimeBinding.RESTART_EVIDENCE_FLOW_DEPENDENCIES)
+    safe_subject = runtime.resolve(ChatRuntimeBinding.SAFE_SUBJECT)
+    should_collect_pod_status_evidence_for_request = runtime.resolve(ChatRuntimeBinding.SHOULD_COLLECT_POD_STATUS_EVIDENCE_FOR_REQUEST)
+    should_collect_rca_signal_evidence_for_request = runtime.resolve(ChatRuntimeBinding.SHOULD_COLLECT_RCA_SIGNAL_EVIDENCE_FOR_REQUEST)
+    should_filter_gateway_api_references = runtime.resolve(ChatRuntimeBinding.SHOULD_FILTER_GATEWAY_API_REFERENCES)
+    should_filter_low_signal_references = runtime.resolve(ChatRuntimeBinding.SHOULD_FILTER_LOW_SIGNAL_REFERENCES)
+    sse = runtime.resolve(ChatRuntimeBinding.SSE)
+    start_cleanup_chat_flow = runtime.resolve(ChatRuntimeBinding.START_CLEANUP_CHAT_FLOW)
+    stream_answer_postprocess = runtime.resolve(ChatRuntimeBinding.STREAM_ANSWER_POSTPROCESS)
+    stream_attachment_and_cronjob_preflight = runtime.resolve(ChatRuntimeBinding.STREAM_ATTACHMENT_AND_CRONJOB_PREFLIGHT)
+    stream_chat_natural_action_followup = runtime.resolve(ChatRuntimeBinding.STREAM_CHAT_NATURAL_ACTION_FOLLOWUP)
+    stream_chat_natural_action_proposal = runtime.resolve(ChatRuntimeBinding.STREAM_CHAT_NATURAL_ACTION_PROPOSAL)
+    stream_direct_pod_count = runtime.resolve(ChatRuntimeBinding.STREAM_DIRECT_POD_COUNT)
+    stream_namespace_cleanup_inventory = runtime.resolve(ChatRuntimeBinding.STREAM_NAMESPACE_CLEANUP_INVENTORY)
+    stream_ols_answer_attempts = runtime.resolve(ChatRuntimeBinding.STREAM_OLS_ANSWER_ATTEMPTS)
+    stream_pod_status_evidence = runtime.resolve(ChatRuntimeBinding.STREAM_POD_STATUS_EVIDENCE)
+    stream_rag_evidence = runtime.resolve(ChatRuntimeBinding.STREAM_RAG_EVIDENCE)
+    stream_rca_preflight_evidence = runtime.resolve(ChatRuntimeBinding.STREAM_RCA_PREFLIGHT_EVIDENCE)
+    stream_restart_evidence = runtime.resolve(ChatRuntimeBinding.STREAM_RESTART_EVIDENCE)
+    stream_test_pod_create = runtime.resolve(ChatRuntimeBinding.STREAM_TEST_POD_CREATE)
+    stream_top_pod_namespace_count = runtime.resolve(ChatRuntimeBinding.STREAM_TOP_POD_NAMESPACE_COUNT)
+    summarize_policy_detail = runtime.resolve(ChatRuntimeBinding.SUMMARIZE_POLICY_DETAIL)
+    summarize_product_access_review = runtime.resolve(ChatRuntimeBinding.SUMMARIZE_PRODUCT_ACCESS_REVIEW)
+    summarize_subject_detail = runtime.resolve(ChatRuntimeBinding.SUMMARIZE_SUBJECT_DETAIL)
+    test_pod_create_request_from_message = runtime.resolve(ChatRuntimeBinding.TEST_POD_CREATE_REQUEST_FROM_MESSAGE)
+    test_pod_create_tool_plan = runtime.resolve(ChatRuntimeBinding.TEST_POD_CREATE_TOOL_PLAN)
+    test_pod_flow_dependencies = runtime.resolve(ChatRuntimeBinding.TEST_POD_FLOW_DEPENDENCIES)
+    top_pod_namespace_count_response = runtime.resolve(ChatRuntimeBinding.TOP_POD_NAMESPACE_COUNT_RESPONSE)
+    unrestricted_command_response = runtime.resolve(ChatRuntimeBinding.UNRESTRICTED_COMMAND_RESPONSE)
+    uuid = runtime.resolve(ChatRuntimeBinding.UUID)
+    validate_image_attachments = runtime.resolve(ChatRuntimeBinding.VALIDATE_IMAGE_ATTACHMENTS)
+    verify_user_access = runtime.resolve(ChatRuntimeBinding.VERIFY_USER_ACCESS)
 
     run_id = req.runId or f"run-{uuid.uuid4()}"
     request_id = f"req-{uuid.uuid4()}"
