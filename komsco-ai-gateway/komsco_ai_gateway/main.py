@@ -88,6 +88,9 @@ from .cluster_evidence import (
     requested_minute_interval,
     safe_env_value,
     schedule_interval_summary,
+    state_summary,
+    last_termination_summary,
+    pod_ready_summary,
 )
 from . import cluster_evidence_runtime
 from . import action_candidate_plans
@@ -189,10 +192,14 @@ from .pod_counting import (
     build_pod_count_investigation,
     build_top_pod_namespace_count_result,
     deployment_matches_identity,
+    pod_is_fully_ready,
+    pod_is_terminating,
     pod_count_investigation_response,
     pod_display_state,
     pod_matches_deployment_selector,
     pod_matches_target_fallback,
+    pod_ready_numbers,
+    pod_restart_total,
     selector_matches_labels,
     summarize_counted_pods,
     top_pod_namespace_count_response,
