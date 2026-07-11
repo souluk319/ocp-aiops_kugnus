@@ -41,7 +41,6 @@ import {
   FAILED_TOOL_STATUSES,
   GATEWAY_PREP_STEP_ID,
   GATEWAY_PREP_TOOLS,
-  MAX_RECENT_CONTEXT_MESSAGES,
   MIN_STOP_BUTTON_VISIBLE_MS,
   RCA_CONTEXT_STEP_ID,
   RCA_PLAN_STEP_ID,
@@ -80,8 +79,21 @@ import { getClusterHost } from './assistant.insightRailHelpers';
 import {
   createRunId,
   formatHistoryTime,
-  languageLocale,
 } from './assistant.storage';
+import {
+  attachEvidenceFooterToLastAssistant,
+  attachToolPlanToLastAssistant,
+  buildRecentContextMessages,
+  findLastAssistantIndex,
+  formatMessageTime,
+  getAssistantConnectionState,
+  markLastAssistantAnswerContract,
+  markLastAssistantFallback,
+  markLastAssistantSource,
+  markLastAssistantStreaming,
+  setLastAssistantContentIfEmpty,
+} from './assistant.messageState';
+import { buildConsolePageContext } from './assistant.pageContext';
 import {
   conversationActionRefFromCandidate,
   groupActionRefsByCandidateId,
@@ -108,22 +120,18 @@ import type {
   AssistantTaskMode,
   ConversationActionRef,
   ConversationHistoryItem,
-  EvidenceFooter,
   HistoryPanelView,
   LightspeedStatusUpdate,
   Message,
   ProgressStatus,
   RunStatusEvent,
-  ToolPlanFooter,
   ToolStreamEvent,
-  UiLanguage,
 } from './assistant.types';
 import {
   type AiopsActionCandidate,
   type AiopsRecord,
   type AiopsRuntimeStatus,
   type AuthSubject,
-  type ChatContextMessage,
   type ChatFeedbackPayload,
   type ClusterSummary,
   fetchAiopsStatus,
@@ -329,105 +337,6 @@ const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
   },
 });
 
-const RESOURCE_KIND_BY_ROUTE_SEGMENT: Record<string, string> = {
-  buildconfigs: 'BuildConfig',
-  configmaps: 'ConfigMap',
-  cronjobs: 'CronJob',
-  daemonsets: 'DaemonSet',
-  deployments: 'Deployment',
-  deploymentconfigs: 'DeploymentConfig',
-  events: 'Event',
-  horizontalpodautoscalers: 'HorizontalPodAutoscaler',
-  hpas: 'HorizontalPodAutoscaler',
-  ingresses: 'Ingress',
-  jobs: 'Job',
-  namespaces: 'Namespace',
-  nodes: 'Node',
-  pods: 'Pod',
-  projects: 'Project',
-  replicasets: 'ReplicaSet',
-  replicationcontrollers: 'ReplicationController',
-  routes: 'Route',
-  secrets: 'Secret',
-  services: 'Service',
-  statefulsets: 'StatefulSet',
-};
-
-const decodePathSegment = (segment: string | undefined): string | undefined => {
-  if (!segment) {
-    return undefined;
-  }
-
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-};
-
-const buildConsolePageContext = (): Record<string, unknown> => {
-  const { href, pathname } = window.location;
-  const segments = pathname.split('/').filter(Boolean);
-  const context: Record<string, unknown> = {
-    href,
-    pathname,
-  };
-
-  const route = decodePathSegment(segments[0]);
-  if (route) {
-    context.route = route;
-  }
-
-  const nsIndex = segments.indexOf('ns');
-  if (nsIndex >= 0) {
-    const namespace = decodePathSegment(segments[nsIndex + 1]);
-    if (namespace) {
-      context.namespace = namespace;
-    }
-  }
-
-  if (segments[0] === 'k8s' && segments[1] === 'cluster') {
-    context.clusterScope = true;
-  }
-
-  let resourceSegmentIndex = -1;
-  if (nsIndex >= 0) {
-    resourceSegmentIndex = nsIndex + 2;
-  } else if (segments[0] === 'k8s' && segments[1] === 'cluster') {
-    resourceSegmentIndex = 2;
-  }
-  const resourceList = decodePathSegment(segments[resourceSegmentIndex]);
-
-  if (resourceList) {
-    context.resourceList = resourceList;
-
-    const resourceKind = RESOURCE_KIND_BY_ROUTE_SEGMENT[resourceList.toLowerCase()];
-    if (resourceKind) {
-      context.resourceKind = resourceKind;
-    }
-
-    const resourceName = decodePathSegment(segments[resourceSegmentIndex + 1]);
-    if (resourceKind && resourceName) {
-      context.resourceName = resourceName;
-    }
-  }
-
-  if (route === 'catalog') {
-    context.perspective = 'developer';
-    context.resourceKind = 'Catalog';
-  }
-
-  if (route === 'topology') {
-    context.perspective = 'developer';
-  }
-
-  if (route === 'monitoring') {
-    context.perspective = 'administrator';
-  }
-
-  return context;
-};
-
 const stringifyDetail = (value: unknown): string => {
   if (value === undefined || value === null) {
     return '';
@@ -466,209 +375,6 @@ const getToolSummary = (event: ToolStreamEvent): string => {
   }
 
   return event.status ? `상태: ${event.status}` : '도구 실행 완료';
-};
-
-const findLastAssistantIndex = (messages: Message[]): number => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === 'assistant') {
-      return index;
-    }
-  }
-
-  return -1;
-};
-
-const setLastAssistantContentIfEmpty = (messages: Message[], content: string): Message[] => {
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0 || messages[assistantIndex].content.trim()) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    content,
-    evidenceFooter: undefined,
-    timestamp: next[assistantIndex].timestamp ?? Date.now(),
-  };
-
-  return next;
-};
-
-const markLastAssistantStreaming = (messages: Message[], streaming: boolean): Message[] => {
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    streaming,
-    timestamp: next[assistantIndex].timestamp ?? Date.now(),
-  };
-
-  return next;
-};
-
-const attachEvidenceFooterToLastAssistant = (
-  messages: Message[],
-  evidenceFooter: EvidenceFooter | undefined,
-): Message[] => {
-  if (!evidenceFooter) {
-    return messages;
-  }
-
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    evidenceFooter,
-  };
-
-  return next;
-};
-
-const attachToolPlanToLastAssistant = (
-  messages: Message[],
-  toolPlan: ToolPlanFooter | undefined,
-): Message[] => {
-  if (!toolPlan) {
-    return messages;
-  }
-
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    toolPlan,
-  };
-
-  return next;
-};
-
-const markLastAssistantFallback = (
-  messages: Message[],
-  gatewayContextDigest?: string,
-): Message[] => {
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    answerSource: 'gateway_fallback',
-    fallbackAnswer: true,
-    gatewayContextDigest: gatewayContextDigest || next[assistantIndex].gatewayContextDigest,
-  };
-
-  return next;
-};
-
-const markLastAssistantSource = (
-  messages: Message[],
-  answerSource: NonNullable<Message['answerSource']>,
-  gatewayContextDigest?: string,
-): Message[] => {
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    answerSource,
-    gatewayContextDigest: gatewayContextDigest || next[assistantIndex].gatewayContextDigest,
-  };
-
-  return next;
-};
-
-const markLastAssistantAnswerContract = (
-  messages: Message[],
-  answerContract?: string,
-): Message[] => {
-  if (!answerContract) {
-    return messages;
-  }
-
-  const assistantIndex = findLastAssistantIndex(messages);
-  if (assistantIndex < 0) {
-    return messages;
-  }
-
-  const next = [...messages];
-  next[assistantIndex] = {
-    ...next[assistantIndex],
-    answerContract,
-  };
-
-  return next;
-};
-
-const buildRecentContextMessages = (messages: Message[]): ChatContextMessage[] =>
-  messages
-    .filter((message) => message.content.trim())
-    .slice(-MAX_RECENT_CONTEXT_MESSAGES)
-    .map((message) => ({
-      role: message.role,
-      content: message.content.slice(0, 4000),
-    }));
-
-const formatMessageTime = (timestamp: number | undefined, language: UiLanguage): string => {
-  if (!timestamp) {
-    return '';
-  }
-
-  return new Intl.DateTimeFormat(languageLocale(language), {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(timestamp));
-};
-
-const getAssistantConnectionState = (
-  summary: ClusterSummary | null,
-  summaryLoading: boolean,
-  summaryError: string,
-  status: AiopsRuntimeStatus | null,
-  statusError: string,
-): { label: string; tone: 'connected' | 'danger' | 'pending' } => {
-  if (summaryError || statusError) {
-    return {
-      label: 'Gateway 또는 cluster 상태 확인 필요',
-      tone: 'danger',
-    };
-  }
-
-  if (summary && status) {
-    return {
-      label: `${summary.apiUrl || 'console proxy'} · Gateway 연결됨`,
-      tone: 'connected',
-    };
-  }
-
-  if (summary || status) {
-    return {
-      label: `${summary?.apiUrl || 'cluster'} · 연결 일부 확인됨`,
-      tone: 'pending',
-    };
-  }
-
-  return {
-    label: summaryLoading ? '연결 확인 중' : 'Gateway 연결 대기',
-    tone: 'pending',
-  };
 };
 
 const writeClipboardText = async (text: string): Promise<boolean> => {
