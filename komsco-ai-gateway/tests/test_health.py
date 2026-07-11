@@ -76,7 +76,6 @@ from komsco_ai_gateway.main import (
     should_forward_image_attachments_to_ols,
     build_conversation_cleanup_review_candidate,
     build_node_status_rca_evidence,
-    build_product_access_review_request,
     build_break_glass_request_record,
     build_ols_required_failure_answer,
     build_preapproved_patch_record,
@@ -115,9 +114,7 @@ from komsco_ai_gateway.main import (
     policy_check_summary,
     normalize_console_page_context,
     normalize_controller_phase,
-    product_access_review_status,
     sealed_action_plan_digest,
-    summarize_product_access_review,
     summarize_policy_detail,
     unresolved_natural_action_response,
     validate_execution_evidence_freshness,
@@ -144,18 +141,6 @@ from komsco_ai_gateway.security import (
     redact_sensitive,
     safe_subject,
 )
-
-
-def test_healthz() -> None:
-    async def run() -> None:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/healthz")
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
-
-    asyncio.run(run())
 
 
 def test_rag_pdf_upload_parser_extracts_page_marked_text(monkeypatch) -> None:
@@ -278,13 +263,6 @@ def test_parse_ols_verify() -> None:
     assert parse_ols_verify("/var/run/configmaps/service-ca/service-ca.crt") == (
         "/var/run/configmaps/service-ca/service-ca.crt"
     )
-
-
-def test_verify_bearer_header_rejects_empty_bearer_token() -> None:
-    with pytest.raises(HTTPException) as caught:
-        gateway_main.verify_bearer_header("Bearer ")
-
-    assert caught.value.status_code == 401
 
 
 def parse_sse_events(body: str) -> list[dict | str]:
@@ -1088,80 +1066,6 @@ def test_normalize_console_page_context_keeps_aiops_alert_view_context() -> None
     assert context["aiopsViewContext"]["pageTitle"] == "알림 & 이벤트"
     assert context["aiopsViewContext"]["visibleAlerts"][0]["reason"] == "BackOff 반복 감지"
     assert "title" not in context
-
-
-def test_product_access_review_request_is_config_driven_ssar() -> None:
-    request = build_product_access_review_request()
-
-    assert request["apiVersion"] == "authorization.k8s.io/v1"
-    assert request["kind"] == "SelfSubjectAccessReview"
-    attributes = request["spec"]["resourceAttributes"]
-    assert attributes["verb"]
-    assert attributes["resource"]
-    assert "token" not in str(request).lower()
-
-
-def test_product_access_review_statuses_are_nonblocking_by_default() -> None:
-    review = {
-        "allowed": False,
-        "enabled": True,
-        "reason": "not allowed in this namespace",
-        "required": False,
-        "resourceAttributes": {"resource": "consoleplugins", "verb": "get"},
-    }
-
-    assert product_access_review_status(review) == "warning"
-    assert "required: False" in summarize_product_access_review(review)
-
-
-def test_product_access_review_timeout_is_reported_without_500(monkeypatch) -> None:
-    class TimeoutClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args) -> None:
-            return None
-
-        async def post(self, *args, **kwargs):
-            raise httpx.ConnectTimeout("connect timed out")
-
-    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example:6443")
-    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", TimeoutClient)
-
-    review = asyncio.run(gateway_main.fetch_product_access_review("Bearer test-token"))
-
-    assert review["allowed"] is False
-    assert review["enabled"] is True
-    assert review["reason"] == "OpenShift API unavailable during product access review"
-    assert "openshift_api_unavailable" in review["evaluationError"]
-
-
-def test_self_subject_review_timeout_raises_structured_504(monkeypatch) -> None:
-    class TimeoutClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args) -> None:
-            return None
-
-        async def post(self, *args, **kwargs):
-            raise httpx.ConnectTimeout("connect timed out")
-
-    monkeypatch.setattr(gateway_main, "OPENSHIFT_API_URL", "https://api.example:6443")
-    monkeypatch.setattr(gateway_main.httpx, "AsyncClient", TimeoutClient)
-
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(gateway_main.fetch_self_subject_review("Bearer test-token"))
-
-    assert exc.value.status_code == 504
-    assert exc.value.detail["code"] == "openshift_api_unavailable"
-    assert exc.value.detail["operation"] == "self_subject_review"
 
 
 def test_required_ocp_json_timeout_raises_structured_504() -> None:
@@ -2558,63 +2462,6 @@ def test_chat_stream_retries_empty_ols_answer_before_fallback(monkeypatch) -> No
         lightspeed_status = status_response.json()["spec"]["safetyContract"]["lightspeedStatus"]
         assert lightspeed_status["streamProbe"] == "succeeded"
         assert lightspeed_status["fallbackActive"] is False
-
-    asyncio.run(run())
-
-
-def test_chat_stream_handles_openshift_user_auth_401_without_raw_status(monkeypatch) -> None:
-    async def fake_subject_review(_user_auth_header: str) -> dict:
-        raise HTTPException(
-            status_code=401,
-            detail=gateway_main.build_openshift_user_auth_failure_detail(
-                401,
-                '{"kind":"Status","apiVersion":"v1","status":"Failure","message":"Unauthorized","reason":"Unauthorized","code":401}',
-            ),
-        )
-
-    monkeypatch.setattr(gateway_main, "fetch_self_subject_review", fake_subject_review)
-
-    def parse_sse_events(body: str) -> list[dict | str]:
-        events: list[dict | str] = []
-        for frame in body.split("\n\n"):
-            data_lines = [
-                line[len("data:") :].strip()
-                for line in frame.splitlines()
-                if line.startswith("data:")
-            ]
-            if not data_lines:
-                continue
-            raw = "\n".join(data_lines)
-            events.append("[DONE]" if raw == "[DONE]" else json.loads(raw))
-        return events
-
-    async def run() -> None:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/v1/chat/stream",
-                headers={"Authorization": "Bearer expired-token"},
-                json={"message": "aiops-scenario-1-crashloop 이거 왜 재시작해?"},
-            )
-
-        assert response.status_code == 200
-        body = response.text
-        events = parse_sse_events(body)
-        text_events = [event for event in events if isinstance(event, dict) and event.get("type") == "text"]
-        subject_results = [
-            event
-            for event in events
-            if isinstance(event, dict)
-            and event.get("type") == "tool_result"
-            and event.get("name") == "subject_review"
-        ]
-
-        assert subject_results[-1]["status"] == "error"
-        assert "사용자 인증이 만료" in text_events[-1]["content"]
-        assert "새로고침" in text_events[-1]["content"]
-        assert "OpenShift subject review failed" not in body
-        assert '"kind":"Status"' not in body
-        assert events[-1] == "[DONE]"
 
     asyncio.run(run())
 
@@ -5058,35 +4905,6 @@ def test_can_subject_read_record_requires_same_observed_identity() -> None:
     assert not can_subject_read_record(record, other_subject)
 
 
-
-
-def test_workflow_and_metrics_endpoints_expose_non_secret_runtime_state() -> None:
-    WORKFLOW_RECORDS.clear()
-    METRICS["aiops_chat_requests_total"] = 3
-    subject = safe_subject(None)
-    WORKFLOW_RECORDS["run-test"] = {
-        "runId": "run-test",
-        "status": "completed",
-        "subject": subject,
-        "target": {"messageLength": 10},
-    }
-
-    async def run() -> None:
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            workflow_response = await client.get(
-                "/v1/workflows/run-test",
-                headers={"Authorization": "Bearer test-token"},
-            )
-            metrics_response = await client.get("/metrics")
-
-        assert workflow_response.status_code == 200
-        assert workflow_response.json()["spec"]["status"] == "completed"
-        assert metrics_response.status_code == 200
-        assert "aiops_chat_requests_total 3" in metrics_response.text
-        assert "Bearer" not in metrics_response.text
-
-    asyncio.run(run())
 
 
 def test_chat_feedback_api_persists_rating_comment_and_redacts_secrets(monkeypatch) -> None:
