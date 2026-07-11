@@ -100,6 +100,7 @@ import {
 } from './assistant.toolPlan';
 import { useAssistantUploads } from './assistant.uploads';
 import { useAssistantAttachmentInteractions } from './useAssistantAttachmentInteractions';
+import { useAssistantConversationHistory } from './useAssistantConversationHistory';
 import { useAssistantPanelGeometry } from './useAssistantPanelGeometry';
 import {
   stripDefaultEvidenceAppendix,
@@ -1445,41 +1446,15 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [activeSessionId, loadConversation, loading, scrollToActionAnchor],
   );
 
-  const deleteConversation = React.useCallback(
-    (conversationHistoryId: string) => {
-      setConversationHistory((prev) =>
-        prev.filter((conversation) => conversation.id !== conversationHistoryId),
-      );
-      if (conversationHistoryId === activeSessionId) {
-        startNewConversation();
-      }
-    },
-    [activeSessionId, startNewConversation],
-  );
-
-  const renameConversation = React.useCallback((conversationHistoryId: string, title: string) => {
-    const trimmed = title.trim();
-    if (!trimmed) {
-      return;
-    }
-    setConversationHistory((prev) =>
-      prev.map((conversation) =>
-        conversation.id === conversationHistoryId
-          ? { ...conversation, title: trimmed }
-          : conversation,
-      ),
-    );
-  }, []);
-
-  const toggleConversationPinned = React.useCallback((conversationHistoryId: string) => {
-    setConversationHistory((prev) =>
-      prev.map((conversation) =>
-        conversation.id === conversationHistoryId
-          ? { ...conversation, pinned: !conversation.pinned }
-          : conversation,
-      ),
-    );
-  }, []);
+  const {
+    deleteConversation,
+    renameConversation,
+    toggleConversationPinned,
+  } = useAssistantConversationHistory({
+    activeSessionId,
+    setConversationHistory,
+    startNewConversation,
+  });
 
   const scrollToBottom = React.useCallback((behavior: ScrollBehavior = 'smooth') => {
     const body = bodyRef.current;
