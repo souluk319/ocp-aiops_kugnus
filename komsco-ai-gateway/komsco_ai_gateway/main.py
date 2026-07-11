@@ -116,6 +116,7 @@ from . import namespace_cleanup as namespace_cleanup_runtime
 from . import natural_action_orchestration
 from . import natural_action_parsing
 from . import natural_action_rendering
+from . import persistence_runtime
 from .cluster_evidence_runtime import (
     ClusterEvidenceRuntimeCallbacks,
     ClusterEvidenceRuntimeConfig,
@@ -969,23 +970,6 @@ DIAGNOSTIC_REQUEST_DIGEST_FIELDS = (
     "evidencePolicy",
     "policy",
 )
-def current_namespace() -> str:
-    if RECORD_STORE_NAMESPACE:
-        return RECORD_STORE_NAMESPACE
-    try:
-        return open(SERVICEACCOUNT_NAMESPACE_FILE, encoding="utf-8").read().strip() or "default"
-    except OSError:
-        return "default"
-
-
-def record_store_auth_header() -> str:
-    try:
-        token = open(RECORD_STORE_TOKEN_FILE, encoding="utf-8").read().strip()
-    except OSError as exc:
-        raise HTTPException(status_code=503, detail="record store token is unavailable") from exc
-    return f"Bearer {token}"
-
-
 RECORD_STORES: dict[str, tuple[dict[str, dict[str, Any]], int, str]] = {
     "chatTranscripts": (CHAT_TRANSCRIPTS, CHAT_TRANSCRIPT_MAX_RECORDS, "chatTranscripts.json"),
     "chatFeedback": (CHAT_FEEDBACK, CHAT_FEEDBACK_MAX_RECORDS, "chatFeedback.json"),
@@ -1004,8 +988,56 @@ RECORD_STORES: dict[str, tuple[dict[str, dict[str, Any]], int, str]] = {
 }
 
 
+def persistence_runtime_config() -> persistence_runtime.PersistenceRuntimeConfig:
+    return persistence_runtime.PersistenceRuntimeConfig(
+        record_store_enabled=RECORD_STORE_ENABLED,
+        record_store_configmap=RECORD_STORE_CONFIGMAP,
+        record_store_token_file=RECORD_STORE_TOKEN_FILE,
+        record_store_namespace=RECORD_STORE_NAMESPACE,
+        serviceaccount_namespace_file=SERVICEACCOUNT_NAMESPACE_FILE,
+        openshift_api_url=OPENSHIFT_API_URL,
+        openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+        rate_limit_per_minute=RATE_LIMIT_PER_MINUTE,
+        workflow_max_records=WORKFLOW_MAX_RECORDS,
+        chat_transcript_max_message_chars=CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS,
+        chat_transcript_max_answer_chars=CHAT_TRANSCRIPT_MAX_ANSWER_CHARS,
+        chat_transcript_jsonl_path=CHAT_TRANSCRIPT_JSONL_PATH,
+    )
+
+
+def persistence_runtime_stores() -> persistence_runtime.PersistenceRuntimeStores:
+    return persistence_runtime.PersistenceRuntimeStores(
+        record_stores=RECORD_STORES,
+        workflow_records=WORKFLOW_RECORDS,
+        rate_limit_buckets=RATE_LIMIT_BUCKETS,
+        action_proposals=ACTION_PROPOSALS,
+        sealed_action_plans=SEALED_ACTION_PLANS,
+        approval_decisions=APPROVAL_DECISIONS,
+        execution_records=EXECUTION_RECORDS,
+    )
+
+
+def persistence_runtime_callbacks() -> persistence_runtime.PersistenceRuntimeCallbacks:
+    return persistence_runtime.PersistenceRuntimeCallbacks(
+        bounded_put=bounded_put,
+        canonical_digest=canonical_digest,
+        increment_metric=increment_metric,
+        now_rfc3339=now_rfc3339,
+        redact_sensitive=redact_sensitive,
+        safe_subject=safe_subject,
+    )
+
+
+def current_namespace() -> str:
+    return persistence_runtime.current_namespace(persistence_runtime_config())
+
+
+def record_store_auth_header() -> str:
+    return persistence_runtime.record_store_auth_header(persistence_runtime_config())
+
+
 def record_store_path(namespace: str) -> str:
-    return f"/api/v1/namespaces/{namespace}/configmaps/{RECORD_STORE_CONFIGMAP}"
+    return persistence_runtime.record_store_path(persistence_runtime_config(), namespace)
 
 
 async def record_store_request(
@@ -1015,92 +1047,37 @@ async def record_store_request(
     body: Mapping[str, Any] | None = None,
     content_type: str = "application/json",
 ) -> httpx.Response:
-    if not OPENSHIFT_API_URL:
-        raise HTTPException(status_code=503, detail="OPENSHIFT_API_URL is not configured")
-    headers = {
-        "Accept": "application/json",
-        "Authorization": record_store_auth_header(),
-    }
-    if body is not None:
-        headers["Content-Type"] = content_type
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        return await client.request(method, f"{OPENSHIFT_API_URL}{path}", headers=headers, json=body)
+    return await persistence_runtime.record_store_request(
+        persistence_runtime_config(),
+        method,
+        path,
+        body=body,
+        content_type=content_type,
+        auth_header=record_store_auth_header,
+    )
 
 
 async def load_record_store() -> None:
-    if not RECORD_STORE_ENABLED:
-        return
-    namespace = current_namespace()
-    try:
-        response = await record_store_request("GET", record_store_path(namespace))
-        if response.status_code == 404:
-            increment_metric("aiops_record_store_loads_total")
-            return
-        if response.status_code >= 400:
-            increment_metric("aiops_record_store_failures_total")
-            return
-        payload = response.json()
-        data = payload.get("data") if isinstance(payload, Mapping) else {}
-        if not isinstance(data, Mapping):
-            return
-        for _store_name, (store, limit, key) in RECORD_STORES.items():
-            raw = data.get(key)
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            loaded = json.loads(raw)
-            if not isinstance(loaded, Mapping):
-                continue
-            store.clear()
-            for record_key, record in list(loaded.items())[-limit:]:
-                if isinstance(record_key, str) and isinstance(record, Mapping):
-                    store[record_key] = dict(record)
-        increment_metric("aiops_record_store_loads_total")
-    except Exception:
-        increment_metric("aiops_record_store_failures_total")
+    await persistence_runtime.load_record_store(
+        persistence_runtime_config(),
+        persistence_runtime_stores(),
+        persistence_runtime_callbacks(),
+        record_store_request,
+        current_namespace,
+        record_store_path,
+    )
 
 
 async def persist_record_store(store_name: str) -> None:
-    if not RECORD_STORE_ENABLED:
-        return
-    definition = RECORD_STORES.get(store_name)
-    if not definition:
-        return
-    store, _limit, key = definition
-    namespace = current_namespace()
-    data_value = json.dumps(redact_sensitive(store), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    patch_body = {"data": {key: data_value}}
-    try:
-        response = await record_store_request(
-            "PATCH",
-            record_store_path(namespace),
-            body=patch_body,
-            content_type="application/merge-patch+json",
-        )
-        if response.status_code == 404:
-            create_body = {
-                "apiVersion": "v1",
-                "kind": "ConfigMap",
-                "metadata": {
-                    "name": RECORD_STORE_CONFIGMAP,
-                    "namespace": namespace,
-                    "labels": {"app": "komsco-ai-gateway", "aiops.komsco/store": "ledger"},
-                },
-                "data": {key: data_value},
-            }
-            response = await record_store_request(
-                "POST",
-                f"/api/v1/namespaces/{namespace}/configmaps",
-                body=create_body,
-            )
-        if response.status_code >= 400:
-            increment_metric("aiops_record_store_failures_total")
-            return
-        increment_metric("aiops_record_store_writes_total")
-    except Exception:
-        increment_metric("aiops_record_store_failures_total")
+    await persistence_runtime.persist_record_store(
+        persistence_runtime_config(),
+        persistence_runtime_stores(),
+        persistence_runtime_callbacks(),
+        store_name,
+        record_store_request,
+        current_namespace,
+        record_store_path,
+    )
 
 
 async def bounded_put_record(
@@ -1108,24 +1085,23 @@ async def bounded_put_record(
     key: str,
     value: dict[str, Any],
 ) -> None:
-    store, limit, _data_key = RECORD_STORES[store_name]
-    bounded_put(store, key, value, limit)
-    await persist_record_store(store_name)
+    await persistence_runtime.bounded_put_record(
+        persistence_runtime_stores(),
+        persistence_runtime_callbacks(),
+        store_name,
+        key,
+        value,
+        persist_record_store,
+    )
 
 
 def enforce_rate_limit(user_auth_header: str) -> None:
-    if RATE_LIMIT_PER_MINUTE <= 0:
-        return
-
-    now = time.monotonic()
-    bucket_key = canonical_digest(user_auth_header)
-    bucket = [item for item in RATE_LIMIT_BUCKETS.get(bucket_key, []) if now - item < 60.0]
-    if len(bucket) >= RATE_LIMIT_PER_MINUTE:
-        increment_metric("aiops_rate_limited_total")
-        raise HTTPException(status_code=429, detail="KOMSCO AI request rate limit exceeded")
-
-    bucket.append(now)
-    RATE_LIMIT_BUCKETS[bucket_key] = bucket
+    persistence_runtime.enforce_rate_limit(
+        persistence_runtime_config(),
+        persistence_runtime_stores(),
+        persistence_runtime_callbacks(),
+        user_auth_header,
+    )
 
 
 def record_workflow(
@@ -1139,55 +1115,27 @@ def record_workflow(
     subject: Mapping[str, Any] | None,
     target: Mapping[str, Any] | None = None,
 ) -> None:
-    existing = WORKFLOW_RECORDS.get(run_id, {})
-    record = {
-        "schemaVersion": "v1",
-        "createdAt": existing.get("createdAt") or now_rfc3339(),
-        "incidentId": incident_id,
-        "lastUpdatedAt": now_rfc3339(),
-        "policy": redact_sensitive(dict(policy)),
-        "requestId": request_id,
-        "runId": run_id,
-        "stage": stage,
-        "status": status,
-        "subject": redact_sensitive(dict(subject or safe_subject(None))),
-        "target": redact_sensitive(dict(target or existing.get("target") or {})),
-    }
-    bounded_put(WORKFLOW_RECORDS, run_id, record, WORKFLOW_MAX_RECORDS)
+    persistence_runtime.record_workflow(
+        persistence_runtime_config(),
+        persistence_runtime_stores(),
+        persistence_runtime_callbacks(),
+        run_id=run_id,
+        incident_id=incident_id,
+        policy=policy,
+        request_id=request_id,
+        stage=stage,
+        status=status,
+        subject=subject,
+        target=target,
+    )
 
 
 def truncate_chat_text(value: Any, limit: int) -> str:
-    text = redact_sensitive(str(value or ""))
-    if len(text) <= limit:
-        return text
-    return f"{text[:limit].rstrip()}\n[TRUNCATED {len(text) - limit} chars]"
+    return persistence_runtime.truncate_chat_text(persistence_runtime_callbacks(), value, limit)
 
 
 def chat_action_record_refs(incident_id: str, run_id: str) -> list[dict[str, Any]]:
-    refs: list[dict[str, Any]] = []
-    for store_name, store in (
-        ("actionProposals", ACTION_PROPOSALS),
-        ("sealedActionPlans", SEALED_ACTION_PLANS),
-        ("approvalDecisions", APPROVAL_DECISIONS),
-        ("executionRecords", EXECUTION_RECORDS),
-    ):
-        for record in store.values():
-            spec = record.get("spec") if isinstance(record.get("spec"), Mapping) else {}
-            if not isinstance(spec, Mapping):
-                continue
-            if str(spec.get("runId") or "") != run_id and str(spec.get("incidentId") or "") != incident_id:
-                continue
-            refs.append(
-                {
-                    "kind": record.get("kind"),
-                    "name": record.get("metadata", {}).get("name") if isinstance(record.get("metadata"), Mapping) else "",
-                    "store": store_name,
-                    "createdAt": record.get("metadata", {}).get("createdAt") if isinstance(record.get("metadata"), Mapping) else "",
-                    "phase": spec.get("status", {}).get("phase") if isinstance(spec.get("status"), Mapping) else "",
-                }
-            )
-    refs.sort(key=lambda item: str(item.get("createdAt") or ""))
-    return refs
+    return persistence_runtime.chat_action_record_refs(persistence_runtime_stores(), incident_id, run_id)
 
 
 def build_chat_transcript_record(
@@ -1204,112 +1152,53 @@ def build_chat_transcript_record(
     status: str,
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    created_at = now_rfc3339()
-    context = rca_context if isinstance(rca_context, Mapping) else {}
-    context_metadata = context.get("metadata") if isinstance(context.get("metadata"), Mapping) else {}
-    evidence = context.get("evidence") if isinstance(context.get("evidence"), Mapping) else {}
-    rca_result = context.get("rcaResult") if isinstance(context.get("rcaResult"), Mapping) else {}
-    tool_plan_digest = (
-        str(context_metadata.get("toolPlanDigest") or "")
-        if context_metadata.get("toolPlanDigest")
-        else canonical_digest(runtime_tool_plan)
-        if isinstance(runtime_tool_plan, Mapping)
-        else ""
+    return persistence_runtime.build_chat_transcript_record(
+        persistence_runtime_config(),
+        persistence_runtime_stores(),
+        persistence_runtime_callbacks(),
+        req=req,
+        answer_text=answer_text,
+        answer_contracts=answer_contracts,
+        incident_id=incident_id,
+        policy=policy,
+        request_id=request_id,
+        rca_context=rca_context,
+        run_id=run_id,
+        runtime_tool_plan=runtime_tool_plan,
+        status=status,
+        subject=subject,
+        truncate_text=truncate_chat_text,
+        action_record_refs=chat_action_record_refs,
     )
-    rca_context_digest = str(context_metadata.get("digest") or "")
-    answer_mode = (
-        "action_plan"
-        if "aiops-action-v0.1.9" in answer_contracts
-        or "natural-action-plan-v0.2.1" in answer_contracts
-        or str(policy.get("decision") or "") == "action_proposal_only"
-        else "human_rca"
-    )
-    transcript_projection = {
-        "answer": answer_text,
-        "conversationId": req.conversationId,
-        "requestId": request_id,
-        "runId": run_id,
-        "userMessage": req.message,
-    }
-    transcript_id = f"chat-transcript-{canonical_digest(redact_sensitive(transcript_projection)).removeprefix('sha256:')[:16]}"
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ChatTranscriptRecord",
-        "metadata": {
-            "createdAt": created_at,
-            "name": transcript_id,
-        },
-        "spec": {
-            "answerContract": list(dict.fromkeys(answer_contracts)),
-            "answerMode": answer_mode,
-            "assistantAnswer": truncate_chat_text(answer_text, CHAT_TRANSCRIPT_MAX_ANSWER_CHARS),
-            "attachments": len(req.attachments),
-            "conversationId": req.conversationId or incident_id,
-            "evidenceRefs": {
-                "collected": redact_sensitive(evidence.get("collectedRefs", [])),
-                "failed": redact_sensitive(evidence.get("failedRefs", [])),
-                "missing": redact_sensitive(evidence.get("missing", [])),
-            },
-            "rcaContextDigest": rca_context_digest,
-            "observedState": {
-                "evidenceSummary": redact_sensitive(evidence.get("summary", {})),
-                "rcaContextDigest": rca_context_digest,
-                "rcaResult": redact_sensitive(rca_result),
-                "taskType": runtime_tool_plan.get("task_type") if isinstance(runtime_tool_plan, Mapping) else "",
-                "toolPlanDigest": tool_plan_digest,
-            },
-            "policy": redact_sensitive(dict(policy)),
-            "requestId": request_id,
-            "runId": run_id,
-            "status": status,
-            "toolPlanDigest": tool_plan_digest,
-            "userMessage": truncate_chat_text(req.message, CHAT_TRANSCRIPT_MAX_MESSAGE_CHARS),
-            "workflow": {
-                "actionRecords": chat_action_record_refs(incident_id, run_id),
-                "incidentId": incident_id,
-            },
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
 
 
 async def persist_chat_transcript_record(record: dict[str, Any]) -> None:
-    transcript_id = str(record.get("metadata", {}).get("name") or f"chat-transcript-{uuid.uuid4().hex[:16]}")
-    await bounded_put_record("chatTranscripts", transcript_id, record)
-    await append_chat_transcript_jsonl(record)
-    increment_metric("aiops_chat_transcripts_total")
+    await persistence_runtime.persist_chat_transcript_record(
+        persistence_runtime_callbacks(),
+        record,
+        bounded_put_record,
+        append_chat_transcript_jsonl,
+    )
 
 
 def write_chat_transcript_jsonl(record: Mapping[str, Any]) -> None:
-    if not CHAT_TRANSCRIPT_JSONL_PATH:
-        return
-
-    path = Path(CHAT_TRANSCRIPT_JSONL_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(
-            json.dumps(redact_sensitive(dict(record)), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        )
-        handle.write("\n")
+    persistence_runtime.write_chat_transcript_jsonl(
+        persistence_runtime_config(),
+        persistence_runtime_callbacks(),
+        record,
+    )
 
 
 async def append_chat_transcript_jsonl(record: Mapping[str, Any]) -> None:
-    try:
-        await asyncio.to_thread(write_chat_transcript_jsonl, record)
-    except Exception:
-        increment_metric("aiops_chat_transcript_jsonl_write_failures_total")
+    await persistence_runtime.append_chat_transcript_jsonl(
+        persistence_runtime_callbacks(),
+        record,
+        write_chat_transcript_jsonl,
+    )
 
 
 def can_subject_read_record(record: Mapping[str, Any], subject: Mapping[str, Any]) -> bool:
-    record_subject = record.get("originatingSubject") or record.get("subject") or {}
-    if not isinstance(record_subject, Mapping):
-        return False
-
-    return (
-        record_subject.get("username") == subject.get("username")
-        and record_subject.get("uid") == subject.get("uid")
-        and record_subject.get("groupsDigest") == subject.get("groupsDigest")
-    )
+    return persistence_runtime.can_subject_read_record(record, subject)
 
 
 def evidence_dependencies() -> EvidenceDependencies:
