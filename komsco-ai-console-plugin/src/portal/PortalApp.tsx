@@ -1,13 +1,11 @@
 import * as React from 'react';
 import {
-  ChevronLeft,
   ChevronRight,
   ClipboardCheck,
   Cpu,
   FileText,
   GitBranch,
   Network,
-  Search,
   ShieldCheck,
   X,
 } from 'lucide-react';
@@ -33,7 +31,7 @@ import {
   recordTarget,
 } from './executionLedgerModel';
 import { ExecutionRecordsView } from './ExecutionRecordsView';
-import { DashboardView, KpiCard } from './DashboardView';
+import { DashboardView } from './DashboardView';
 import {
   sampleAlertEvents,
 } from './eventInboxModel';
@@ -44,8 +42,25 @@ import { evidenceLabel, evidenceRows, evidenceStatusLabel } from './rcaEvidenceM
 import { useLiveClock, usePortalRuntime } from './portalRuntime';
 import { ClusterSignalStrip, Sidebar, Topbar } from './portalShell';
 import { ReportsView } from './ReportsView';
+import { EndpointTable, ResourceInventoryView } from './ResourceInventoryView';
+import { SettingsView } from './SettingsView';
 import { WikiDocsView } from './WikiDocsView';
 import { buildPodRcaSummary, resourceById, sampleRcaQueues } from './rcaViewModel';
+import {
+  aiopsWorkloadItems,
+  buildEndpoints,
+  clusterLabel,
+  displayApiEndpoint,
+  displayNamespaceLabel,
+  displayOpenShiftVersion,
+  formatCpu,
+  formatMemory,
+  localizeTelemetryText,
+  nodeSeverity,
+  operatorSeverity,
+  pressureLabels,
+  resourceNameLabel,
+} from './portalDisplayModel';
 import type {
   ActivityItem,
   AiopsEventFeed,
@@ -53,7 +68,6 @@ import type {
   AiopsRuntimeStatus,
   AlertItem,
   ClusterSummary,
-  Endpoint,
   NavView,
   QueueItem,
   ScopeItem,
@@ -212,10 +226,6 @@ const queueAssistantContext = (
     promptDraft: buildAssistantPrompt(base),
   };
 };
-
-
-const endpointPageSizeOptions = [10, 25, 50];
-
 const asObject = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 
@@ -235,61 +245,6 @@ const textValue = (value: unknown, fallback = '-'): string => {
   return JSON.stringify(value);
 };
 
-const PUBLIC_WEB_URL_RE =
-  /\bhttps?:\/\/(?:github\.com|docs\.openshift\.com|docs\.redhat\.com|access\.redhat\.com)\/[^\s)]+/gi;
-
-const stripPublicWebUrls = (value: string): string =>
-  value
-    .replace(/\s*See also\s+https?:\/\/(?:github\.com|docs\.openshift\.com|docs\.redhat\.com|access\.redhat\.com)\/[^\s)]+/gi, '')
-    .replace(PUBLIC_WEB_URL_RE, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-
-const localizeTelemetryText = (value: string): string =>
-  stripPublicWebUrls(value)
-    .replace(/\blocal-aiops-fixture-ledger\b/gi, 'Gateway 검증 원장')
-    .replace(/\brun-local-fixture\b/gi, 'Gateway 검증 실행')
-    .replace(/\blocal-fixture\b/gi, 'Gateway 검증')
-    .replace(/\bserved local-only AIOps fixture\b/gi, 'Gateway 검증 응답 기록')
-    .replace(/\blocal-only AIOps fixture\b/gi, 'Gateway 검증 응답')
-    .replace(/\blocal simulator state: ready ([0-9]+\/[0-9]+)/gi, '검증 워크로드 ready $1')
-    .replace(/\bready ([0-9]+\/[0-9]+) in local simulator\b/gi, 'ready $1')
-    .replace(/\bCrashLoopBackOff fixture for Action Plan testing\b/gi, 'Action Plan 검증용 CrashLoopBackOff')
-    .replace(/\bopenshift-marketplace\/appscan360-catalog fixture is not ready\b/gi, 'openshift-marketplace/appscan360-catalog 준비 상태 확인 필요')
-    .replace(/\blocal simulator\b/gi, '검증 환경')
-    .replace(/\blocal fixture\b/gi, '검증 환경')
-    .replace(/\bfixture\b/gi, '검증')
-    .replace(/\bPod status\b/g, '파드 상태')
-    .replace(/\bKubernetes Event\b/g, '쿠버네티스 이벤트')
-    .replace(/\bReady replicas\b/g, '정상 레플리카')
-    .replace(/\bRunning\b/g, '실행 중')
-    .replace(/\bReady\b/g, '정상')
-    .replace(/\bNotReady\b/g, '비정상')
-    .replace(/\bPending\b/g, '대기')
-    .replace(/\bFailed\b/g, '실패')
-    .replace(/\bSucceeded\b/g, '성공')
-    .replace(/\bRestarts\b/g, '재시작')
-    .replace(/\bAvailable\b/g, '가용')
-    .replace(/\bUpdated\b/g, '업데이트')
-    .replace(/\bIssues\b/g, '이슈')
-    .replace(/\bIssue\b/g, '이슈')
-    .replace(/\bTotal\b/g, '전체')
-    .replace(/\bCurrent\b/g, '현재')
-    .replace(/\bDegraded\b/g, '저하')
-    .replace(/\bProgressing\b/g, '진행 중')
-    .replace(/\bUnavailable\b/g, '사용 불가')
-    .replace(/\bUpdate available\b/g, '업데이트 가능')
-    .replace(/\bphase=/g, '상태=')
-    .replace(/\bready=/g, '준비=')
-    .replace(/\brestart=/g, '재시작=')
-    .replace(/\bcreated=/g, '생성=')
-    .replace(/\blast=/g, '마지막=')
-    .replace(/\brunning\b/g, '실행 중')
-    .replace(/\bwaiting\b/g, '대기')
-    .replace(/\bsucceeded\b/g, '성공')
-    .replace(/\bsince\b/g, '이후')
-    .replace(/\broles\b/g, '역할');
-
 const sourceLabel = (value?: string): string => {
   const labels: Record<string, string> = {
     'AIOps Gateway': 'AIOps 게이트웨이',
@@ -300,63 +255,6 @@ const sourceLabel = (value?: string): string => {
     'OpenShift Node API': 'OpenShift Node API',
   };
   return value ? labels[value] ?? value : '-';
-};
-
-const resourceNameLabel = (id: string, name: string, kind: string): string => {
-  const labels: Record<string, string> = {
-    clusteroperators: '클러스터 오퍼레이터',
-    daemonsets: '데몬셋',
-    deployments: '디플로이먼트',
-    nodes: '노드',
-    persistentvolumeclaims: 'PVC',
-    pods: '파드',
-    replicasets: '레플리카셋',
-    routes: '라우트',
-    services: '서비스',
-    statefulsets: '스테이트풀셋',
-  };
-  const kindLabel = ledgerKindLabel(kind);
-  return labels[id] ?? (kindLabel || name);
-};
-
-const displayApiEndpoint = (apiUrl?: string): string => {
-  if (!apiUrl) {
-    return 'OpenShift 상태 확인 필요';
-  }
-
-  try {
-    const host = new URL(apiUrl).hostname;
-    if (/local-aiops\.invalid|\.invalid$/i.test(host)) {
-      return 'Gateway 검증 환경';
-    }
-    return host;
-  } catch {
-    return /local-aiops|\.invalid/i.test(apiUrl) ? 'Gateway 검증 환경' : apiUrl;
-  }
-};
-
-const displayOpenShiftVersion = (version?: string): string => {
-  if (!version) {
-    return '-';
-  }
-  return version.replace(/-local\b/i, '');
-};
-
-const displayNamespaceLabel = (namespace?: string): string => {
-  if (!namespace) {
-    return '-';
-  }
-  if (/^komsco-ai-local$/i.test(namespace)) {
-    return '검증 네임스페이스';
-  }
-  return localizeTelemetryText(namespace);
-};
-
-const clusterLabel = (summary: ClusterSummary): string => {
-  if (!summary.apiUrl) {
-    return '게이트웨이 연결 대기';
-  }
-  return displayApiEndpoint(summary.apiUrl);
 };
 
 const resourceKeywords: Record<string, string[]> = {
@@ -370,72 +268,6 @@ const resourceKeywords: Record<string, string[]> = {
   services: ['서비스', 'service'],
   statefulsets: ['스테이트풀셋', 'statefulset'],
 };
-
-const pressureLabels = (pressures: ClusterSummary['nodes']['items'][number]['pressures']): string[] => {
-  const labels = [];
-  if (pressures.disk) {
-    labels.push('디스크 압박');
-  }
-  if (pressures.memory) {
-    labels.push('메모리 압박');
-  }
-  if (pressures.pid) {
-    labels.push('PID 압박');
-  }
-  return labels;
-};
-
-const nodeSeverity = (node: ClusterSummary['nodes']['items'][number]): Severity => {
-  if (!node.ready) {
-    return 'risk';
-  }
-
-  return pressureLabels(node.pressures).length > 0 ? 'warn' : 'ok';
-};
-
-const operatorSeverity = (operator: ClusterSummary['operators']['issues'][number]): Severity => {
-  if (!operator.available || operator.degraded) {
-    return 'risk';
-  }
-
-  return operator.progressing ? 'warn' : 'ok';
-};
-
-const formatCpu = (value?: string): string => {
-  if (!value) {
-    return '-';
-  }
-
-  if (value.endsWith('n')) {
-    const cores = Number(value.slice(0, -1)) / 1_000_000_000;
-    return Number.isFinite(cores) ? `${cores.toFixed(2)} cores` : value;
-  }
-
-  if (value.endsWith('m')) {
-    const cores = Number(value.slice(0, -1)) / 1000;
-    return Number.isFinite(cores) ? `${cores.toFixed(2)} cores` : value;
-  }
-
-  return value;
-};
-
-const formatMemory = (value?: string): string => {
-  if (!value) {
-    return '-';
-  }
-
-  if (value.endsWith('Ki')) {
-    const gib = Number(value.slice(0, -2)) / 1024 / 1024;
-    return Number.isFinite(gib) ? `${gib.toFixed(1)} GiB` : value;
-  }
-
-  return value;
-};
-
-const aiopsWorkloadItems = (summary: ClusterSummary) => [
-  ...(summary.aiopsWorkloads?.deployments ?? []),
-  ...(summary.aiopsWorkloads?.daemonsets ?? []),
-];
 
 const aiopsWorkloadNames = (summary: ClusterSummary, limit = 3): string => {
   const workloads = aiopsWorkloadItems(summary);
@@ -688,85 +520,6 @@ const buildAlerts = (summary: ClusterSummary, status: AiopsRuntimeStatus): Alert
     severity: item.severity,
     time: formatTime(summary.updatedAt),
   }));
-
-const buildEndpoints = (summary: ClusterSummary): Endpoint[] => {
-  const nodeEndpoints = summary.nodes.items.map((node): Endpoint => ({
-    id: `node-${node.name}`,
-    name: node.name,
-    type: '노드',
-    group: node.roles.join(', ') || '-',
-    severity: nodeSeverity(node),
-    cpu: formatCpu(node.usage.cpu),
-    memory: formatMemory(node.usage.memory),
-    latency: '-',
-    lastEvent: formatTime(summary.updatedAt),
-    path: `${localizeTelemetryText(node.osImage ?? '-')} / ${displayOpenShiftVersion(node.kubeletVersion ?? '-')}`,
-  }));
-
-  const operatorEndpoints = summary.operators.issues.map((operator): Endpoint => ({
-    id: `operator-${operator.name}`,
-    name: operator.name,
-    type: '클러스터 오퍼레이터',
-    group: operator.reason ?? '-',
-    severity: operatorSeverity(operator),
-    cpu: '-',
-    memory: '-',
-    latency: '-',
-    lastEvent: formatTime(summary.updatedAt),
-    path: localizeTelemetryText(operator.message ?? 'ClusterOperator 이슈'),
-  }));
-
-  const versionEndpoint: Endpoint[] = summary.version.version
-    ? [
-        {
-          id: 'clusterversion-version',
-          name: `OpenShift ${displayOpenShiftVersion(summary.version.version)}`,
-          type: 'ClusterVersion',
-          group: summary.version.channel ?? '-',
-          severity: summary.version.upgradeable === false ? 'warn' : 'ok',
-          cpu: '-',
-          memory: '-',
-          latency: '-',
-          lastEvent: formatTime(summary.updatedAt),
-          path: summary.version.upgradeableReason ?? (summary.version.updateAvailable ? '업데이트 가능' : '현재 버전'),
-        },
-      ]
-    : [];
-
-  const aiopsWorkloadEndpoints = aiopsWorkloadItems(summary).map((workload): Endpoint => ({
-    id: `aiops-${workload.kind}-${workload.namespace}-${workload.name}`,
-    name: workload.name,
-    type: `AI/Ops ${ledgerKindLabel(workload.kind)}`,
-    group: workload.namespace,
-    severity: workload.severity,
-    cpu: '-',
-    memory: '-',
-    latency: `정상 ${workload.ready}/${workload.desired}`,
-    lastEvent: formatTime(workload.createdAt ?? summary.updatedAt),
-    path: localizeTelemetryText(workload.detail),
-  }));
-
-  const resourceEndpoints = (summary.resources?.items ?? []).map((resource): Endpoint => ({
-    id: `resource-${resource.id}`,
-    name: resourceNameLabel(resource.id, resource.name, resource.kind),
-    type: ledgerKindLabel(resource.kind),
-    group: `전체 ${resource.total}`,
-    severity: resource.severity,
-    cpu: '-',
-    memory: '-',
-    latency: `이슈 ${resource.issues}건`,
-    lastEvent: formatTime(summary.updatedAt),
-    path: localizeTelemetryText(resource.detail),
-  }));
-
-  return [
-    ...aiopsWorkloadEndpoints,
-    ...resourceEndpoints,
-    ...nodeEndpoints,
-    ...operatorEndpoints,
-    ...versionEndpoint,
-  ];
-};
 
 const eventTone = (event: AiopsEventItem): ActivityItem['tone'] => {
   if (event.severity === 'risk') {
@@ -1761,157 +1514,6 @@ const Panel: React.FC<{
   </section>
 );
 
-const EndpointTable: React.FC<{
-  endpoints: Endpoint[];
-}> = ({ endpoints }) => {
-  const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState(10);
-  const [query, setQuery] = React.useState('');
-  const [severityFilter, setSeverityFilter] = React.useState<'all' | Severity>('all');
-  const okCount = endpoints.filter((endpoint) => endpoint.severity === 'ok').length;
-  const warnCount = endpoints.filter((endpoint) => endpoint.severity === 'warn').length;
-  const riskCount = endpoints.filter((endpoint) => endpoint.severity === 'risk').length;
-  const endpointTabs: Array<{ id: 'all' | Severity; label: string; value: number }> = [
-    { id: 'all', label: '전체', value: endpoints.length },
-    { id: 'ok', label: '정상', value: okCount },
-    { id: 'warn', label: '주의', value: warnCount },
-    { id: 'risk', label: '위험', value: riskCount },
-  ];
-  const normalizedQuery = query.trim().toLowerCase();
-  const visibleEndpoints = endpoints.filter((endpoint) => {
-    const matchesSeverity = severityFilter === 'all' || endpoint.severity === severityFilter;
-    const searchable = `${endpoint.name} ${endpoint.type} ${endpoint.group} ${endpoint.path}`.toLowerCase();
-    return matchesSeverity && (!normalizedQuery || searchable.includes(normalizedQuery));
-  });
-  const pageCount = Math.max(1, Math.ceil(visibleEndpoints.length / pageSize));
-  const currentPage = Math.min(page, pageCount);
-  const startIndex = (currentPage - 1) * pageSize;
-  const pageEndpoints = visibleEndpoints.slice(startIndex, startIndex + pageSize);
-  const rangeStart = visibleEndpoints.length === 0 ? 0 : startIndex + 1;
-  const rangeEnd = Math.min(startIndex + pageSize, visibleEndpoints.length);
-
-  React.useEffect(() => {
-    setPage(1);
-  }, [normalizedQuery, pageSize, severityFilter]);
-
-  React.useEffect(() => {
-    setPage((current) => Math.min(current, pageCount));
-  }, [pageCount]);
-
-  return (
-    <section className="portal-panel table-panel">
-      <div className="table-panel__top">
-        <div className="portal-panel__title">클러스터 리소스</div>
-        <div className="portal-tabs">
-          {endpointTabs.map((tab) => (
-            <button
-              className={severityFilter === tab.id ? 'is-active' : ''}
-              key={tab.id}
-              onClick={() => setSeverityFilter(tab.id)}
-              type="button"
-            >
-              {tab.label} {tab.value}
-            </button>
-          ))}
-        </div>
-        <label className="portal-search">
-          <Search />
-          <input
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="리소스 검색"
-            value={query}
-          />
-        </label>
-        <label className="table-page-size">
-          <span>페이지당</span>
-          <select
-            aria-label="페이지당 리소스 수"
-            onChange={(event) => setPageSize(Number(event.target.value))}
-            value={pageSize}
-          >
-            {endpointPageSizeOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className="table-scroll">
-        <table className="endpoint-table">
-          <thead>
-            <tr>
-              <th>이름</th>
-              <th>유형</th>
-              <th>그룹</th>
-              <th>상태</th>
-              <th>CPU</th>
-              <th>메모리</th>
-              <th>응답시간</th>
-              <th>최근 이벤트</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleEndpoints.length === 0 ? (
-              <tr>
-                <td colSpan={8}>조건에 맞는 리소스가 없습니다.</td>
-              </tr>
-            ) : (
-              pageEndpoints.map((endpoint) => (
-                <tr key={endpoint.id}>
-                  <td>
-                    <strong>{endpoint.name}</strong>
-                    <small>{endpoint.path}</small>
-                  </td>
-                  <td>{endpoint.type}</td>
-                  <td>{endpoint.group}</td>
-                  <td>
-                    <StatusBadge severity={endpoint.severity} />
-                  </td>
-                  <td>{endpoint.cpu}</td>
-                  <td>{endpoint.memory}</td>
-                  <td>{endpoint.latency}</td>
-                  <td>
-                    <span className={`event-dot ${severityClass(endpoint.severity)}`} />
-                    {endpoint.lastEvent}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="table-pagination">
-        <span className="table-pagination__summary">
-          {rangeStart}-{rangeEnd} / {visibleEndpoints.length}
-        </span>
-        <div className="table-pagination__controls">
-          <button
-            aria-label="이전 페이지"
-            className="portal-icon-btn"
-            disabled={currentPage <= 1}
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            title="이전 페이지"
-            type="button"
-          >
-            <ChevronLeft />
-          </button>
-          <strong>{currentPage} / {pageCount}</strong>
-          <button
-            aria-label="다음 페이지"
-            className="portal-icon-btn"
-            disabled={currentPage >= pageCount}
-            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-            title="다음 페이지"
-            type="button"
-          >
-            <ChevronRight />
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-};
 const ServiceMapView: React.FC<{ onNavigate: (view: NavView) => void; summary: ClusterSummary }> = ({
   onNavigate,
   summary,
@@ -2109,97 +1711,6 @@ const ServiceMapView: React.FC<{ onNavigate: (view: NavView) => void; summary: C
           )}
         </div>
       </Panel>
-    </section>
-  );
-};
-
-const ResourceInventoryView: React.FC<{
-  summary: ClusterSummary;
-}> = ({ summary }) => {
-  const endpoints = buildEndpoints(summary);
-  const resources = summary.resources?.items ?? [];
-  const risk = endpoints.filter((endpoint) => endpoint.severity === 'risk').length;
-  const warn = endpoints.filter((endpoint) => endpoint.severity === 'warn').length;
-
-  return (
-    <section className="resource-inventory stack-view">
-      <section className="inventory-summary-grid">
-        <KpiCard color={risk > 0 ? 'red' : 'green'} label="위험 리소스" sub={`주의 ${warn}`} value={risk} />
-        <KpiCard color="blue" label="전체 리소스" sub="표시 대상" value={endpoints.length} />
-        <KpiCard color={summary.nodes.notReady > 0 ? 'red' : 'green'} label="노드 상태" sub={`비정상 ${summary.nodes.notReady}`} value={`${summary.nodes.ready}/${summary.nodes.total}`} />
-        <KpiCard color={summary.resources?.issues ? 'red' : 'green'} label="리소스 이슈" sub="게이트웨이 요약" value={summary.resources?.issues ?? 0} />
-      </section>
-      <EndpointTable endpoints={endpoints} />
-      <Panel title="리소스 그룹 분포">
-        <div className="resource-distribution">
-          {resources.map((resource) => (
-            <article key={resource.id}>
-              <div>
-                <strong>{resourceNameLabel(resource.id, resource.name, resource.kind)}</strong>
-                <span>{localizeTelemetryText(resource.detail)}</span>
-              </div>
-              <div className="meter"><span style={{ width: `${Math.min(100, Number(resource.ready) / Math.max(1, resource.total) * 100)}%` }} /></div>
-              <b>{resource.score}</b>
-            </article>
-          ))}
-        </div>
-      </Panel>
-    </section>
-  );
-};
-
-const SettingsView: React.FC<{ status: AiopsRuntimeStatus; summary: ClusterSummary }> = ({ status, summary }) => {
-  const capabilities = status.spec.capabilities;
-  const [policyMode, setPolicyMode] = React.useState(capabilities.mutationsEnabled ? '승인 후 실행' : '읽기/증거 수집');
-  const [notifyOps, setNotifyOps] = React.useState(true);
-  const [notifyAudit, setNotifyAudit] = React.useState(false);
-
-  return (
-    <section className="settings-workbench stack-view">
-      <section className="sample-banner is-config">
-        <strong>화면 설정</strong>
-        <span>현재 설정 화면은 포털에서 정책과 표시 옵션을 확인하는 UI입니다.</span>
-      </section>
-      <section className="settings-grid">
-        <Panel title="게이트웨이 연결">
-          <div className="settings-form">
-            <label><span>API URL</span><input readOnly value={displayApiEndpoint(summary.apiUrl)} /></label>
-            <label><span>클러스터</span><input readOnly value={clusterLabel(summary)} /></label>
-            <label><span>상태</span><input readOnly value={summary.healthScore >= 90 ? '정상' : '확인 필요'} /></label>
-          </div>
-        </Panel>
-        <Panel title="승인/실행 정책">
-          <div className="settings-form">
-            <label>
-              <span>정책 모드</span>
-              <select onChange={(event) => setPolicyMode(event.target.value)} value={policyMode}>
-                <option>읽기/증거 수집</option>
-                <option>승인 후 실행</option>
-                <option>수동 승인 전용</option>
-              </select>
-            </label>
-            <div className="capability-list">
-              <span>변경 실행 <strong>{capabilities.mutationsEnabled ? '허용' : '차단'}</strong></span>
-              <span>조치 실행기 <strong>{capabilities.actionExecutorConfigured ? '설정됨' : '미설정'}</strong></span>
-              <span>감사 원장 <strong>{capabilities.recordStoreEnabled ? '켜짐' : '꺼짐'}</strong></span>
-            </div>
-          </div>
-        </Panel>
-        <Panel title="알림 채널">
-          <div className="toggle-list">
-            <label><input checked={notifyOps} onChange={(event) => setNotifyOps(event.target.checked)} type="checkbox" /> 운영 채널 알림</label>
-            <label><input checked={notifyAudit} onChange={(event) => setNotifyAudit(event.target.checked)} type="checkbox" /> 감사 채널 알림</label>
-            <label><input checked readOnly type="checkbox" /> 포털 배너 알림</label>
-          </div>
-        </Panel>
-        <Panel title="데이터 보존">
-          <div className="settings-form">
-            <label><span>감사 ConfigMap</span><input readOnly value={capabilities.recordStoreConfigMap ?? '미설정'} /></label>
-            <label><span>이벤트 폴링</span><input readOnly value="30초" /></label>
-            <label><span>샘플 데이터</span><input readOnly value="문서/보고서 화면에만 표시" /></label>
-          </div>
-        </Panel>
-      </section>
     </section>
   );
 };
