@@ -62,6 +62,7 @@ from .diagnostics_router import create_diagnostics_router
 from .evidence_router import create_evidence_router
 from .knowledge_router import create_knowledge_router
 from . import action_api_service
+from . import auth_runtime
 from . import diagnostics_service
 from . import evidence_service
 from . import knowledge_service
@@ -2282,30 +2283,45 @@ def safe_exception_text(exc: Exception, *, limit: int = 500) -> str:
     return safe_error_text(f"{type(exc).__name__}: {exc}", limit=limit)
 
 
+def auth_runtime_config() -> auth_runtime.AuthRuntimeConfig:
+    return auth_runtime.AuthRuntimeConfig(
+        openshift_api_url=OPENSHIFT_API_URL,
+        openshift_api_ca_file=OPENSHIFT_API_CA_FILE,
+        product_access_review_enabled=PRODUCT_ACCESS_REVIEW_ENABLED,
+        product_access_review_required=PRODUCT_ACCESS_REVIEW_REQUIRED,
+        product_access_review_group=PRODUCT_ACCESS_REVIEW_GROUP,
+        product_access_review_resource=PRODUCT_ACCESS_REVIEW_RESOURCE,
+        product_access_review_verb=PRODUCT_ACCESS_REVIEW_VERB,
+        product_access_review_name=PRODUCT_ACCESS_REVIEW_NAME,
+        mutations_enabled=MUTATIONS_ENABLED,
+    )
+
+
+def auth_runtime_callbacks() -> auth_runtime.AuthRuntimeCallbacks:
+    return auth_runtime.AuthRuntimeCallbacks(
+        http_client_factory=httpx.AsyncClient,
+        redact_sensitive=redact_sensitive,
+        safe_exception_text=safe_exception_text,
+        safe_subject=safe_subject,
+        enforce_rate_limit=enforce_rate_limit,
+    )
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
 async def verify_user_access(user_auth_header: str, req: ChatRequest) -> None:
-    if not user_auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
-
-    if not req.message.strip() and not req.attachments:
-        raise HTTPException(status_code=400, detail="Message or image attachment is required")
-
-    enforce_rate_limit(user_auth_header)
+    auth_runtime.verify_user_access(
+        auth_runtime_callbacks(),
+        user_auth_header,
+        req,
+    )
 
 
 def verify_bearer_header(user_auth_header: str | None) -> str:
-    if not user_auth_header or not user_auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
-
-    token = user_auth_header.removeprefix("Bearer ").strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing OpenShift bearer token")
-
-    return f"Bearer {token}"
+    return auth_runtime.verify_bearer_header(user_auth_header)
 
 
 def validate_image_attachments(attachments: list[ImageAttachment]) -> None:
@@ -4533,271 +4549,63 @@ def build_rca_context_stream_event(
 
 
 def build_product_access_review_request() -> dict[str, Any]:
-    resource_attributes: dict[str, Any] = {
-        "resource": PRODUCT_ACCESS_REVIEW_RESOURCE,
-        "verb": PRODUCT_ACCESS_REVIEW_VERB,
-    }
-    if PRODUCT_ACCESS_REVIEW_GROUP:
-        resource_attributes["group"] = PRODUCT_ACCESS_REVIEW_GROUP
-    if PRODUCT_ACCESS_REVIEW_NAME:
-        resource_attributes["name"] = PRODUCT_ACCESS_REVIEW_NAME
-
-    return {
-        "apiVersion": "authorization.k8s.io/v1",
-        "kind": "SelfSubjectAccessReview",
-        "spec": {"resourceAttributes": resource_attributes},
-    }
+    return auth_runtime.build_product_access_review_request(auth_runtime_config())
 
 
 def build_action_access_review_request(plan: Mapping[str, Any]) -> dict[str, Any]:
-    action = plan.get("action") if isinstance(plan.get("action"), Mapping) else {}
-    target = plan.get("target") if isinstance(plan.get("target"), Mapping) else {}
-    authorization = action.get("authorization") if isinstance(action.get("authorization"), Mapping) else {}
-    resource_attributes: dict[str, Any] = {
-        "group": authorization.get("apiGroup") or "",
-        "resource": authorization.get("resource") or "",
-        "subresource": authorization.get("subresource") or "",
-        "verb": authorization.get("verb") or "",
-        "namespace": target.get("namespace") or "",
-        "name": target.get("name") or "",
-    }
-    if resource_attributes["verb"] == "create":
-        resource_attributes.pop("name", None)
-    if not resource_attributes["group"]:
-        resource_attributes.pop("group", None)
-    if not resource_attributes["subresource"]:
-        resource_attributes.pop("subresource", None)
-    return {
-        "apiVersion": "authorization.k8s.io/v1",
-        "kind": "SelfSubjectAccessReview",
-        "spec": {"resourceAttributes": resource_attributes},
-    }
+    return auth_runtime.build_action_access_review_request(plan)
 
 
 async def fetch_action_access_review(user_auth_header: str, plan: Mapping[str, Any]) -> dict[str, Any]:
-    review_request = build_action_access_review_request(plan)
-    if not OPENSHIFT_API_URL:
-        return {
-            "allowed": not MUTATIONS_ENABLED,
-            "enabled": True,
-            "resourceAttributes": review_request["spec"]["resourceAttributes"],
-            "skipped": True,
-            "reason": "OPENSHIFT_API_URL is not configured",
-        }
-
-    try:
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(10.0, connect=5.0),
-        ) as client:
-            response = await client.post(
-                f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": user_auth_header,
-                    "Content-Type": "application/json",
-                },
-                json=review_request,
-            )
-    except httpx.RequestError as exc:
-        return {
-            "allowed": False,
-            "enabled": True,
-            "resourceAttributes": review_request["spec"]["resourceAttributes"],
-            "reason": "OpenShift API unavailable during action access review",
-            "evaluationError": json.dumps(
-                {
-                    "code": "openshift_api_unavailable",
-                    "message": "OpenShift API 응답 지연 또는 연결 실패로 action access review를 완료하지 못했습니다.",
-                    "operation": "action_access_review",
-                    "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
-                    "upstreamReason": safe_exception_text(exc),
-                },
-                ensure_ascii=False,
-            ),
-        }
-
-    if response.status_code >= 400:
-        return {
-            "allowed": False,
-            "enabled": True,
-            "resourceAttributes": review_request["spec"]["resourceAttributes"],
-            "reason": f"SelfSubjectAccessReview failed with HTTP {response.status_code}",
-            "evaluationError": response.text[:500],
-        }
-
-    payload = response.json()
-    status_payload = payload.get("status", {}) if isinstance(payload, Mapping) else {}
-    status_map = status_payload if isinstance(status_payload, Mapping) else {}
-    return {
-        "allowed": bool(status_map.get("allowed")),
-        "denied": bool(status_map.get("denied")),
-        "enabled": True,
-        "evaluationError": status_map.get("evaluationError") or "",
-        "reason": status_map.get("reason") or "",
-        "resourceAttributes": review_request["spec"]["resourceAttributes"],
-        "skipped": False,
-    }
+    return await auth_runtime.fetch_action_access_review(
+        auth_runtime_config(),
+        auth_runtime_callbacks(),
+        user_auth_header,
+        plan,
+    )
 
 
 def enforce_action_access_review(review: Mapping[str, Any]) -> None:
-    if review.get("allowed") is True:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail={
-            "reason": "action_authorization_denied",
-            "message": "Approver is not authorized for the exact Kubernetes action.",
-            "review": redact_sensitive(dict(review)),
-        },
-    )
+    auth_runtime.enforce_action_access_review(auth_runtime_callbacks(), review)
 
 
 async def fetch_product_access_review(user_auth_header: str) -> dict[str, Any]:
-    if not PRODUCT_ACCESS_REVIEW_ENABLED:
-        return {
-            "allowed": True,
-            "enabled": False,
-            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
-            "skipped": True,
-            "reason": "product access review disabled",
-        }
-
-    review_request = build_product_access_review_request()
-    if not OPENSHIFT_API_URL:
-        return {
-            "allowed": not PRODUCT_ACCESS_REVIEW_REQUIRED,
-            "enabled": True,
-            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
-            "resourceAttributes": review_request["spec"]["resourceAttributes"],
-            "skipped": True,
-            "reason": "OPENSHIFT_API_URL is not configured",
-        }
-
-    try:
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(10.0, connect=5.0),
-        ) as client:
-            response = await client.post(
-                f"{OPENSHIFT_API_URL}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": user_auth_header,
-                    "Content-Type": "application/json",
-                },
-                json=review_request,
-            )
-    except httpx.RequestError as exc:
-        return {
-            "allowed": False,
-            "enabled": True,
-            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
-            "resourceAttributes": review_request["spec"]["resourceAttributes"],
-            "reason": "OpenShift API unavailable during product access review",
-            "evaluationError": json.dumps(
-                {
-                    "code": "openshift_api_unavailable",
-                    "message": "OpenShift API 응답 지연 또는 연결 실패로 product access review를 완료하지 못했습니다.",
-                    "operation": "product_access_review",
-                    "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
-                    "upstreamReason": safe_exception_text(exc),
-                },
-                ensure_ascii=False,
-            ),
-        }
-
-    if response.status_code >= 400:
-        return {
-            "allowed": False,
-            "enabled": True,
-            "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
-            "resourceAttributes": review_request["spec"]["resourceAttributes"],
-            "reason": f"SelfSubjectAccessReview failed with HTTP {response.status_code}",
-            "evaluationError": response.text[:500],
-        }
-
-    payload = response.json()
-    status_payload = payload.get("status", {}) if isinstance(payload, Mapping) else {}
-    status_map = status_payload if isinstance(status_payload, Mapping) else {}
-    return {
-        "allowed": bool(status_map.get("allowed")),
-        "denied": bool(status_map.get("denied")),
-        "enabled": True,
-        "evaluationError": status_map.get("evaluationError") or "",
-        "reason": status_map.get("reason") or "",
-        "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
-        "resourceAttributes": review_request["spec"]["resourceAttributes"],
-        "skipped": False,
-    }
-
-
-def product_access_review_status(review: Mapping[str, Any]) -> str:
-    if review.get("skipped"):
-        return "skipped"
-    if review.get("allowed") is True:
-        return "success"
-    if review.get("required") is True:
-        return "error"
-    return "warning"
-
-
-def summarize_product_access_review(review: Mapping[str, Any]) -> str:
-    if review.get("enabled") is False:
-        return "Product access SSAR is disabled by configuration."
-
-    attributes = review.get("resourceAttributes")
-    attributes_text = json.dumps(redact_sensitive(attributes), ensure_ascii=False)
-    return "\n".join(
-        [
-            f"enabled: {review.get('enabled')}",
-            f"required: {review.get('required')}",
-            f"allowed: {review.get('allowed')}",
-            f"denied: {review.get('denied', False)}",
-            f"resourceAttributes: {attributes_text}",
-            f"reason: {review.get('reason') or '-'}",
-            f"evaluationError: {review.get('evaluationError') or '-'}",
-        ]
+    return await auth_runtime.fetch_product_access_review(
+        auth_runtime_config(),
+        auth_runtime_callbacks(),
+        user_auth_header,
     )
 
 
+def product_access_review_status(review: Mapping[str, Any]) -> str:
+    return auth_runtime.product_access_review_status(review)
+
+
+def summarize_product_access_review(review: Mapping[str, Any]) -> str:
+    return auth_runtime.summarize_product_access_review(auth_runtime_callbacks(), review)
+
+
 def enforce_product_access_review(review: Mapping[str, Any]) -> None:
-    if review.get("required") is True and review.get("allowed") is not True:
-        reason = review.get("reason") or review.get("evaluationError") or "product access denied"
-        raise HTTPException(status_code=403, detail=f"KOMSCO AI product access denied: {reason}")
+    auth_runtime.enforce_product_access_review(review)
 
 
-OPENSHIFT_USER_AUTH_FAILURE_MESSAGE = (
-    "OpenShift 사용자 인증이 만료되었거나 Gateway로 전달된 사용자 토큰이 유효하지 않습니다. "
-    "OpenShift 콘솔을 새로고침하거나 다시 로그인한 뒤 요청을 재시도하세요."
-)
+OPENSHIFT_USER_AUTH_FAILURE_MESSAGE = auth_runtime.OPENSHIFT_USER_AUTH_FAILURE_MESSAGE
 
 
 def build_openshift_user_auth_failure_detail(status_code: int, body: str) -> dict[str, Any]:
-    upstream_reason = ""
-    try:
-        payload = json.loads(body)
-        if isinstance(payload, Mapping):
-            upstream_reason = str(payload.get("reason") or payload.get("message") or "")
-    except json.JSONDecodeError:
-        upstream_reason = body[:120]
-    return {
-        "code": "openshift_user_auth_failed",
-        "message": OPENSHIFT_USER_AUTH_FAILURE_MESSAGE,
-        "remediation": "OpenShift 콘솔 세션을 갱신한 뒤 AIOps 요청을 다시 실행하세요.",
-        "upstreamStatus": status_code,
-        "upstreamReason": redact_sensitive(upstream_reason),
-    }
+    return auth_runtime.build_openshift_user_auth_failure_detail(
+        auth_runtime_callbacks(),
+        status_code,
+        body,
+    )
 
 
 def build_openshift_api_unavailable_detail(operation: str, exc: BaseException) -> dict[str, Any]:
-    return {
-        "code": "openshift_api_unavailable",
-        "message": "OpenShift API 응답 지연 또는 연결 실패로 Gateway가 현재 클러스터 증거를 수집하지 못했습니다.",
-        "operation": operation,
-        "remediation": "VPN/OCP API 연결을 확인한 뒤 요청을 다시 실행하세요.",
-        "upstreamReason": safe_exception_text(exc),
-    }
+    return auth_runtime.build_openshift_api_unavailable_detail(
+        auth_runtime_callbacks(),
+        operation,
+        exc,
+    )
 
 
 @app.exception_handler(httpx.RequestError)
@@ -4823,66 +4631,19 @@ async def handle_unexpected_error(_request: Request, exc: Exception) -> JSONResp
 
 
 def http_exception_message(exc: HTTPException) -> str:
-    detail = exc.detail
-    if isinstance(detail, Mapping):
-        message = detail.get("message")
-        if message:
-            return str(message)
-        return json.dumps(redact_sensitive(detail), ensure_ascii=False)
-    return str(detail) or exc.__class__.__name__
+    return auth_runtime.http_exception_message(auth_runtime_callbacks(), exc)
 
 
 def is_openshift_user_auth_failure(exc: HTTPException) -> bool:
-    detail = exc.detail
-    return (
-        exc.status_code == 401
-        and isinstance(detail, Mapping)
-        and detail.get("code") == "openshift_user_auth_failed"
-    )
+    return auth_runtime.is_openshift_user_auth_failure(exc)
 
 
 async def fetch_self_subject_review(user_auth_header: str) -> dict[str, Any]:
-    if not OPENSHIFT_API_URL:
-        return safe_subject(None)
-
-    try:
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(10.0, connect=5.0),
-        ) as client:
-            response = await client.post(
-                f"{OPENSHIFT_API_URL}/apis/authentication.k8s.io/v1/selfsubjectreviews",
-                headers={
-                    "Accept": "application/json",
-                    "Authorization": user_auth_header,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "apiVersion": "authentication.k8s.io/v1",
-                    "kind": "SelfSubjectReview",
-                },
-            )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=504,
-            detail=build_openshift_api_unavailable_detail("self_subject_review", exc),
-        ) from exc
-
-    if response.status_code >= 400:
-        body = response.text[:500]
-        if response.status_code == 401:
-            raise HTTPException(
-                status_code=401,
-                detail=build_openshift_user_auth_failure_detail(response.status_code, body),
-            )
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=f"OpenShift subject review failed: {body}",
-        )
-
-    payload = response.json()
-    user_info = payload.get("status", {}).get("userInfo", {}) if isinstance(payload, Mapping) else {}
-    return safe_subject(user_info if isinstance(user_info, Mapping) else None)
+    return await auth_runtime.fetch_self_subject_review(
+        auth_runtime_config(),
+        auth_runtime_callbacks(),
+        user_auth_header,
+    )
 
 
 def summarize_policy_detail(policy: Mapping[str, Any]) -> str:
@@ -4923,17 +4684,7 @@ def policy_check_summary(policy: Mapping[str, Any]) -> str:
 
 
 def summarize_subject_detail(subject: Mapping[str, Any], *, live_review: bool) -> str:
-    if not live_review:
-        return "OPENSHIFT_API_URL 미설정: bearer 형식만 확인했고 live SelfSubjectReview는 건너뜀"
-
-    return "\n".join(
-        [
-            f"username: {subject.get('username')}",
-            f"uid: {subject.get('uid')}",
-            f"groupsDigest: {subject.get('groupsDigest')}",
-            f"authenticatedByCluster: {subject.get('authenticatedByCluster')}",
-        ]
-    )
+    return auth_runtime.summarize_subject_detail(subject, live_review=live_review)
 
 
 def build_action_proposal_fallback(req: ChatRequest, policy: Mapping[str, Any]) -> str:
@@ -5572,32 +5323,11 @@ def latest_readable_audit_records(
 
 
 def build_status_access_review_failure(exc: HTTPException) -> dict[str, Any]:
-    detail = exc.detail
-    if isinstance(detail, Mapping):
-        safe_detail: Any = redact_sensitive(dict(detail))
-    else:
-        safe_detail = http_exception_message(exc)
-    return {
-        "status": "degraded",
-        "recordsVisible": False,
-        "reason": "OpenShift subject review unavailable; runtime safety status is returned without user-scoped records.",
-        "subjectReview": {
-            "ok": False,
-            "statusCode": exc.status_code,
-            "detail": safe_detail,
-        },
-    }
+    return auth_runtime.build_status_access_review_failure(auth_runtime_callbacks(), exc)
 
 
 def build_skipped_product_access_review(reason: str) -> dict[str, Any]:
-    return {
-        "allowed": False,
-        "enabled": PRODUCT_ACCESS_REVIEW_ENABLED,
-        "required": PRODUCT_ACCESS_REVIEW_REQUIRED,
-        "resourceAttributes": build_product_access_review_request()["spec"]["resourceAttributes"],
-        "skipped": True,
-        "reason": reason,
-    }
+    return auth_runtime.build_skipped_product_access_review(auth_runtime_config(), reason)
 
 
 def record_target_label(record: Mapping[str, Any]) -> str:
