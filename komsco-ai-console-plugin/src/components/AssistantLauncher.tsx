@@ -67,7 +67,6 @@ import {
 import {
   actionAnchorForMessageIndex,
   conversationActionRefFromRecord,
-  getRecordName,
   getRecordTargetLabel,
 } from './assistant.actionRecords';
 import {
@@ -108,6 +107,7 @@ import {
 import { useAssistantUploads } from './assistant.uploads';
 import { useAssistantAttachmentInteractions } from './useAssistantAttachmentInteractions';
 import { useAssistantActionPlanRuntime } from './useAssistantActionPlanRuntime';
+import { useAssistantAiopsRuntimeStatus } from './useAssistantAiopsRuntimeStatus';
 import { useAssistantConversationHistory } from './useAssistantConversationHistory';
 import { useAssistantPanelGeometry } from './useAssistantPanelGeometry';
 import { useAssistantStreamProgress } from './useAssistantStreamProgress';
@@ -121,7 +121,6 @@ import type {
   ConversationActionRef,
   ConversationHistoryItem,
   HistoryPanelView,
-  LightspeedStatusUpdate,
   Message,
   ProgressStatus,
   RunStatusEvent,
@@ -129,17 +128,13 @@ import type {
 } from './assistant.types';
 import {
   type AiopsActionCandidate,
-  type AiopsRecord,
-  type AiopsRuntimeStatus,
-  type AuthSubject,
   type ChatFeedbackPayload,
   type ClusterSummary,
-  fetchAiopsStatus,
   fetchClusterSummary,
-  fetchConsoleUserSubject,
   submitChatFeedback,
   streamChat,
 } from '../services/aiGateway';
+import { createPendingAiopsStatus } from './assistant.aiopsRuntimeStatus';
 import { redactSensitiveText } from '../utils/evidenceDisplay';
 import aiopsIcon from '../assets/aiops_icon.svg';
 import './assistant.css';
@@ -178,164 +173,6 @@ const flushReactSync = (callback: () => void) => {
 
   callback();
 };
-
-type AiopsRuntimeRecordUpdates = Partial<AiopsRuntimeStatus['spec']['records']>;
-
-const mergeAiopsRecordList = (
-  current: AiopsRecord[] | undefined,
-  incoming: AiopsRecord[] | undefined,
-  replaceExisting = true,
-): AiopsRecord[] => {
-  if (!incoming?.length) {
-    return current ?? [];
-  }
-  const next = [...(current ?? [])];
-  incoming.forEach((record) => {
-    const recordName = getRecordName(record);
-    const existingIndex = recordName
-      ? next.findIndex((item) => getRecordName(item) === recordName)
-      : -1;
-    if (existingIndex >= 0) {
-      if (replaceExisting) {
-        next[existingIndex] = record;
-      }
-    } else {
-      next.unshift(record);
-    }
-  });
-  return next;
-};
-
-const mergeAiopsRecordUpdates = (
-  current: AiopsRuntimeRecordUpdates,
-  incoming: AiopsRuntimeRecordUpdates,
-  replaceExisting = true,
-): AiopsRuntimeRecordUpdates => ({
-  ...current,
-  actionProposals: mergeAiopsRecordList(
-    current.actionProposals,
-    incoming.actionProposals,
-    replaceExisting,
-  ),
-  approvalDecisions: mergeAiopsRecordList(
-    current.approvalDecisions,
-    incoming.approvalDecisions,
-    replaceExisting,
-  ),
-  diagnosticRequests: mergeAiopsRecordList(
-    current.diagnosticRequests,
-    incoming.diagnosticRequests,
-    replaceExisting,
-  ),
-  executionRecords: mergeAiopsRecordList(
-    current.executionRecords,
-    incoming.executionRecords,
-    replaceExisting,
-  ),
-  sealedActionPlans: mergeAiopsRecordList(
-    current.sealedActionPlans,
-    incoming.sealedActionPlans,
-    replaceExisting,
-  ),
-  auditRecords: mergeAiopsRecordList(current.auditRecords, incoming.auditRecords, replaceExisting),
-  chatFeedback: mergeAiopsRecordList(current.chatFeedback, incoming.chatFeedback, replaceExisting),
-  chatTranscripts: mergeAiopsRecordList(
-    current.chatTranscripts,
-    incoming.chatTranscripts,
-    replaceExisting,
-  ),
-});
-
-const mergeAiopsRecordsIntoStatus = (
-  status: AiopsRuntimeStatus,
-  updates: AiopsRuntimeRecordUpdates,
-  replaceExisting = true,
-): AiopsRuntimeStatus => {
-  const current = status.spec.records;
-  return {
-    ...status,
-    spec: {
-      ...status.spec,
-      records: {
-        ...current,
-        ...mergeAiopsRecordUpdates(current, updates, replaceExisting),
-      },
-    },
-  };
-};
-
-const createPendingAiopsStatus = (): AiopsRuntimeStatus => ({
-  spec: {
-    capabilities: {
-      actionExecutorConfigured: false,
-      diagnosticsControllerConfigured: false,
-      diagnosticsEnabled: false,
-      mutationsEnabled: true,
-      rag: {
-        accessPath: 'gateway-only',
-        aclRequired: true,
-        backendType: 'pgvector',
-        collection: 'komsco-aiops-runbooks',
-        directDatabaseAccess: false,
-        embeddingModel: 'not_configured',
-        endpointConfigured: false,
-        reason: 'RAG status is pending until the gateway status call completes.',
-        requiredMetadata: [
-          'documentId',
-          'sourceUri',
-          'sourceType',
-          'checksum',
-          'version',
-          'aclGroups',
-        ],
-        status: 'pending',
-        vectorDimensions: 0,
-      },
-      recordStoreEnabled: false,
-      unrestrictedCommandsEnabled: true,
-    },
-    safetyContract: {
-      adapterStatus: [],
-      allowedReadOnlyVerbs: ['get', 'list', 'watch'],
-      capabilityGates: {},
-      evidenceStatus: [],
-      forbiddenActions: [
-        'create',
-        'update',
-        'patch',
-        'delete',
-        'exec',
-        'portforward',
-        'restart',
-        'scale',
-        'rollout',
-      ],
-      mode: 'controlled_execution',
-      product: {
-        mission: 'Evidence-first OpenShift operations assistant',
-      mode: 'evidence_first_execution',
-        name: 'AIOps for OCP',
-      },
-      rcaContextStatus: {
-        latestContext: null,
-        source: 'chat_stream',
-        status: 'waiting_for_first_question',
-      },
-      toolPlanStatus: {
-        latestRuntimePlan: null,
-        source: 'deterministic_gateway_planner',
-        status: 'waiting_for_first_question',
-      },
-    },
-    records: {
-      actionProposals: [],
-      approvalDecisions: [],
-      diagnosticRequests: [],
-      executionRecords: [],
-      sealedActionPlans: [],
-    },
-  },
-});
 
 const stringifyDetail = (value: unknown): string => {
   if (value === undefined || value === null) {
@@ -423,17 +260,21 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [clusterSummary, setClusterSummary] = React.useState<ClusterSummary | null>(null);
   const [clusterSummaryError, setClusterSummaryError] = React.useState('');
   const [clusterSummaryLoading, setClusterSummaryLoading] = React.useState(false);
-  const [authSubject, setAuthSubject] = React.useState<AuthSubject | null>(null);
-  const [authSubjectError, setAuthSubjectError] = React.useState('');
-  const [aiopsStatus, setAiopsStatus] = React.useState<AiopsRuntimeStatus | null>(null);
-  const optimisticAiopsRecordsRef = React.useRef<AiopsRuntimeRecordUpdates>({});
-  // Guards against an out-of-order response (e.g. the 10s poller firing right
-  // before a post-action refresh) silently overwriting fresher status with
-  // stale data — only the response to the most recently issued request wins.
-  const aiopsStatusRequestSeqRef = React.useRef(0);
+  const {
+    aiopsStatus,
+    aiopsStatusError,
+    authSubject,
+    authSubjectError,
+    refreshAiopsRuntimeStatus,
+    setAiopsStatus,
+    updateLightspeedStatus,
+    upsertAiopsRuntimeRecords,
+  } = useAssistantAiopsRuntimeStatus({
+    open,
+    refreshIntervalMs: CLUSTER_SUMMARY_REFRESH_MS,
+  });
   const [autoProposeActions, setAutoProposeActions] = React.useState(false);
   const autoProposeActionsAllowedRef = React.useRef(false);
-  const [aiopsStatusError, setAiopsStatusError] = React.useState('');
   const [executionMode, setExecutionMode] = React.useState<AiopsExecutionMode>(
     DEFAULT_AIOPS_EXECUTION_MODE,
   );
@@ -836,16 +677,10 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
     const loadSummary = async () => {
       setClusterSummaryLoading(true);
-      const seq = ++aiopsStatusRequestSeqRef.current;
-      const [summaryResult, statusResult, consoleUserResult] = await Promise.allSettled([
-        fetchClusterSummary(),
-        fetchAiopsStatus(),
-        fetchConsoleUserSubject(),
-      ]);
+      const [summaryResult] = await Promise.allSettled([fetchClusterSummary()]);
       if (disposed) {
         return;
       }
-      const isLatestStatusRequest = seq === aiopsStatusRequestSeqRef.current;
 
       if (summaryResult.status === 'fulfilled') {
         setClusterSummary(summaryResult.value);
@@ -856,41 +691,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
             ? summaryResult.reason.message
             : 'Cluster summary request failed.',
         );
-      }
-
-      if (isLatestStatusRequest) {
-        if (statusResult.status === 'fulfilled') {
-          setAiopsStatus(statusResult.value);
-          setAiopsStatusError('');
-          const subject = statusResult.value.spec.subject;
-          if (subject) {
-            setAuthSubject(subject);
-            setAuthSubjectError('');
-          } else if (consoleUserResult.status === 'fulfilled') {
-            setAuthSubject(consoleUserResult.value);
-            setAuthSubjectError('');
-          } else {
-            setAuthSubject(null);
-            setAuthSubjectError('Subject not returned by status endpoint.');
-          }
-        } else {
-          setAiopsStatusError(
-            statusResult.reason instanceof Error
-              ? statusResult.reason.message
-              : 'AIOps status request failed.',
-          );
-          if (consoleUserResult.status === 'fulfilled') {
-            setAuthSubject(consoleUserResult.value);
-            setAuthSubjectError('');
-          } else {
-            setAuthSubject(null);
-            setAuthSubjectError(
-              statusResult.reason instanceof Error
-                ? statusResult.reason.message
-                : 'Auth subject request failed.',
-            );
-          }
-        }
       }
 
       setClusterSummaryLoading(false);
@@ -906,68 +706,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       window.clearInterval(timer);
     };
   }, [open]);
-
-  const refreshAiopsRuntimeStatus = React.useCallback(async () => {
-    const seq = ++aiopsStatusRequestSeqRef.current;
-    try {
-      const status = await fetchAiopsStatus();
-      if (seq !== aiopsStatusRequestSeqRef.current) {
-        return null;
-      }
-
-      const mergedStatus = mergeAiopsRecordsIntoStatus(
-        status,
-        optimisticAiopsRecordsRef.current,
-        false,
-      );
-      setAiopsStatus(mergedStatus);
-      setAiopsStatusError('');
-      return mergedStatus;
-    } catch (error) {
-      if (seq !== aiopsStatusRequestSeqRef.current) {
-        return null;
-      }
-      setAiopsStatusError(error instanceof Error ? error.message : 'AIOps status request failed.');
-      return null;
-    }
-  }, []);
-
-  const updateLightspeedStatus = React.useCallback((updates: LightspeedStatusUpdate) => {
-    setAiopsStatus((prev) => {
-      const base = prev ?? createPendingAiopsStatus();
-      const safetyContract =
-        base.spec.safetyContract ?? createPendingAiopsStatus().spec.safetyContract!;
-      const currentStatus = safetyContract.lightspeedStatus ?? {};
-
-      return {
-        ...base,
-        spec: {
-          ...base.spec,
-          safetyContract: {
-            ...safetyContract,
-            lightspeedStatus: {
-              ...currentStatus,
-              ...updates,
-            },
-          },
-        },
-      };
-    });
-  }, []);
-
-  const upsertAiopsRuntimeRecords = React.useCallback(
-    (updates: AiopsRuntimeRecordUpdates) => {
-      optimisticAiopsRecordsRef.current = mergeAiopsRecordUpdates(
-        optimisticAiopsRecordsRef.current,
-        updates,
-      );
-      setAiopsStatus((prev) => {
-        const base = prev ?? createPendingAiopsStatus();
-        return mergeAiopsRecordsIntoStatus(base, updates);
-      });
-    },
-    [],
-  );
 
   const appendAssistantText = React.useCallback((content: string) => {
     setMessages((prev) => {
