@@ -58,6 +58,9 @@ from .answer_streaming import (
 )
 from .app_factory import create_app
 from .aiops_read_router import create_aiops_read_router
+from .action_router import create_action_router
+from . import action_api_service
+from .action_api_service import ActionApiConfig, ActionApiDependencies, ActionApiStores
 from .aiops_read_service import (
     AiopsReadConfig,
     AiopsReadDependencies,
@@ -5996,110 +5999,97 @@ async def get_aiops_status(authorization: str | None = Header(default=None)) -> 
     )
 
 
-@app.get("/v1/actions/registry")
+def action_api_dependencies() -> ActionApiDependencies:
+    return ActionApiDependencies(
+        config=ActionApiConfig(
+            mutations_enabled=MUTATIONS_ENABLED,
+            unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
+            approval_access_review_required=APPROVAL_ACCESS_REVIEW_REQUIRED,
+            registry_version=ACTION_REGISTRY_VERSION,
+            registry_digest=ACTION_REGISTRY_DIGEST,
+            registry_entries=ACTION_REGISTRY_ENTRIES,
+            auto_execute_tool_names=frozenset(AUTO_EXECUTE_TOOL_NAMES),
+            auto_execute_evict_eligible_source_types=frozenset(
+                AUTO_EXECUTE_EVICT_ELIGIBLE_SOURCE_TYPES
+            ),
+        ),
+        stores=ActionApiStores(
+            action_proposals=ACTION_PROPOSALS,
+            sealed_action_plans=SEALED_ACTION_PLANS,
+            approval_decisions=APPROVAL_DECISIONS,
+            execution_records=EXECUTION_RECORDS,
+            auto_execute_target_locks=_AUTO_EXECUTE_TARGET_LOCKS,
+        ),
+        verify_bearer_header=verify_bearer_header,
+        fetch_self_subject_review=fetch_self_subject_review,
+        fetch_product_access_review=fetch_product_access_review,
+        fetch_action_access_review=fetch_action_access_review,
+        enforce_product_access_review=enforce_product_access_review,
+        enforce_action_access_review=enforce_action_access_review,
+        can_subject_read_record=can_subject_read_record,
+        build_action_proposal_record=build_action_proposal_record,
+        build_sealed_action_plan_record=build_sealed_action_plan_record,
+        build_approval_decision_record=build_approval_decision_record,
+        build_action_rejection_record=build_action_rejection_record,
+        build_execution_grant_reference=build_execution_grant_reference,
+        create_plan_from_action_candidate=create_plan_from_action_candidate,
+        bounded_put_record=bounded_put_record,
+        increment_metric=increment_metric,
+        maybe_auto_approve_and_execute=maybe_auto_approve_and_execute,
+        plan_has_approval_status=plan_has_approval_status,
+        find_approval_by_plan_status=find_approval_by_plan_status,
+        record_created_at=record_created_at,
+        validate_approval_is_active=validate_approval_is_active,
+        approval_already_executed=approval_already_executed,
+        validate_execution_evidence_freshness=validate_execution_evidence_freshness,
+        execute_action_with_executor=execute_action_with_executor,
+        sealed_plan_is_review_only=sealed_plan_is_review_only,
+        now_rfc3339=now_rfc3339,
+        redact_sensitive=redact_sensitive,
+        aiops_action_candidates=aiops_action_candidates,
+    )
+
+
+app.include_router(create_action_router(action_api_dependencies))
+
+
 async def get_action_registry(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    verify_bearer_header(authorization)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ActionRegistry",
-        "metadata": {
-            "name": "mutation-action-registry",
-            "version": ACTION_REGISTRY_VERSION,
-        },
-        "spec": {
-            "digest": ACTION_REGISTRY_DIGEST,
-            "mutationsEnabled": MUTATIONS_ENABLED,
-            "entries": list(ACTION_REGISTRY_ENTRIES.values()),
-        },
-    }
+    return action_api_service.get_action_registry(authorization, action_api_dependencies())
 
 
-@app.post("/v1/actions/proposals")
 async def create_action_proposal(
     req: ActionProposalCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = build_action_proposal_record(req, subject)
-    proposal_id = str(record["metadata"]["name"])
-    await bounded_put_record("actionProposals", proposal_id, record)
-    increment_metric("aiops_action_proposals_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ActionProposal",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await action_api_service.create_action_proposal(req, authorization, action_api_dependencies())
 
 
-@app.post("/v1/actions/candidate-plans")
 async def create_action_candidate_plan(
     req: ActionCandidatePlanCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    return await create_plan_from_action_candidate(req, user_auth_header, subject)
+    return await action_api_service.create_action_candidate_plan(req, authorization, action_api_dependencies())
 
 
-@app.get("/v1/actions/proposals/{proposal_id}")
 async def get_action_proposal(
     proposal_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = ACTION_PROPOSALS.get(proposal_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Action proposal not found")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ActionProposal",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await action_api_service.get_action_proposal(proposal_id, authorization, action_api_dependencies())
 
 
-@app.post("/v1/actions/plans")
 async def create_action_plan(
     req: SealedActionPlanCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    proposal = ACTION_PROPOSALS.get(req.proposalId)
-    if not proposal or not can_subject_read_record(proposal, subject):
-        raise HTTPException(status_code=404, detail="Action proposal not found")
-    record = build_sealed_action_plan_record(proposal)
-    plan_id = str(record["metadata"]["name"])
-    await bounded_put_record("sealedActionPlans", plan_id, record)
-    increment_metric("aiops_action_plans_total")
-    auto_result = await maybe_auto_approve_and_execute(record, user_auth_header)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "SealedActionPlan",
-        "metadata": record["metadata"],
-        "spec": {**record["spec"], **(auto_result or {})},
-    }
+    return await action_api_service.create_action_plan(req, authorization, action_api_dependencies())
 
 
-@app.get("/v1/actions/plans/{plan_id}")
 async def get_action_plan(
     plan_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = SEALED_ACTION_PLANS.get(plan_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "SealedActionPlan",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await action_api_service.get_action_plan(plan_id, authorization, action_api_dependencies())
 
 
 async def _create_approval_decision_impl(
@@ -6108,126 +6098,23 @@ async def _create_approval_decision_impl(
     *,
     auto_policy: bool = False,
 ) -> dict[str, Any]:
-    subject = await fetch_self_subject_review(user_auth_header)
-    product_access_review = await fetch_product_access_review(user_auth_header)
-    if APPROVAL_ACCESS_REVIEW_REQUIRED:
-        enforce_product_access_review(
-            {
-                **product_access_review,
-                "required": True,
-            }
-        )
-    plan = SEALED_ACTION_PLANS.get(req.planId)
-    if not plan:
-        raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    if not can_subject_read_record(plan, subject) and product_access_review.get("allowed") is not True:
-        raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
-    if req.expectedPlanDigest != plan_digest:
-        raise HTTPException(status_code=409, detail="expectedPlanDigest does not match the sealed plan")
-    plan_created_at = record_created_at(plan)
-    if plan_has_approval_status(plan_digest, {"rejected"}, not_before=plan_created_at):
-        raise HTTPException(status_code=409, detail="Action plan has been rejected")
-    existing_approval = find_approval_by_plan_status(
-        plan_digest,
-        {"approved", "executed"},
-        not_before=plan_created_at,
+    return await action_api_service.create_approval_decision_impl(
+        req, user_auth_header, action_api_dependencies(), auto_policy=auto_policy,
     )
-    if existing_approval is not None:
-        return {
-            "apiVersion": "aiops.komsco/v1",
-            "kind": "ApprovalDecision",
-            "metadata": existing_approval["metadata"],
-            "spec": existing_approval["spec"],
-        }
-    action_access_review = await fetch_action_access_review(
-        user_auth_header,
-        plan["spec"]["sealedActionPlan"],
-    )
-    enforce_action_access_review(action_access_review)
-    action = plan["spec"]["sealedActionPlan"].get("action", {})
-    review_only_action = (
-        isinstance(action, Mapping)
-        and str(action.get("toolName") or "")
-        in {
-            "namespace_cleanup_review",
-            "test_pod_create_review",
-            "pod_diagnostic_review",
-            "pod_fix_or_rollback_review",
-        }
-    )
-    record = build_approval_decision_record_for_context(
-        ApprovalDecisionRecordInput(
-            plan_record=plan,
-            request=req,
-            approver=subject,
-            action_access_review=action_access_review,
-            context=action_record_context(),
-            allow_self_approval=auto_policy or review_only_action,
-            auto_policy=auto_policy,
-        )
-    )
-    approval_id = str(record["metadata"]["name"])
-    await bounded_put_record("approvalDecisions", approval_id, record)
-    increment_metric("aiops_approval_decisions_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ApprovalDecision",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
 
 
-@app.post("/v1/actions/approvals")
 async def create_approval_decision(
     req: ApprovalDecisionCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    unrestricted_auto_policy = req.approvalScope == "lab-auto-unrestricted"
-    if unrestricted_auto_policy and not UNRESTRICTED_COMMANDS_ENABLED:
-        raise HTTPException(
-            status_code=403,
-            detail="lab-auto-unrestricted approval requires unrestricted command gate",
-        )
-    return await _create_approval_decision_impl(
-        req,
-        user_auth_header,
-        auto_policy=unrestricted_auto_policy,
-    )
+    return await action_api_service.create_approval_decision(req, authorization, action_api_dependencies())
 
 
-@app.post("/v1/actions/rejections")
 async def reject_action_plan(
     req: ActionRejectionCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    product_access_review = await fetch_product_access_review(user_auth_header)
-    product_access_allowed = bool(product_access_review.get("allowed"))
-    plan = SEALED_ACTION_PLANS.get(req.planId)
-    if not plan or (
-        not can_subject_read_record(plan, subject) and not product_access_allowed
-    ):
-        raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    plan_digest = plan["spec"]["sealedActionPlan"]["digest"]["planDigest"]
-    if plan_has_approval_status(
-        plan_digest,
-        {"approved", "executed"},
-        not_before=record_created_at(plan),
-    ):
-        raise HTTPException(status_code=409, detail="Action plan already has an active approval")
-    record = build_action_rejection_record(plan, req, subject)
-    rejection_id = str(record["metadata"]["name"])
-    await bounded_put_record("approvalDecisions", rejection_id, record)
-    increment_metric("aiops_approval_decisions_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ApprovalDecision",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await action_api_service.reject_action_plan(req, authorization, action_api_dependencies())
 
 
 async def _execute_action_impl(
@@ -6236,112 +6123,16 @@ async def _execute_action_impl(
     *,
     auto_policy: bool = False,
 ) -> dict[str, Any]:
-    subject = await fetch_self_subject_review(user_auth_header)
-    product_access_review = await fetch_product_access_review(user_auth_header)
-    product_access_allowed = bool(product_access_review.get("allowed"))
-    plan = SEALED_ACTION_PLANS.get(req.planId)
-    approval = APPROVAL_DECISIONS.get(req.approvalId)
-    if not plan or (
-        not can_subject_read_record(plan, subject) and not product_access_allowed
-    ):
-        raise HTTPException(status_code=404, detail="Sealed action plan not found")
-    if not approval or (
-        not can_subject_read_record(approval, subject) and not product_access_allowed
-    ):
-        raise HTTPException(status_code=404, detail="Approval decision not found")
-
-    sealed_plan = plan["spec"]["sealedActionPlan"]
-    plan_digest = sealed_plan["digest"]["planDigest"]
-    approval_decision = approval["spec"]["approvalDecision"]
-    if req.expectedPlanDigest != plan_digest or approval_decision["planDigest"] != plan_digest:
-        raise HTTPException(status_code=409, detail="Execution request is stale for this sealed plan")
-    if approval_decision["status"] != "approved":
-        raise HTTPException(status_code=409, detail="Approval decision is not approved")
-    validate_approval_is_active(approval_decision)
-    if approval_already_executed(req.approvalId):
-        raise HTTPException(status_code=409, detail="Approval decision has already been used for execution")
-    execution_access_review = await fetch_action_access_review(user_auth_header, sealed_plan)
-    enforce_action_access_review(execution_access_review)
-    validate_execution_evidence_freshness(sealed_plan)
-
-    grant_reference = build_execution_grant_reference_for_context(
-        ExecutionGrantInput(
-            approval=approval,
-            plan=plan,
-            approver=subject,
-            context=action_record_context(),
-        )
+    return await action_api_service.execute_action_impl(
+        req, user_auth_header, action_api_dependencies(), auto_policy=auto_policy,
     )
-    execution_id = f"execution-{uuid.uuid4()}"
-    review_only_execution = sealed_plan_is_review_only(sealed_plan)
-    if MUTATIONS_ENABLED or review_only_execution:
-        executor_result = await execute_action_with_executor(
-            sealed_plan,
-            grant_reference,
-            fallback_authorization=user_auth_header,
-        )
-    else:
-        executor_result = {
-            "mutationOutcome": {
-                "status": "mutation_disabled",
-                "reason": "KOMSCO_AI_ENABLE_MUTATIONS is false.",
-            },
-            "remediationOutcome": {"status": "not_remediated"},
-            "executorTrace": {"mutationSubmitted": False},
-        }
-    record = {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ExecutionRecord",
-        "metadata": {"name": execution_id, "createdAt": now_rfc3339()},
-        "spec": {
-            "executionId": execution_id,
-            "approvalId": req.approvalId,
-            "planId": req.planId,
-            "planDigest": plan_digest,
-            "executionGrantRef": {
-                key: value for key, value in grant_reference.items() if key != "claims"
-            },
-            "mutationOutcome": executor_result["mutationOutcome"],
-            "remediationOutcome": executor_result["remediationOutcome"],
-            "executorTrace": redact_sensitive(executor_result.get("executorTrace") or {}),
-            "executionAuthorization": redact_sensitive(execution_access_review),
-            **(
-                {
-                    "decidedBy": "auto-policy",
-                    "decisionPolicy": {
-                        "toolName": sealed_plan["action"].get("toolName"),
-                        "triggeredBy": "sealed-plan-creation",
-                    },
-                }
-                if auto_policy
-                else {}
-            ),
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
-    await bounded_put_record("executionRecords", execution_id, record)
-    approval_decision["status"] = "executed"
-    approval_decision["executedAt"] = record["metadata"]["createdAt"]
-    await bounded_put_record("approvalDecisions", req.approvalId, approval)
-    increment_metric("aiops_execution_requests_total")
-    if not MUTATIONS_ENABLED and not review_only_execution:
-        raise HTTPException(status_code=403, detail=record["spec"])
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "ExecutionRecord",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
 
 
-@app.post("/v1/actions/execute")
 async def execute_action(
     req: ActionExecutionCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    return await _execute_action_impl(req, user_auth_header)
+    return await action_api_service.execute_action(req, authorization, action_api_dependencies())
 
 
 def has_recent_auto_action_for_target(
@@ -6350,148 +6141,26 @@ def has_recent_auto_action_for_target(
     *,
     window_seconds: int = 180,
 ) -> bool:
-    """True if an auto-policy approval already exists for this exact target
-    and tool within the last `window_seconds`. Used inside the per-target lock
-    in `maybe_auto_approve_and_execute` so two near-simultaneous requests for
-    the same target (e.g. a retried webhook, or two overlapping chat turns)
-    can't each independently auto-execute their own separate sealed plan.
-    """
-    now = datetime.now(UTC)
-    for record in APPROVAL_DECISIONS.values():
-        decision = record.get("spec", {}).get("approvalDecision", {})
-        if decision.get("decidedBy") != "auto-policy":
-            continue
-        decision_target = decision.get("target") or {}
-        if (
-            decision_target.get("namespace") != target.get("namespace")
-            or decision_target.get("name") != target.get("name")
-            or decision_target.get("kind") != target.get("kind")
-        ):
-            continue
-        if decision.get("action", {}).get("toolName") != tool_name:
-            continue
-        try:
-            approved_at = datetime.fromisoformat(str(decision.get("approvedAt", "")).replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if (now - approved_at).total_seconds() <= window_seconds:
-            return True
-    return False
+    return action_api_service.has_recent_auto_action_for_target(
+        target, tool_name, action_api_dependencies(), window_seconds=window_seconds,
+    )
 
 
 async def verify_source_type_for_target(
     user_auth_header: str, target: Mapping[str, Any]
 ) -> str | None:
-    """Look up the live, server-computed action-candidates list and return the
-    real sourceType for this target, rather than trusting any client-supplied
-    value. Returns None if the target isn't currently listed as an action
-    candidate (already resolved, or the lookup itself fails), so callers can
-    fail closed instead of trusting an unverifiable claim.
-    """
-    try:
-        candidates = await aiops_action_candidates(user_auth_header)
-    except Exception:  # noqa: BLE001
-        return None
-    namespace = target.get("namespace")
-    name = target.get("name")
-    for candidate in candidates.get("spec", {}).get("candidates", []) or []:
-        candidate_target = candidate.get("target") or {}
-        if candidate_target.get("namespace") == namespace and candidate_target.get("name") == name:
-            return candidate.get("sourceType")
-    return None
+    return await action_api_service.verify_source_type_for_target(
+        user_auth_header, target, action_api_dependencies(),
+    )
 
 
 async def maybe_auto_approve_and_execute(
     plan_record: Mapping[str, Any],
     user_auth_header: str,
 ) -> dict[str, Any] | None:
-    """If the sealed plan's tool is on the narrow AUTO_EXECUTE_TOOL_NAMES
-    allowlist (empty/off by default), skip the human approve/execute clicks
-    and drive the same internal approval + execution logic immediately.
-    Every server-side check those two paths already perform (mutation gate,
-    action executor availability, target liveness, approval expiry/reuse)
-    still runs unchanged; only the human click is skipped. Returns None when
-    the plan isn't eligible, so callers should treat that as "do nothing."
-
-    `evict_one_unhealthy_controller_owned_pod` is reused for every unhealthy
-    Pod target regardless of why it's unhealthy, but eviction only helps
-    transient/restart-recoverable states (crashloop, restart spikes) — it does
-    nothing for a persistent-failure state like ImagePullBackOff (bad image,
-    registry down) and would just churn the pod forever. So beyond the tool
-    allowlist, this tool specifically also requires the finding's sourceType
-    to be one of the transient-restart categories.
-
-    The `source_type` parameter as passed in by callers is caller-supplied (it
-    round-trips through client-controlled request fields), so it is NEVER
-    trusted for the eligibility decision below. The real check re-derives
-    sourceType from the live, server-computed action-candidates list keyed by
-    this plan's actual target, so a caller can't defeat the persistent-failure
-    guard by mislabeling a request's sourceType. If the target can't be
-    matched against a current server-computed finding at all (e.g. it already
-    resolved, or the candidates lookup errors), this fails closed — the
-    eviction stays ineligible for auto-execute and falls back to the normal
-    manual approve/execute flow.
-    """
-    if not MUTATIONS_ENABLED:
-        return None
-
-    plan = plan_record["spec"]["sealedActionPlan"]
-    tool_name = plan["action"].get("toolName")
-    if not tool_name or tool_name not in AUTO_EXECUTE_TOOL_NAMES:
-        return None
-    if tool_name == "evict_one_unhealthy_controller_owned_pod":
-        verified_source_type = await verify_source_type_for_target(
-            user_auth_header, plan["target"]
-        )
-        if verified_source_type not in AUTO_EXECUTE_EVICT_ELIGIBLE_SOURCE_TYPES:
-            return None
-
-    target = plan["target"]
-    target_key = f"{target.get('namespace')}/{target.get('kind')}/{target.get('name')}"
-    lock = _AUTO_EXECUTE_TARGET_LOCKS.setdefault(target_key, asyncio.Lock())
-
-    async with lock:
-        # Re-check after acquiring the lock: a concurrent request for the same
-        # target (e.g. a retried webhook) may have already auto-executed a
-        # different sealed plan for it while we were waiting.
-        if has_recent_auto_action_for_target(target, tool_name):
-            return {"autoExecuted": False, "autoExecuteFailed": True, "reason": "duplicate auto-execute for this target was already handled"}
-
-        plan_id = str(plan_record["metadata"]["name"])
-        plan_digest = plan["digest"]["planDigest"]
-        try:
-            approval_response = await _create_approval_decision_impl(
-                ApprovalDecisionCreate(
-                    planId=plan_id,
-                    expectedPlanDigest=plan_digest,
-                    approvalScope="auto-policy",
-                ),
-                user_auth_header,
-                auto_policy=True,
-            )
-            approval_id = str(approval_response["metadata"]["name"])
-            execution_response = await _execute_action_impl(
-                ActionExecutionCreate(
-                    approvalId=approval_id,
-                    planId=plan_id,
-                    expectedPlanDigest=plan_digest,
-                ),
-                user_auth_header,
-                auto_policy=True,
-            )
-        except HTTPException as exc:
-            return {"autoExecuted": False, "autoExecuteFailed": True, "reason": str(exc.detail)}
-        except Exception as exc:  # noqa: BLE001
-            # Auto-execute is best-effort: the plan/proposal are already persisted,
-            # so a downstream failure (e.g. Action Executor unreachable) must degrade
-            # to the normal manual approve/execute flow, not fail the whole request.
-            return {"autoExecuted": False, "autoExecuteFailed": True, "reason": str(exc)}
-
-        return {
-            "autoExecuted": True,
-            "approval": approval_response,
-            "execution": execution_response,
-        }
+    return await action_api_service.maybe_auto_approve_and_execute(
+        plan_record, user_auth_header, action_api_dependencies(),
+    )
 
 
 @app.post("/v1/dev/commands/execute")
