@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from komsco_ai_gateway import main as gateway_main
+from komsco_ai_gateway import action_execution_runtime_support
 from komsco_ai_gateway import gateway_state
 from komsco_ai_gateway import cluster_observability_runtime
 from komsco_ai_gateway import namespace_cleanup_runtime_support
@@ -215,3 +216,89 @@ def test_cluster_observability_dependencies_follow_current_main_bindings(monkeyp
 
     assert result == "patched evidence"
     assert observed["fetch"] is fetch
+
+
+def test_action_execution_runtime_support_does_not_import_main() -> None:
+    module_path = (
+        Path(__file__).parents[1]
+        / "komsco_ai_gateway"
+        / "action_execution_runtime_support.py"
+    )
+    source = module_path.read_text(encoding="utf-8")
+
+    assert "from .main import" not in source
+    assert "import komsco_ai_gateway.main" not in source
+
+
+def test_typed_action_wrappers_follow_current_main_dependencies(monkeypatch) -> None:
+    fetch = object()
+    action_fetch = object()
+    submit = object()
+    observed = {}
+
+    async def execute(_plan, *, config, dependencies):
+        observed["config"] = config
+        observed["fetch"] = dependencies.fetch_ocp_json
+        observed["action_fetch"] = dependencies.fetch_ocp_json_for_action_execution
+        observed["submit"] = dependencies.submit_ocp_request
+        return {"ok": True}
+
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fetch)
+    monkeypatch.setattr(gateway_main, "_fetch_ocp_json_for_action_execution", action_fetch)
+    monkeypatch.setattr(gateway_main, "submit_ocp_request", submit)
+    monkeypatch.setattr(
+        action_execution_runtime_support,
+        "execute_typed_action_plan",
+        execute,
+    )
+
+    result = asyncio.run(gateway_main.execute_typed_action_plan({}))
+
+    assert result == {"ok": True}
+    assert observed["config"].openshift_api_url == gateway_main.OPENSHIFT_API_URL
+    assert observed["fetch"] is fetch
+    assert observed["action_fetch"] is action_fetch
+    assert observed["submit"] is submit
+
+
+def test_unrestricted_wrapper_follows_current_main_bindings(monkeypatch) -> None:
+    truncate = object()
+    timeout = object()
+    cwd = object()
+    observed = {}
+
+    async def execute(_req, _subject, *, config, dependencies, request_id, run_id):
+        observed["config"] = config
+        observed["truncate"] = dependencies.truncate_output
+        observed["timeout"] = dependencies.resolve_timeout
+        observed["cwd"] = dependencies.resolve_cwd
+        observed["request_id"] = request_id
+        observed["run_id"] = run_id
+        return {"ok": True}
+
+    monkeypatch.setattr(gateway_main, "UNRESTRICTED_COMMANDS_ENABLED", True)
+    monkeypatch.setattr(gateway_main, "truncate_unrestricted_output", truncate)
+    monkeypatch.setattr(gateway_main, "unrestricted_command_timeout", timeout)
+    monkeypatch.setattr(gateway_main, "unrestricted_command_cwd", cwd)
+    monkeypatch.setattr(
+        action_execution_runtime_support,
+        "execute_unrestricted_command_request",
+        execute,
+    )
+
+    result = asyncio.run(
+        gateway_main.execute_unrestricted_command_request(
+            SimpleNamespace(),
+            {},
+            request_id="req-test",
+            run_id="run-test",
+        )
+    )
+
+    assert result == {"ok": True}
+    assert observed["config"].enabled is True
+    assert observed["truncate"] is truncate
+    assert observed["timeout"] is timeout
+    assert observed["cwd"] is cwd
+    assert observed["request_id"] == "req-test"
+    assert observed["run_id"] == "run-test"
