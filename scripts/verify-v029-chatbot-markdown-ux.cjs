@@ -21,7 +21,13 @@ const actionPlanButtons = readFile('komsco-ai-console-plugin/src/components/Assi
 const actionRecords = readFile('komsco-ai-console-plugin/src/components/AssistantActionRecords.tsx');
 const actionRecordHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.actionRecords.ts');
 const actionSessionHelpers = readFile('komsco-ai-console-plugin/src/components/assistant.sessionActions.ts');
+const actionPlanRuntime = readFile('komsco-ai-console-plugin/src/components/useAssistantActionPlanRuntime.ts');
+const panelGeometry = readFile('komsco-ai-console-plugin/src/components/useAssistantPanelGeometry.ts');
+const streamController = readFile('komsco-ai-console-plugin/src/components/assistant.streamController.ts');
 const launcher = readFile('komsco-ai-console-plugin/src/components/AssistantLauncher.tsx');
+const conversations = readFile('komsco-ai-console-plugin/src/components/assistant.conversations.ts');
+const conversationHistoryHook = readFile('komsco-ai-console-plugin/src/components/useAssistantConversationHistory.ts');
+const assistantConversationRuntime = [launcher, conversations, conversationHistoryHook].join('\n');
 const header = readFile('komsco-ai-console-plugin/src/components/AssistantHeader.tsx');
 const historyPanel = readFile('komsco-ai-console-plugin/src/components/AssistantHistoryPanel.tsx');
 const progressTimeline = readFile('komsco-ai-console-plugin/src/components/AssistantProgressTimeline.tsx');
@@ -44,6 +50,10 @@ const followupCss = readFile('komsco-ai-console-plugin/src/components/assistant.
 const gateway = readFile('komsco-ai-gateway/komsco_ai_gateway/main.py');
 const gatewayAnswerContracts = readFile('komsco-ai-gateway/komsco_ai_gateway/answer_contracts.py');
 const gatewayActionExecution = readFile('komsco-ai-gateway/komsco_ai_gateway/action_execution.py');
+const gatewayActionRegistry = readFile('komsco-ai-gateway/komsco_ai_gateway/action_registry.py');
+const gatewayLlmStreamClient = readFile('komsco-ai-gateway/komsco_ai_gateway/llm_stream_client.py');
+const gatewayOlsQueryRendering = readFile('komsco-ai-gateway/komsco_ai_gateway/ols_query_rendering.py');
+const gatewayPodEvidenceParsing = readFile('komsco-ai-gateway/komsco_ai_gateway/pod_evidence_parsing.py');
 const contracts = readFile('komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py');
 const assistantConstantsSource = readFile('komsco-ai-console-plugin/src/components/assistant.constants.tsx');
 
@@ -104,7 +114,12 @@ assert(
   'Read-only mode must show Action Plan candidates and allow plan creation while keeping approval/execution gated',
 );
 assert(launcher.includes('mergeConversationActionRefs'), 'Action refs must share one merge/dedupe path');
-assert(launcher.includes('setConversationHistory((prev) =>') && launcher.includes('actionRefs: mergeConversationActionRefs'), 'Created Action Plans must be reflected in conversation history immediately');
+assert(
+  assistantConversationRuntime.includes('setConversationHistory((prev) =>') &&
+    assistantConversationRuntime.includes('actionRefs:') &&
+    launcher.includes('mergeConversationActionRefs'),
+  'Created Action Plans must be reflected in conversation history immediately',
+);
 assert(
   launcher.includes('showActionPrepGroup') &&
     launcher.includes('data-aiops-action-prep') &&
@@ -361,7 +376,7 @@ assert(
   actionRecords.includes('!hasActionMessage'),
   'Action records must not return null when create-plan error/notice exists',
 );
-assert(launcher.includes('setActionCandidateFeedback'), 'Create-plan flow must set per-candidate feedback');
+assert(actionPlanRuntime.includes('setActionCandidateFeedback'), 'Create-plan flow must set per-candidate feedback');
 assert(launcher.includes('pendingActionCandidatesForRefs'), 'Created Action Plan refs must hide only the created candidate, not every candidate on the same target');
 assert(
   launcher.includes('candidateId: ref.candidateId ?? existing.candidateId') ||
@@ -376,11 +391,11 @@ assert(
   'Action Plan candidate buttons must keep remaining candidates visible after one candidate is created',
 );
 assert(
-  launcher.includes('Action Plan을 생성했습니다. 아래 카드에서 승인 또는 실행을 이어갈 수 있습니다.'),
+  actionPlanRuntime.includes('Action Plan을 생성했습니다. 아래 카드에서 승인 또는 실행을 이어갈 수 있습니다.'),
   'Create-plan success must tell the user what changed and where to continue',
 );
 assert(
-  launcher.includes('Action Plan을 생성했습니다. 읽기 전용 모드에서는 승인·실행 없이 계획 내용만 확인합니다.'),
+  actionPlanRuntime.includes('Action Plan을 생성했습니다. 읽기 전용 모드에서는 승인·실행 없이 계획 내용만 확인합니다.'),
   'Read-only create-plan success must explain that only approval/execution remains blocked',
 );
 assert(css.includes('.komsco-ai__create-action-plan-feedback'), 'Action Plan create feedback CSS must exist');
@@ -408,7 +423,7 @@ assert(css.includes('v0.2.9 layout lock'), 'Layout lock CSS marker must exist fo
 assert(css.includes('grid-template-rows: minmax(0, 1fr) auto !important'), 'Chat column must reserve a fixed composer row');
 assert(css.includes('padding: 6px 8px 8px !important'), 'Composer bottom padding must stay capped at 8px');
 assert(css.includes('opening history must not change the main assistant frame height'), 'History-open height lock marker must exist');
-assert(launcher.includes("'--komsco-panel-height'"), 'Resizable assistant height must be exported as a CSS variable');
+assert(panelGeometry.includes("'--komsco-panel-height'"), 'Resizable assistant height must be exported as a CSS variable');
 assert(
   css.includes('.komsco-ai__surface.komsco-ai__surface--history-open:not(.komsco-ai__surface--fullscreen)') &&
     css.includes('> .komsco-ai__history-sidebar') &&
@@ -445,10 +460,10 @@ assert(css.includes('.komsco-ai__history-search'), 'History search CSS must exis
 assert(css.includes('.komsco-ai__history-tabs') && css.includes('.komsco-ai__history-tab--active'), 'History segmented tab CSS must exist');
 assert(css.includes('.komsco-ai__history-item-pinned-label'), 'Pinned state marker CSS must exist');
 
-assert(launcher.includes('최종 답변의 확인 결과를 정리했습니다.'), 'RCA context completion copy must be product-facing');
-assert(!launcher.includes('최종 답변에 사용한 근거를 연결했습니다.'), 'RCA context completion copy must not expose internal connection wording');
+assert(streamController.includes('최종 답변의 확인 결과를 정리했습니다.'), 'RCA context completion copy must be product-facing');
+assert(!streamController.includes('최종 답변에 사용한 근거를 연결했습니다.'), 'RCA context completion copy must not expose internal connection wording');
 assert(!progressTimeline.includes('답변 근거 연결 완료'), 'Progress timeline must not expose old evidence-link wording');
-assert(!progressTimeline.includes('AI 응답 대기') && !launcher.includes('AI 응답 대기'), 'Progress UI must not use generic AI wait wording');
+assert(!progressTimeline.includes('AI 응답 대기') && !streamController.includes('AI 응답 대기'), 'Progress UI must not use generic AI wait wording');
 assert(!assistantConstants.includes('화면 표시 준비'), 'Progress wait phases must not end on generic display-prep wording');
 assert(progressTimeline.includes('모델에 확인 결과 전달'), 'Progress UI must translate model handoff into an operator-facing stage');
 assert(progressTimeline.includes('답변이 도착하는 대로 작성하고 있습니다.'), 'Answer streaming must be framed as answer writing, not screen display');
@@ -457,7 +472,7 @@ assert(!css.includes('komsco-ai-pulse-ring'), 'Progress animation must not use r
 assert(!css.includes('flow-pulse--running::after'), 'Progress summary must not use expanding radar-ring pseudo elements');
 assert(!css.includes('progress-status--running::after'), 'Progress detail must not use expanding radar-ring pseudo elements');
 assert(!css.includes('komsco-ai-header-bottom-scan') && !css.includes('komsco-ai-header-bottom-glow'), 'Responding header must not use scanner/glow waiting animations');
-assert(launcher.includes('return `${formatToolTitle(event.name)} 시작`;'), 'Tool-call progress fallback must use the actual tool label instead of generic tool-call wording');
+assert(streamController.includes('return `${formatToolTitle(event.name)} 시작`;'), 'Tool-call progress fallback must use the actual tool label instead of generic tool-call wording');
 assert(css.includes('@media (prefers-reduced-motion: reduce)'), 'Progress animation must respect reduced-motion preferences');
 assert(
   /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.komsco-ai__progress-status--running::before[\s\S]*animation:\s*none/.test(css),
@@ -515,24 +530,28 @@ assert(actionRecordHelpers.includes('reviewOnly: isReviewOnlyActionRecord'), 'Co
 assert(actionState.includes('검토 기록'), 'Review-only Action Plan approval flow must render a record-review action label');
 assert(!actionState.includes('Gateway 실행 기능 미구성'), 'Execute mode must not pre-block Action Plan buttons because the executor is not configured');
 assert(actionState.includes('modeDisabledReason = !executionModeAllowsActions(executionMode)'), 'Action Plan UI gating must be based on selected execution mode, not mutation backend readiness');
-assert(!launcher.includes('위험도가 있는 조치는 요청자 본인이 승인할 수 없거나'), 'Generic 409 handling must not falsely label review-only plans as risky');
-assert(launcher.includes('이 승인은 이미 실행 또는 검토 기록에 사용됐습니다'), 'Action errors must explain already-recorded review approvals distinctly');
-assert(launcher.includes('현재 화면의 계획/승인 상태와 서버 기록이 맞지 않습니다'), 'Generic conflict errors must point to stale UI/server state, not risk');
+assert(!actionPlanRuntime.includes('위험도가 있는 조치는 요청자 본인이 승인할 수 없거나'), 'Generic 409 handling must not falsely label review-only plans as risky');
+assert(actionPlanRuntime.includes('이 승인은 이미 실행 또는 검토 기록에 사용됐습니다'), 'Action errors must explain already-recorded review approvals distinctly');
+assert(actionPlanRuntime.includes('현재 화면의 계획/승인 상태와 서버 기록이 맞지 않습니다'), 'Generic conflict errors must point to stale UI/server state, not risk');
 assert(gatewayTypes.includes('Approval decision has already been used for execution'), 'Gateway client must translate already-used approval errors');
 assert(gatewayTypes.includes('Execution request is stale for this sealed plan'), 'Gateway client must translate stale execution errors');
 assert(gatewayTypes.includes('actionExecutionRecordFromErrorPayload'), 'Execute API client must recover mutation-disabled ExecutionRecord payloads');
 assert(gatewayTypes.includes('response.status === 403') && gatewayTypes.includes("kind: 'ExecutionRecord'"), 'Execute API client must render server-recorded execution outcomes even when HTTP status is 403');
 assert(insightRail.includes("'확인 결과'"), 'Insight rail must use product-facing answer context copy');
 assert(!insightRail.includes('답변 근거'), 'Insight rail must not expose old answer evidence wording');
-assert(gateway.includes('코드블록 안에는 실행 가능한 명령만'), 'Gateway prompt must forbid prose inside code blocks');
-assert(gateway.includes('Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖'), 'Gateway prompt must keep tips/headings/lists outside code blocks');
-assert(gateway.includes('현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인`'), 'Gateway prompt must define v0.2.9 answer order');
-assert(gateway.includes('CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고'), 'CrashLoopBackOff fallback must start with a plain definition before RCA sections');
-assert(gateway.includes('첫 문장에 "컨테이너가 시작 후 곧바로 종료되고 Kubernetes가 재시작을 반복하다가 대기 시간을 늘리는 상태"'), 'Gateway prompt must require a first-sentence CrashLoopBackOff definition');
-assert(gateway.includes('"set_deployment_container_command"'), 'Gateway action registry must include Deployment command mutation');
-assert(!gateway.includes('"deployment_container_command_fix_v1"'), 'Gateway runbook registry must not expose unapproved command-fix runbook');
+assert(gatewayLlmStreamClient.includes('코드블록 안에는 실행 가능한 명령만'), 'Gateway prompt must forbid prose inside code blocks');
+assert(gatewayLlmStreamClient.includes('Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖'), 'Gateway prompt must keep tips/headings/lists outside code blocks');
+assert(gatewayLlmStreamClient.includes('현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인`'), 'Gateway prompt must define v0.2.9 answer order');
+assert(gatewayPodEvidenceParsing.includes('CrashLoopBackOff는 컨테이너가 시작된 뒤 곧바로 종료되고'), 'CrashLoopBackOff fallback must start with a plain definition before RCA sections');
+assert(gatewayPodEvidenceParsing.includes('첫 문장에 "컨테이너가 시작 후 곧바로 종료되고 Kubernetes가 재시작을 반복하다가 대기 시간을 늘리는 상태"'), 'Gateway prompt must require a first-sentence CrashLoopBackOff definition');
+assert(gatewayActionRegistry.includes('"set_deployment_container_command"'), 'Gateway action registry must include Deployment command mutation');
+assert(!gatewayActionRegistry.includes('"deployment_container_command_fix_v1"'), 'Gateway runbook registry must not expose unapproved command-fix runbook');
 assert(gatewayActionExecution.includes('deployment_container_command_matches'), 'Gateway postcondition must verify Deployment command mutation');
-assert(gateway.includes('공용 웹 URL은 기본 답변에 출력하지 마세요'), 'Gateway prompt must forbid public web URLs in default closed-network answers');
+assert(
+  gatewayLlmStreamClient.includes('공용 웹 URL은 기본 답변에 출력하지 마세요') ||
+    gatewayOlsQueryRendering.includes('공용 웹 URL은 기본 답변에 출력하지 마세요'),
+  'Gateway prompt must forbid public web URLs in default closed-network answers',
+);
 assert(contracts.includes('"확인 결과"'), 'RCA contract must use 확인 결과');
 assert(contracts.includes('"조치 방법"'), 'RCA contract must use 조치 방법');
 assert(!contracts.includes('"확인한 근거"'), 'RCA contract must not use old 확인한 근거 wording');
