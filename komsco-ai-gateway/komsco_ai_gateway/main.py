@@ -164,6 +164,18 @@ from .ols_payloads import (
     build_ols_context_handoff as build_ols_context_handoff_for_limits,
 )
 from .ols_query_rendering import OlsQueryRenderInput, render_ols_query
+from .llm_stream_client import (
+    LlmStreamConfig,
+    LlmStreamDependencies,
+    active_label as active_llm_label_for_config,
+    active_stage as active_llm_stage_for_config,
+    build_ollama_chat_url as build_ollama_chat_url_for_client,
+    call_ollama_chat as call_ollama_chat_with_client,
+    call_ols_stream as call_ols_stream_with_client,
+    extract_ollama_chat_content as extract_ollama_chat_content_from_response,
+    should_use_ollama as should_use_ollama_for_config,
+    stream_with_heartbeats as stream_with_client_heartbeats,
+)
 from .page_context import (
     page_context_aiops_execution_mode,
     page_context_is_pod_workload,
@@ -3758,50 +3770,6 @@ async def analyze_image_attachments(
     return await analyze_image_attachments_with_model(attachments, user_message)
 
 
-async def stream_with_heartbeats(
-    events: AsyncIterator[dict[str, Any]],
-    run_id: str,
-) -> AsyncIterator[dict[str, Any]]:
-    queue: asyncio.Queue[dict[str, Any] | BaseException | None] = asyncio.Queue()
-    started_at = time.monotonic()
-
-    async def produce() -> None:
-        try:
-            async for event in events:
-                await queue.put(event)
-        except BaseException as exc:
-            await queue.put(exc)
-        finally:
-            await queue.put(None)
-
-    producer = asyncio.create_task(produce())
-
-    try:
-        while True:
-            try:
-                item = await asyncio.wait_for(queue.get(), timeout=RUN_HEARTBEAT_SECONDS)
-            except TimeoutError:
-                yield {
-                    "type": "run_status",
-                    "runId": run_id,
-                    "stage": "waiting",
-                    "message": f"{active_llm_label()} 응답 대기 중",
-                    "elapsedMs": int((time.monotonic() - started_at) * 1000),
-                }
-                continue
-
-            if item is None:
-                break
-
-            if isinstance(item, BaseException):
-                raise item
-
-            yield item
-    finally:
-        if not producer.done():
-            producer.cancel()
-
-
 def update_ols_stream_status(
     status: str,
     *,
@@ -3824,37 +3792,64 @@ def update_ols_stream_status(
     }
 
 
+def llm_stream_config() -> LlmStreamConfig:
+    return LlmStreamConfig(
+        api_style=LLM_API_STYLE,
+        base_url=LLM_BASE_URL,
+        model=LLM_MODEL,
+        timeout_seconds=LLM_TIMEOUT_SECONDS,
+        heartbeat_seconds=RUN_HEARTBEAT_SECONDS,
+        ols_base_url=OLS_BASE_URL,
+        ols_ca_file=OLS_CA_FILE,
+        ols_connect_timeout_seconds=OLS_CONNECT_TIMEOUT_SECONDS,
+        dev_echo=DEV_ECHO,
+        require_final_answer=REQUIRE_OLS_FINAL_ANSWER,
+    )
+
+
+def llm_stream_dependencies() -> LlmStreamDependencies:
+    return LlmStreamDependencies(
+        build_ols_payload=build_ols_payload,
+        forward_image_attachments=should_forward_image_attachments_to_ols,
+        parse_tool_text_line=parse_tool_text_line,
+        safe_error_text=safe_error_text,
+        safe_exception_text=safe_exception_text,
+        split_plain_text_events=split_plain_text_events,
+        update_status=update_ols_stream_status,
+        status_snapshot=lambda: OLS_STREAM_STATUS,
+    )
+
+
+async def stream_with_heartbeats(
+    events: AsyncIterator[dict[str, Any]],
+    run_id: str,
+) -> AsyncIterator[dict[str, Any]]:
+    async for event in stream_with_client_heartbeats(
+        events,
+        run_id,
+        config=llm_stream_config(),
+    ):
+        yield event
+
+
 def should_use_ollama_llm() -> bool:
-    return LLM_API_STYLE == "ollama" and bool(LLM_BASE_URL)
+    return should_use_ollama_for_config(llm_stream_config())
 
 
 def active_llm_stage() -> str:
-    return "ollama" if should_use_ollama_llm() else "lightspeed"
+    return active_llm_stage_for_config(llm_stream_config())
 
 
 def active_llm_label() -> str:
-    return "Ollama LLM" if should_use_ollama_llm() else "OpenShift Lightspeed"
+    return active_llm_label_for_config(llm_stream_config())
 
 
 def build_ollama_chat_url(base_url: str) -> str:
-    url = base_url.rstrip("/")
-    if url.endswith("/api/chat"):
-        return url
-    if url.endswith("/api"):
-        return f"{url}/chat"
-    return f"{url}/api/chat"
+    return build_ollama_chat_url_for_client(base_url)
 
 
 def extract_ollama_chat_content(data: Mapping[str, Any]) -> str:
-    message = data.get("message")
-    if isinstance(message, Mapping):
-        content = message.get("content")
-        if isinstance(content, str):
-            return content
-    response = data.get("response")
-    if isinstance(response, str):
-        return response
-    return ""
+    return extract_ollama_chat_content_from_response(data)
 
 
 async def call_ollama_chat(
@@ -3862,97 +3857,14 @@ async def call_ollama_chat(
     conversation_id: str | None,
     gateway_context: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    context_digest = (
-        str(gateway_context.get("metadata", {}).get("digest") or "")
-        if isinstance(gateway_context, Mapping) and isinstance(gateway_context.get("metadata"), Mapping)
-        else ""
-    )
-    if not LLM_BASE_URL or not LLM_MODEL:
-        reason = "KOMSCO_AI_LLM_BASE_URL or KOMSCO_AI_LLM_MODEL is not configured"
-        update_ols_stream_status(
-            "not_configured",
-            context_digest=context_digest,
-            fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-            reason=reason,
-        )
-        if REQUIRE_OLS_FINAL_ANSWER:
-            raise RuntimeError(reason)
-        yield {
-            "type": "text",
-            "content": "DEV_ECHO: Gateway is running. Configure KOMSCO_AI_LLM_BASE_URL and KOMSCO_AI_LLM_MODEL.\n\n",
-            "source": "gateway_fallback",
-            "fallbackAnswer": True,
-            "gatewayContextDigest": context_digest,
-            "streamProbe": "not_configured",
-        }
-        yield {"type": "end", "conversationId": conversation_id}
-        return
-
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [
-            {
-                "role": "system",
-	                "content": (
-	                    "너는 KOMSCO AIOps 운영 분석가다. 확인 결과와 추정을 분리하고, "
-	                    "위험한 조치는 승인 전 실행 지시로 쓰지 않는다. "
-	                    "답변은 `현재 판단`, `원인 후보`, `확인 결과`, `조치 방법`, `추가 확인` 순서를 우선한다. "
-	                    "코드블록 안에는 실행 가능한 명령만 넣고, "
-	                    "`Tip`, 주의사항, 확인 항목, 제목, 목록 문장은 코드블록 밖에 둔다. "
-	                    "공용 웹 URL은 기본 답변에 출력하지 마세요."
-	                ),
-            },
-            {"role": "user", "content": query},
-        ],
-        "stream": False,
-        "think": False,
-    }
-    update_ols_stream_status("started", context_digest=context_digest)
-
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(LLM_TIMEOUT_SECONDS, connect=10.0),
-        ) as client:
-            response = await client.post(
-                build_ollama_chat_url(LLM_BASE_URL),
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            if response.status_code >= 400:
-                detail = safe_error_text(response.text[:1000], limit=1000)
-                update_ols_stream_status(
-                    "failed",
-                    context_digest=context_digest,
-                    fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-                    reason=f"HTTP {response.status_code}: {detail}",
-                )
-                raise HTTPException(status_code=response.status_code, detail=detail)
-            data = response.json()
-
-        if not isinstance(data, Mapping):
-            raise ValueError("Ollama chat response is not a JSON object")
-        content = extract_ollama_chat_content(data)
-        if not content.strip():
-            raise ValueError("Ollama chat response did not include message.content")
-
-        update_ols_stream_status("succeeded", context_digest=context_digest)
-        yield {
-            "type": "text",
-            "content": content,
-            "source": "ollama_chat",
-            "gatewayContextDigest": context_digest,
-            "streamProbe": "succeeded",
-        }
-        yield {"type": "end", "conversationId": conversation_id}
-    except Exception as exc:
-        if OLS_STREAM_STATUS.get("lastStatus") != "failed":
-            update_ols_stream_status(
-                "failed",
-                context_digest=context_digest,
-                fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-                reason=safe_exception_text(exc),
-            )
-        raise
+    async for event in call_ollama_chat_with_client(
+        query,
+        conversation_id,
+        gateway_context,
+        config=llm_stream_config(),
+        dependencies=llm_stream_dependencies(),
+    ):
+        yield event
 
 
 async def call_ols_stream(
@@ -3962,144 +3874,16 @@ async def call_ols_stream(
     attachments: list[ImageAttachment],
     gateway_context: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    context_digest = (
-        str(gateway_context.get("metadata", {}).get("digest") or "")
-        if isinstance(gateway_context, Mapping) and isinstance(gateway_context.get("metadata"), Mapping)
-        else ""
-    )
-    if should_use_ollama_llm():
-        async for event in call_ollama_chat(query, conversation_id, gateway_context):
-            yield event
-        return
-
-    if DEV_ECHO or not OLS_BASE_URL:
-        fallback_status = "dev_echo" if DEV_ECHO else "not_configured"
-        fallback_reason = "DEV_ECHO enabled" if DEV_ECHO else "OLS_BASE_URL is not configured"
-        update_ols_stream_status(
-            fallback_status,
-            context_digest=context_digest,
-            fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-            reason=fallback_reason,
-        )
-        if REQUIRE_OLS_FINAL_ANSWER:
-            raise RuntimeError(fallback_reason)
-        yield {
-            "type": "text",
-            "content": "DEV_ECHO: Gateway is running. Configure OLS_BASE_URL for Lightspeed streaming.\n\n",
-            "source": "gateway_fallback",
-            "fallbackAnswer": True,
-            "gatewayContextDigest": context_digest,
-            "streamProbe": fallback_status,
-        }
-        yield {
-            "type": "text",
-            "content": query[:1200],
-            "source": "gateway_fallback",
-            "fallbackAnswer": True,
-            "gatewayContextDigest": context_digest,
-            "streamProbe": fallback_status,
-        }
-        yield {"type": "end", "conversationId": conversation_id}
-        return
-
-    payload = build_ols_payload(
+    async for event in call_ols_stream_with_client(
+        user_auth_header,
         query,
         conversation_id,
         attachments,
-        forward_image_attachments=should_forward_image_attachments_to_ols(),
-        gateway_context=gateway_context,
-    )
-    update_ols_stream_status("started", context_digest=context_digest)
-
-    try:
-        async with httpx.AsyncClient(
-            verify=OLS_CA_FILE,
-            timeout=httpx.Timeout(LLM_TIMEOUT_SECONDS, connect=OLS_CONNECT_TIMEOUT_SECONDS),
-        ) as client:
-            async with client.stream(
-                "POST",
-                f"{OLS_BASE_URL}/v1/streaming_query",
-                headers={
-                    "Accept": "text/event-stream",
-                    "Authorization": user_auth_header,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    detail = body.decode("utf-8", errors="replace")
-                    safe_detail = safe_error_text(detail, limit=1000)
-                    update_ols_stream_status(
-                        "failed",
-                        context_digest=context_digest,
-                        fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-                        reason=f"HTTP {response.status_code}: {safe_detail}",
-                    )
-                    raise HTTPException(status_code=response.status_code, detail=safe_detail)
-
-                content_type = response.headers.get("content-type", "")
-                if "text/event-stream" not in content_type:
-                    async for event in split_plain_text_events(response.aiter_text()):
-                        yield event
-                    update_ols_stream_status("succeeded", context_digest=context_digest)
-                    return
-
-                buffer = ""
-                async for chunk in response.aiter_text():
-                    if not chunk:
-                        continue
-
-                    buffer += chunk
-                    frames = buffer.split("\n\n")
-                    buffer = frames.pop() or ""
-
-                    for frame in frames:
-                        data_lines = [
-                            line[len("data:") :].strip()
-                            for line in frame.splitlines()
-                            if line.startswith("data:")
-                        ]
-                        if not data_lines:
-                            async def iter_frame() -> AsyncIterator[str]:
-                                yield frame + "\n"
-
-                            async for event in split_plain_text_events(iter_frame()):
-                                yield event
-                            continue
-
-                        raw = "\n".join(data_lines)
-                        if not raw or raw == "[DONE]":
-                            continue
-
-                        try:
-                            event = json.loads(raw)
-                        except json.JSONDecodeError:
-                            tool_event = parse_tool_text_line(raw)
-                            if tool_event:
-                                yield tool_event
-                            else:
-                                yield {"type": "text", "content": raw}
-                            continue
-
-                        yield event
-
-                if buffer.strip() and not buffer.lstrip().startswith("data:"):
-                    async def iter_buffer() -> AsyncIterator[str]:
-                        yield buffer
-
-                    async for event in split_plain_text_events(iter_buffer()):
-                        yield event
-                update_ols_stream_status("succeeded", context_digest=context_digest)
-    except Exception as exc:
-        if OLS_STREAM_STATUS.get("lastStatus") != "failed":
-            update_ols_stream_status(
-                "failed",
-                context_digest=context_digest,
-                fallback_active=not REQUIRE_OLS_FINAL_ANSWER,
-                reason=safe_exception_text(exc),
-            )
-        raise
+        gateway_context,
+        config=llm_stream_config(),
+        dependencies=llm_stream_dependencies(),
+    ):
+        yield event
 
 
 async def fetch_ocp_json(
