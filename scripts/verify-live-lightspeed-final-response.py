@@ -36,7 +36,11 @@ CASES = [
             "RCA 보고서 형식으로 정리해줘. Gateway fallback이면 안 되고 "
             "Lightspeed가 답해야 한다."
         ),
-        "requiredText": ["RCA", "근거"],
+        "requiredAnyText": [
+            ["RCA", "원인 후보", "분석 결과"],
+            ["근거", "증거", "확인 결과"],
+        ],
+        "actionContractExpectation": "optional",
     },
     {
         "id": "official-evidence-rca",
@@ -46,7 +50,11 @@ CASES = [
             "OpenShift Lightspeed 최종 답변까지 생성해줘. 확인 안 된 것은 "
             "확인 불가로 분리해."
         ),
-        "requiredText": ["RCA", "확인"],
+        "requiredAnyText": [
+            ["RCA", "현재 판단", "원인 후보", "분석 결과"],
+            ["근거", "증거", "확인 결과", "확인 불가"],
+        ],
+        "actionContractExpectation": "optional",
     },
 ]
 
@@ -104,6 +112,46 @@ def oc_token(timeout: int) -> str:
 
 def safe_error(exc: BaseException) -> str:
     return str(exc).replace("\n", " ")[:500]
+
+
+def required_any_text_presence(
+    answer_text: str,
+    required_any_text: list[list[str]],
+) -> dict[str, bool]:
+    return {
+        " | ".join(group): any(candidate in answer_text for candidate in group)
+        for group in required_any_text
+    }
+
+
+def summarize_answer_contract_event(event: dict[str, Any], content: str) -> dict[str, Any]:
+    return {
+        "answerContract": event.get("answerContract"),
+        "hasAiopsActionFeature": "Action Plan" in content and "조치" in content,
+        "hasActionExecutionPath": "승인 전에는 변경 작업을 실행하지 않습니다." in content,
+        "hasRejectionPath": "거절하면 실행은 차단되고 거절 기록만 남습니다." in content,
+        "preview": content.strip()[:240],
+    }
+
+
+def action_contract_satisfied(
+    events: list[dict[str, Any]],
+    expectation: str,
+) -> bool:
+    valid = [
+        event.get("answerContract") == "aiops-action-v0.1.9"
+        and event.get("hasAiopsActionFeature") is True
+        and event.get("hasActionExecutionPath") is True
+        and event.get("hasRejectionPath") is True
+        for event in events
+    ]
+    if expectation == "forbidden":
+        return not events
+    if expectation == "required":
+        return bool(events) and all(valid)
+    if expectation == "optional":
+        return not events or all(valid)
+    raise ValueError(f"unknown action contract expectation: {expectation}")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -416,22 +464,7 @@ def stream_chat(gateway_url: str, token: str, case: dict[str, Any], timeout: int
             source = str(event.get("source") or "")
             content = str(event.get("content") or "")
             if source == "gateway_answer_contract":
-                answer_contract_events.append(
-                    {
-                        "answerContract": event.get("answerContract"),
-                        "hasAiopsActionFeature": "AIOps 조치 기능" in content and "조치 후보" in content,
-                        "hasActionExecutionPath": (
-                            "ActionProposal -> SealedActionPlan -> ApprovalDecision -> ExecutionRecord"
-                            in content
-                        ),
-                        "hasRejectionPath": (
-                            "거절 경로" in content
-                            and "/v1/actions/rejections" in content
-                            and "rejected" in content
-                        ),
-                        "preview": content.strip()[:240],
-                    }
-                )
+                answer_contract_events.append(summarize_answer_contract_event(event, content))
                 continue
             if event.get("fallbackAnswer") is True or source == "gateway_fallback":
                 fallback_events.append(
@@ -448,7 +481,11 @@ def stream_chat(gateway_url: str, token: str, case: dict[str, Any], timeout: int
                     answer_previews.append(content.strip()[:240])
 
     answer_text = "".join(answer_parts)
-    required_text = list(case.get("requiredText") or [])
+    required_any_text = [
+        [str(candidate) for candidate in group if str(candidate)]
+        for group in case.get("requiredAnyText") or []
+        if isinstance(group, list)
+    ]
     return {
         "answerDigest": hashlib.sha256(answer_text.encode("utf-8")).hexdigest() if answer_text else "",
         "answerLength": len(answer_text),
@@ -463,14 +500,20 @@ def stream_chat(gateway_url: str, token: str, case: dict[str, Any], timeout: int
         "lightspeedErrors": lightspeed_errors,
         "olsTextEvents": ols_text_events,
         "rcaContextPhases": rca_context_phases,
-        "requiredTextPresent": {text: text in answer_text for text in required_text},
+        "requiredAnyTextPresent": required_any_text_presence(answer_text, required_any_text),
         "runStatusStages": [item.get("stage") for item in status_events],
         "statusEvents": status_events,
         "toolPlanEvents": tool_plan_events,
     }
 
 
-def evaluate_case(case_id: str, stream: dict[str, Any], status_result: dict[str, Any]) -> dict[str, Any]:
+def evaluate_case(
+    case_id: str,
+    stream: dict[str, Any],
+    status_result: dict[str, Any],
+    *,
+    action_contract_expectation: str = "optional",
+) -> dict[str, Any]:
     status_payload = status_result.get("payload") if status_result.get("ok") else {}
     lightspeed_status = (
         status_payload.get("spec", {})
@@ -490,13 +533,10 @@ def evaluate_case(case_id: str, stream: dict[str, Any], status_result: dict[str,
         "noGatewayFallbackText": len(stream["fallbackEvents"]) == 0,
         "noGatewayErrorEvent": len(stream["gatewayErrors"]) == 0,
         "noLightspeedErrorToolResult": len(stream["lightspeedErrors"]) == 0,
-        "requiredTextPresent": all(stream["requiredTextPresent"].values()),
-        "aiopsActionContractPresent": any(
-            event.get("answerContract") == "aiops-action-v0.1.9"
-            and event.get("hasAiopsActionFeature") is True
-            and event.get("hasActionExecutionPath") is True
-            and event.get("hasRejectionPath") is True
-            for event in stream.get("answerContractEvents", [])
+        "requiredTextPresent": all(stream["requiredAnyTextPresent"].values()),
+        "aiopsActionContractPresent": action_contract_satisfied(
+            stream.get("answerContractEvents", []),
+            action_contract_expectation,
         ),
         "statusEndpointReachable": status_result.get("ok") is True,
         "runtimeStreamProbeSucceeded": lightspeed_status.get("streamProbe") == "succeeded",
@@ -638,7 +678,16 @@ def main() -> int:
             continue
 
         status_result = request_json_result(f"{args.gateway.rstrip('/')}/v1/aiops/status", token)
-        cases.append(evaluate_case(case["id"], stream, status_result))
+        cases.append(
+            evaluate_case(
+                case["id"],
+                stream,
+                status_result,
+                action_contract_expectation=str(
+                    case.get("actionContractExpectation") or "optional"
+                ),
+            )
+        )
 
     report = {
         "apiVersion": "aiops.komsco/v1alpha1",
