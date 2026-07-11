@@ -2,6 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  assertEcmaScriptImport,
+  assertPythonImport,
+} = require('./lib/source-imports.cjs');
 
 const root = path.resolve(__dirname, '..');
 
@@ -54,8 +58,84 @@ const gatewayActionRegistry = readFile('komsco-ai-gateway/komsco_ai_gateway/acti
 const gatewayLlmStreamClient = readFile('komsco-ai-gateway/komsco_ai_gateway/llm_stream_client.py');
 const gatewayOlsQueryRendering = readFile('komsco-ai-gateway/komsco_ai_gateway/ols_query_rendering.py');
 const gatewayPodEvidenceParsing = readFile('komsco-ai-gateway/komsco_ai_gateway/pod_evidence_parsing.py');
+const gatewayAnswerPlanning = readFile('komsco-ai-gateway/komsco_ai_gateway/answer_planning.py');
+const gatewayPodAnswering = readFile('komsco-ai-gateway/komsco_ai_gateway/pod_answering.py');
 const contracts = readFile('komsco-ai-gateway/komsco_ai_gateway/aiops_contracts.py');
 const assistantConstantsSource = readFile('komsco-ai-console-plugin/src/components/assistant.constants.tsx');
+
+const launcherOwnerImports = [
+  ['./assistant.conversations', 'useAssistantConversations'],
+  ['./useAssistantActionPlanRuntime', 'useAssistantActionPlanRuntime'],
+  ['./useAssistantConversationHistory', 'useAssistantConversationHistory'],
+  ['./useAssistantPanelGeometry', 'useAssistantPanelGeometry'],
+  ['./assistant.streamController', 'runAssistantStream'],
+];
+for (const [moduleSpecifier, imported] of launcherOwnerImports) {
+  assertEcmaScriptImport(
+    launcher,
+    { moduleSpecifier, imported },
+    `AssistantLauncher must import ${imported} from its extracted owner module`,
+  );
+  assert(
+    new RegExp(`\\b${imported}\\s*\\(`).test(launcher),
+    `AssistantLauncher must wire the imported ${imported} runtime`,
+  );
+}
+
+assertPythonImport(
+  gateway,
+  { moduleSpecifier: '.answer_planning', imported: 'build_aiops_answer_contract_text' },
+  'Gateway main must import the answer-planning facade used by the moved answer contracts',
+);
+assertPythonImport(
+  gatewayAnswerPlanning,
+  { moduleSpecifier: '.answer_contracts', imported: 'build_aiops_answer_contract_text' },
+  'Gateway answer-planning facade must import the moved answer contract owner',
+);
+assert(
+  /build_aiops_answer_contract_text\s*=\s*build_aiops_answer_contract_text/.test(gateway),
+  'Gateway main must inject the imported answer contract builder into answer post-processing',
+);
+
+assertPythonImport(
+  gateway,
+  { moduleSpecifier: '.action_execution', imported: 'ActionExecutionConfig' },
+  'Gateway main must import the moved action execution configuration owner',
+);
+assert(/\bActionExecutionConfig\s*\(/.test(gateway), 'Gateway main must instantiate the imported action execution configuration');
+
+assertPythonImport(
+  gateway,
+  { moduleSpecifier: '.action_registry', imported: 'ACTION_REGISTRY_ENTRIES' },
+  'Gateway main must import the moved action registry owner',
+);
+assert(/registry_entries\s*=\s*ACTION_REGISTRY_ENTRIES/.test(gateway), 'Gateway main must wire the imported action registry entries into the action API');
+
+assertPythonImport(
+  gateway,
+  { moduleSpecifier: '.llm_stream_client', imported: 'call_ols_stream', local: 'call_ols_stream_with_client' },
+  'Gateway main must import the moved LLM stream client',
+);
+assert(/\bcall_ols_stream_with_client\s*\(/.test(gateway), 'Gateway main must delegate OLS streaming to the imported LLM stream client');
+
+assertPythonImport(
+  gateway,
+  { moduleSpecifier: '.ols_query_rendering', imported: 'render_ols_query' },
+  'Gateway main must import the moved OLS query renderer',
+);
+assert(/\brender_ols_query\s*\(/.test(gateway), 'Gateway main must call the imported OLS query renderer');
+
+assertPythonImport(
+  gateway,
+  { moduleSpecifier: '.pod_answering', imported: 'configure_pod_answering' },
+  'Gateway main must import the pod-answering facade used by the moved evidence parser',
+);
+assertPythonImport(
+  gatewayPodAnswering,
+  { moduleSpecifier: '.pod_evidence_parsing', imported: 'parse_gateway_pod_evidence_rows' },
+  'Gateway pod-answering facade must import the moved pod evidence parser owner',
+);
+assert(/\bconfigure_pod_answering\s*\(/.test(gateway), 'Gateway main must configure the imported pod-answering facade');
 
 const deps = packageJson.dependencies || {};
 assert(deps['react-markdown'] === '8.0.7', 'React 17-compatible react-markdown must be pinned');

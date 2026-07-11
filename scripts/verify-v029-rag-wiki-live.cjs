@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { assertEcmaScriptImport } = require('./lib/source-imports.cjs');
 
 const root = path.resolve(__dirname, '..');
 const readFile = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -20,6 +21,16 @@ const portalApi = readFile('komsco-ai-console-plugin/src/portal/api.ts');
 const portalTypes = readFile('komsco-ai-console-plugin/src/portal/types.ts');
 const portalCss = readFile('komsco-ai-console-plugin/src/portal/styles.css');
 const localFixture = readFile('scripts/serve-v0281-local-aiops-gateway.cjs');
+
+assertEcmaScriptImport(
+  portalApp,
+  { moduleSpecifier: './WikiDocsView', imported: 'WikiDocsView' },
+  'PortalApp must import the extracted WikiDocsView owner module',
+);
+assert(
+  /activeView\s*===\s*['"]wiki['"][\s\S]{0,160}return\s*<WikiDocsView\s*\/>/.test(portalApp),
+  'PortalApp wiki route must render the imported WikiDocsView',
+);
 
 assert(portalTypes.includes('export type RagUploadedDocument'), 'Portal types must model uploaded RAG documents');
 assert(portalTypes.includes('export type RagUploadedDocumentList'), 'Portal types must model RAG upload list responses');

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { assertEcmaScriptImport } = require('./lib/source-imports.cjs');
 
 const root = path.resolve(__dirname, '..');
 const readFile = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
@@ -18,6 +19,25 @@ const reportsView = readFile('komsco-ai-console-plugin/src/portal/ReportsView.ts
 const reportsModel = readFile('komsco-ai-console-plugin/src/portal/reportsModel.ts');
 const reportSource = [portalApp, reportsView, reportsModel].join('\n');
 const portalCss = readFile('komsco-ai-console-plugin/src/portal/styles.css');
+
+assertEcmaScriptImport(
+  portalApp,
+  { moduleSpecifier: './ReportsView', imported: 'ReportsView' },
+  'PortalApp must import the extracted ReportsView owner module',
+);
+assert(
+  /activeView\s*===\s*['"]reports['"][\s\S]{0,320}return\s*\([\s\S]{0,80}<ReportsView\b/.test(portalApp),
+  'PortalApp reports route must render the imported ReportsView',
+);
+assertEcmaScriptImport(
+  reportsView,
+  { moduleSpecifier: './reportsModel', imported: 'sampleReportItems' },
+  'ReportsView must import the extracted report model owner',
+);
+assert(
+  /sampleReportItems\.map\s*\(/.test(reportsView),
+  'ReportsView must build its visible report list from the imported report model',
+);
 
 assert(reportSource.includes("kind: 'AIOpsReportArtifact'"), 'Generated reports must create an AIOpsReportArtifact JSON package');
 assert(reportSource.includes('artifact: ReportArtifact;'), 'GeneratedReport must carry the report artifact alongside HTML');
