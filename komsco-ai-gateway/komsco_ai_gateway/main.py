@@ -111,7 +111,7 @@ from .cluster_evidence import (
     last_termination_summary,
     pod_ready_summary,
 )
-from . import cluster_evidence_runtime
+from . import cluster_evidence_runtime, cluster_observability_runtime
 from . import action_candidate_plans
 from . import namespace_cleanup as namespace_cleanup_runtime
 from . import namespace_cleanup_runtime_support
@@ -122,6 +122,10 @@ from . import persistence_runtime
 from .cluster_evidence_runtime import (
     ClusterEvidenceRuntimeCallbacks,
     ClusterEvidenceRuntimeConfig,
+)
+from .cluster_observability_runtime import (
+    ClusterObservabilityConfig,
+    ClusterObservabilityDependencies,
 )
 from .cluster_summary import build_cluster_summary as build_cluster_summary_read_model
 from .chat_feedback import ChatFeedbackInputError, build_chat_feedback_record
@@ -2387,6 +2391,35 @@ def build_cluster_summary(
     )
 
 
+def cluster_observability_config() -> ClusterObservabilityConfig:
+    return ClusterObservabilityConfig(
+        api_url=OPENSHIFT_API_URL,
+        api_ca_file=OPENSHIFT_API_CA_FILE,
+    )
+
+
+def cluster_observability_dependencies() -> ClusterObservabilityDependencies:
+    return ClusterObservabilityDependencies(
+        fetch_ocp_json=fetch_ocp_json,
+        fetch_ocp_json_observed=fetch_ocp_json_observed,
+        query_thanos_instant=query_thanos_instant,
+        data_source_status=data_source_status,
+        monitoring_urls_from_config=monitoring_urls_from_config,
+        append_gateway_evidence=append_gateway_evidence,
+        build_pod_status_evidence=build_pod_status_evidence,
+        build_deployment_rollout_evidence=build_deployment_rollout_evidence,
+        build_cluster_operator_status_evidence=build_cluster_operator_status_evidence,
+        build_pod_count_investigation=build_pod_count_investigation,
+        build_cronjob_activity_evidence=build_cronjob_activity_evidence,
+        build_node_status_rca_evidence=build_node_status_rca_evidence,
+        build_active_alerts_rca_evidence=build_active_alerts_rca_evidence,
+        build_restart_metric_rca_evidence=build_restart_metric_rca_evidence,
+        rca_probe_event_status=rca_probe_event_status,
+        prometheus_probe_reason=_prometheus_probe_reason,
+        safe_error_text=safe_error_text,
+    )
+
+
 def data_source_status(
     *,
     label: str,
@@ -2398,25 +2431,16 @@ def data_source_status(
     status: str | None = None,
     http_status: int | None = None,
 ) -> dict[str, Any]:
-    resolved_status = status or ("available" if payload is not None else "unavailable")
-    item: dict[str, Any] = {
-        "label": label,
-        "name": name,
-        "path": path,
-        "required": required,
-        "status": resolved_status,
-    }
-    if reason:
-        item["reason"] = reason
-    if http_status is not None:
-        item["httpStatus"] = http_status
-    if isinstance(payload, Mapping):
-        metadata = payload.get("metadata")
-        if isinstance(metadata, Mapping) and metadata.get("continue"):
-            item["status"] = "partial"
-            item["reason"] = "Kubernetes list response is paginated; additional pages were not fetched in this evidence summary."
-            item["continueTokenPresent"] = True
-    return item
+    return cluster_observability_runtime.data_source_status(
+        label=label,
+        name=name,
+        path=path,
+        payload=payload,
+        required=required,
+        reason=reason,
+        status=status,
+        http_status=http_status,
+    )
 
 
 async def fetch_ocp_json_observed(
@@ -2428,135 +2452,23 @@ async def fetch_ocp_json_observed(
     name: str,
     required: bool = False,
 ) -> tuple[Mapping[str, Any] | None, dict[str, Any]]:
-    try:
-        response = await client.get(
-            f"{OPENSHIFT_API_URL}{path}",
-            headers={
-                "Accept": "application/json",
-                "Authorization": authorization,
-            },
-        )
-    except httpx.HTTPError as exc:
-        return None, data_source_status(
-            label=label,
-            name=name,
-            path=path,
-            required=required,
-            reason=str(exc),
-            status="error",
-        )
-
-    if response.status_code >= 400:
-        return None, data_source_status(
-            label=label,
-            name=name,
-            path=path,
-            required=required,
-            reason=response.text[:240],
-            status="error",
-            http_status=response.status_code,
-        )
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        return None, data_source_status(
-            label=label,
-            name=name,
-            path=path,
-            required=required,
-            reason=f"Invalid JSON response: {exc}",
-            status="error",
-        )
-
-    if isinstance(payload, Mapping):
-        return payload, data_source_status(
-            label=label,
-            name=name,
-            path=path,
-            payload=payload,
-            required=required,
-        )
-
-    return None, data_source_status(
+    return await cluster_observability_runtime.fetch_ocp_json_observed(
+        cluster_observability_config(),
+        client,
+        path,
+        authorization,
         label=label,
         name=name,
-        path=path,
         required=required,
-        reason="OpenShift API response was not a JSON object.",
-        status="error",
     )
 
 
-def monitoring_urls_from_config(configmap_payload: Mapping[str, Any] | None) -> dict[str, str]:
-    data = configmap_payload.get("data", {}) if isinstance(configmap_payload, Mapping) else {}
-    if not isinstance(data, Mapping):
-        data = {}
-    return {
-        "alertmanager": str(data.get("alertmanagerPublicURL") or ""),
-        "prometheus": str(data.get("prometheusPublicURL") or ""),
-        "thanos": str(data.get("thanosPublicURL") or ""),
-    }
-
+monitoring_urls_from_config = cluster_observability_runtime.monitoring_urls_from_config
 
 async def query_thanos_instant(thanos_url: str, authorization: str, query: str) -> dict[str, Any]:
-    if not thanos_url:
-        return {
-            "query": query,
-            "status": "unavailable",
-            "reason": "thanosPublicURL is not published in monitoring-shared-config.",
-        }
-
-    try:
-        async with httpx.AsyncClient(
-            verify=OPENSHIFT_API_CA_FILE,
-            timeout=httpx.Timeout(10.0, connect=5.0),
-        ) as client:
-            response = await client.get(
-                f"{thanos_url.rstrip('/')}/api/v1/query",
-                headers={"Accept": "application/json", "Authorization": authorization},
-                params={"query": query},
-            )
-    except httpx.HTTPError as exc:
-        return {"query": query, "status": "error", "reason": str(exc)}
-
-    if response.status_code >= 400:
-        return {
-            "httpStatus": response.status_code,
-            "query": query,
-            "reason": response.text[:240],
-            "status": "error",
-        }
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        return {"query": query, "status": "error", "reason": f"Invalid JSON response: {exc}"}
-
-    if not isinstance(payload, Mapping):
-        return {"query": query, "status": "error", "reason": "Thanos response was not a JSON object."}
-    prometheus_status = str(payload.get("status") or "")
-    if prometheus_status and prometheus_status != "success":
-        reason = (
-            str(payload.get("error") or payload.get("errorType") or "Prometheus query failed")
-        )
-        return {"query": query, "status": "error", "reason": reason[:240]}
-
-    data = payload.get("data", {}) if isinstance(payload, Mapping) else {}
-    result = data.get("result", []) if isinstance(data, Mapping) else []
-    if not isinstance(result, list):
-        return {"query": query, "status": "error", "reason": "Thanos query result was not a vector list."}
-    return {
-        "query": query,
-        "result": result[:50],
-        "resultCount": len(result),
-        "status": "partial" if len(result) > 50 else "available",
-        **(
-            {"reason": "Thanos vector result was capped at 50 series for dashboard summary."}
-            if len(result) > 50
-            else {}
-        ),
-    }
+    return await cluster_observability_runtime.query_thanos_instant(
+        cluster_observability_config(), thanos_url, authorization, query
+    )
 
 
 async def probe_thanos_query(thanos_url: str, authorization: str) -> dict[str, Any]:
@@ -2606,92 +2518,18 @@ def build_aiops_overview(
     monitoring_probe: Mapping[str, Any],
     anomaly_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    health_score = int(cluster_summary_payload.get("healthScore") or 0)
-    nodes = cluster_summary_payload.get("nodes", {}) if isinstance(cluster_summary_payload.get("nodes"), Mapping) else {}
-    operators = (
-        cluster_summary_payload.get("operators", {})
-        if isinstance(cluster_summary_payload.get("operators"), Mapping)
-        else {}
+    return cluster_observability_runtime.build_aiops_overview(
+        cluster_summary_payload,
+        data_sources,
+        monitoring_urls,
+        monitoring_probe,
+        anomaly_summary,
+        api_url=OPENSHIFT_API_URL,
+        action_plan_capability_enabled=ACTION_PLAN_CAPABILITY_ENABLED,
+        unrestricted_commands_enabled=UNRESTRICTED_COMMANDS_ENABLED,
+        build_action_candidates=build_aiops_action_candidates,
+        generated_at=now_rfc3339(),
     )
-    required_errors = [
-        item
-        for item in data_sources
-        if item.get("required") and item.get("status") != "available"
-    ]
-    attention_count = (
-        int(nodes.get("notReady") or 0)
-        + int(nodes.get("pressureCount") or 0)
-        + int(operators.get("degraded") or 0)
-        + int(operators.get("unavailable") or 0)
-        + int(operators.get("progressing") or 0)
-    )
-    if required_errors:
-        tower_status = "error"
-        tower_label = "필수 데이터 소스 확인 실패"
-    elif health_score >= 90 and attention_count == 0:
-        tower_status = "healthy"
-        tower_label = "회사 OCP 승인 실행 관제 정상"
-    elif health_score >= 65:
-        tower_status = "attention"
-        tower_label = "운영 확인 필요"
-    else:
-        tower_status = "risk"
-        tower_label = "즉시 확인 필요"
-
-    anomaly_spec = (
-        anomaly_summary.get("spec", {})
-        if isinstance(anomaly_summary, Mapping) and isinstance(anomaly_summary.get("spec"), Mapping)
-        else {}
-    )
-    anomaly_status = str(anomaly_spec.get("status") or "")
-    anomaly_totals = (
-        anomaly_spec.get("totals", {}) if isinstance(anomaly_spec.get("totals"), Mapping) else {}
-    )
-    anomaly_total = int(anomaly_totals.get("total") or 0)
-    if anomaly_status in {"error", "unknown"}:
-        tower_status = "error"
-        tower_label = str(anomaly_spec.get("statusLabel") or "이상 징후 데이터 소스 확인 필요")
-    elif anomaly_status == "risk":
-        tower_status = "risk"
-        tower_label = str(anomaly_spec.get("statusLabel") or "위험 이상 징후 확인 필요")
-    elif anomaly_status in {"attention", "warning"} and tower_status == "healthy":
-        tower_status = "attention"
-        tower_label = str(anomaly_spec.get("statusLabel") or "이상 징후 확인 필요")
-    action_candidates = build_aiops_action_candidates(anomaly_summary, data_sources)
-
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "AIOpsOverview",
-        "metadata": {"generatedAt": now_rfc3339(), "name": "kugnus-control-tower"},
-        "spec": {
-            "clusterSummary": cluster_summary_payload,
-            "controlTower": {
-                "name": "Cywell AI 관제탑",
-                "mode": "execute",
-                "status": tower_status,
-                "statusLabel": tower_label,
-                "attentionCount": attention_count + anomaly_total,
-                "healthScore": health_score,
-                "target": cluster_summary_payload.get("apiUrl") or OPENSHIFT_API_URL,
-            },
-            "dataSources": list(data_sources),
-            "anomalies": dict(anomaly_summary or {}),
-            "actionCandidates": action_candidates,
-            "monitoring": {
-                "probe": dict(monitoring_probe),
-                "urls": {
-                    "alertmanagerConfigured": bool(monitoring_urls.get("alertmanager")),
-                    "prometheusConfigured": bool(monitoring_urls.get("prometheus")),
-                    "thanosConfigured": bool(monitoring_urls.get("thanos")),
-                },
-            },
-            "safety": {
-                "mutationsEnabled": ACTION_PLAN_CAPABILITY_ENABLED,
-                "executionDefault": ACTION_PLAN_CAPABILITY_ENABLED,
-                "unrestrictedCommandsEnabled": UNRESTRICTED_COMMANDS_ENABLED,
-            },
-        },
-    }
 
 
 def should_forward_image_attachments_to_ols() -> bool:
@@ -3329,36 +3167,14 @@ async def fetch_ocp_json(
     *,
     required: bool = False,
 ) -> Mapping[str, Any] | None:
-    try:
-        response = await client.get(
-            f"{OPENSHIFT_API_URL}{path}",
-            headers={
-                "Accept": "application/json",
-                "Authorization": authorization,
-            },
-        )
-    except httpx.RequestError as exc:
-        if required:
-            raise HTTPException(
-                status_code=504,
-                detail=build_openshift_api_unavailable_detail(f"fetch_ocp_json:{path}", exc),
-            ) from exc
-        return None
-    if response.status_code >= 400:
-        if required:
-            body = response.text[:500]
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"OpenShift API request failed for {path}: {body}",
-            )
-
-        return None
-
-    payload = response.json()
-    if isinstance(payload, Mapping):
-        return payload
-
-    return None
+    return await cluster_observability_runtime.fetch_ocp_json(
+        cluster_observability_config(),
+        client,
+        path,
+        authorization,
+        required=required,
+        build_unavailable_detail=build_openshift_api_unavailable_detail,
+    )
 
 
 def crashloop_demo_target_from_request(req: ChatRequest) -> dict[str, str]:
@@ -3420,131 +3236,15 @@ def past_pod_restart_demo_active(req: "ChatRequest") -> bool:
 
 
 def past_pod_restart_demo_prompt_contract(req: "ChatRequest") -> str:
-    if not past_pod_restart_demo_active(req):
-        return "적용 없음"
-    return "\n".join([
-        "이 요청은 과거 시점 Pod 재시작 RCA 공식 Evidence 시연 사이클입니다.",
-        "최종 답변에는 아래 5개 섹션명을 이 순서 그대로 포함하세요.",
-        "1. `### 확인 결과`",
-        "2. `### 가능한 원인 후보`",
-        "3. `### 추가 확인 필요`",
-        "4. `### Evidence-check 확인 순서`",
-        "5. `### 금지 작업`",
-        "수집된 증적(event/snapshot/pod_log/runbook)과 missing 증적(metric/clusteroperator)을 명확히 구분하세요.",
-        "원인을 확정하지 말고 missing evidence가 있는 상태에서 조치 후보만 제시하세요.",
-        "공식 최종 답변에는 `RCA`, `즉시 조치`, `재발 방지책`, `참고 증적` 관점을 포함하세요.",
-        "`oc apply/delete/patch/scale/exec/rollout restart`는 코드블록에 넣지 말고 금지 작업 섹션에서만 언급하세요.",
-    ])
+    return cluster_observability_runtime.past_pod_restart_demo_prompt_contract(
+        past_pod_restart_demo_active(req)
+    )
 
 
 def collect_past_pod_restart_demo_evidence_events(request_id: str) -> list[dict[str, Any]]:
-    """Scenario 11 mock evidence — 어제 새벽 OOMKilled past-pod-restart-rca."""
-    return [
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-event",
-            "name": "openshift_event_lookup",
-            "evidenceType": "event",
-            "eventStatus": "success",
-            "sourceType": "gateway-evidence",
-            "status": "success",
-            "summary": "Gateway-collected Pod Event evidence",
-            "detail": (
-                "openshift_event_lookup collected evidence — "
-                "2026-06-28 02:14:33 KST · Namespace: default · "
-                "Pod: webapp-deploy-7f94d-k8z2p · Reason: OOMKilled · "
-                "Message: Container exceeded memory limit of 512Mi"
-            ),
-        },
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-snapshot",
-            "name": "openshift_pod_snapshot_lookup",
-            "evidenceType": "snapshot",
-            "eventStatus": "success",
-            "sourceType": "gateway-evidence",
-            "status": "success",
-            "summary": "Gateway-collected Pod snapshot evidence",
-            "detail": (
-                "openshift_pod_snapshot_lookup collected evidence — "
-                "Pod webapp-deploy-7f94d-k8z2p: phase=Running, restartCount=3, "
-                "lastState.terminated.reason=OOMKilled, "
-                "lastState.terminated.finishedAt=2026-06-28T02:14:30Z, memoryLimit=512Mi"
-            ),
-        },
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-pod-status",
-            "name": "openshift_pod_status_lookup",
-            "evidenceType": "pod_status",
-            "eventStatus": "success",
-            "sourceType": "gateway-evidence",
-            "status": "success",
-            "summary": "Gateway-collected Pod status evidence",
-            "detail": (
-                "openshift_pod_status_lookup collected evidence — "
-                "Pod 목록 조회 완료: webapp-deploy-7f94d-k8z2p STATUS=Running RESTARTS=3 AGE=2h10m"
-            ),
-        },
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-log",
-            "name": "openshift_pod_log_pattern_probe",
-            "evidenceType": "pod_log",
-            "eventStatus": "success",
-            "sourceType": "gateway-evidence",
-            "status": "success",
-            "summary": "Gateway-collected pod log pattern evidence",
-            "detail": (
-                "openshift_pod_log_pattern_probe collected evidence — "
-                "이전 컨테이너 로그 패턴 검출: 'java.lang.OutOfMemoryError: Java heap space' (02:14:28), "
-                "'GC overhead limit exceeded' (02:14:15), heap 증가 추세 확인됨"
-            ),
-        },
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-runbook",
-            "name": "gateway_rag_runbook_search",
-            "evidenceType": "runbook",
-            "eventStatus": "success",
-            "sourceType": "rag-evidence",
-            "status": "success",
-            "summary": "Gateway-collected RAG evidence",
-            "detail": (
-                "gateway_rag_runbook_search collected evidence — "
-                "OOMKilled 대응 런북 조회 완료: 메모리 limit 증설 절차, "
-                "JVM heap 설정 점검, HPA 메모리 기반 스케일 정책 확인 포함"
-            ),
-        },
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-metric-missing",
-            "name": "openshift_metric_query",
-            "evidenceType": "metric",
-            "eventStatus": "missing",
-            "sourceType": "not-collected",
-            "status": "skipped",
-            "missingReason": "metric_tool Prometheus 연결은 v0.1.9 예정",
-            "summary": "Metric evidence missing",
-            "detail": (
-                "openshift_metric_query missing evidence — "
-                "Prometheus/Thanos 메모리 장기 추이 조회 미수행. "
-                "metric_tool Prometheus 연결은 v0.1.9 예정."
-            ),
-        },
-        {
-            "type": "tool_result",
-            "id": f"{request_id}-past-restart-clusteroperator-missing",
-            "name": "openshift_clusteroperator_lookup",
-            "evidenceType": "clusteroperator",
-            "eventStatus": "missing",
-            "sourceType": "not-collected",
-            "status": "skipped",
-            "missingReason": "ClusterOperator 상태 조회 미수행",
-            "summary": "ClusterOperator evidence missing",
-            "detail": "openshift_clusteroperator_lookup missing evidence — ClusterOperator 상태 조회 미수행",
-        },
-    ]
+    return cluster_observability_runtime.collect_past_pod_restart_demo_evidence_events(
+        request_id
+    )
 
 
 container_status_rows = cluster_evidence_runtime.container_status_rows
@@ -3694,270 +3394,70 @@ async def collect_pod_status_evidence(
     include_pod_list: bool = False,
     list_namespace: str = "",
 ) -> str:
-    if not OPENSHIFT_API_URL:
-        return "Pod status evidence unavailable: OPENSHIFT_API_URL is not configured."
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        pods_payload = await fetch_ocp_json(client, "/api/v1/pods", user_auth_header)
-        deployments_payload = await fetch_ocp_json(
-            client,
-            "/apis/apps/v1/deployments",
-            user_auth_header,
-        )
-        replicasets_payload = await fetch_ocp_json(
-            client,
-            "/apis/apps/v1/replicasets",
-            user_auth_header,
-        )
-        cluster_operators_payload = await fetch_ocp_json(
-            client,
-            "/apis/config.openshift.io/v1/clusteroperators",
-            user_auth_header,
-        )
-
-    if not pods_payload:
-        return (
-            "Pod status evidence unavailable: Kubernetes API pod list was not returned. "
-            "This may be a permission or API availability issue."
-        )
-
-    evidence = build_pod_status_evidence(
-        pods_payload,
-        replicasets_payload,
+    return await cluster_observability_runtime.collect_pod_status_evidence(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
+        user_auth_header,
         include_pod_list=include_pod_list,
         list_namespace=list_namespace,
     )
-    if deployments_payload:
-        evidence = append_gateway_evidence(
-            evidence,
-            build_deployment_rollout_evidence(deployments_payload, replicasets_payload, pods_payload),
-        )
-    if cluster_operators_payload:
-        evidence = append_gateway_evidence(
-            evidence,
-            build_cluster_operator_status_evidence(cluster_operators_payload),
-        )
-
-    return evidence
 
 
 async def collect_pod_count_investigation(
     user_auth_header: str,
     query: Mapping[str, str],
 ) -> dict[str, Any]:
-    namespace = str(query.get("namespace") or "")
-    if not OPENSHIFT_API_URL:
-        return {
-            "namespace": namespace,
-            "reason": "OPENSHIFT_API_URL is not configured",
-            "status": "unavailable",
-            "targetName": str(query.get("targetName") or ""),
-        }
-
-    if namespace:
-        deployments_path = f"/apis/apps/v1/namespaces/{path_segment(namespace)}/deployments"
-        pods_path = f"/api/v1/namespaces/{path_segment(namespace)}/pods"
-    else:
-        deployments_path = "/apis/apps/v1/deployments"
-        pods_path = "/api/v1/pods"
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        deployments_payload = await fetch_ocp_json(client, deployments_path, user_auth_header)
-        pods_payload = await fetch_ocp_json(client, pods_path, user_auth_header)
-
-    if not pods_payload:
-        return {
-            "namespace": namespace,
-            "reason": f"Kubernetes API pod list was not returned for {pods_path}",
-            "status": "unavailable",
-            "targetName": str(query.get("targetName") or ""),
-        }
-
-    return build_pod_count_investigation(query, deployments_payload, pods_payload)
-
-
-async def collect_cronjob_activity_evidence(user_auth_header: str, context_text: str) -> str:
-    if not OPENSHIFT_API_URL:
-        return "CronJob activity evidence unavailable: OPENSHIFT_API_URL is not configured."
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        cronjobs_payload = await fetch_ocp_json(client, "/apis/batch/v1/cronjobs", user_auth_header)
-        jobs_payload = await fetch_ocp_json(client, "/apis/batch/v1/jobs?limit=500", user_auth_header)
-
-    if not cronjobs_payload:
-        return (
-            "CronJob activity evidence unavailable: Kubernetes API CronJob list was not returned. "
-            "This may be a permission or API availability issue."
-        )
-
-    return build_cronjob_activity_evidence(
-        cronjobs_payload,
-        jobs_payload,
-        context_text=context_text,
-    )
-
-
-def _data_source_event_status(source: Mapping[str, Any] | None) -> str:
-    status = str((source or {}).get("status") or "unavailable").lower()
-    if status == "available":
-        return "success"
-    if status == "partial":
-        return "partial"
-    if status == "error":
-        return "error"
-    return "skipped"
-
-
-def _evidence_summary(label: str, status: str) -> str:
-    if status == "success":
-        return f"{label} 수집 완료"
-    if status == "partial":
-        return f"{label} 부분 수집"
-    return f"{label} 수집 불가"
-
-
-async def _monitoring_urls_for_rca(user_auth_header: str) -> tuple[dict[str, str], dict[str, Any]]:
-    if not OPENSHIFT_API_URL:
-        return {}, data_source_status(
-            label="Monitoring public URLs",
-            name="monitoring-shared-config",
-            path="/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
-            reason="OPENSHIFT_API_URL is not configured.",
-            status="unavailable",
-        )
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        monitoring_config_payload, monitoring_config_status = await fetch_ocp_json_observed(
-            client,
-            "/api/v1/namespaces/openshift-config-managed/configmaps/monitoring-shared-config",
-            user_auth_header,
-            label="Monitoring public URLs",
-            name="monitoring-shared-config",
-        )
-
-    return monitoring_urls_from_config(monitoring_config_payload), monitoring_config_status
-
-
-async def collect_node_status_rca_evidence(user_auth_header: str) -> dict[str, Any]:
-    source_path = "/api/v1/nodes"
-    metrics_path = "/apis/metrics.k8s.io/v1beta1/nodes"
-    if not OPENSHIFT_API_URL:
-        reason = "OPENSHIFT_API_URL is not configured."
-        return {
-            "detail": f"Node status evidence unavailable: {reason}",
-            "evidenceType": "node",
-            "missingReason": reason,
-            "sourcePath": source_path,
-            "status": "skipped",
-            "summary": _evidence_summary("Node 상태 RCA 증거", "skipped"),
-        }
-
-    async with httpx.AsyncClient(
-        verify=OPENSHIFT_API_CA_FILE,
-        timeout=httpx.Timeout(20.0, connect=5.0),
-    ) as client:
-        nodes_payload, nodes_status = await fetch_ocp_json_observed(
-            client,
-            source_path,
-            user_auth_header,
-            label="RCA Node status",
-            name="nodes",
-            required=True,
-        )
-        node_metrics_payload, metrics_status = await fetch_ocp_json_observed(
-            client,
-            metrics_path,
-            user_auth_header,
-            label="RCA Node metrics",
-            name="metrics.k8s.io",
-        )
-
-    if not nodes_payload:
-        reason = safe_error_text(nodes_status.get("reason") or "Kubernetes API node list was not returned.")
-        status = _data_source_event_status(nodes_status)
-        return {
-            "detail": f"Node status evidence unavailable: {reason}",
-            "evidenceType": "node",
-            "missingReason": reason,
-            "sourcePath": source_path,
-            "status": status,
-            "summary": _evidence_summary("Node 상태 RCA 증거", status),
-        }
-
-    metrics_event_status = _data_source_event_status(metrics_status)
-    status = "partial" if metrics_event_status != "success" else "success"
-    detail = build_node_status_rca_evidence(
-        nodes_payload,
-        node_metrics_payload,
-        metrics_status=metrics_status,
-    )
-    return {
-        "detail": detail,
-        "evidenceType": "node",
-        "missingReason": safe_error_text(metrics_status.get("reason") or "", limit=240)
-        if status == "partial"
-        else "",
-        "sourcePath": f"{source_path},{metrics_path}",
-        "status": status,
-        "summary": _evidence_summary("Node 상태 RCA 증거", status),
-    }
-
-
-async def collect_active_alerts_rca_evidence(user_auth_header: str) -> dict[str, Any]:
-    monitoring_urls, monitoring_status = await _monitoring_urls_for_rca(user_auth_header)
-    alerts_probe = await query_thanos_instant(
-        monitoring_urls.get("thanos", ""),
-        user_auth_header,
-        'ALERTS{alertstate="firing"}',
-    )
-    status = rca_probe_event_status(alerts_probe)
-    detail = build_active_alerts_rca_evidence(alerts_probe)
-    if status == "skipped" and _data_source_event_status(monitoring_status) == "error":
-        status = "error"
-    reason = _prometheus_probe_reason(alerts_probe)
-    return {
-        "detail": detail,
-        "evidenceType": "alert",
-        "missingReason": reason if status != "success" else "",
-        "sourcePath": '/api/v1/query?query=ALERTS{alertstate="firing"}',
-        "status": status,
-        "summary": _evidence_summary("Active Alert RCA 증거", status),
-    }
-
-
-async def collect_restart_metric_rca_evidence(user_auth_header: str) -> dict[str, Any]:
-    query = "increase(kube_pod_container_status_restarts_total[1h]) > 0"
-    monitoring_urls, monitoring_status = await _monitoring_urls_for_rca(user_auth_header)
-    restart_probe = await query_thanos_instant(
-        monitoring_urls.get("thanos", ""),
+    return await cluster_observability_runtime.collect_pod_count_investigation(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
         user_auth_header,
         query,
     )
-    status = rca_probe_event_status(restart_probe)
-    detail = build_restart_metric_rca_evidence(restart_probe)
-    if status == "skipped" and _data_source_event_status(monitoring_status) == "error":
-        status = "error"
-    reason = _prometheus_probe_reason(restart_probe)
-    return {
-        "detail": detail,
-        "evidenceType": "metric",
-        "missingReason": reason if status != "success" else "",
-        "sourcePath": f"/api/v1/query?query={query}",
-        "status": status,
-        "summary": _evidence_summary("Restart metric RCA 증거", status),
-    }
+
+
+async def collect_cronjob_activity_evidence(user_auth_header: str, context_text: str) -> str:
+    return await cluster_observability_runtime.collect_cronjob_activity_evidence(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
+        user_auth_header,
+        context_text,
+    )
+
+
+_data_source_event_status = cluster_observability_runtime._data_source_event_status
+_evidence_summary = cluster_observability_runtime._evidence_summary
+
+
+async def _monitoring_urls_for_rca(user_auth_header: str) -> tuple[dict[str, str], dict[str, Any]]:
+    return await cluster_observability_runtime.monitoring_urls_for_rca(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
+        user_auth_header,
+    )
+
+
+async def collect_node_status_rca_evidence(user_auth_header: str) -> dict[str, Any]:
+    return await cluster_observability_runtime.collect_node_status_rca_evidence(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
+        user_auth_header,
+    )
+
+
+async def collect_active_alerts_rca_evidence(user_auth_header: str) -> dict[str, Any]:
+    return await cluster_observability_runtime.collect_active_alerts_rca_evidence(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
+        user_auth_header,
+    )
+
+
+async def collect_restart_metric_rca_evidence(user_auth_header: str) -> dict[str, Any]:
+    return await cluster_observability_runtime.collect_restart_metric_rca_evidence(
+        cluster_observability_config(),
+        cluster_observability_dependencies(),
+        user_auth_header,
+    )
 
 
 def log_audit_record(record: Mapping[str, Any]) -> None:

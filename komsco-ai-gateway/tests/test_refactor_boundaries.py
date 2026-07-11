@@ -6,6 +6,7 @@ import pytest
 
 from komsco_ai_gateway import main as gateway_main
 from komsco_ai_gateway import gateway_state
+from komsco_ai_gateway import cluster_observability_runtime
 from komsco_ai_gateway import namespace_cleanup_runtime_support
 from komsco_ai_gateway import pod_answering
 from komsco_ai_gateway.cluster_evidence_runtime import (
@@ -181,3 +182,36 @@ def test_namespace_cleanup_candidate_store_preserves_state_identity(monkeypatch)
 
     assert observed["cache"] is gateway_state.NAMESPACE_CLEANUP_CHAT_CANDIDATES
     assert observed["builder"] is builder
+
+
+def test_cluster_observability_runtime_does_not_import_main() -> None:
+    module_path = (
+        Path(__file__).parents[1]
+        / "komsco_ai_gateway"
+        / "cluster_observability_runtime.py"
+    )
+    source = module_path.read_text(encoding="utf-8")
+
+    assert "from .main import" not in source
+    assert "import komsco_ai_gateway.main" not in source
+
+
+def test_cluster_observability_dependencies_follow_current_main_bindings(monkeypatch) -> None:
+    fetch = object()
+    observed = {}
+
+    async def collect(_config, dependencies, _authorization, **_kwargs):
+        observed["fetch"] = dependencies.fetch_ocp_json
+        return "patched evidence"
+
+    monkeypatch.setattr(gateway_main, "fetch_ocp_json", fetch)
+    monkeypatch.setattr(
+        cluster_observability_runtime,
+        "collect_pod_status_evidence",
+        collect,
+    )
+
+    result = asyncio.run(gateway_main.collect_pod_status_evidence("Bearer test"))
+
+    assert result == "patched evidence"
+    assert observed["fetch"] is fetch
