@@ -94,6 +94,7 @@ import { useAssistantAttachmentInteractions } from './useAssistantAttachmentInte
 import { useAssistantActionPlanRuntime } from './useAssistantActionPlanRuntime';
 import { useAssistantConversationHistory } from './useAssistantConversationHistory';
 import { useAssistantPanelGeometry } from './useAssistantPanelGeometry';
+import { useAssistantStreamProgress } from './useAssistantStreamProgress';
 import {
   stripDefaultEvidenceAppendix,
 } from './assistant.render';
@@ -108,7 +109,6 @@ import type {
   LightspeedStatusUpdate,
   Message,
   ProgressStatus,
-  ProgressStep,
   RunStatusEvent,
   ToolPlanFooter,
   ToolStreamEvent,
@@ -1113,7 +1113,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [stickToBottom, setStickToBottom] = React.useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
-  const [, setProgressTick] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const fabButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
@@ -1425,18 +1424,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       setShowScrollToBottom(true);
     }
   }, [loading, messages, scrollToBottom, stickToBottom]);
-
-  React.useEffect(() => {
-    if (!loading) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      setProgressTick((value) => value + 1);
-    }, 1000);
-
-    return () => window.clearInterval(timer);
-  }, [loading]);
 
   React.useEffect(() => {
     if (!open) {
@@ -1838,104 +1825,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     [persistMessageFeedback],
   );
 
-  const upsertProgressStep = React.useCallback((step: ProgressStep) => {
-    setMessages((prev) => {
-      const assistantIndex = findLastAssistantIndex(prev);
-      if (assistantIndex < 0) {
-        return prev;
-      }
-
-      const next = [...prev];
-      const message = next[assistantIndex];
-      const progressSteps = [...(message.progressSteps ?? [])];
-      const existingIndex = progressSteps.findIndex((item) => item.id === step.id);
-
-      if (existingIndex >= 0) {
-        progressSteps[existingIndex] = {
-          ...progressSteps[existingIndex],
-          ...step,
-          startedAt: progressSteps[existingIndex].startedAt,
-        };
-      } else {
-        progressSteps.push(step);
-      }
-
-      next[assistantIndex] = {
-        ...message,
-        progressSteps,
-      };
-
-      return next;
-    });
-  }, []);
-
-  const markRunningProgressFailed = React.useCallback((summary: string) => {
-    setMessages((prev) => {
-      const assistantIndex = findLastAssistantIndex(prev);
-      if (assistantIndex < 0) {
-        return prev;
-      }
-
-      const next = [...prev];
-      const message = next[assistantIndex];
-
-      next[assistantIndex] = {
-        ...message,
-        progressSteps: message.progressSteps?.map((step) => {
-          if (step.status !== 'running') {
-            return step;
-          }
-
-          const endedAt = Date.now();
-
-          return {
-            ...step,
-            detail: step.detail || summary,
-            elapsedMs: endedAt - step.startedAt,
-            endedAt,
-            status: 'failed',
-            summary,
-          };
-        }),
-      };
-
-      return next;
-    });
-  }, []);
-
-  const finalizeRunningProgressSteps = React.useCallback((summary = '응답 완료') => {
-    setMessages((prev) => {
-      const assistantIndex = findLastAssistantIndex(prev);
-      if (assistantIndex < 0) {
-        return prev;
-      }
-
-      const next = [...prev];
-      const message = next[assistantIndex];
-
-      next[assistantIndex] = {
-        ...message,
-        progressSteps: message.progressSteps?.map((step) => {
-          if (step.status !== 'running') {
-            return step;
-          }
-
-          const endedAt = Date.now();
-
-          return {
-            ...step,
-            detail: step.detail || summary,
-            elapsedMs: endedAt - step.startedAt,
-            endedAt,
-            status: 'completed',
-            summary,
-          };
-        }),
-      };
-
-      return next;
-    });
-  }, []);
+  const {
+    finalizeRunningProgressSteps,
+    markRunningProgressFailed,
+    upsertProgressStep,
+  } = useAssistantStreamProgress({ loading, setMessages });
 
   const send = React.useCallback(
     async (prompt?: string) => {
