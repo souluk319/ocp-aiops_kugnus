@@ -59,8 +59,14 @@ from .answer_streaming import (
 from .app_factory import create_app
 from .aiops_read_router import create_aiops_read_router
 from .action_router import create_action_router
+from .diagnostics_router import create_diagnostics_router
+from .evidence_router import create_evidence_router
 from . import action_api_service
+from . import diagnostics_service
+from . import evidence_service
 from .action_api_service import ActionApiConfig, ActionApiDependencies, ActionApiStores
+from .diagnostics_service import DiagnosticsConfig, DiagnosticsDependencies
+from .evidence_service import EvidenceDependencies, EvidenceStores
 from .aiops_read_service import (
     AiopsReadConfig,
     AiopsReadDependencies,
@@ -1304,206 +1310,85 @@ def can_subject_read_record(record: Mapping[str, Any], subject: Mapping[str, Any
     )
 
 
+def evidence_dependencies() -> EvidenceDependencies:
+    return EvidenceDependencies(
+        stores=EvidenceStores(
+            evidence=EVIDENCE_RECORDS,
+            workflows=WORKFLOW_RECORDS,
+        ),
+        verify_bearer_header=verify_bearer_header,
+        fetch_self_subject_review=fetch_self_subject_review,
+        can_subject_read_record=can_subject_read_record,
+    )
+
+
+def diagnostics_dependencies() -> DiagnosticsDependencies:
+    return DiagnosticsDependencies(
+        config=DiagnosticsConfig(
+            cluster_id=CLUSTER_ID,
+            diagnostics_enabled=DIAGNOSTICS_ENABLED,
+            controller_url=HOST_DIAGNOSTICS_CONTROLLER_URL,
+            controller_shared_token=HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN,
+            collector_registry_version=HOST_DIAGNOSTIC_COLLECTOR_VERSION,
+            collector_registry_digest=HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
+            request_digest_fields=DIAGNOSTIC_REQUEST_DIGEST_FIELDS,
+        ),
+        diagnostic_requests=DIAGNOSTIC_REQUESTS,
+        collectors=HOST_DIAGNOSTIC_COLLECTORS,
+        verify_bearer_header=verify_bearer_header,
+        fetch_self_subject_review=fetch_self_subject_review,
+        can_subject_read_record=can_subject_read_record,
+        get_host_diagnostic_collector=get_host_diagnostic_collector,
+        canonical_digest=canonical_digest,
+        redact_sensitive=redact_sensitive,
+        now_rfc3339=now_rfc3339,
+        bounded_put_record=bounded_put_record,
+        increment_metric=increment_metric,
+    )
+
+
 def diagnostic_request_digest(candidate: Mapping[str, Any]) -> str:
-    projection = {field: candidate.get(field) for field in DIAGNOSTIC_REQUEST_DIGEST_FIELDS}
-    return canonical_digest(redact_sensitive(projection))
+    return diagnostics_service.diagnostic_request_digest(candidate, diagnostics_dependencies())
 
 
 def build_diagnostic_request_candidate(
     request: "DiagnosticRequestCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    try:
-        collector_profile = get_host_diagnostic_collector(request.collector)
-    except AiopsCoreError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if request.collectorVersion != collector_profile["collectorVersion"]:
-        raise HTTPException(status_code=400, detail="collectorVersion does not match the registry")
-    if request.collectorProfile != collector_profile["collectorProfile"]:
-        raise HTTPException(status_code=400, detail="collectorProfile does not match the registry")
-    candidate = {
-        "schemaVersion": "v1",
-        "clusterId": CLUSTER_ID,
-        "requester": redact_sensitive(dict(subject)),
-        "targetNode": request.targetNode.model_dump(),
-        "collector": request.collector,
-        "collectorVersion": request.collectorVersion,
-        "collectorProfile": request.collectorProfile,
-        "collectorRegistry": {
-            "version": HOST_DIAGNOSTIC_COLLECTOR_VERSION,
-            "digest": HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
-        },
-        "collectorConstraints": collector_profile,
-        "timeRange": request.timeRange.model_dump(),
-        "limits": request.limits.model_dump(),
-        "evidencePolicy": request.evidencePolicy.model_dump(),
-        "policy": redact_sensitive(dict(request.policy)),
-    }
-    return candidate
+    return diagnostics_service.build_diagnostic_request_candidate(
+        request, subject, diagnostics_dependencies(),
+    )
 
 
 def build_diagnostic_request_record(
     request: "DiagnosticRequestCreate",
     subject: Mapping[str, Any],
 ) -> dict[str, Any]:
-    candidate = build_diagnostic_request_candidate(request, subject)
-    request_digest = diagnostic_request_digest(candidate)
-    request_id = f"diag-{request_digest.removeprefix('sha256:')[:16]}"
-    grant_reference_digest = canonical_digest(
-        {
-            "audience": "aiops-host-diagnostics-controller",
-            "requestDigest": request_digest,
-            "requestId": request_id,
-        }
+    return diagnostics_service.build_diagnostic_request_record(
+        request, subject, diagnostics_dependencies(),
     )
-    return {
-        "schemaVersion": "v1",
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "DiagnosticRequestRecord",
-        "metadata": {
-            "name": request_id,
-            "createdAt": now_rfc3339(),
-        },
-        "spec": {
-            "candidate": candidate,
-            "diagnosticRequestDigest": request_digest,
-            "digestSchema": {
-                "name": "diagnostic-request-digest-v1",
-                "canonicalization": "stable-json-sort-keys",
-                "includedFields": list(DIAGNOSTIC_REQUEST_DIGEST_FIELDS),
-            },
-            "grantRef": {
-                "grantId": f"diag-grant-{request_digest.removeprefix('sha256:')[:16]}",
-                "grantDigest": grant_reference_digest,
-                "bearerGrantStored": False,
-            },
-            "incidentId": request.incidentId,
-            "runId": request.runId,
-            "status": {
-                "phase": "pending_controller_submission" if DIAGNOSTICS_ENABLED else "disabled",
-                "reason": (
-                    "Host diagnostics controller submission is enabled."
-                    if DIAGNOSTICS_ENABLED
-                    else "Host diagnostics controller submission is disabled by configuration."
-                ),
-                "submittedToController": False,
-            },
-        },
-        "subject": redact_sensitive(dict(subject)),
-    }
 
 
 async def submit_diagnostic_request_to_controller(record: dict[str, Any]) -> dict[str, Any]:
-    status = record["spec"]["status"]
-    if not DIAGNOSTICS_ENABLED:
-        return record
-    if not HOST_DIAGNOSTICS_CONTROLLER_URL:
-        status.update(
-            {
-                "phase": "controller_unconfigured",
-                "reason": "Host diagnostics controller URL is not configured.",
-                "submittedToController": False,
-            }
-        )
-        return record
-
-    headers: dict[str, str] = {}
-    if HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN:
-        headers["Authorization"] = f"Bearer {HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN}"
-
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
-            response = await client.post(
-                f"{HOST_DIAGNOSTICS_CONTROLLER_URL}/v1/controller/diagnostics/requests",
-                headers=headers,
-                json={"diagnosticRequest": record},
-            )
-    except httpx.HTTPError as exc:
-        status.update(
-            {
-                "phase": "controller_submission_failed",
-                "reason": f"Host diagnostics controller request failed: {exc.__class__.__name__}",
-                "submittedToController": False,
-            }
-        )
-        return record
-
-    if response.status_code >= 400:
-        status.update(
-            {
-                "phase": "controller_submission_failed",
-                "reason": f"Host diagnostics controller returned HTTP {response.status_code}",
-                "submittedToController": False,
-                "controllerError": redact_sensitive(response.text[:1000]),
-            }
-        )
-        return record
-
-    try:
-        controller_result = response.json()
-    except ValueError:
-        controller_result = {"raw": response.text[:1000]}
-    status.update(
-        {
-            "phase": "controller_submitted",
-            "reason": "Host diagnostics controller accepted the request.",
-            "submittedToController": True,
-            "controllerSubmission": redact_sensitive(controller_result),
-        }
+    return await diagnostics_service.submit_diagnostic_request_to_controller(
+        record, diagnostics_dependencies(),
     )
-    return record
 
 
 def compact_controller_submission(controller_result: Mapping[str, Any]) -> dict[str, Any]:
-    compacted = redact_sensitive(dict(controller_result))
-    spec = compacted.get("spec") if isinstance(compacted.get("spec"), Mapping) else {}
-    collector_pod = spec.get("collectorPod") if isinstance(spec.get("collectorPod"), Mapping) else {}
-    log_preview = collector_pod.get("logPreview")
-    if isinstance(log_preview, str):
-        collector_pod["logPreviewDigest"] = canonical_digest(log_preview)
-        collector_pod["logPreviewBytes"] = len(log_preview.encode("utf-8"))
-        collector_pod.pop("logPreview", None)
-    return compacted
+    return diagnostics_service.compact_controller_submission(
+        controller_result, diagnostics_dependencies(),
+    )
 
 
 def normalize_controller_phase(phase: str) -> str:
-    if phase == "completed":
-        return "succeeded"
-    return phase
+    return diagnostics_service.normalize_controller_phase(phase)
 
 
 async def refresh_diagnostic_request_from_controller(record: dict[str, Any]) -> dict[str, Any]:
-    status = record["spec"]["status"]
-    if not DIAGNOSTICS_ENABLED or not HOST_DIAGNOSTICS_CONTROLLER_URL:
-        return record
-    if status.get("submittedToController") is not True:
-        return record
-    request_id = str(record["metadata"]["name"])
-    headers: dict[str, str] = {}
-    if HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN:
-        headers["Authorization"] = f"Bearer {HOST_DIAGNOSTICS_CONTROLLER_SHARED_TOKEN}"
-    try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0)) as client:
-            response = await client.get(
-                f"{HOST_DIAGNOSTICS_CONTROLLER_URL}/v1/controller/diagnostics/requests/{request_id}",
-                headers=headers,
-            )
-    except httpx.HTTPError:
-        return record
-    if response.status_code >= 400:
-        return record
-    try:
-        controller_result = response.json()
-    except ValueError:
-        return record
-    controller_spec = (
-        controller_result.get("spec") if isinstance(controller_result, Mapping) else {}
+    return await diagnostics_service.refresh_diagnostic_request_from_controller(
+        record, diagnostics_dependencies(),
     )
-    phase = controller_spec.get("phase") if isinstance(controller_spec, Mapping) else None
-    if isinstance(phase, str) and phase:
-        status["phase"] = f"collector_{normalize_controller_phase(phase)}"
-    status["controllerSubmission"] = compact_controller_submission(controller_result)
-    return record
 
 
 
@@ -5674,133 +5559,64 @@ async def aiops_action_candidates(authorization: str | None = Header(default=Non
 app.include_router(create_aiops_read_router(aiops_read_dependencies))
 
 
-@app.get("/v1/auth/subject")
 async def auth_subject(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    return await fetch_self_subject_review(user_auth_header)
+    return await evidence_service.auth_subject(authorization, evidence_dependencies())
 
 
-@app.get("/v1/evidence")
 async def list_evidence(
     authorization: str | None = Header(default=None),
     incident_id: str | None = Query(default=None, alias="incidentId"),
     run_id: str | None = Query(default=None, alias="runId"),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    items = []
-    for record in EVIDENCE_RECORDS.values():
-        if incident_id and record.get("incidentId") != incident_id:
-            continue
-        if run_id and record.get("runId") != run_id:
-            continue
-        if not can_subject_read_record(record, subject):
-            continue
-        items.append({key: value for key, value in record.items() if key != "detail"})
-
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "items": items,
-        "kind": "EvidenceReferenceList",
-    }
+    return await evidence_service.list_evidence(
+        authorization, incident_id, run_id, evidence_dependencies(),
+    )
 
 
-@app.get("/v1/evidence/{evidence_id}")
 async def get_evidence(
     evidence_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = EVIDENCE_RECORDS.get(evidence_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Evidence not found")
-
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "Evidence",
-        "metadata": {"name": evidence_id},
-        "spec": record,
-    }
+    return await evidence_service.get_evidence(
+        evidence_id, authorization, evidence_dependencies(),
+    )
 
 
-@app.get("/v1/workflows/{run_id}")
 async def get_workflow(
     run_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = WORKFLOW_RECORDS.get(run_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Workflow not found")
-
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "Workflow",
-        "metadata": {"name": run_id},
-        "spec": record,
-    }
+    return await evidence_service.get_workflow(
+        run_id, authorization, evidence_dependencies(),
+    )
 
 
-@app.get("/v1/diagnostics/collectors")
 async def get_diagnostic_collectors(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    verify_bearer_header(authorization)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "HostDiagnosticCollectorRegistry",
-        "metadata": {
-            "name": "host-diagnostic-collector-registry",
-            "version": HOST_DIAGNOSTIC_COLLECTOR_VERSION,
-        },
-        "spec": {
-            "digest": HOST_DIAGNOSTIC_COLLECTOR_DIGEST,
-            "diagnosticsEnabled": DIAGNOSTICS_ENABLED,
-            "controllerConfigured": bool(HOST_DIAGNOSTICS_CONTROLLER_URL),
-            "collectors": list(HOST_DIAGNOSTIC_COLLECTORS.values()),
-        },
-    }
+    return diagnostics_service.get_diagnostic_collectors(
+        authorization, diagnostics_dependencies(),
+    )
 
 
-@app.post("/v1/diagnostics/requests")
 async def create_diagnostic_request(
     req: DiagnosticRequestCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = build_diagnostic_request_record(req, subject)
-    record = await submit_diagnostic_request_to_controller(record)
-    request_id = str(record["metadata"]["name"])
-    await bounded_put_record("diagnosticRequests", request_id, record)
-    increment_metric("aiops_diagnostic_requests_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "DiagnosticRequest",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await diagnostics_service.create_diagnostic_request(
+        req, authorization, diagnostics_dependencies(),
+    )
 
 
-@app.get("/v1/diagnostics/requests/{request_id}")
 async def get_diagnostic_request(
     request_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = DIAGNOSTIC_REQUESTS.get(request_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Diagnostic request not found")
-    record = await refresh_diagnostic_request_from_controller(record)
-    await bounded_put_record("diagnosticRequests", request_id, record)
+    return await diagnostics_service.get_diagnostic_request(
+        request_id, authorization, diagnostics_dependencies(),
+    )
 
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "DiagnosticRequest",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+
+app.include_router(create_evidence_router(evidence_dependencies))
+app.include_router(create_diagnostics_router(diagnostics_dependencies))
 
 
 def latest_readable_records(
