@@ -1,33 +1,26 @@
-const parseNamedBindings = (clause) => clause
-  .split(',')
-  .map((entry) => entry.trim().replace(/^type\s+/, ''))
-  .filter(Boolean)
-  .map((entry) => {
-    const [imported, local = imported] = entry.split(/\s+as\s+/);
-    return { imported: imported.trim(), local: local.trim() };
-  });
+const { parse } = require('@babel/parser');
+const { spawnSync } = require('child_process');
 
 const ecmaScriptImports = (source) => {
   const imports = [];
-  const importPattern = /^\s*import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]\s*;?/gm;
-  let match;
+  const program = parse(source, {
+    sourceType: 'module',
+    plugins: ['jsx', 'typescript'],
+  }).program;
 
-  while ((match = importPattern.exec(source)) !== null) {
-    const clause = match[1].trim();
-    const moduleSpecifier = match[2];
-    const namedMatch = clause.match(/\{([\s\S]*?)\}/);
-    const namespaceMatch = clause.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
-    const defaultMatch = clause.match(/^([A-Za-z_$][\w$]*)\s*(?:,|$)/);
-
-    if (defaultMatch) {
-      imports.push({ moduleSpecifier, imported: 'default', local: defaultMatch[1] });
-    }
-    if (namespaceMatch) {
-      imports.push({ moduleSpecifier, imported: '*', local: namespaceMatch[1] });
-    }
-    if (namedMatch) {
-      for (const binding of parseNamedBindings(namedMatch[1])) {
-        imports.push({ moduleSpecifier, ...binding });
+  for (const statement of program.body) {
+    if (statement.type !== 'ImportDeclaration') continue;
+    const moduleSpecifier = statement.source.value;
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === 'ImportDefaultSpecifier') {
+        imports.push({ moduleSpecifier, imported: 'default', local: specifier.local.name });
+      } else if (specifier.type === 'ImportNamespaceSpecifier') {
+        imports.push({ moduleSpecifier, imported: '*', local: specifier.local.name });
+      } else if (specifier.type === 'ImportSpecifier') {
+        const imported = specifier.imported.type === 'Identifier'
+          ? specifier.imported.name
+          : specifier.imported.value;
+        imports.push({ moduleSpecifier, imported, local: specifier.local.name });
       }
     }
   }
@@ -36,19 +29,25 @@ const ecmaScriptImports = (source) => {
 };
 
 const pythonImports = (source) => {
-  const imports = [];
-  const importPattern = /^\s*from\s+([.\w]+)\s+import\s+(?:\(([\s\S]*?)\)|([^\n]+))/gm;
-  let match;
-
-  while ((match = importPattern.exec(source)) !== null) {
-    const moduleSpecifier = match[1];
-    const clause = (match[2] ?? match[3]).replace(/#.*$/gm, '');
-    for (const binding of parseNamedBindings(clause)) {
-      imports.push({ moduleSpecifier, ...binding });
-    }
+  const parser = [
+    'import ast, json, sys',
+    'tree = ast.parse(sys.stdin.read())',
+    'items = []',
+    'for node in tree.body:',
+    '    if isinstance(node, ast.ImportFrom):',
+    '        module = "." * node.level + (node.module or "")',
+    '        for alias in node.names:',
+    '            items.append({"moduleSpecifier": module, "imported": alias.name, "local": alias.asname or alias.name})',
+    'print(json.dumps(items))',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', parser], {
+    input: source,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(`Unable to parse Python imports:\n${result.stderr}`);
   }
-
-  return imports;
+  return JSON.parse(result.stdout);
 };
 
 const assertImport = (imports, expected, message) => {
@@ -76,3 +75,25 @@ module.exports = {
   ecmaScriptImports,
   pythonImports,
 };
+
+if (require.main === module) {
+  const jsFixture = `
+    // import { Fake } from './commented';
+    const embedded = "import { Fake } from './string'";
+    import Real, { type Shape, value as localValue } from './real';
+  `;
+  const pythonFixture = `
+# from .commented import Fake
+embedded = "from .string import Fake"
+from .real import Shape, value as local_value
+  `;
+  const jsImports = ecmaScriptImports(jsFixture);
+  const pyImports = pythonImports(pythonFixture);
+  if (jsImports.some((entry) => entry.moduleSpecifier !== './real')) {
+    throw new Error('ECMAScript parser accepted a dead import');
+  }
+  if (pyImports.some((entry) => entry.moduleSpecifier !== '.real')) {
+    throw new Error('Python parser accepted a dead import');
+  }
+  console.log('source import parser PASS');
+}
