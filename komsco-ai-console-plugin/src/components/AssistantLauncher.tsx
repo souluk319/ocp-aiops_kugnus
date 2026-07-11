@@ -98,8 +98,8 @@ import {
 import {
   buildToolPlanFooter,
 } from './assistant.toolPlan';
-import { filesFromClipboardData, isAcceptedImageFile } from './assistant.uploadFiles';
 import { useAssistantUploads } from './assistant.uploads';
+import { useAssistantAttachmentInteractions } from './useAssistantAttachmentInteractions';
 import { useAssistantPanelGeometry } from './useAssistantPanelGeometry';
 import {
   stripDefaultEvidenceAppendix,
@@ -131,7 +131,6 @@ import {
   type ChatContextMessage,
   type ChatFeedbackPayload,
   type ClusterSummary,
-  type ImageAttachment,
   approveActionPlan,
   createActionCandidatePlan,
   createActionPlan,
@@ -1188,6 +1187,21 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
     setHistorySidebarOpen,
     uploadedDocsErrorLabel: copy.uploadedDocsError,
   });
+  const {
+    closeAttachmentPreview,
+    fileInputRef,
+    handleDragEnter: handleAttachmentDragEnter,
+    handleDragLeave: handleAttachmentDragLeave,
+    handleDragOver: handleAttachmentDragOver,
+    handleDrop: handleAttachmentDrop,
+    handleFileInputChange,
+    handlePaste,
+    openAttachmentPreview,
+    previewAttachment,
+  } = useAssistantAttachmentInteractions({
+    addImageFiles,
+    setDragActive,
+  });
   const [quickPromptMenuOpen, setQuickPromptMenuOpen] = React.useState(false);
   const [taskModeMenuOpen, setTaskModeMenuOpen] = React.useState(false);
   const [openHistoryMenuId, setOpenHistoryMenuId] = React.useState<string | null>(null);
@@ -1201,13 +1215,11 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
   const [stickToBottom, setStickToBottom] = React.useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = React.useState(false);
   const [copiedMessageIndex, setCopiedMessageIndex] = React.useState<number | null>(null);
-  const [previewAttachment, setPreviewAttachment] = React.useState<ImageAttachment | null>(null);
   const [, setProgressTick] = React.useState(0);
   const surfaceRef = React.useRef<HTMLDivElement | null>(null);
   const fabButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
   const bodyEndRef = React.useRef<HTMLDivElement | null>(null);
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const consumedDraftPromptIdRef = React.useRef('');
   const quickPromptMenuRef = React.useRef<HTMLDivElement | null>(null);
   const taskModeMenuRef = React.useRef<HTMLDivElement | null>(null);
@@ -1506,22 +1518,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
 
     return () => window.clearInterval(timer);
   }, [loading]);
-
-  React.useEffect(() => {
-    if (!previewAttachment) {
-      return undefined;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setPreviewAttachment(null);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [previewAttachment]);
 
   React.useEffect(() => {
     if (!open) {
@@ -2335,40 +2331,6 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
       return next;
     });
   }, []);
-
-  const handleFileInputChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.currentTarget.files ?? []);
-
-      void addImageFiles(files);
-      event.currentTarget.value = '';
-    },
-    [addImageFiles],
-  );
-
-  const handlePaste = React.useCallback(
-    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = filesFromClipboardData(event.clipboardData);
-      const hasImage = files.some(isAcceptedImageFile);
-
-      if (!hasImage) {
-        return;
-      }
-
-      event.preventDefault();
-      void addImageFiles(files);
-    },
-    [addImageFiles],
-  );
-
-  const handleDrop = React.useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      setDragActive(false);
-      void addImageFiles(filesFromClipboardData(event.dataTransfer));
-    },
-    [addImageFiles],
-  );
 
   const send = React.useCallback(
     async (prompt?: string) => {
@@ -3256,7 +3218,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                                     }
                                     language={uiLanguage}
                                     message={message}
-                                    onPreviewAttachment={setPreviewAttachment}
+                                    onPreviewAttachment={openAttachmentPreview}
                                     onSelect={sendFollowupChoice}
                                     visible={isLatestAssistantMessage && hasContent}
                                   />
@@ -3405,21 +3367,14 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
                     fileInputRef={fileInputRef}
                     input={input}
                     loading={loading}
-                    onDragEnter={(event) => {
-                      event.preventDefault();
-                      setDragActive(true);
-                    }}
-                    onDragLeave={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                        setDragActive(false);
-                      }
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={handleDrop}
+                    onDragEnter={handleAttachmentDragEnter}
+                    onDragLeave={handleAttachmentDragLeave}
+                    onDragOver={handleAttachmentDragOver}
+                    onDrop={handleAttachmentDrop}
                     onFileInputChange={handleFileInputChange}
                     onInputChange={setInput}
                     onPaste={handlePaste}
-                    onPreviewAttachment={setPreviewAttachment}
+                    onPreviewAttachment={openAttachmentPreview}
                     onRemoveAttachment={removeAttachment}
                     onScrollToBottom={() => {
                       setStickToBottom(true);
@@ -3467,7 +3422,7 @@ const AssistantLauncher: React.FC<AssistantLauncherProps> = ({
         <AssistantImageLightbox
           attachment={previewAttachment}
           language={uiLanguage}
-          onClose={() => setPreviewAttachment(null)}
+          onClose={closeAttachmentPreview}
         />
       )}
     </div>
