@@ -3,7 +3,6 @@ import base64
 import binascii
 import hashlib
 import json
-import mimetypes
 import os
 import re
 import time
@@ -61,12 +60,15 @@ from .aiops_read_router import create_aiops_read_router
 from .action_router import create_action_router
 from .diagnostics_router import create_diagnostics_router
 from .evidence_router import create_evidence_router
+from .knowledge_router import create_knowledge_router
 from . import action_api_service
 from . import diagnostics_service
 from . import evidence_service
+from . import knowledge_service
 from .action_api_service import ActionApiConfig, ActionApiDependencies, ActionApiStores
 from .diagnostics_service import DiagnosticsConfig, DiagnosticsDependencies
 from .evidence_service import EvidenceDependencies, EvidenceStores
+from .knowledge_service import KnowledgeConfig, KnowledgeDependencies, KnowledgeStores
 from .aiops_read_service import (
     AiopsReadConfig,
     AiopsReadDependencies,
@@ -5979,6 +5981,49 @@ async def maybe_auto_approve_and_execute(
     )
 
 
+def knowledge_dependencies() -> KnowledgeDependencies:
+    return KnowledgeDependencies(
+        config=KnowledgeConfig(
+            runbook_registry_version=RUNBOOK_REGISTRY_VERSION,
+            runbook_registry_digest=RUNBOOK_REGISTRY_DIGEST,
+            runbook_registry_entries=RUNBOOK_REGISTRY_ENTRIES,
+            preapproved_patch_field_digest=PREAPPROVED_PATCH_FIELD_DIGEST,
+            preapproved_patch_field_schemas=PREAPPROVED_PATCH_FIELD_SCHEMAS,
+            break_glass_profile_version=BREAK_GLASS_PROFILE_VERSION,
+            break_glass_profile_digest=BREAK_GLASS_PROFILE_DIGEST,
+            break_glass_profiles=BREAK_GLASS_PROFILES,
+            break_glass_enabled=BREAK_GLASS_ENABLED,
+            latest_runtime_tool_plan=LAST_RUNTIME_TOOL_PLAN,
+            latest_rca_context=LAST_RCA_CONTEXT,
+        ),
+        stores=KnowledgeStores(
+            runbook_plans=RUNBOOK_PLANS,
+            preapproved_patch_requests=PREAPPROVED_PATCH_REQUESTS,
+            break_glass_requests=BREAK_GLASS_REQUESTS,
+        ),
+        verify_bearer_header=verify_bearer_header,
+        fetch_self_subject_review=fetch_self_subject_review,
+        can_subject_read_record=can_subject_read_record,
+        now_rfc3339=now_rfc3339,
+        list_rag_upload_documents=list_pgvector_upload_documents,
+        build_rag_backend_status=build_rag_backend_status,
+        persist_rag_upload_document=persist_rag_upload_document,
+        extract_rag_upload_file_content=extract_rag_upload_file_content,
+        parse_rag_upload_form_labels=parse_rag_upload_form_labels,
+        search_rag_runbooks=search_pgvector_runbooks,
+        increment_metric=increment_metric,
+        build_runbook_plan_record=build_runbook_plan_record,
+        build_preapproved_patch_record=build_preapproved_patch_record,
+        build_break_glass_request_record=build_break_glass_request_record,
+        bounded_put_record=bounded_put_record,
+        log_break_glass_audit_record=log_break_glass_audit_record,
+        build_trace_record=build_trace_record,
+    )
+
+
+app.include_router(create_knowledge_router(knowledge_dependencies))
+
+
 @app.post("/v1/dev/commands/execute")
 async def execute_unrestricted_command(
     req: UnrestrictedCommandExecuteCreate,
@@ -5989,86 +6034,21 @@ async def execute_unrestricted_command(
     return await execute_unrestricted_command_request(req, subject)
 
 
-@app.get("/v1/runbooks/registry")
 async def get_runbook_registry(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    verify_bearer_header(authorization)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RunbookRegistry",
-        "metadata": {"name": "restricted-runbook-registry", "version": RUNBOOK_REGISTRY_VERSION},
-        "spec": {
-            "digest": RUNBOOK_REGISTRY_DIGEST,
-            "entries": list(RUNBOOK_REGISTRY_ENTRIES.values()),
-            "preapprovedPatchFieldDigest": PREAPPROVED_PATCH_FIELD_DIGEST,
-            "preapprovedPatchFieldSchemas": list(PREAPPROVED_PATCH_FIELD_SCHEMAS.values()),
-        },
-    }
+    return knowledge_service.get_runbook_registry(authorization, knowledge_dependencies())
 
 
-@app.get("/v1/rag/uploads")
 async def list_rag_uploads(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    status, reason, documents = list_pgvector_upload_documents(subject)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RagUploadedDocumentList",
-        "metadata": {"name": "uploaded-rag-documents", "generatedAt": now_rfc3339()},
-        "spec": {
-            "status": status,
-            "reason": reason,
-            "backend": build_rag_backend_status(),
-            "documents": documents,
-            "totals": {"documents": len(documents)},
-            "safety": {
-                "gatewayOnly": True,
-                "directDatabaseAccessAllowed": False,
-                "rawContentReturned": False,
-            },
-        },
-    }
+    return await knowledge_service.list_rag_uploads(authorization, knowledge_dependencies())
 
 
-@app.post("/v1/rag/uploads")
 async def create_rag_upload(
     req: RagDocumentUploadCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = build_rag_upload_document(req, subject)
-    status, reason, document = await persist_rag_upload_document(record)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RagUploadIngestionResult",
-        "metadata": {"name": record["document"]["documentId"], "generatedAt": now_rfc3339()},
-        "spec": {
-            "status": status,
-            "reason": reason,
-            "backend": build_rag_backend_status(),
-            "document": document or record["document"],
-            "chunks": [
-                {
-                    "chunkId": chunk["chunkId"],
-                    "chunkIndex": chunk["chunkIndex"],
-                    "textHash": chunk["textHash"],
-                    "checksum": chunk["checksum"],
-                    "charLength": len(chunk["content"]),
-                    "sourceUri": chunk["sourceUri"],
-                }
-                for chunk in record["chunks"]
-            ],
-            "safety": {
-                "gatewayOnly": True,
-                "directDatabaseAccessAllowed": False,
-                "rawContentReturned": False,
-                "redactionAppliedBeforeChunking": True,
-            },
-        },
-    }
+    return await knowledge_service.create_rag_upload(req, authorization, knowledge_dependencies())
 
 
-@app.post("/v1/rag/uploads/file")
 async def create_rag_upload_file(
     file: UploadFile = File(...),
     authorization: str | None = Header(default=None),
@@ -6080,275 +6060,83 @@ async def create_rag_upload_file(
     source_uri: str | None = Form(default=None),
     version: str = Form(default="v0.1.5"),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    filename = os.path.basename(file.filename or "upload").strip() or "upload"
-    mime_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    raw = await file.read()
-    content, parser_report = extract_rag_upload_file_content(filename, mime_type, raw)
-    requested_labels = parse_rag_upload_form_labels(labels)
-    parser_labels = {
-        key: str(value).lower() if isinstance(value, bool) else str(value)
-        for key, value in parser_report.items()
-        if value is not None
-    }
-    req = RagDocumentUploadCreate(
-        name=filename,
-        mimeType=mime_type,
-        content=content,
-        sourceUri=source_uri,
-        sourceType=source_type,
-        customer=customer,
-        namespace=namespace,
-        version=version,
-        labels={
-            **requested_labels,
-            **parser_labels,
-            "source": requested_labels.get("source", "chat-attachment"),
-        },
-        runId=run_id,
+    return await knowledge_service.create_rag_upload_file(
+        file,
+        authorization,
+        labels,
+        customer,
+        namespace,
+        run_id,
+        source_type,
+        source_uri,
+        version,
+        knowledge_dependencies(),
     )
-    record = build_rag_upload_document(req, subject)
-    status, reason, document = await persist_rag_upload_document(record)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RagUploadIngestionResult",
-        "metadata": {"name": record["document"]["documentId"], "generatedAt": now_rfc3339()},
-        "spec": {
-            "status": status,
-            "reason": reason,
-            "backend": build_rag_backend_status(),
-            "document": document or record["document"],
-            "ingestionReport": parser_report,
-            "chunks": [
-                {
-                    "chunkId": chunk["chunkId"],
-                    "chunkIndex": chunk["chunkIndex"],
-                    "textHash": chunk["textHash"],
-                    "checksum": chunk["checksum"],
-                    "charLength": len(chunk["content"]),
-                    "sourceUri": chunk["sourceUri"],
-                }
-                for chunk in record["chunks"]
-            ],
-            "safety": {
-                "gatewayOnly": True,
-                "directDatabaseAccessAllowed": False,
-                "rawContentReturned": False,
-                "redactionAppliedBeforeChunking": True,
-                "parserBoundary": "gateway-multipart-upload",
-            },
-        },
-    }
 
 
-@app.post("/v1/rag/search")
 async def search_rag_runbooks(
     req: RagSearchCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    backend = build_rag_backend_status()
-    request_id = f"rag-search-{uuid.uuid4()}"
-    increment_metric("aiops_rag_search_requests_total")
-    search_status, reason, results = await search_pgvector_runbooks(req, subject=subject)
-    evidence_status = "collected" if results else ("missing" if search_status == "not_configured" else search_status)
-    collected_refs = [result.get("evidenceRef", {}) for result in results if isinstance(result.get("evidenceRef"), Mapping)]
-    missing = [] if collected_refs else [{"type": "runbook", "reason": reason}]
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RagSearchResult",
-        "metadata": {
-            "name": request_id,
-            "generatedAt": now_rfc3339(),
-        },
-        "spec": {
-            "query": req.query,
-            "topK": req.topK,
-            "filters": req.filters.model_dump(),
-            "includeContent": req.includeContent,
-            "runId": req.runId or request_id,
-            "status": search_status,
-            "reason": reason,
-            "backend": backend,
-            "results": results,
-            "evidence": {
-                "type": "runbook",
-                "status": evidence_status,
-                "reason": reason,
-                "collectedRefs": collected_refs,
-                "missing": missing,
-            },
-            "safety": {
-                "gatewayOnly": True,
-                "directDatabaseAccessAllowed": False,
-                "aclRequired": True,
-                "mockResultsAreProductionEvidence": False,
-            },
-        },
-    }
+    return await knowledge_service.search_rag_runbooks(req, authorization, knowledge_dependencies())
 
 
-@app.post("/v1/runbooks/plans")
 async def create_runbook_plan(
     req: RunbookPlanCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = build_runbook_plan_record(req, subject)
-    plan_id = str(record["metadata"]["name"])
-    await bounded_put_record("runbookPlans", plan_id, record)
-    increment_metric("aiops_runbook_plans_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RunbookPlan",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await knowledge_service.create_runbook_plan(req, authorization, knowledge_dependencies())
 
 
-@app.get("/v1/runbooks/plans/{plan_id}")
 async def get_runbook_plan(
     plan_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = RUNBOOK_PLANS.get(plan_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Runbook plan not found")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "RunbookPlan",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await knowledge_service.get_runbook_plan(plan_id, authorization, knowledge_dependencies())
 
 
-@app.post("/v1/runbooks/patch-preapproved-field")
 async def create_preapproved_patch_request(
     req: PatchPreapprovedFieldCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = build_preapproved_patch_record(req, subject)
-    request_id = str(record["metadata"]["name"])
-    await bounded_put_record("preapprovedPatchRequests", request_id, record)
-    increment_metric("aiops_preapproved_patch_requests_total")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "PatchPreapprovedFieldRequest",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await knowledge_service.create_preapproved_patch_request(
+        req, authorization, knowledge_dependencies(),
+    )
 
 
-@app.get("/v1/runbooks/patch-preapproved-field/{request_id}")
 async def get_preapproved_patch_request(
     request_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = PREAPPROVED_PATCH_REQUESTS.get(request_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Preapproved patch request not found")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "PatchPreapprovedFieldRequest",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await knowledge_service.get_preapproved_patch_request(
+        request_id, authorization, knowledge_dependencies(),
+    )
 
 
-@app.get("/v1/breakglass/profiles")
 async def get_break_glass_profiles(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    verify_bearer_header(authorization)
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "BreakGlassProfileRegistry",
-        "metadata": {"name": "break-glass-profile-registry", "version": BREAK_GLASS_PROFILE_VERSION},
-        "spec": {
-            "enabled": BREAK_GLASS_ENABLED,
-            "digest": BREAK_GLASS_PROFILE_DIGEST,
-            "profiles": list(BREAK_GLASS_PROFILES.values()),
-        },
-    }
+    return knowledge_service.get_break_glass_profiles(authorization, knowledge_dependencies())
 
 
-@app.post("/v1/breakglass/requests")
 async def create_break_glass_request(
     req: BreakGlassRequestCreate,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = build_break_glass_request_record(req, subject)
-    request_id = str(record["metadata"]["name"])
-    await bounded_put_record("breakGlassRequests", request_id, record)
-    increment_metric("aiops_break_glass_requests_total")
-    log_break_glass_audit_record(
-        build_trace_record(
-            action="break_glass_request_recorded",
-            incident_id=req.incidentId or request_id,
-            policy=record["spec"]["policy"],
-            request_id=request_id,
-            run_id=req.runId or request_id,
-            subject=subject,
-            target={
-                "profileId": req.profileId,
-                "targetNode": req.targetNode.model_dump(),
-                "phase": record["spec"]["status"]["phase"],
-                "jobSubmitted": False,
-            },
-        )
+    return await knowledge_service.create_break_glass_request(
+        req, authorization, knowledge_dependencies(),
     )
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "BreakGlassRequest",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
 
 
-@app.get("/v1/breakglass/requests/{request_id}")
 async def get_break_glass_request(
     request_id: str,
     authorization: str | None = Header(default=None),
 ) -> dict[str, Any]:
-    user_auth_header = verify_bearer_header(authorization)
-    subject = await fetch_self_subject_review(user_auth_header)
-    record = BREAK_GLASS_REQUESTS.get(request_id)
-    if not record or not can_subject_read_record(record, subject):
-        raise HTTPException(status_code=404, detail="Break-glass request not found")
-    return {
-        "apiVersion": "aiops.komsco/v1",
-        "kind": "BreakGlassRequest",
-        "metadata": record["metadata"],
-        "spec": record["spec"],
-    }
+    return await knowledge_service.get_break_glass_request(
+        request_id, authorization, knowledge_dependencies(),
+    )
 
 
-@app.get("/v1/rca/last")
 async def get_last_rca_context(authorization: str = Header(default="")) -> dict[str, Any]:
-    """최근 채팅 실행의 Tool Plan + Evidence 상태 + RCA 결과를 반환.
-
-    인증 토큰이 없거나 만료된 경우 401을 반환합니다.
-    아직 채팅 기록이 없으면 404를 반환합니다.
-    """
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header with Bearer token is required")
-    if LAST_RCA_CONTEXT is None:
-        raise HTTPException(status_code=404, detail="No RCA context available yet — send a chat message first")
-    return {
-        "apiVersion": "aiops.komsco/v1alpha1",
-        "kind": "RcaContextSummary",
-        "toolPlan": LAST_RUNTIME_TOOL_PLAN,
-        "rcaContext": LAST_RCA_CONTEXT,
-    }
+    return knowledge_service.get_last_rca_context(authorization, knowledge_dependencies())
 
 
 @app.get("/metrics", response_class=PlainTextResponse)
