@@ -20,9 +20,13 @@ INSTALLATION_NAME = os.getenv("KOMSCO_AIOPS_INSTALLATION_NAME", "cywell-aiops")
 CATALOG_NAME = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAME", "cywell-aiops-catalog")
 CATALOG_NAMESPACE = os.getenv("KOMSCO_AIOPS_OLM_CATALOG_NAMESPACE", "openshift-marketplace")
 CHANNEL = os.getenv("KOMSCO_AIOPS_CHANNEL", "stable")
-VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.10")
+VERSION = os.getenv("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.17")
 CSV_NAME = f"{OPERATOR_NAME}.v{VERSION}"
 SKIPS_CSV = os.getenv("KOMSCO_AIOPS_SKIPS_CSV", "")
+REPLACES_CSV = os.getenv(
+    "KOMSCO_AIOPS_REPLACES_CSV",
+    f"{OPERATOR_NAME}.v0.1.14",
+).strip()
 VERSION_SCOPE = os.getenv("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{VERSION}")
 INSTALL_NAMESPACE = os.getenv("KOMSCO_AIOPS_OPERATOR_NAMESPACE", "cywell-aiops")
 TARGET_NAMESPACE = os.getenv("KOMSCO_AIOPS_NAMESPACE", INSTALL_NAMESPACE)
@@ -35,6 +39,23 @@ GATEWAY_IMAGE = os.getenv(
     f"image-registry.openshift-image-registry.svc:5000/{TARGET_NAMESPACE}/komsco-ai-gateway:{VERSION}",
 )
 OPERATOR_IMAGE = os.getenv("KOMSCO_AIOPS_OPERATOR_IMAGE", GATEWAY_IMAGE)
+STANDALONE_IMAGE = os.getenv(
+    "KOMSCO_AIOPS_STANDALONE_IMAGE",
+    f"image-registry.openshift-image-registry.svc:5000/{TARGET_NAMESPACE}/komsco-ai-standalone:{VERSION}",
+)
+OAUTH_PROXY_IMAGE = os.getenv(
+    "KOMSCO_AIOPS_OAUTH_PROXY_IMAGE",
+    "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:9ccc7e6cffe20468e6dddf749aac14dc0367ea2b9589227a7d39b4392e0f22de",
+)
+STANDALONE_HOST = os.getenv("KOMSCO_AIOPS_STANDALONE_HOST", "aiops.cywell.co.kr")
+STANDALONE_TLS_SECRET = os.getenv(
+    "KOMSCO_AIOPS_STANDALONE_TLS_SECRET",
+    "cywell-aiops-route-tls",
+)
+STANDALONE_OAUTH_CLIENT = os.getenv(
+    "KOMSCO_AIOPS_STANDALONE_OAUTH_CLIENT",
+    "cywell-aiops-standalone",
+)
 DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_DISPLAY_NAME", "AIOps")
 CONSOLE_PLUGIN_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME", "cywell-aiops-console-plugin")
 CONSOLE_PLUGIN_DISPLAY_NAME = os.getenv("KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME", DISPLAY_NAME)
@@ -80,6 +101,10 @@ READINESS_CONDITION_TYPES = [
     "ActionExecutorReady",
     "HostDiagnosticsReady",
     "SafetyModeReady",
+    "StandalonePortalReady",
+    "StandaloneRouteReady",
+    "StandaloneOAuthReady",
+    "ApplicationLauncherReady",
 ]
 
 OLM_SAFE_SEMVER_RE = re.compile(
@@ -254,8 +279,8 @@ def crd() -> dict[str, Any]:
                                         "createNamespace": {"type": "boolean", "default": True},
                                         "mode": {
                                             "type": "string",
-                                            "enum": ["execute", "unrestricted"],
-                                            "default": "execute",
+                                            "enum": ["evidence-check", "execute", "unrestricted"],
+                                            "default": "evidence-check",
                                         },
                                         "pluginReplicas": {"type": "integer", "minimum": 1, "default": 2},
                                         "gatewayReplicas": {"type": "integer", "minimum": 1, "default": 1},
@@ -303,14 +328,32 @@ def crd() -> dict[str, Any]:
                                                 "plugin": {"type": "string"},
                                                 "gateway": {"type": "string"},
                                                 "hostDiagnosticsRunner": {"type": "string"},
+                                                "standalonePortal": {"type": "string"},
+                                                "oauthProxy": {"type": "string"},
+                                            },
+                                        },
+                                        "standalonePortal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "enabled": {"type": "boolean", "default": True},
+                                                "host": {"type": "string", "default": STANDALONE_HOST},
+                                                "replicas": {"type": "integer", "minimum": 1, "default": 2},
+                                                "tlsSecretName": {
+                                                    "type": "string",
+                                                    "default": STANDALONE_TLS_SECRET,
+                                                },
+                                                "oauthClientName": {
+                                                    "type": "string",
+                                                    "default": STANDALONE_OAUTH_CLIENT,
+                                                },
                                             },
                                         },
                                         "capabilities": {
                                             "type": "object",
                                             "properties": {
                                                 "diagnostics": {"type": "boolean", "default": True},
-                                                "mutations": {"type": "boolean", "default": True},
-                                                "unrestrictedCommands": {"type": "boolean", "default": True},
+                                                "mutations": {"type": "boolean", "default": False},
+                                                "unrestrictedCommands": {"type": "boolean", "default": False},
                                             },
                                         },
                                         "rag": {
@@ -381,18 +424,25 @@ def operator_rules() -> list[dict[str, Any]]:
         {"apiGroups": ["aiops.komsco.io"], "resources": ["aiopsinstallations"], "verbs": ["create", "delete", "get", "list", "watch", "patch", "update"]},
         {"apiGroups": ["aiops.komsco.io"], "resources": ["aiopsinstallations/status"], "verbs": ["get", "patch", "update"]},
         {"apiGroups": [""], "resources": ["namespaces", "serviceaccounts", "services", "configmaps", "secrets", "events"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
+        {"apiGroups": [""], "resources": ["serviceaccounts", "services"], "resourceNames": ["komsco-ai-action-executor"], "verbs": ["delete"]},
+        {"apiGroups": [""], "resources": ["secrets"], "resourceNames": ["komsco-ai-action-executor-auth"], "verbs": ["delete"]},
         {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch"]},
         {"apiGroups": [""], "resources": ["pods/log"], "verbs": ["get"]},
         {"apiGroups": [""], "resources": ["pods/eviction"], "verbs": ["create"]},
         {"apiGroups": ["authentication.k8s.io"], "resources": ["tokenreviews"], "verbs": ["create"]},
         {"apiGroups": ["authorization.k8s.io"], "resources": ["subjectaccessreviews"], "verbs": ["create"]},
         {"apiGroups": ["apps"], "resources": ["deployments"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
+        {"apiGroups": ["apps"], "resources": ["deployments"], "resourceNames": ["komsco-ai-action-executor"], "verbs": ["delete"]},
         {"apiGroups": ["apps"], "resources": ["deployments/scale", "replicasets"], "verbs": ["get", "list", "patch", "update", "watch"]},
         {"apiGroups": ["autoscaling"], "resources": ["horizontalpodautoscalers"], "verbs": ["get", "list", "patch", "update", "watch"]},
         {"apiGroups": ["batch"], "resources": ["jobs"], "verbs": ["create", "delete", "get", "list", "watch"]},
         {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
+        {"apiGroups": ["networking.k8s.io"], "resources": ["networkpolicies"], "resourceNames": ["komsco-ai-action-executor-ingress"], "verbs": ["delete"]},
+        {"apiGroups": ["route.openshift.io"], "resources": ["routes"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
+        {"apiGroups": ["oauth.openshift.io"], "resources": ["oauthclients"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
         {"apiGroups": ["policy"], "resources": ["poddisruptionbudgets"], "verbs": ["get", "list", "watch"]},
         {"apiGroups": ["rbac.authorization.k8s.io"], "resources": ["roles", "rolebindings", "clusterroles", "clusterrolebindings"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
+        {"apiGroups": ["rbac.authorization.k8s.io"], "resources": ["clusterroles", "clusterrolebindings"], "resourceNames": [f"{CONSOLE_PLUGIN_NAME}-action-executor"], "verbs": ["delete"]},
         {"apiGroups": ["security.openshift.io"], "resources": ["securitycontextconstraints"], "resourceNames": ["hostmount-anyuid-v2"], "verbs": ["use"]},
         {"apiGroups": ["console.openshift.io"], "resources": ["consolelinks", "consoleplugins"], "verbs": ["create", "get", "list", "patch", "update", "watch"]},
         {"apiGroups": ["operator.openshift.io"], "resources": ["consoles"], "verbs": ["get", "patch", "update"]},
@@ -404,6 +454,7 @@ def csv() -> dict[str, Any]:
     skips = default_skips_csv()
     annotations = {
         "alm-examples": json.dumps([aiops_installation()], ensure_ascii=False),
+        "operatorframework.io/suggested-namespace": INSTALL_NAMESPACE,
         "aiops.komsco.io/version-scope": VERSION_SCOPE,
         "aiops.komsco.io/readiness-conditions": ",".join(READINESS_CONDITION_TYPES),
         "capabilities": "Full Lifecycle",
@@ -427,6 +478,7 @@ def csv() -> dict[str, Any]:
             "version": VERSION,
             "maturity": "alpha",
             **({"skips": skips} if skips else {}),
+            **({"replaces": REPLACES_CSV} if REPLACES_CSV else {}),
             "provider": {"name": PROVIDER_NAME},
             "keywords": KEYWORDS,
             "maintainers": [{"name": MAINTAINER_NAME}],
@@ -434,7 +486,7 @@ def csv() -> dict[str, Any]:
             "icon": [{"base64data": ICON_BASE64, "mediatype": ICON_MEDIA_TYPE}],
             "installModes": [
                 {"type": "OwnNamespace", "supported": True},
-                {"type": "SingleNamespace", "supported": True},
+                {"type": "SingleNamespace", "supported": False},
                 {"type": "MultiNamespace", "supported": False},
                 {"type": "AllNamespaces", "supported": False},
             ],
@@ -453,6 +505,8 @@ def csv() -> dict[str, Any]:
                 {"name": "operator", "image": OPERATOR_IMAGE},
                 {"name": "console-plugin", "image": PLUGIN_IMAGE},
                 {"name": "gateway", "image": GATEWAY_IMAGE},
+                {"name": "standalone-portal", "image": STANDALONE_IMAGE},
+                {"name": "oauth-proxy", "image": OAUTH_PROXY_IMAGE},
             ],
             "install": {
                 "strategy": "deployment",
@@ -483,6 +537,12 @@ def csv() -> dict[str, Any]:
                                                     {"name": "KOMSCO_AI_DEFAULT_TARGET_NAMESPACE", "value": TARGET_NAMESPACE},
                                                     {"name": "KOMSCO_AI_DEFAULT_PLUGIN_IMAGE", "value": PLUGIN_IMAGE},
                                                     {"name": "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE", "value": GATEWAY_IMAGE},
+                                                    {"name": "KOMSCO_AI_DEFAULT_STANDALONE_IMAGE", "value": STANDALONE_IMAGE},
+                                                    {"name": "KOMSCO_AI_DEFAULT_OAUTH_PROXY_IMAGE", "value": OAUTH_PROXY_IMAGE},
+                                                    {"name": "KOMSCO_AI_DEFAULT_STANDALONE_PORTAL_ENABLED", "value": "true"},
+                                                    {"name": "KOMSCO_AI_DEFAULT_STANDALONE_HOST", "value": STANDALONE_HOST},
+                                                    {"name": "KOMSCO_AI_DEFAULT_STANDALONE_TLS_SECRET", "value": STANDALONE_TLS_SECRET},
+                                                    {"name": "KOMSCO_AI_DEFAULT_STANDALONE_OAUTH_CLIENT", "value": STANDALONE_OAUTH_CLIENT},
                                                     {"name": "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_NAME", "value": CONSOLE_PLUGIN_NAME},
                                                     {
                                                         "name": "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_DISPLAY_NAME",
@@ -500,11 +560,11 @@ def csv() -> dict[str, Any]:
                                                         "name": "KOMSCO_AI_DEFAULT_INSTALLATION_NAME",
                                                         "value": INSTALLATION_NAME,
                                                     },
-                                                    {"name": "KOMSCO_AI_DEFAULT_MODE", "value": os.getenv("KOMSCO_AIOPS_MODE", "execute")},
-                                                    {"name": "KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "value": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true")},
+                                                    {"name": "KOMSCO_AI_DEFAULT_MODE", "value": os.getenv("KOMSCO_AIOPS_MODE", "evidence-check")},
+                                                    {"name": "KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "value": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "false")},
                                                     {
                                                         "name": "KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS",
-                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "true"),
+                                                        "value": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false"),
                                                     },
                                                     {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_PROVIDER", "value": RAG_EMBEDDING_PROVIDER},
                                                     {"name": "KOMSCO_AI_DEFAULT_EMBEDDING_API_STYLE", "value": RAG_EMBEDDING_API_STYLE},
@@ -603,7 +663,7 @@ def subscription() -> dict[str, Any]:
         "metadata": {"name": PACKAGE_NAME, "namespace": INSTALL_NAMESPACE},
         "spec": {
             "channel": CHANNEL,
-            "installPlanApproval": os.getenv("KOMSCO_AIOPS_INSTALL_PLAN_APPROVAL", "Automatic"),
+            "installPlanApproval": os.getenv("KOMSCO_AIOPS_INSTALL_PLAN_APPROVAL", "Manual"),
             "name": PACKAGE_NAME,
             "source": CATALOG_NAME,
             "sourceNamespace": CATALOG_NAMESPACE,
@@ -619,7 +679,7 @@ def aiops_installation() -> dict[str, Any]:
         "spec": {
             "targetNamespace": TARGET_NAMESPACE,
             "createNamespace": True,
-            "mode": os.getenv("KOMSCO_AIOPS_MODE", "execute"),
+            "mode": os.getenv("KOMSCO_AIOPS_MODE", "evidence-check"),
             "pluginReplicas": int(os.getenv("KOMSCO_AIOPS_PLUGIN_REPLICAS", "2")),
             "gatewayReplicas": int(os.getenv("KOMSCO_AIOPS_GATEWAY_REPLICAS", "1")),
             "enableConsolePlugin": True,
@@ -630,11 +690,20 @@ def aiops_installation() -> dict[str, Any]:
                 "plugin": PLUGIN_IMAGE,
                 "gateway": GATEWAY_IMAGE,
                 "hostDiagnosticsRunner": os.getenv("KOMSCO_AIOPS_HOST_DIAGNOSTICS_RUNNER_IMAGE", GATEWAY_IMAGE),
+                "standalonePortal": STANDALONE_IMAGE,
+                "oauthProxy": OAUTH_PROXY_IMAGE,
+            },
+            "standalonePortal": {
+                "enabled": True,
+                "host": STANDALONE_HOST,
+                "replicas": 2,
+                "tlsSecretName": STANDALONE_TLS_SECRET,
+                "oauthClientName": STANDALONE_OAUTH_CLIENT,
             },
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AIOPS_ENABLE_DIAGNOSTICS", "true").lower() == "true",
-                "mutations": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "true").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
+                "mutations": os.getenv("KOMSCO_AIOPS_ENABLE_MUTATIONS", "false").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
             },
             "rag": {
                 "embeddingProvider": RAG_EMBEDDING_PROVIDER,

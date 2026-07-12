@@ -14,9 +14,14 @@ export KOMSCO_AIOPS_OPERATOR_NAMESPACE="${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywel
 export KOMSCO_AIOPS_NAMESPACE="${KOMSCO_AIOPS_NAMESPACE:-cywell-aiops}"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}"
 export KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME="${KOMSCO_AIOPS_CONSOLE_PLUGIN_DISPLAY_NAME:-AIOps}"
-export KOMSCO_AIOPS_MODE="${KOMSCO_AIOPS_MODE:-execute}"
-export KOMSCO_AIOPS_ENABLE_MUTATIONS="${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}"
-export KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS:-true}"
+export KOMSCO_AIOPS_MODE="${KOMSCO_AIOPS_MODE:-evidence-check}"
+export KOMSCO_AIOPS_ENABLE_MUTATIONS="${KOMSCO_AIOPS_ENABLE_MUTATIONS:-false}"
+export KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS="${KOMSCO_AIOPS_ENABLE_UNRESTRICTED_COMMANDS:-false}"
+export KOMSCO_AIOPS_INSTALL_PLAN_APPROVAL="${KOMSCO_AIOPS_INSTALL_PLAN_APPROVAL:-Manual}"
+export KOMSCO_AIOPS_REPLACES_CSV="${KOMSCO_AIOPS_REPLACES_CSV:-cywell-aiops-operator.v0.1.14}"
+export KOMSCO_AIOPS_STANDALONE_HOST="${KOMSCO_AIOPS_STANDALONE_HOST:-aiops.cywell.co.kr}"
+export KOMSCO_AIOPS_STANDALONE_TLS_SECRET="${KOMSCO_AIOPS_STANDALONE_TLS_SECRET:-cywell-aiops-route-tls}"
+export KOMSCO_AIOPS_STANDALONE_OAUTH_CLIENT="${KOMSCO_AIOPS_STANDALONE_OAUTH_CLIENT:-cywell-aiops-standalone}"
 export KOMSCO_AIOPS_ICON_FILE="${KOMSCO_AIOPS_ICON_FILE:-komsco-ai-console-plugin/src/assets/aiops_icon.png}"
 export KOMSCO_AIOPS_ICON_MEDIA_TYPE="${KOMSCO_AIOPS_ICON_MEDIA_TYPE:-image/png}"
 export KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY="${KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY:-openshift}"
@@ -26,6 +31,7 @@ export KOMSCO_AIOPS_STATUS_MODE="${KOMSCO_AIOPS_STATUS_MODE:-local}"
 export KOMSCO_AIOPS_APPROVE_IMAGES="${KOMSCO_AIOPS_APPROVE_IMAGES:-}"
 export KOMSCO_AIOPS_APPROVE_PUBLISH="${KOMSCO_AIOPS_APPROVE_PUBLISH:-}"
 export KOMSCO_AIOPS_APPROVE_INSTALL="${KOMSCO_AIOPS_APPROVE_INSTALL:-}"
+export KOMSCO_AIOPS_APPROVE_INSTALL_PLAN="${KOMSCO_AIOPS_APPROVE_INSTALL_PLAN:-}"
 export KOMSCO_AIOPS_APPROVE_UNINSTALL="${KOMSCO_AIOPS_APPROVE_UNINSTALL:-}"
 export KOMSCO_AIOPS_COMPANY_SERVER="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
 
@@ -35,9 +41,12 @@ Usage: $0 <command>
 
 Commands:
   package   Generate and verify AIOps OLM package locally.
+  preflight Verify company cluster identity and singleton AIOps installation state.
   images    Build and push AIOps images after explicit approval.
   publish   Build/push images, then register only the AIOps CatalogSource after explicit approval.
   install   Install AIOps Subscription and AIOpsInstallation after explicit approval.
+  approve-install
+            Approve the reviewed Manual InstallPlan and complete the rollout.
   uninstall Remove only AIOps catalog/install/runtime resources after explicit approval.
   status    Show local package readiness by default. Set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads.
 
@@ -79,12 +88,13 @@ load_release_image_env() {
 }
 
 set_default_image_env() {
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.17}
   local pull_registry=${KOMSCO_AIOPS_PULL_REGISTRY:-image-registry.openshift-image-registry.svc:5000}
 
   export KOMSCO_AIOPS_OPERATOR_IMAGE="${KOMSCO_AIOPS_OPERATOR_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-gateway:${version}}"
   export KOMSCO_AIOPS_GATEWAY_IMAGE="${KOMSCO_AIOPS_GATEWAY_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-gateway:${version}}"
   export KOMSCO_AIOPS_PLUGIN_IMAGE="${KOMSCO_AIOPS_PLUGIN_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-console-plugin:${version}}"
+  export KOMSCO_AIOPS_STANDALONE_IMAGE="${KOMSCO_AIOPS_STANDALONE_IMAGE:-${pull_registry}/${KOMSCO_AIOPS_NAMESPACE}/komsco-ai-standalone:${version}}"
 }
 
 validate_aiops_safety() {
@@ -137,12 +147,13 @@ import os
 from pathlib import Path
 
 root = Path(os.environ["ROOT_DIR"])
-csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.10')}"
+csv_name = f"{os.environ['KOMSCO_AIOPS_OPERATOR_NAME']}.v{os.environ.get('KOMSCO_AIOPS_OPERATOR_VERSION', '0.1.17')}"
 csv_path = root / "olm" / "generated" / "bundle" / "manifests" / f"{csv_name}.clusterserviceversion.yaml"
 crd_path = root / "olm" / "generated" / "bundle" / "manifests" / "aiopsinstallations.aiops.komsco.io.crd.yaml"
 catalog_path = root / "olm" / "generated" / "catalog" / "01-catalogsource.yaml"
 configmap_path = root / "olm" / "generated" / "catalog" / "00-catalog-configmap.yaml"
 install_path = root / "olm" / "generated" / "install" / "03-aiopsinstallation.yaml"
+subscription_path = root / "olm" / "generated" / "install" / "02-subscription.yaml"
 deploy_script_path = root / "scripts" / "olm-deploy.sh"
 icon_path = root / os.environ["KOMSCO_AIOPS_ICON_FILE"]
 console_extensions_path = root / "komsco-ai-console-plugin" / "console-extensions.json"
@@ -159,8 +170,12 @@ expected_conditions = {
     "ActionExecutorReady",
     "HostDiagnosticsReady",
     "SafetyModeReady",
+    "StandalonePortalReady",
+    "StandaloneRouteReady",
+    "StandaloneOAuthReady",
+    "ApplicationLauncherReady",
 }
-version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.10")
+version = os.environ.get("KOMSCO_AIOPS_OPERATOR_VERSION", "0.1.17")
 expected_version_scope = os.environ.get("KOMSCO_AIOPS_VERSION_SCOPE", f"Ver.{version}")
 
 csv_payload = json.loads(csv_path.read_text(encoding="utf-8"))
@@ -168,6 +183,7 @@ crd_payload = json.loads(crd_path.read_text(encoding="utf-8"))
 catalog_payload = json.loads(catalog_path.read_text(encoding="utf-8"))
 configmap_payload = json.loads(configmap_path.read_text(encoding="utf-8"))
 install_payload = json.loads(install_path.read_text(encoding="utf-8"))
+subscription_payload = json.loads(subscription_path.read_text(encoding="utf-8"))
 console_extensions = json.loads(console_extensions_path.read_text(encoding="utf-8"))
 console_plugin_package = json.loads(console_plugin_package_path.read_text(encoding="utf-8"))
 use_open_aiops_source = use_open_aiops_path.read_text(encoding="utf-8")
@@ -183,6 +199,36 @@ container_env = {
     for container in deployment["spec"]["template"]["spec"]["containers"]
     for env in container["env"]
 }
+cluster_rules = [
+    rule
+    for permission in csv_payload["spec"]["install"]["spec"].get("clusterPermissions", [])
+    for rule in permission.get("rules", [])
+]
+related_images = {
+    item.get("name"): item.get("image")
+    for item in csv_payload["spec"].get("relatedImages", [])
+}
+
+
+def has_cluster_rule(api_group, resource, required_verbs):
+    return any(
+        api_group in rule.get("apiGroups", [])
+        and resource in rule.get("resources", [])
+        and set(required_verbs).issubset(set(rule.get("verbs", [])))
+        for rule in cluster_rules
+    )
+
+
+def has_named_delete_rule(api_group, resource, resource_name):
+    return any(
+        api_group in rule.get("apiGroups", [])
+        and resource in rule.get("resources", [])
+        and resource_name in rule.get("resourceNames", [])
+        and "delete" in rule.get("verbs", [])
+        for rule in cluster_rules
+    )
+
+
 readiness_annotation = {
     item.strip()
     for item in csv_payload["metadata"]["annotations"].get("aiops.komsco.io/readiness-conditions", "").split(",")
@@ -270,13 +316,41 @@ checks = {
     "disabledConsolePluginNames": example_payload["spec"]["disabledConsolePluginNames"] == ["komsco-ai-console-plugin", "lightspeed-console-plugin"],
     "installDisabledConsolePluginNames": install_payload["spec"]["disabledConsolePluginNames"] == ["komsco-ai-console-plugin", "lightspeed-console-plugin"],
     "disabledConsolePluginEnv": container_env["KOMSCO_AI_DEFAULT_DISABLED_CONSOLE_PLUGIN_NAMES"] == "komsco-ai-console-plugin,lightspeed-console-plugin",
-    "mode": example_payload["spec"]["mode"] == "execute",
-    "installMode": install_payload["spec"]["mode"] == "execute",
-    "mutations": example_payload["spec"]["capabilities"]["mutations"] is True,
-    "installMutations": install_payload["spec"]["capabilities"]["mutations"] is True,
-    "unrestricted": example_payload["spec"]["capabilities"]["unrestrictedCommands"] is True,
-    "installUnrestricted": install_payload["spec"]["capabilities"]["unrestrictedCommands"] is True,
+    "mode": example_payload["spec"]["mode"] == "evidence-check",
+    "installMode": install_payload["spec"]["mode"] == "evidence-check",
+    "mutations": example_payload["spec"]["capabilities"]["mutations"] is False,
+    "installMutations": install_payload["spec"]["capabilities"]["mutations"] is False,
+    "unrestricted": example_payload["spec"]["capabilities"]["unrestrictedCommands"] is False,
+    "installUnrestricted": install_payload["spec"]["capabilities"]["unrestrictedCommands"] is False,
     "installDiagnosticsDefault": install_payload["spec"]["capabilities"]["diagnostics"] is True,
+    "manualInstallPlan": subscription_payload["spec"]["installPlanApproval"] == "Manual",
+    "replacesInstalledCsv": csv_payload["spec"].get("replaces") == "cywell-aiops-operator.v0.1.14",
+    "standaloneEnabled": install_payload["spec"]["standalonePortal"]["enabled"] is True,
+    "standaloneHost": install_payload["spec"]["standalonePortal"]["host"] == "aiops.cywell.co.kr",
+    "standaloneTlsSecret": install_payload["spec"]["standalonePortal"]["tlsSecretName"] == "cywell-aiops-route-tls",
+    "standaloneImage": install_payload["spec"]["images"]["standalonePortal"].endswith(":0.1.17"),
+    "oauthProxyImage": bool(install_payload["spec"]["images"]["oauthProxy"]),
+    "routeRbac": has_cluster_rule(
+        "route.openshift.io", "routes", {"create", "get", "patch", "update", "watch"}
+    ),
+    "oauthClientRbac": has_cluster_rule(
+        "oauth.openshift.io", "oauthclients", {"create", "get", "patch", "update", "watch"}
+    ),
+    "actionExecutorDeploymentCleanupRbac": has_named_delete_rule(
+        "apps", "deployments", "komsco-ai-action-executor"
+    ),
+    "actionExecutorSecretCleanupRbac": has_named_delete_rule(
+        "", "secrets", "komsco-ai-action-executor-auth"
+    ),
+    "actionExecutorClusterRoleCleanupRbac": has_named_delete_rule(
+        "rbac.authorization.k8s.io",
+        "clusterroles",
+        "cywell-aiops-console-plugin-action-executor",
+    ),
+    "relatedStandaloneImage": related_images.get("standalone-portal")
+    == install_payload["spec"]["images"]["standalonePortal"],
+    "relatedOauthProxyImage": related_images.get("oauth-proxy")
+    == install_payload["spec"]["images"]["oauthProxy"],
     "statusConditionsSchema": "conditions" in status_schema,
     "statusComponentsSchema": "components" in status_schema,
     "statusVersionScopeSchema": "versionScope" in status_schema,
@@ -338,10 +412,71 @@ require_oc() {
 
 require_company_server() {
   require_oc
-  local server
+  local server user
   server=$(oc whoami --show-server 2>/dev/null || true)
   if [[ "${server}" != "${KOMSCO_AIOPS_COMPANY_SERVER}" ]]; then
     echo "Refusing cluster write: oc server is ${server:-unavailable}, expected ${KOMSCO_AIOPS_COMPANY_SERVER}." >&2
+    exit 1
+  fi
+  user=$(oc whoami 2>/dev/null || true)
+  if [[ -z "${user}" ]]; then
+    echo "Refusing cluster write: OpenShift authentication is expired or unavailable." >&2
+    exit 1
+  fi
+}
+
+verify_cluster_singleton() {
+  require_company_server
+  local unexpected_cr unexpected_subscription unexpected_csv unexpected_operator
+  if oc get crd aiopsinstallations.aiops.komsco.io >/dev/null 2>&1; then
+    unexpected_cr=$(oc get aiopsinstallation -A --no-headers \
+      -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null \
+      | awk '$1 != "cywell-aiops" || $2 != "cywell-aiops" { print }')
+  else
+    unexpected_cr=""
+  fi
+  unexpected_subscription=$(oc get subscription -A --no-headers \
+    -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,PACKAGE:.spec.name 2>/dev/null \
+    | awk '$3 == "cywell-aiops" && ($1 != "cywell-aiops" || $2 != "cywell-aiops") { print }')
+  unexpected_csv=$(oc get csv -A --no-headers \
+    -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null \
+    | awk '$2 ~ /^cywell-aiops-operator\.v/ && $1 != "cywell-aiops" { print }')
+  unexpected_operator=$(oc get deployment -A --no-headers \
+    -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name 2>/dev/null \
+    | awk '$2 == "cywell-aiops-operator" && $1 != "cywell-aiops" { print }')
+  if [[ -n "${unexpected_cr}${unexpected_subscription}${unexpected_csv}${unexpected_operator}" ]]; then
+    echo "Refusing deployment: duplicate AIOps installation detected outside cywell-aiops." >&2
+    [[ -n "${unexpected_cr}" ]] && echo "Unexpected CR: ${unexpected_cr}" >&2
+    [[ -n "${unexpected_subscription}" ]] && echo "Unexpected Subscription: ${unexpected_subscription}" >&2
+    [[ -n "${unexpected_csv}" ]] && echo "Unexpected CSV: ${unexpected_csv}" >&2
+    [[ -n "${unexpected_operator}" ]] && echo "Unexpected Operator: ${unexpected_operator}" >&2
+    exit 1
+  fi
+  echo "AIOps singleton preflight passed: cywell-aiops is the only installation namespace."
+}
+
+ensure_manual_subscription_approval() {
+  require_company_server
+  if ! oc get subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" \
+    -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+    echo "No existing AIOps Subscription; Manual approval will be used at install time."
+    return
+  fi
+  local approval
+  approval=$(oc get subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" \
+    -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.spec.installPlanApproval}')
+  if [[ "${approval}" != "Manual" ]]; then
+    echo "Locking existing Subscription to Manual before catalog publication."
+    oc patch subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" \
+      -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" \
+      --type merge -p '{"spec":{"installPlanApproval":"Manual"}}'
+  fi
+  approval=$(oc get subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" \
+    -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.spec.installPlanApproval}')
+  if [[ "${approval}" != "Manual" ]]; then
+    echo "Refusing publish: existing Subscription is not locked to Manual approval." >&2
     exit 1
   fi
 }
@@ -349,20 +484,19 @@ require_company_server() {
 grant_image_pull_access() {
   require_oc
   oc policy add-role-to-group system:image-puller "system:serviceaccounts:${KOMSCO_AIOPS_NAMESPACE}" -n "${KOMSCO_AIOPS_NAMESPACE}"
-  oc policy add-role-to-group system:image-puller system:serviceaccounts -n "${KOMSCO_AIOPS_NAMESPACE}"
 }
 
 patch_binary_build_output() {
   local name=$1
   oc patch buildconfig "${name}" -n "${KOMSCO_AIOPS_NAMESPACE}" --type=merge \
-    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}\"}}}}"
+    -p "{\"spec\":{\"output\":{\"to\":{\"kind\":\"ImageStreamTag\",\"name\":\"${name}:${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.17}\"}}}}"
 }
 
 ensure_binary_build() {
   local name=$1
   local context_dir=$2
   local stage_dir
-  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
+  local version=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.17}
 
   require_oc
   oc get namespace "${KOMSCO_AIOPS_NAMESPACE}" >/dev/null 2>&1 || oc create namespace "${KOMSCO_AIOPS_NAMESPACE}"
@@ -444,12 +578,14 @@ openshift_images() {
   echo "Building AIOps images with OpenShift binary builds in namespace ${KOMSCO_AIOPS_NAMESPACE}."
   ensure_binary_build "komsco-ai-gateway" "${ROOT_DIR}/komsco-ai-gateway"
   ensure_binary_build "komsco-ai-console-plugin" "${ROOT_DIR}/komsco-ai-console-plugin"
+  ensure_binary_build "komsco-ai-standalone" "${ROOT_DIR}/komsco-ai-portal"
   grant_image_pull_access
   set_default_image_env
   echo "OpenShift binary image build completed."
   echo "KOMSCO_AIOPS_OPERATOR_IMAGE=${KOMSCO_AIOPS_OPERATOR_IMAGE}"
   echo "KOMSCO_AIOPS_GATEWAY_IMAGE=${KOMSCO_AIOPS_GATEWAY_IMAGE}"
   echo "KOMSCO_AIOPS_PLUGIN_IMAGE=${KOMSCO_AIOPS_PLUGIN_IMAGE}"
+  echo "KOMSCO_AIOPS_STANDALONE_IMAGE=${KOMSCO_AIOPS_STANDALONE_IMAGE}"
 }
 
 local_images() {
@@ -488,6 +624,8 @@ publish() {
     exit 1
   fi
   require_company_server
+  verify_cluster_singleton
+  ensure_manual_subscription_approval
   export KOMSCO_AIOPS_APPROVE_IMAGES="cywell-aiops"
   export KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE="cywell-aiops"
   images
@@ -501,9 +639,22 @@ install() {
     exit 1
   fi
   require_company_server
+  verify_cluster_singleton
   export KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE="cywell-aiops"
   set_default_image_env
   "${ROOT_DIR}/scripts/olm-deploy.sh" install
+}
+
+approve_install() {
+  if [[ "${KOMSCO_AIOPS_APPROVE_INSTALL_PLAN}" != "cywell-aiops" ]]; then
+    echo "Refusing InstallPlan approval. Re-run with KOMSCO_AIOPS_APPROVE_INSTALL_PLAN=cywell-aiops after review." >&2
+    exit 1
+  fi
+  require_company_server
+  verify_cluster_singleton
+  export KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE="cywell-aiops"
+  set_default_image_env
+  "${ROOT_DIR}/scripts/olm-deploy.sh" approve-install
 }
 
 uninstall() {
@@ -513,19 +664,8 @@ uninstall() {
   fi
   require_company_server
   set_default_image_env
-  "${ROOT_DIR}/scripts/olm-deploy.sh" package
-  oc delete aiopsinstallation "${KOMSCO_AIOPS_INSTALLATION_NAME}" -n "${KOMSCO_AIOPS_NAMESPACE}" --ignore-not-found=true
-  oc delete consoleplugin "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}" --ignore-not-found=true
-  oc delete subscription "${KOMSCO_AIOPS_PACKAGE_NAME}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
-  oc delete csv "${KOMSCO_AIOPS_OPERATOR_NAME}.v${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}" -n "${KOMSCO_AIOPS_OPERATOR_NAMESPACE}" --ignore-not-found=true
-  oc delete -f "${ROOT_DIR}/olm/generated/install/03-aiopsinstallation.yaml" --ignore-not-found=true || true
-  oc delete -f "${ROOT_DIR}/olm/generated/install/02-subscription.yaml" --ignore-not-found=true || true
-  oc delete -f "${ROOT_DIR}/olm/generated/install/01-operatorgroup.yaml" --ignore-not-found=true || true
-  oc delete clusterrolebinding "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}-gateway-auth-delegator" --ignore-not-found=true
-  oc delete clusterrolebinding "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}-action-executor" --ignore-not-found=true
-  oc delete clusterrole "${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME}-action-executor" --ignore-not-found=true
-  oc delete catalogsource "${KOMSCO_AIOPS_OLM_CATALOG_NAME}" -n openshift-marketplace --ignore-not-found=true
-  oc delete configmap "${KOMSCO_AIOPS_OLM_CATALOG_NAME}" -n openshift-marketplace --ignore-not-found=true
+  export KOMSCO_AIOPS_APPROVE_UNINSTALL="cywell-aiops"
+  "${ROOT_DIR}/scripts/olm-deploy.sh" uninstall
 }
 
 local_status() {
@@ -589,6 +729,9 @@ case "${command}" in
   package)
     package
     ;;
+  preflight)
+    verify_cluster_singleton
+    ;;
   images)
     images
     ;;
@@ -597,6 +740,9 @@ case "${command}" in
     ;;
   install)
     install
+    ;;
+  approve-install)
+    approve_install
     ;;
   uninstall)
     uninstall

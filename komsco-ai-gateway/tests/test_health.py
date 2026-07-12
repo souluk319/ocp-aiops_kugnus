@@ -879,13 +879,22 @@ def test_olm_operator_evidence_check_installation_skips_mutating_operands() -> N
     }
 
 
-def test_olm_operator_default_installation_runs_action_executor() -> None:
+def test_olm_operator_explicit_execute_installation_runs_action_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(olm_operator, "get_resource", lambda *_args: None)
     config = olm_operator.installation_config(
         {
             "metadata": {"namespace": "komsco-ai-kugnus"},
             "spec": {
                 "targetNamespace": "komsco-ai-kugnus",
                 "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "mode": "execute",
+                "capabilities": {
+                    "diagnostics": True,
+                    "mutations": True,
+                    "unrestrictedCommands": False,
+                },
             },
         }
     )
@@ -961,6 +970,12 @@ def test_olm_operator_reuses_existing_action_executor_secret(monkeypatch) -> Non
             "spec": {
                 "targetNamespace": "komsco-ai-kugnus",
                 "consolePluginName": "komsco-ai-console-plugin-kugnus",
+                "mode": "execute",
+                "capabilities": {
+                    "diagnostics": True,
+                    "mutations": True,
+                    "unrestrictedCommands": False,
+                },
             },
         }
     )
@@ -3030,11 +3045,11 @@ def test_build_ols_query_defaults_to_minimal_safe_prompt() -> None:
     assert "Do not invent alert, pod, node, namespace, resource names" in query
     assert "If no screenshot/image is attached" in query
     assert "기본 운영 답변 양식" in query
-    assert "다음 단계 질문 2~3개" in query
+    assert "선택지를 최대 3개" in query
     assert "Action Plan은 반사적으로 만들거나 노출하지 말고" in query
     assert "Policy decision:" in query
     assert "현재 판단" in query
-    assert len(query) < 1800
+    assert len(query) < 2000
     assert "title" not in query
     assert "OKD" not in query
 

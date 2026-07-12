@@ -12,14 +12,16 @@ OPERATOR_NAMESPACE=${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}
 PACKAGE_NAME=${KOMSCO_AIOPS_PACKAGE_NAME:-cywell-aiops}
 OPERATOR_NAME=${KOMSCO_AIOPS_OPERATOR_NAME:-cywell-aiops-operator}
 INSTALLATION_NAME=${KOMSCO_AIOPS_INSTALLATION_NAME:-cywell-aiops}
-OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
+OPERATOR_VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.17}
 EXPECTED_CSV="${OPERATOR_NAME}.v${OPERATOR_VERSION}"
 TARGET_NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${OPERATOR_NAMESPACE}}
 CONSOLE_PLUGIN_NAME=${KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME:-cywell-aiops-console-plugin}
 DISPLAY_NAME=${KOMSCO_AIOPS_DISPLAY_NAME:-AIOps}
 STATUS_MODE=${KOMSCO_AIOPS_STATUS_MODE:-local}
-ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-true}
+ENABLE_MUTATIONS=${KOMSCO_AIOPS_ENABLE_MUTATIONS:-false}
 ENABLE_DIAGNOSTICS=${KOMSCO_AIOPS_ENABLE_DIAGNOSTICS:-true}
+INSTALL_PLAN_APPROVAL=${KOMSCO_AIOPS_INSTALL_PLAN_APPROVAL:-Manual}
+APPROVE_INSTALL_PLAN=${KOMSCO_AIOPS_APPROVE_INSTALL_PLAN:-}
 BOOTSTRAP_INSTALLATION=${KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION:-true}
 APPROVE_CLUSTER_WRITE=${KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE:-}
 APPROVE_UNINSTALL=${KOMSCO_AIOPS_APPROVE_UNINSTALL:-}
@@ -27,6 +29,7 @@ COMPANY_SERVER=${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443
 ACTION_EXECUTOR_CLUSTER_ROLE=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE:-${CONSOLE_PLUGIN_NAME}-action-executor}
 ACTION_EXECUTOR_CLUSTER_ROLE_BINDING=${KOMSCO_AIOPS_ACTION_EXECUTOR_CLUSTER_ROLE_BINDING:-${CONSOLE_PLUGIN_NAME}-action-executor}
 GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING=${KOMSCO_AIOPS_GATEWAY_AUTH_DELEGATOR_CLUSTER_ROLE_BINDING:-${CONSOLE_PLUGIN_NAME}-gateway-auth-delegator}
+INSTALL_PLAN_REVIEW_FILE=${KOMSCO_AIOPS_INSTALL_PLAN_REVIEW_FILE:-/tmp/aiops-stability/cywell-aiops-installplan-review.json}
 
 usage() {
   cat <<EOF
@@ -36,20 +39,22 @@ Commands:
   package     Generate OLM bundle, ConfigMap catalog, Subscription, and AIOpsInstallation manifests.
   deploy      One-shot OLM deployment after explicit cluster-write approval.
   catalog     Apply only the generated OLM CatalogSource resources after explicit approval.
-  install     Apply only namespace, OperatorGroup, Subscription, and AIOpsInstallation after explicit approval.
+  install     Apply namespace, OperatorGroup, and Manual Subscription, then stop for InstallPlan review.
+  approve-install
+              Approve the pending Manual InstallPlan, then apply AIOpsInstallation and wait for operands.
   status      Show local generated package status by default. Set KOMSCO_AIOPS_STATUS_MODE=cluster for cluster reads.
   reset-install
               Remove installed operator/runtime/UI, but keep the OLM catalog for UI install tests.
   uninstall   Remove installed operator/runtime/UI and the OLM catalog resources.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.10
+  KOMSCO_AIOPS_OPERATOR_VERSION     Operator/CSV version. Default: 0.1.17
   KOMSCO_AIOPS_OPERATOR_IMAGE       Operator image. Default: gateway image
   KOMSCO_AIOPS_PLUGIN_IMAGE         Console plugin operand image
   KOMSCO_AIOPS_GATEWAY_IMAGE        Gateway/operator operand image
   KOMSCO_AIOPS_OPERATOR_NAMESPACE   Operator install namespace. Default: cywell-aiops
   KOMSCO_AIOPS_NAMESPACE            Operand target namespace. Default: operator namespace
-  KOMSCO_AIOPS_MODE                 evidence-check, execute, or unrestricted. Default: execute
+  KOMSCO_AIOPS_MODE                 evidence-check, execute, or unrestricted. Default: evidence-check
   KOMSCO_AIOPS_CONSOLE_PLUGIN_NAME  Cluster-scoped ConsolePlugin name.
   KOMSCO_AIOPS_BOOTSTRAP_INSTALLATION
                                       true creates AIOpsInstallation automatically after UI install.
@@ -58,10 +63,10 @@ Key environment variables:
   KOMSCO_AIOPS_APPROVE_UNINSTALL      Must equal cywell-aiops before reset-install/uninstall.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.10 \\
-  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.10 \\
-  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.10 \\
-  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.10 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.17 \\
+  KOMSCO_AIOPS_OPERATOR_IMAGE=registry.example/komsco-ai-gateway:0.1.17 \\
+  KOMSCO_AIOPS_PLUGIN_IMAGE=registry.example/komsco-ai-console-plugin:0.1.17 \\
+  KOMSCO_AIOPS_GATEWAY_IMAGE=registry.example/komsco-ai-gateway:0.1.17 \\
   task olm:deploy
 EOF
 }
@@ -131,10 +136,15 @@ require_cmd() {
 
 require_company_server() {
   require_cmd oc
-  local server
+  local server user
   server=$(oc whoami --show-server 2>/dev/null || true)
   if [[ "${server}" != "${COMPANY_SERVER}" ]]; then
     echo "Refusing cluster write: oc server is ${server:-unavailable}, expected ${COMPANY_SERVER}." >&2
+    exit 1
+  fi
+  user=$(oc whoami 2>/dev/null || true)
+  if [[ -z "${user}" ]]; then
+    echo "Refusing cluster write: OpenShift authentication is expired or unavailable." >&2
     exit 1
   fi
 }
@@ -203,6 +213,148 @@ apply_install() {
     exit 1
   fi
   oc apply -f "${INSTALL_DIR}/02-subscription.yaml"
+  if [[ "${INSTALL_PLAN_APPROVAL}" == "Manual" ]]; then
+    wait_pending_install_plan
+    echo "InstallPlan approval is required before AIOpsInstallation is applied."
+    return
+  fi
+  wait_subscription_csv
+  oc apply -f "${INSTALL_DIR}/03-aiopsinstallation.yaml"
+  wait_operands
+}
+
+wait_pending_install_plan() {
+  require_cmd oc
+  echo "Waiting for a pending InstallPlan for ${OPERATOR_NAMESPACE}/${PACKAGE_NAME}..."
+  local install_plan approved phase csv_names
+  for _ in $(seq 1 90); do
+    install_plan=$(oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" \
+      -o jsonpath='{.status.installPlanRef.name}' 2>/dev/null || true)
+    if [[ -n "${install_plan}" ]] && oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+      csv_names=$(oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+        -o jsonpath='{.spec.clusterServiceVersionNames[*]}' 2>/dev/null || true)
+      if [[ " ${csv_names} " != *" ${EXPECTED_CSV} "* ]]; then
+        sleep 5
+        continue
+      fi
+      approved=$(oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+        -o jsonpath='{.spec.approved}' 2>/dev/null || true)
+      phase=$(oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+        -o jsonpath='{.status.phase}' 2>/dev/null || true)
+      if [[ "${approved}" == "true" ]]; then
+        echo "Refusing install review: expected InstallPlan ${install_plan} is already approved." >&2
+        echo "Use approve-install only to resume an already approved rollout." >&2
+        exit 1
+      fi
+      echo "Pending InstallPlan: ${OPERATOR_NAMESPACE}/${install_plan} approved=${approved:-false} phase=${phase:-unknown}"
+      echo "Planned CSV: ${EXPECTED_CSV}"
+      record_install_plan_review "${install_plan}"
+      return
+    fi
+    sleep 5
+  done
+  echo "Subscription did not create an InstallPlan." >&2
+  oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" -o yaml || true
+  exit 1
+}
+
+record_install_plan_review() {
+  local install_plan=$1 review_dir
+  review_dir=$(dirname "${INSTALL_PLAN_REVIEW_FILE}")
+  mkdir -p "${review_dir}"
+  chmod 700 "${review_dir}"
+  umask 077
+  oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" -o json \
+    | EXPECTED_CSV="${EXPECTED_CSV}" python3 -c '
+import hashlib, json, os, sys
+payload = json.load(sys.stdin)
+spec = dict(payload.get("spec") or {})
+spec["approved"] = False
+record = {
+    "name": payload["metadata"]["name"],
+    "uid": payload["metadata"]["uid"],
+    "resourceVersion": payload["metadata"].get("resourceVersion", ""),
+    "expectedCSV": os.environ["EXPECTED_CSV"],
+    "specDigest": hashlib.sha256(json.dumps(spec, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+}
+json.dump(record, sys.stdout, sort_keys=True)
+' > "${INSTALL_PLAN_REVIEW_FILE}"
+  chmod 600 "${INSTALL_PLAN_REVIEW_FILE}"
+  echo "InstallPlan review record: ${INSTALL_PLAN_REVIEW_FILE}"
+}
+
+verify_install_plan_review() {
+  local install_plan=$1
+  if [[ ! -s "${INSTALL_PLAN_REVIEW_FILE}" ]]; then
+    echo "Refusing InstallPlan approval: review record is missing at ${INSTALL_PLAN_REVIEW_FILE}." >&2
+    echo "Run install again and review the recorded InstallPlan before approval." >&2
+    exit 1
+  fi
+  oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" -o json \
+    | EXPECTED_CSV="${EXPECTED_CSV}" REVIEW_FILE="${INSTALL_PLAN_REVIEW_FILE}" python3 -c '
+import hashlib, json, os, sys
+review = json.load(open(os.environ["REVIEW_FILE"], encoding="utf-8"))
+payload = json.load(sys.stdin)
+spec = dict(payload.get("spec") or {})
+spec["approved"] = False
+current = {
+    "name": payload["metadata"]["name"],
+    "uid": payload["metadata"]["uid"],
+    "expectedCSV": os.environ["EXPECTED_CSV"],
+    "specDigest": hashlib.sha256(json.dumps(spec, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+}
+for key, value in current.items():
+    if review.get(key) != value:
+        raise SystemExit(f"reviewed InstallPlan mismatch: {key}")
+' || {
+    echo "Refusing InstallPlan approval: the current plan differs from the reviewed plan." >&2
+    exit 1
+  }
+}
+
+approve_install_plan() {
+  require_cmd oc
+  require_cluster_write_approval
+  if [[ "${APPROVE_INSTALL_PLAN}" != "cywell-aiops" ]]; then
+    echo "Refusing InstallPlan approval. Set KOMSCO_AIOPS_APPROVE_INSTALL_PLAN=cywell-aiops after review." >&2
+    exit 1
+  fi
+  local install_plan csv_names approved approval_mode
+  approval_mode=$(oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.spec.installPlanApproval}' 2>/dev/null || true)
+  if [[ "${approval_mode}" != "Manual" ]]; then
+    echo "Refusing InstallPlan approval: Subscription approval mode is ${approval_mode:-unknown}, expected Manual." >&2
+    exit 1
+  fi
+  install_plan=$(oc get subscription "${PACKAGE_NAME}" -n "${OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.status.installPlanRef.name}' 2>/dev/null || true)
+  if [[ -z "${install_plan}" ]]; then
+    echo "No InstallPlan is referenced by Subscription ${OPERATOR_NAMESPACE}/${PACKAGE_NAME}." >&2
+    exit 1
+  fi
+  csv_names=$(oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.spec.clusterServiceVersionNames[*]}' 2>/dev/null || true)
+  if [[ " ${csv_names} " != *" ${EXPECTED_CSV} "* ]]; then
+    echo "Refusing InstallPlan approval: ${install_plan} does not contain ${EXPECTED_CSV}." >&2
+    echo "Planned CSVs: ${csv_names:-none}" >&2
+    exit 1
+  fi
+  verify_install_plan_review "${install_plan}"
+  approved=$(oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.spec.approved}' 2>/dev/null || true)
+  phase=$(oc get installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+  if [[ "${approved}" != "true" && "${phase}" != "RequiresApproval" ]]; then
+    echo "Refusing InstallPlan approval: phase is ${phase:-unknown}, expected RequiresApproval." >&2
+    exit 1
+  fi
+  if [[ "${approved}" != "true" ]]; then
+    echo "Approving reviewed InstallPlan ${OPERATOR_NAMESPACE}/${install_plan} for ${EXPECTED_CSV}."
+    oc patch installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" \
+      --type merge -p '{"spec":{"approved":true}}'
+  else
+    echo "InstallPlan ${OPERATOR_NAMESPACE}/${install_plan} is already approved; resuming rollout verification."
+  fi
   wait_subscription_csv
   oc apply -f "${INSTALL_DIR}/03-aiopsinstallation.yaml"
   wait_operands
@@ -244,7 +396,36 @@ wait_operands() {
   else
     echo "Skipping host diagnostics rollout wait because KOMSCO_AIOPS_ENABLE_DIAGNOSTICS=${ENABLE_DIAGNOSTICS}."
   fi
+  wait_deployment_rollout "${TARGET_NAMESPACE}" komsco-ai-core-standalone 300s
+  wait_installation_condition StandalonePortalReady 300
+  wait_installation_condition StandaloneRouteReady 300
+  wait_installation_condition StandaloneOAuthReady 300
+  wait_installation_condition ApplicationLauncherReady 300
   oc get consoleplugin "${CONSOLE_PLUGIN_NAME}" >/dev/null
+  oc get route cywell-aiops-standalone -n "${TARGET_NAMESPACE}" >/dev/null
+  oc get oauthclient cywell-aiops-standalone >/dev/null
+  oc get consolelink komsco-aiops-application-menu >/dev/null
+}
+
+wait_installation_condition() {
+  local condition_type=$1
+  local timeout_seconds=$2
+  local attempts=$((timeout_seconds / 5))
+  local status reason
+  echo "Waiting for AIOpsInstallation condition ${condition_type}=True..."
+  for _ in $(seq 1 "${attempts}"); do
+    status=$(oc get aiopsinstallation "${INSTALLATION_NAME}" -n "${OPERATOR_NAMESPACE}" \
+      -o "jsonpath={.status.conditions[?(@.type==\"${condition_type}\")].status}" 2>/dev/null || true)
+    if [[ "${status}" == "True" ]]; then
+      return
+    fi
+    sleep 5
+  done
+  reason=$(oc get aiopsinstallation "${INSTALLATION_NAME}" -n "${OPERATOR_NAMESPACE}" \
+    -o "jsonpath={.status.conditions[?(@.type==\"${condition_type}\")].reason}" 2>/dev/null || true)
+  echo "AIOpsInstallation condition ${condition_type} did not become True: ${reason:-unknown}." >&2
+  oc get aiopsinstallation "${INSTALLATION_NAME}" -n "${OPERATOR_NAMESPACE}" -o yaml 2>/dev/null || true
+  exit 1
 }
 
 wait_deployment_rollout() {
@@ -398,6 +579,18 @@ remove_aiops_runtime() {
     oc delete deploy,svc,sa,cm,role,rolebinding,networkpolicy -n "${namespace}" \
       -l 'app.kubernetes.io/part-of=komsco-aiops' --ignore-not-found
   done
+  oc delete deployment,service,serviceaccount,configmap \
+    komsco-ai-core-standalone -n "${TARGET_NAMESPACE}" --ignore-not-found
+  oc delete route cywell-aiops-standalone -n "${TARGET_NAMESPACE}" --ignore-not-found
+  oc delete oauthclient cywell-aiops-standalone --ignore-not-found
+  oc delete consolelink komsco-aiops-application-menu --ignore-not-found
+  oc delete secret -n "${TARGET_NAMESPACE}" \
+    komsco-ai-core-standalone-oauth \
+    komsco-ai-core-standalone-cert \
+    komsco-ai-core-standalone-oauth-cookie \
+    komsco-ai-standalone-cert \
+    komsco-ai-standalone-oauth-cookie \
+    --ignore-not-found
   oc delete clusterrole "${ACTION_EXECUTOR_CLUSTER_ROLE}" --ignore-not-found
   oc delete clusterrolebinding \
     "${ACTION_EXECUTOR_CLUSTER_ROLE_BINDING}" \
@@ -460,6 +653,10 @@ case "${command}" in
     require_cluster_write_approval
     package_olm
     apply_install
+    ;;
+  approve-install)
+    package_olm
+    approve_install_plan
     ;;
   deploy)
     require_cluster_write_approval

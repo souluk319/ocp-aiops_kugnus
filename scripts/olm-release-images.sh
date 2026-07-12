@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.10}
+VERSION=${KOMSCO_AIOPS_OPERATOR_VERSION:-0.1.17}
 NAMESPACE=${KOMSCO_AIOPS_NAMESPACE:-${KOMSCO_AIOPS_OPERATOR_NAMESPACE:-cywell-aiops}}
 PUSH_REGISTRY=${KOMSCO_AIOPS_PUSH_REGISTRY:-}
 PULL_REGISTRY=${KOMSCO_AIOPS_PULL_REGISTRY:-}
@@ -18,12 +18,12 @@ usage() {
 Usage: $0 <command>
 
 Commands:
-  build-push  Build and push gateway/operator and console-plugin images.
+  build-push  Build and push gateway/operator, console-plugin, and standalone images.
   deploy      Build/push images, then run the OLM one-shot deployment.
   env         Print the image references that would be used.
 
 Key environment variables:
-  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.10
+  KOMSCO_AIOPS_OPERATOR_VERSION      Image/CSV version. Default: 0.1.17
   KOMSCO_AIOPS_NAMESPACE             Image namespace and operand namespace. Default: cywell-aiops
   KOMSCO_AIOPS_PUSH_REGISTRY         Registry used by the local machine for push.
   KOMSCO_AIOPS_PULL_REGISTRY         Registry used by cluster workloads for pull.
@@ -33,7 +33,7 @@ Key environment variables:
   KOMSCO_AIOPS_APPROVE_CLUSTER_WRITE Must equal cywell-aiops before image namespace/OLM writes.
 
 Example:
-  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.10 \\
+  KOMSCO_AIOPS_OPERATOR_VERSION=0.1.17 \\
   KOMSCO_AIOPS_NAMESPACE=cywell-aiops \\
   task olm:release
 EOF
@@ -128,6 +128,14 @@ plugin_pull_image() {
   echo "$(pull_registry)/${NAMESPACE}/komsco-ai-console-plugin:${VERSION}"
 }
 
+standalone_push_image() {
+  echo "$(push_registry)/${NAMESPACE}/komsco-ai-standalone:${VERSION}"
+}
+
+standalone_pull_image() {
+  echo "$(pull_registry)/${NAMESPACE}/komsco-ai-standalone:${VERSION}"
+}
+
 login_registry() {
   local engine=$1
   local registry=$2
@@ -189,7 +197,7 @@ grant_image_pull_access() {
   if [[ "${GRANT_IMAGE_PULL}" != "true" ]]; then
     return
   fi
-  oc policy add-role-to-group system:image-puller system:serviceaccounts -n "${NAMESPACE}"
+  oc policy add-role-to-group system:image-puller "system:serviceaccounts:${NAMESPACE}" -n "${NAMESPACE}"
 }
 
 build_push() {
@@ -199,6 +207,8 @@ build_push() {
   local gateway_pull
   local plugin_push
   local plugin_pull
+  local standalone_push
+  local standalone_pull
 
   require_cluster_write_approval
 
@@ -208,6 +218,8 @@ build_push() {
   gateway_pull=$(gateway_pull_image)
   plugin_push=$(plugin_push_image)
   plugin_pull=$(plugin_pull_image)
+  standalone_push=$(standalone_push_image)
+  standalone_pull=$(standalone_pull_image)
 
   ensure_namespace
   login_registry "${engine}" "${push_registry_value}"
@@ -219,6 +231,10 @@ build_push() {
   build_image "${engine}" "${plugin_push}" "${ROOT_DIR}/komsco-ai-console-plugin"
   tag_image "${engine}" "${plugin_push}" "${plugin_pull}"
   push_image "${engine}" "${plugin_push}"
+
+  build_image "${engine}" "${standalone_push}" "${ROOT_DIR}/komsco-ai-portal"
+  tag_image "${engine}" "${standalone_push}" "${standalone_pull}"
+  push_image "${engine}" "${standalone_push}"
   grant_image_pull_access
 
   print_env
@@ -229,6 +245,7 @@ print_env() {
 KOMSCO_AIOPS_OPERATOR_IMAGE=$(gateway_pull_image)
 KOMSCO_AIOPS_GATEWAY_IMAGE=$(gateway_pull_image)
 KOMSCO_AIOPS_PLUGIN_IMAGE=$(plugin_pull_image)
+KOMSCO_AIOPS_STANDALONE_IMAGE=$(standalone_pull_image)
 EOF
 }
 
@@ -238,6 +255,7 @@ deploy_release() {
   KOMSCO_AIOPS_OPERATOR_IMAGE="$(gateway_pull_image)" \
   KOMSCO_AIOPS_GATEWAY_IMAGE="$(gateway_pull_image)" \
   KOMSCO_AIOPS_PLUGIN_IMAGE="$(plugin_pull_image)" \
+  KOMSCO_AIOPS_STANDALONE_IMAGE="$(standalone_pull_image)" \
   KOMSCO_AIOPS_NAMESPACE="${NAMESPACE}" \
     "${ROOT_DIR}/scripts/olm-deploy.sh" deploy
 }

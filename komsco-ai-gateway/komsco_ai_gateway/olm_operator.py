@@ -11,6 +11,15 @@ import urllib.request
 from collections.abc import Mapping
 from typing import Any
 
+from .standalone_portal import (
+    PORTAL_NAME,
+    configmap_value as standalone_configmap_value,
+    readiness_conditions as standalone_readiness_conditions,
+    resolved_credentials as resolved_standalone_credentials,
+    resources_for_standalone,
+    secret_values as standalone_secret_values,
+)
+
 
 def first_env_value(*names: str, default: str = "") -> str:
     for name in names:
@@ -44,6 +53,31 @@ DEFAULT_GATEWAY_IMAGE = os.getenv(
     "KOMSCO_AI_DEFAULT_GATEWAY_IMAGE",
     "image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-gateway:0.1.3",
 )
+DEFAULT_STANDALONE_IMAGE = os.getenv(
+    "KOMSCO_AI_DEFAULT_STANDALONE_IMAGE",
+    "image-registry.openshift-image-registry.svc:5000/cywell-aiops/komsco-ai-standalone:0.1.17",
+)
+DEFAULT_OAUTH_PROXY_IMAGE = os.getenv(
+    "KOMSCO_AI_DEFAULT_OAUTH_PROXY_IMAGE",
+    "quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:9ccc7e6cffe20468e6dddf749aac14dc0367ea2b9589227a7d39b4392e0f22de",
+)
+DEFAULT_STANDALONE_ENABLED = (
+    os.getenv("KOMSCO_AI_DEFAULT_STANDALONE_PORTAL_ENABLED", "false").lower() == "true"
+)
+DEFAULT_STANDALONE_HOST = os.getenv(
+    "KOMSCO_AI_DEFAULT_STANDALONE_HOST",
+    "aiops.cywell.co.kr",
+)
+DEFAULT_STANDALONE_TLS_SECRET = os.getenv(
+    "KOMSCO_AI_DEFAULT_STANDALONE_TLS_SECRET",
+    "cywell-aiops-route-tls",
+)
+DEFAULT_STANDALONE_OAUTH_CLIENT = os.getenv(
+    "KOMSCO_AI_DEFAULT_STANDALONE_OAUTH_CLIENT",
+    "cywell-aiops-standalone",
+)
+DEFAULT_STANDALONE_CLIENT_SECRET = secrets.token_urlsafe(32)
+DEFAULT_STANDALONE_COOKIE_SECRET = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
 DEFAULT_CONSOLE_PLUGIN_NAME = os.getenv(
     "KOMSCO_AI_DEFAULT_CONSOLE_PLUGIN_NAME",
     "cywell-aiops-console-plugin",
@@ -120,6 +154,10 @@ DEFAULT_READINESS_CONDITION_TYPES = [
     "ActionExecutorReady",
     "HostDiagnosticsReady",
     "SafetyModeReady",
+    "StandalonePortalReady",
+    "StandaloneRouteReady",
+    "StandaloneOAuthReady",
+    "ApplicationLauncherReady",
 ]
 READINESS_CONDITION_TYPES = [
     item.strip()
@@ -242,6 +280,20 @@ def apply_resource(resource: Mapping[str, Any]) -> None:
     )
 
 
+def delete_resource(
+    api_version: str,
+    kind: str,
+    name: str,
+    resource_namespace: str | None,
+) -> None:
+    path = resource_path(api_version, kind, name, resource_namespace)
+    try:
+        request("DELETE", path)
+    except RuntimeError as exc:
+        if " failed: 404 " not in str(exc):
+            raise
+
+
 def resource_path(api_version: str, kind: str, name: str, resource_namespace: str | None) -> str:
     core_plural = {
         "ConfigMap": "configmaps",
@@ -253,6 +305,7 @@ def resource_path(api_version: str, kind: str, name: str, resource_namespace: st
     namespaced_api_plural = {
         ("apps/v1", "Deployment"): "deployments",
         ("networking.k8s.io/v1", "NetworkPolicy"): "networkpolicies",
+        ("route.openshift.io/v1", "Route"): "routes",
         ("rbac.authorization.k8s.io/v1", "Role"): "roles",
         ("rbac.authorization.k8s.io/v1", "RoleBinding"): "rolebindings",
     }
@@ -261,6 +314,7 @@ def resource_path(api_version: str, kind: str, name: str, resource_namespace: st
         ("console.openshift.io/v1", "ConsolePlugin"): "consoleplugins",
         ("rbac.authorization.k8s.io/v1", "ClusterRole"): "clusterroles",
         ("rbac.authorization.k8s.io/v1", "ClusterRoleBinding"): "clusterrolebindings",
+        ("oauth.openshift.io/v1", "OAuthClient"): "oauthclients",
     }
 
     if api_version == "v1":
@@ -323,7 +377,7 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
         "spec": {
             "targetNamespace": DEFAULT_TARGET_NAMESPACE,
             "createNamespace": True,
-            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "execute"),
+            "mode": os.getenv("KOMSCO_AI_DEFAULT_MODE", "evidence-check"),
             "pluginReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_PLUGIN_REPLICAS", "2")),
             "gatewayReplicas": int(os.getenv("KOMSCO_AI_DEFAULT_GATEWAY_REPLICAS", "1")),
             "enableConsolePlugin": True,
@@ -334,11 +388,19 @@ def default_installation(operator_namespace: str) -> dict[str, Any]:
                 "plugin": DEFAULT_PLUGIN_IMAGE,
                 "gateway": DEFAULT_GATEWAY_IMAGE,
                 "hostDiagnosticsRunner": os.getenv("KOMSCO_AI_DEFAULT_HOST_DIAGNOSTICS_RUNNER_IMAGE", DEFAULT_GATEWAY_IMAGE),
+                "standalonePortal": DEFAULT_STANDALONE_IMAGE,
             },
             "capabilities": {
                 "diagnostics": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_DIAGNOSTICS", "true").lower() == "true",
-                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "true").lower() == "true",
-                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "true").lower() == "true",
+                "mutations": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_MUTATIONS", "false").lower() == "true",
+                "unrestrictedCommands": os.getenv("KOMSCO_AI_DEFAULT_ENABLE_UNRESTRICTED_COMMANDS", "false").lower() == "true",
+            },
+            "standalonePortal": {
+                "enabled": DEFAULT_STANDALONE_ENABLED,
+                "host": DEFAULT_STANDALONE_HOST,
+                "replicas": 2,
+                "tlsSecretName": DEFAULT_STANDALONE_TLS_SECRET,
+                "oauthClientName": DEFAULT_STANDALONE_OAUTH_CLIENT,
             },
             "rag": {
                 "backendUrlSecret": os.getenv("KOMSCO_AI_DEFAULT_RAG_BACKEND_URL_SECRET", ""),
@@ -811,6 +873,17 @@ def runtime_conditions(config: Mapping[str, Any], generation: int) -> list[dict[
         "HostDiagnosticsReady": host_diagnostics_condition(config, generation),
         "SafetyModeReady": safety_mode_condition(config, generation),
     }
+    conditions_by_type.update(
+        standalone_readiness_conditions(
+            config,
+            generation,
+            condition=condition,
+            deployment_condition=deployment_condition,
+            service_condition=service_condition,
+            lookup_condition=lookup_condition,
+            resource_reader=get_resource,
+        )
+    )
     return [conditions_by_type[item] for item in READINESS_CONDITION_TYPES if item in conditions_by_type]
 
 
@@ -826,6 +899,10 @@ def components_from_conditions(conditions: list[dict[str, Any]]) -> dict[str, di
         "ActionExecutorReady": "actionExecutor",
         "HostDiagnosticsReady": "hostDiagnostics",
         "SafetyModeReady": "safetyMode",
+        "StandalonePortalReady": "standalonePortal",
+        "StandaloneRouteReady": "standaloneRoute",
+        "StandaloneOAuthReady": "standaloneOAuth",
+        "ApplicationLauncherReady": "applicationLauncher",
     }
     return {
         component_names[item["type"]]: {
@@ -900,7 +977,7 @@ def spec_value(spec: Mapping[str, Any], key: str, default: Any) -> Any:
 def inferred_mode(spec: Mapping[str, Any], capabilities: Mapping[str, Any]) -> str:
     if spec.get("mode") is not None:
         return str(spec["mode"])
-    mutations_enabled = bool(capabilities.get("mutations", True))
+    mutations_enabled = bool(capabilities.get("mutations", False))
     unrestricted_enabled = bool(capabilities.get("unrestrictedCommands", False))
     if unrestricted_enabled:
         return "unrestricted"
@@ -915,6 +992,11 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
     images = spec.get("images") if isinstance(spec.get("images"), Mapping) else {}
     capabilities = spec.get("capabilities") if isinstance(spec.get("capabilities"), Mapping) else {}
     rag = spec.get("rag") if isinstance(spec.get("rag"), Mapping) else {}
+    standalone = (
+        spec.get("standalonePortal")
+        if isinstance(spec.get("standalonePortal"), Mapping)
+        else {}
+    )
     config = {
         "name": str(spec_value(spec, "name", DEFAULT_NAME)),
         "namespace": str(spec_value(spec, "targetNamespace", cr_metadata.get("namespace") or DEFAULT_TARGET_NAMESPACE)),
@@ -922,12 +1004,23 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "pluginImage": str(images.get("plugin") or DEFAULT_PLUGIN_IMAGE),
         "gatewayImage": str(images.get("gateway") or DEFAULT_GATEWAY_IMAGE),
         "runnerImage": str(images.get("hostDiagnosticsRunner") or images.get("gateway") or DEFAULT_GATEWAY_IMAGE),
+        "standaloneImage": str(images.get("standalonePortal") or DEFAULT_STANDALONE_IMAGE),
+        "oauthProxyImage": str(images.get("oauthProxy") or DEFAULT_OAUTH_PROXY_IMAGE),
         "pluginReplicas": int(spec_value(spec, "pluginReplicas", 2)),
         "gatewayReplicas": int(spec_value(spec, "gatewayReplicas", 1)),
         "mode": inferred_mode(spec, capabilities),
         "diagnosticsEnabled": bool(capabilities.get("diagnostics", True)),
-        "mutationsEnabled": bool(capabilities.get("mutations", True)),
+        "mutationsEnabled": bool(capabilities.get("mutations", False)),
         "unrestrictedEnabled": bool(capabilities.get("unrestrictedCommands", False)),
+        "standaloneEnabled": bool(standalone.get("enabled", DEFAULT_STANDALONE_ENABLED)),
+        "standaloneHost": str(standalone.get("host") or DEFAULT_STANDALONE_HOST),
+        "standaloneReplicas": int(standalone.get("replicas") or 2),
+        "standaloneTlsSecretName": str(
+            standalone.get("tlsSecretName") or DEFAULT_STANDALONE_TLS_SECRET
+        ),
+        "standaloneOAuthClientName": str(
+            standalone.get("oauthClientName") or DEFAULT_STANDALONE_OAUTH_CLIENT
+        ),
         "enableConsolePlugin": bool(spec_value(spec, "enableConsolePlugin", True)),
         "consolePluginName": str(spec_value(spec, "consolePluginName", DEFAULT_CONSOLE_PLUGIN_NAME)),
         "consolePluginDisplayName": str(
@@ -964,6 +1057,15 @@ def installation_config(custom_resource: Mapping[str, Any]) -> dict[str, Any]:
         "ragVectorDimensions": int(rag.get("vectorDimensions") or 64),
     }
     validate_console_plugin_name(str(config["consolePluginName"]))
+    if bool(config["standaloneEnabled"]):
+        if str(config["namespace"]) != DEFAULT_TARGET_NAMESPACE:
+            raise ValueError(
+                f"standalone portal target namespace must be {DEFAULT_TARGET_NAMESPACE}"
+            )
+        if str(config["standaloneHost"]) != DEFAULT_STANDALONE_HOST:
+            raise ValueError(
+                f"standalone portal host must be {DEFAULT_STANDALONE_HOST}"
+            )
     return config
 
 
@@ -1013,10 +1115,7 @@ def token_digest(value: str) -> str:
 
 
 def existing_secret_string_value(target_namespace: str, name: str, key: str) -> str:
-    try:
-        existing = get_resource("v1", "Secret", name, target_namespace)
-    except Exception:
-        return ""
+    existing = get_resource("v1", "Secret", name, target_namespace)
     if not isinstance(existing, Mapping):
         return ""
 
@@ -1164,6 +1263,29 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
         if mutations_enabled
         else DEFAULT_ACTION_EXECUTOR_SHARED_TOKEN
     )
+    standalone_client_secret = ""
+    standalone_cookie_secret = ""
+    standalone_route_tls: dict[str, str] = {}
+    standalone_destination_ca = ""
+    if bool(config["standaloneEnabled"]):
+        standalone_client_secret, standalone_cookie_secret = resolved_standalone_credentials(
+            target_namespace,
+            existing_secret_string_value,
+            DEFAULT_STANDALONE_CLIENT_SECRET,
+            DEFAULT_STANDALONE_COOKIE_SECRET,
+        )
+        standalone_route_tls = standalone_secret_values(
+            target_namespace,
+            str(config["standaloneTlsSecretName"]),
+            ["tls.crt", "tls.key", "ca.crt"],
+            existing_secret_string_value,
+        )
+        standalone_destination_ca = standalone_configmap_value(
+            target_namespace,
+            "komsco-ai-service-ca",
+            "service-ca.crt",
+            get_resource,
+        )
     resources: list[dict[str, Any]] = []
 
     if config["createNamespace"]:
@@ -1244,6 +1366,16 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
         )
     )
     resources.extend(workload_resources(config, labels, action_executor_shared_token))
+    resources.extend(
+        resources_for_standalone(
+            config,
+            labels,
+            standalone_client_secret,
+            standalone_cookie_secret,
+            standalone_route_tls,
+            standalone_destination_ca,
+        )
+    )
     resources.append(
         console_plugin_resource(
             target_namespace,
@@ -1253,13 +1385,18 @@ def resources_for(config: Mapping[str, Any]) -> list[dict[str, Any]]:
         )
     )
     if config["consoleApplicationMenuEnabled"]:
+        application_href = (
+            f"https://{config['standaloneHost']}"
+            if bool(config["standaloneEnabled"])
+            else str(config["consoleApplicationMenuHref"])
+        )
         resources.append(
             console_application_menu_link_resource(
                 labels,
                 str(config["consoleApplicationMenuName"]),
                 str(config["consoleApplicationMenuSection"]),
                 str(config["consoleApplicationMenuText"]),
-                str(config["consoleApplicationMenuHref"]),
+                application_href,
                 str(config["consoleApplicationMenuImageURL"]),
             )
         )
@@ -1609,6 +1746,7 @@ def network_policies(
             [
                 {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "openshift-console"}}},
                 {"podSelector": {"matchLabels": {"app": "komsco-ai-standalone"}}},
+                {"podSelector": {"matchLabels": {"app": PORTAL_NAME}}},
             ],
             8443,
         ),
@@ -1668,15 +1806,54 @@ def network_policies(
 
     return resources
 
+
+def cleanup_disabled_mutation_resources(config: Mapping[str, Any]) -> None:
+    if bool(config["mutationsEnabled"]):
+        return
+    target_namespace = str(config["namespace"])
+    cluster_names = cluster_resource_names(str(config["consolePluginName"]))
+    resources = [
+        ("apps/v1", "Deployment", "komsco-ai-action-executor", target_namespace),
+        ("v1", "Service", "komsco-ai-action-executor", target_namespace),
+        ("v1", "ServiceAccount", "komsco-ai-action-executor", target_namespace),
+        ("v1", "Secret", DEFAULT_ACTION_EXECUTOR_AUTH_SECRET, target_namespace),
+        (
+            "networking.k8s.io/v1",
+            "NetworkPolicy",
+            "komsco-ai-action-executor-ingress",
+            target_namespace,
+        ),
+        (
+            "rbac.authorization.k8s.io/v1",
+            "ClusterRoleBinding",
+            cluster_names["actionExecutorClusterRoleBinding"],
+            None,
+        ),
+        (
+            "rbac.authorization.k8s.io/v1",
+            "ClusterRole",
+            cluster_names["actionExecutorClusterRole"],
+            None,
+        ),
+    ]
+    for api_version, kind, name, resource_namespace in resources:
+        delete_resource(api_version, kind, name, resource_namespace)
+
 def reconcile(custom_resource: Mapping[str, Any]) -> None:
     metadata = custom_resource.get("metadata") if isinstance(custom_resource.get("metadata"), Mapping) else {}
     name = str(metadata.get("name") or DEFAULT_NAME)
     config: dict[str, Any] | None = None
     try:
+        cr_namespace = str(metadata.get("namespace") or namespace())
+        if cr_namespace != DEFAULT_TARGET_NAMESPACE:
+            raise ValueError(
+                f"AIOpsInstallation must be created in {DEFAULT_TARGET_NAMESPACE}, got {cr_namespace}"
+            )
         config = installation_config(custom_resource)
         print(f"reconciling {name} into namespace {config['namespace']}", flush=True)
         for resource in resources_for(config):
             apply_resource(resource)
+        cleanup_disabled_mutation_resources(config)
         if config["enableConsolePlugin"]:
             patch_console_plugin_enabled(
                 str(config["consolePluginName"]),
@@ -1689,6 +1866,12 @@ def reconcile(custom_resource: Mapping[str, Any]) -> None:
 
 
 def main() -> None:
+    operator_namespace = namespace()
+    if operator_namespace != DEFAULT_TARGET_NAMESPACE:
+        raise SystemExit(
+            f"refusing to run AIOps operator in {operator_namespace}; "
+            f"required namespace is {DEFAULT_TARGET_NAMESPACE}"
+        )
     print("KOMSCO AIOps operator started", flush=True)
     while True:
         try:

@@ -2,8 +2,12 @@ import type { AiopsEventFeed, AiopsRuntimeStatus, ClusterSummary } from './types
 
 const API_BASE_URL = (import.meta.env.VITE_AIOPS_API_BASE_URL ?? '').replace(/\/$/, '');
 const PORTAL_TOKEN_STORAGE_KEY = 'komsco-ai-portal-token';
+export const usesProxyAuth = (import.meta.env.VITE_AIOPS_AUTH_MODE ?? 'token') === 'proxy';
 
 const readAuthHeader = (): string => {
+  if (usesProxyAuth) {
+    return '';
+  }
   const token = window.localStorage.getItem(PORTAL_TOKEN_STORAGE_KEY);
   return token ? `Bearer ${token}` : '';
 };
@@ -11,6 +15,9 @@ const readAuthHeader = (): string => {
 const normalizeBearerToken = (value: string): string => value.trim().replace(/^Bearer\s+/i, '');
 
 export async function connectOpenShiftToken(value: string): Promise<void> {
+  if (usesProxyAuth) {
+    throw new Error('배포 포털은 OpenShift OAuth 로그인을 사용합니다.');
+  }
   const token = normalizeBearerToken(value);
   if (!token) {
     throw new Error('OpenShift 토큰을 입력하세요.');

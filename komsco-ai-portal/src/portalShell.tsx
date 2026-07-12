@@ -2,6 +2,7 @@ import React from 'react';
 import { Bell, PanelsTopLeft, RefreshCw } from 'lucide-react';
 import aiopsIconUrl from './assets/aiops_icon.svg';
 import { PortalAuthDialog } from './PortalAuthDialog';
+import { usesProxyAuth } from './api';
 import { navGroupLabel, navItems } from './portalNavigation';
 import { compactCount, formatTime, isOpenShiftAuthError, portalConnectionLabel } from './portalModel';
 import type { ClusterSummary, NavView } from './types';
@@ -146,7 +147,9 @@ export const ClusterSignalStrip: React.FC<{
         <strong>{authRequired ? 'OpenShift 인증 필요' : '게이트웨이 신호 확인 필요'}</strong>
         <span>
           {authRequired
-            ? '독립 포털은 OKD 콘솔 토큰을 자동으로 받지 못해 클러스터 조회가 제한됩니다.'
+            ? usesProxyAuth
+              ? 'OpenShift OAuth 세션을 확인하지 못했습니다. 새로고침 후 다시 로그인해 주세요.'
+              : '독립 포털은 OKD 콘솔 토큰을 자동으로 받지 못해 클러스터 조회가 제한됩니다.'
             : '실시간 클러스터 텔레메트리를 사용할 수 없어 마지막 수집 스냅샷을 표시합니다.'}{' '}
           · {lastSnapshot}
         </span>
@@ -155,7 +158,7 @@ export const ClusterSignalStrip: React.FC<{
       <button onClick={() => void onRefresh()} type="button">
         연결 재시도
       </button>
-      {authRequired && <PortalAuthDialog onConnected={onRefresh} />}
+      {authRequired && !usesProxyAuth && <PortalAuthDialog onConnected={onRefresh} />}
       <button onClick={() => onNavigate('alerts')} type="button">
         게이트웨이 이벤트
       </button>

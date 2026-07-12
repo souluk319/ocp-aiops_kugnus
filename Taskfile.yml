@@ -164,6 +164,7 @@ tasks:
         expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
         echo "target=${server}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        ./scripts/kugnus-olm.sh preflight
         ./scripts/kugnus-olm.sh package
 
   aiops:company:publish:
@@ -177,7 +178,7 @@ tasks:
         KOMSCO_AIOPS_IMAGE_BUILD_STRATEGY=openshift KOMSCO_AIOPS_FORCE_IMAGE_BUILD="${KOMSCO_AIOPS_FORCE_IMAGE_BUILD:-true}" KOMSCO_AIOPS_APPROVE_PUBLISH=cywell-aiops ./scripts/kugnus-olm.sh publish
 
   aiops:company:install:
-    desc: Install the AIOps Subscription and AIOpsInstallation on the approved company server
+    desc: Create the Manual AIOps Subscription and stop for InstallPlan review
     cmds:
       - |
         server="$(oc whoami --show-server)"
@@ -185,6 +186,21 @@ tasks:
         echo "target=${server}"
         test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
         KOMSCO_AIOPS_APPROVE_INSTALL=cywell-aiops ./scripts/kugnus-olm.sh install
+
+  aiops:company:approve-install:
+    desc: Approve the reviewed AIOps Manual InstallPlan and complete the company rollout
+    cmds:
+      - |
+        server="$(oc whoami --show-server)"
+        expected="${KOMSCO_AIOPS_COMPANY_SERVER:-https://api.ocp.cywell.server:6443}"
+        echo "target=${server}"
+        test "$server" = "$expected" || { echo "Refusing: expected ${expected}" >&2; exit 1; }
+        KOMSCO_AIOPS_APPROVE_INSTALL_PLAN=cywell-aiops ./scripts/kugnus-olm.sh approve-install
+
+  aiops:company:rollback:
+    desc: Restore the verified pre-0.1.17 company backup after an explicitly declared rollout failure
+    cmds:
+      - ./scripts/kugnus-company-rollback.sh
 
   aiops:company:status:
     desc: Show AIOps catalog, install, and ConsolePlugin status on the approved company server
@@ -261,6 +277,16 @@ tasks:
     desc: Compatibility alias for aiops:company:install
     cmds:
       - task: aiops:company:install
+
+  kugnus:company:approve-install:
+    desc: Compatibility alias for aiops:company:approve-install
+    cmds:
+      - task: aiops:company:approve-install
+
+  kugnus:company:rollback:
+    desc: Compatibility alias for aiops:company:rollback
+    cmds:
+      - task: aiops:company:rollback
 
   kugnus:company:status:
     desc: Compatibility alias for aiops:company:status

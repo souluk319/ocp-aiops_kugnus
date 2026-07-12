@@ -230,12 +230,18 @@ from .text_reference_filter import (
 PUBLIC_MAIN_REEXPORTS = (ActionCandidateTargetCreate, BreakGlassTargetNode, DiagnosticEvidencePolicy, DiagnosticLimits, DiagnosticTargetNode, DiagnosticTimeRange, get_action_registry_entry, sealed_action_plan_digest, validate_action_target)
 
 RAG_BACKEND_URL, RAG_EMBEDDING_SERVICE_URL, RAG_EMBEDDING_MODEL, RAG_EMBEDDING_API_STYLE, RAG_EMBEDDING_TIMEOUT_SECONDS, PdfReader = (rag_pgvector.RAG_BACKEND_URL, rag_pgvector.RAG_EMBEDDING_SERVICE_URL, rag_pgvector.RAG_EMBEDDING_MODEL, rag_pgvector.RAG_EMBEDDING_API_STYLE, rag_pgvector.RAG_EMBEDDING_TIMEOUT_SECONDS, rag_pgvector.PdfReader)
+RAG_EFFECTIVE_VECTOR_DIMENSIONS = rag_pgvector.RAG_EFFECTIVE_VECTOR_DIMENSIONS
+RAG_MIGRATIONS = rag_pgvector.RAG_MIGRATIONS
 def sync_rag_pgvector_config() -> None:
     rag_pgvector.RAG_BACKEND_URL, rag_pgvector.RAG_EMBEDDING_SERVICE_URL, rag_pgvector.RAG_EMBEDDING_MODEL, rag_pgvector.RAG_EMBEDDING_API_STYLE, rag_pgvector.RAG_EMBEDDING_TIMEOUT_SECONDS, rag_pgvector.PdfReader = RAG_BACKEND_URL, RAG_EMBEDDING_SERVICE_URL, RAG_EMBEDDING_MODEL, RAG_EMBEDDING_API_STYLE, RAG_EMBEDDING_TIMEOUT_SECONDS, PdfReader
 def build_rag_backend_status() -> dict[str, Any]:
     sync_rag_pgvector_config(); return rag_pgvector.build_rag_backend_status()
 async def call_embedding_service_async(value: str) -> list[float] | None:
     sync_rag_pgvector_config(); return await rag_pgvector.call_embedding_service_async(value)
+def build_rag_embedding(value: str, dimensions: int | None = None) -> list[float]:
+    sync_rag_pgvector_config(); return rag_pgvector.build_rag_embedding(value, dimensions)
+def apply_rag_migrations(conn: Any) -> None:
+    rag_pgvector.apply_rag_migrations(conn)
 def extract_rag_upload_file_content(name: str, mime_type: str, raw: bytes) -> tuple[str, dict[str, Any]]:
     sync_rag_pgvector_config(); return rag_pgvector.extract_rag_upload_file_content(name, mime_type, raw)
 def list_pgvector_upload_documents(subject: Mapping[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
